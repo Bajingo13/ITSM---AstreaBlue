@@ -1,0 +1,680 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Plus,
+  Search,
+  X,
+  Ticket,
+  AlertCircle,
+  CheckCircle,
+  User,
+  Tag,
+  MessageSquare,
+  History,
+  Send,
+} from "lucide-react";
+
+const API_BASE = "http://localhost:5000/api/v1";
+
+const columns = [
+  { id: "Open Queue", label: "Open Queue", color: "bg-sky-500" },
+  { id: "In Progress", label: "In Progress", color: "bg-amber-500" },
+  { id: "Resolved", label: "Resolved", color: "bg-emerald-500" },
+  { id: "Closed", label: "Closed", color: "bg-slate-500" },
+];
+
+const priorityStyle = {
+  "P1-Critical": "bg-red-50 text-red-700 border-red-200",
+  "P2-High": "bg-orange-50 text-orange-700 border-orange-200",
+  "P3-Medium": "bg-amber-50 text-amber-700 border-amber-200",
+  "P4-Low": "bg-blue-50 text-blue-700 border-blue-200",
+};
+
+function NewTicketModal({ categories, onClose, onCreated }) {
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    priority: "P3-Medium",
+    status: "Open Queue",
+    category_id: "",
+    source: "portal",
+    impact: "Medium",
+    urgency: "Medium",
+  });
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const updateForm = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (!form.title.trim() || !form.description.trim()) {
+      setError("Title and description are required.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        ...form,
+        category_id: form.category_id || null,
+      };
+
+      const res = await fetch(`${API_BASE}/tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || "Failed to create ticket.");
+
+      onCreated();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-7 py-5">
+          <div>
+            <h2 className="text-xl font-black text-slate-900">
+              Create New Ticket
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Submit an incident or service request to the IT service desk.
+            </p>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-5 px-7 py-6">
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <label className="mb-2 block text-sm font-bold text-slate-700">
+              Title *
+            </label>
+            <input
+              value={form.title}
+              onChange={(e) => updateForm("title", e.target.value)}
+              placeholder="Brief description of the issue..."
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-bold text-slate-700">
+              Description *
+            </label>
+            <textarea
+              value={form.description}
+              onChange={(e) => updateForm("description", e.target.value)}
+              placeholder="Detailed description, affected user/device, steps to reproduce..."
+              rows={5}
+              className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <select
+              value={form.category_id}
+              onChange={(e) => updateForm("category_id", e.target.value)}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
+            >
+              <option value="">Select category</option>
+              {categories.map((cat) => (
+                <option key={cat.category_id} value={cat.category_id}>
+                  {cat.category_name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={form.priority}
+              onChange={(e) => updateForm("priority", e.target.value)}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
+            >
+              <option value="P1-Critical">P1 - Critical</option>
+              <option value="P2-High">P2 - High</option>
+              <option value="P3-Medium">P3 - Medium</option>
+              <option value="P4-Low">P4 - Low</option>
+            </select>
+
+            <select
+              value={form.impact}
+              onChange={(e) => updateForm("impact", e.target.value)}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
+            >
+              <option value="High">High Impact</option>
+              <option value="Medium">Medium Impact</option>
+              <option value="Low">Low Impact</option>
+            </select>
+
+            <select
+              value={form.urgency}
+              onChange={(e) => updateForm("urgency", e.target.value)}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
+            >
+              <option value="High">High Urgency</option>
+              <option value="Medium">Medium Urgency</option>
+              <option value="Low">Low Urgency</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/25 hover:bg-blue-800 disabled:opacity-60"
+            >
+              {saving ? "Creating..." : "Create Ticket"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function TicketDetailsDrawer({
+  ticket,
+  onClose,
+  onRefresh,
+}) {
+  const [details, setDetails] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [comment, setComment] = useState("");
+  const [savingComment, setSavingComment] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  const fetchDetails = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_BASE}/tickets/${ticket.id}`);
+      const data = await res.json();
+      setDetails(data);
+    } catch (err) {
+      console.error("Fetch ticket details failed:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [ticket.id]);
+
+  useEffect(() => {
+    fetchDetails();
+  }, [fetchDetails]);
+
+  const updateStatus = async (status) => {
+    try {
+      setUpdatingStatus(true);
+
+      const res = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!res.ok) throw new Error("Failed to update status");
+
+      await fetchDetails();
+      onRefresh();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  const addComment = async () => {
+    if (!comment.trim()) return;
+
+    try {
+      setSavingComment(true);
+
+      const res = await fetch(`${API_BASE}/tickets/${ticket.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comment_text: comment }),
+      });
+
+      if (!res.ok) throw new Error("Failed to add comment");
+
+      setComment("");
+      await fetchDetails();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingComment(false);
+    }
+  };
+
+  const item = details || ticket;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 backdrop-blur-sm">
+      <div className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl">
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-7 py-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-blue-600">
+                {item.ticket_number || `TKT-${item.id}`}
+              </p>
+              <h2 className="mt-1 text-2xl font-black text-slate-900">
+                {item.title}
+              </h2>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X size={22} />
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="p-8 font-bold text-slate-500">Loading details...</div>
+        ) : (
+          <div className="space-y-6 p-7">
+            <section className="grid grid-cols-2 gap-4">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-bold text-slate-400">Status</p>
+                <p className="mt-1 font-black text-slate-900">{item.status}</p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-bold text-slate-400">Priority</p>
+                <p className="mt-1 font-black text-slate-900">{item.priority}</p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-bold text-slate-400">Category</p>
+                <p className="mt-1 font-black text-slate-900">
+                  {item.category || "Uncategorized"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-bold text-slate-400">Assigned To</p>
+                <p className="mt-1 font-black text-slate-900">
+                  {item.assigned_name || "Unassigned"}
+                </p>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+              <h3 className="mb-3 font-black text-slate-900">Description</h3>
+              <p className="whitespace-pre-line text-sm leading-7 text-slate-600">
+                {item.desc || item.description}
+              </p>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+              <h3 className="mb-4 font-black text-slate-900">Update Status</h3>
+              <div className="flex flex-wrap gap-2">
+                {columns.map((col) => (
+                  <button
+                    key={col.id}
+                    onClick={() => updateStatus(col.id)}
+                    disabled={updatingStatus || item.status === col.id}
+                    className={`rounded-xl px-4 py-2 text-sm font-black ${
+                      item.status === col.id
+                        ? "bg-blue-700 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                    } disabled:opacity-60`}
+                  >
+                    {col.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="mb-4 flex items-center gap-2">
+                <MessageSquare size={18} className="text-blue-600" />
+                <h3 className="font-black text-slate-900">Comments</h3>
+              </div>
+
+              <div className="space-y-3">
+                {item.comments?.length ? (
+                  item.comments.map((c) => (
+                    <div key={c.comment_id} className="rounded-xl bg-slate-50 p-4">
+                      <p className="text-sm text-slate-700">{c.comment_text}</p>
+                      <p className="mt-2 text-xs text-slate-400">
+                        {c.full_name || "User"} ·{" "}
+                        {new Date(c.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm font-semibold text-slate-400">
+                    No comments yet.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 flex gap-2">
+                <input
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Write a comment..."
+                  className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-600"
+                />
+                <button
+                  onClick={addComment}
+                  disabled={savingComment}
+                  className="rounded-xl bg-blue-700 px-4 text-white hover:bg-blue-800 disabled:opacity-60"
+                >
+                  <Send size={18} />
+                </button>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="mb-4 flex items-center gap-2">
+                <History size={18} className="text-blue-600" />
+                <h3 className="font-black text-slate-900">Activity Timeline</h3>
+              </div>
+
+              <div className="space-y-3">
+                {item.history?.length ? (
+                  item.history.map((h) => (
+                    <div key={h.history_id} className="border-l-2 border-blue-200 pl-4">
+                      <p className="text-sm font-black text-slate-800">
+                        {h.action}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {h.old_value || "—"} → {h.new_value || "—"}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {new Date(h.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm font-semibold text-slate-400">
+                    No activity yet.
+                  </p>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TicketCard({ ticket, onClick }) {
+  return (
+    <div
+      onClick={() => onClick(ticket)}
+      className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md"
+    >
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-wider text-blue-600">
+            {ticket.ticket_number || `TKT-${ticket.id}`}
+          </p>
+          <h3 className="mt-1 line-clamp-2 font-black text-slate-900">
+            {ticket.title}
+          </h3>
+        </div>
+
+        <span
+          className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-black ${
+            priorityStyle[ticket.priority] ||
+            "border-slate-200 bg-slate-50 text-slate-600"
+          }`}
+        >
+          {ticket.priority || "P3-Medium"}
+        </span>
+      </div>
+
+      <p className="line-clamp-2 text-sm text-slate-500">
+        {ticket.desc || ticket.description}
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+          <Tag size={12} />
+          {ticket.category || "Uncategorized"}
+        </span>
+
+        <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+          <User size={12} />
+          {ticket.assigned_name || "Unassigned"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function Column({ column, tickets, onTicketClick }) {
+  return (
+    <div className="flex min-h-[620px] flex-col rounded-3xl border border-slate-200 bg-slate-50 p-4">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className={`h-3 w-3 rounded-full ${column.color}`} />
+          <h2 className="font-black text-slate-800">{column.label}</h2>
+        </div>
+
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-500 shadow-sm">
+          {tickets.length}
+        </span>
+      </div>
+
+      <div className="flex flex-1 flex-col gap-3">
+        {tickets.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/60 text-sm font-semibold text-slate-400">
+            No tickets
+          </div>
+        ) : (
+          tickets.map((ticket) => (
+            <TicketCard
+              key={ticket.id}
+              ticket={ticket}
+              onClick={onTicketClick}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function Tickets() {
+  const [tickets, setTickets] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const fetchTickets = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_BASE}/tickets`);
+      const data = await res.json();
+      setTickets(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Fetch tickets failed:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/ticket-categories`);
+      const data = await res.json();
+      setCategories(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Fetch categories failed:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTickets();
+    fetchCategories();
+  }, [fetchTickets, fetchCategories]);
+
+  const filteredTickets = useMemo(() => {
+    const text = query.toLowerCase();
+
+    return tickets.filter((ticket) => {
+      return (
+        ticket.title?.toLowerCase().includes(text) ||
+        ticket.ticket_number?.toLowerCase().includes(text) ||
+        ticket.priority?.toLowerCase().includes(text) ||
+        ticket.status?.toLowerCase().includes(text) ||
+        ticket.category?.toLowerCase().includes(text)
+      );
+    });
+  }, [tickets, query]);
+
+  const totalOpen = tickets.filter((t) => t.status !== "Closed").length;
+  const critical = tickets.filter((t) => t.priority === "P1-Critical").length;
+  const resolved = tickets.filter((t) => t.status === "Resolved").length;
+
+  return (
+    <div className="space-y-6">
+      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center">
+        <div>
+          <h1 className="text-3xl font-black">Ticket Management</h1>
+          <p className="mt-2 text-blue-100">
+            Track, prioritize, and resolve IT incidents and service requests.
+          </p>
+        </div>
+
+        <button
+          onClick={() => setModalOpen(true)}
+          className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
+        >
+          <Plus size={18} />
+          New Ticket
+        </button>
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-blue-50 p-3 text-blue-700">
+              <Ticket size={22} />
+            </div>
+            <div>
+              <p className="text-2xl font-black text-slate-900">{totalOpen}</p>
+              <p className="text-sm font-semibold text-slate-500">
+                Active Tickets
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-red-50 p-3 text-red-600">
+              <AlertCircle size={22} />
+            </div>
+            <div>
+              <p className="text-2xl font-black text-slate-900">{critical}</p>
+              <p className="text-sm font-semibold text-slate-500">Critical</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
+              <CheckCircle size={22} />
+            </div>
+            <div>
+              <p className="text-2xl font-black text-slate-900">{resolved}</p>
+              <p className="text-sm font-semibold text-slate-500">Resolved</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <Search size={18} className="text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by ticket number, title, status, priority, or category..."
+            className="w-full bg-transparent py-2 text-slate-700 outline-none placeholder:text-slate-400"
+          />
+        </div>
+      </section>
+
+      {loading ? (
+        <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center font-bold text-slate-500">
+          Loading tickets...
+        </div>
+      ) : (
+        <section className="grid grid-cols-1 gap-5 xl:grid-cols-4">
+          {columns.map((column) => (
+            <Column
+              key={column.id}
+              column={column}
+              tickets={filteredTickets.filter(
+                (ticket) => ticket.status === column.id
+              )}
+              onTicketClick={setSelectedTicket}
+            />
+          ))}
+        </section>
+      )}
+
+      {modalOpen && (
+        <NewTicketModal
+          categories={categories}
+          onClose={() => setModalOpen(false)}
+          onCreated={() => {
+            setModalOpen(false);
+            fetchTickets();
+          }}
+        />
+      )}
+
+      {selectedTicket && (
+        <TicketDetailsDrawer
+          ticket={selectedTicket}
+          onClose={() => setSelectedTicket(null)}
+          onRefresh={fetchTickets}
+        />
+      )}
+    </div>
+  );
+}

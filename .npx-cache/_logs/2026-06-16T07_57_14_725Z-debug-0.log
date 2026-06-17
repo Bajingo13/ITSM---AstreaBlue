@@ -1,0 +1,24 @@
+0 verbose cli D:\node.exe D:\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.6.1
+2 info using node@v24.11.0
+3 silly config load:file:D:\node_modules\npm\npmrc
+4 silly config load:file:C:\Users\janis\asset-monitoring-backend\.npmrc
+5 silly config load:file:C:\Users\janis\.npmrc
+6 silly config load:file:D:\npm-global\etc\npmrc
+7 verbose title npm exec create-vite frontend --template react
+8 verbose argv "exec" "--cache" "./.npx-cache" "--" "create-vite" "frontend" "--template" "react"
+9 verbose logfile logs-max:10 dir:C:\Users\janis\asset-monitoring-backend\.npx-cache\_logs\2026-06-16T07_57_14_725Z-
+10 verbose logfile C:\Users\janis\asset-monitoring-backend\.npx-cache\_logs\2026-06-16T07_57_14_725Z-debug-0.log
+11 silly logfile done cleaning log files
+12 http fetch GET 200 https://registry.npmjs.org/npm 392ms
+13 verbose cwd C:\Users\janis\asset-monitoring-backend
+14 verbose os Windows_NT 10.0.22631
+15 verbose node v24.11.0
+16 verbose npm  v11.6.1
+17 notice
+17 notice New [33mminor[39m version of npm available! [33m11.6.1[39m -> [34m11.17.0[39m
+17 notice Changelog: [34mhttps://github.com/npm/cli/releases/tag/v11.17.0[39m
+17 notice To update run: [4mnpm install -g npm@11.17.0[24m
+17 notice  { force: true, Symbol(proc-log.meta): true }
+18 verbose exit 0
+19 info ok
