@@ -21,14 +21,16 @@ export default function Login() {
     try {
       const user = await login(email, password, rememberMe);
 
-      const role = user.role_name || user.role;
+      const role = String(user.role_name || user.role || "").toLowerCase();
 
-      if (role === "Admin") {
+      if (role === "admin") {
         navigate("/admin/dashboard");
-      } else if (role === "Technician") {
+      } else if (role === "technician") {
         navigate("/technician/dashboard");
-      } else {
+      } else if (role === "employee") {
         navigate("/employee/dashboard");
+      } else {
+        navigate("/dashboard");
       }
     } catch (err) {
       setError(err.message || "Login failed. Please check your credentials.");

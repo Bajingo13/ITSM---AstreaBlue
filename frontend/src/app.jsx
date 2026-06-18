@@ -71,24 +71,271 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
 
-        <Route path="/admin/dashboard" element={<AdminDashboard />} />
-        <Route path="/technician/dashboard" element={<TechnicianDashboard />} />
-        <Route path="/employee/dashboard" element={<EmployeeDashboard />} />
+        <Route
+          path="/admin/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/technician/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["Technician"]}>
+              <TechnicianDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/employee/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["Employee"]}>
+              <EmployeeDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/create-ticket"
+          element={
+            <ProtectedRoute allowedRoles={["Employee"]}>
+              <EmployeeDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/my-tickets"
+          element={
+            <ProtectedRoute allowedRoles={["Employee"]}>
+              <EmployeeDashboard />
+            </ProtectedRoute>
+          }
+        />
 
-        <Route path="/tickets" element={<Tickets />} />
-        <Route path="/service-catalog" element={<ServiceCatalog />} />
-        <Route path="/knowledge-base" element={<KnowledgeBase />} />
-        <Route path="/sla-monitor" element={<SLAMonitor />} />
+        <Route
+          path="/tickets"
+          element={
+            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+              <Tickets />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/service-catalog"
+          element={
+            <ProtectedRoute allowedRoles={["Admin", "Employee"]}>
+              <ServiceCatalog />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/knowledge-base"
+          element={
+            <ProtectedRoute allowedRoles={["Admin", "Technician", "Employee"]}>
+              <KnowledgeBase />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/sla-monitor"
+          element={
+            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+              <SLAMonitor />
+            </ProtectedRoute>
+          }
+        />
 
-        <Route path="/assets" element={<Assets />} />
-        <Route path="/cmdb" element={<CMDB />} />
-        <Route path="/change-management" element={<ChangeManagement />} />
-        <Route path="/problem-management" element={<ProblemManagement />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/endpoint-monitoring" element={<EndpointMonitoring />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route
+          path="/assets"
+          element={
+            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+              <Assets />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/software-licenses"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <Assets />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/asset-discovery"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <Assets />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/financial-tracking"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <Assets />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/cmdb"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <CMDB />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dependency-map"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <CMDB />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/change-impact"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <CMDB />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/change-management"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <ChangeManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/release-planning"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <ChangeManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/change-calendar"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <ChangeManagement />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/problem-management"
+          element={
+            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+              <ProblemManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/root-cause-analysis"
+          element={
+            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+              <ProblemManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/known-errors"
+          element={
+            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+              <ProblemManagement />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/analytics"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <Analytics />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/report-builder"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <Analytics />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ai-insights"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <Analytics />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/endpoint-monitoring"
+          element={
+            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+              <EndpointMonitoring />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/device-status"
+          element={
+            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+              <EndpointMonitoring />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/network-traffic"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <EndpointMonitoring />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dlp-security"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <EndpointMonitoring />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ra-10173-compliance"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <EndpointMonitoring />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <Settings />
+            </ProtectedRoute>
+          }
+        />
       </Route>
 
       <Route path="/unauthorized" element={<Unauthorized />} />

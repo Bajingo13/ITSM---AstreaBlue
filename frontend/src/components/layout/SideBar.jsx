@@ -26,27 +26,28 @@ import {
   Lock,
 } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "../../context/AuthContext";
 
-const navItems = [
+const adminNavItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
   {
     label: "Service Desk",
-  icon: Ticket,
-  children: [
-    { label: "All Tickets", icon: FileText, path: "/tickets" },
-    { label: "Service Catalog", icon: Layers, path: "/service-catalog" },
-    { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
-    { label: "SLA Monitor", icon: Activity, path: "/sla-monitor" },
-  ],
-},
+    icon: Ticket,
+    children: [
+      { label: "All Tickets", icon: FileText, path: "/tickets" },
+      { label: "Service Catalog", icon: Layers, path: "/service-catalog" },
+      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
+      { label: "SLA Monitor", icon: Activity, path: "/sla-monitor" },
+    ],
+  },
   {
     label: "Asset Management",
     icon: Package,
     children: [
       { label: "Hardware Assets", icon: HardDrive, path: "/assets" },
-      { label: "Software Licenses", icon: FileText, path: "/assets" },
-      { label: "Asset Discovery", icon: Globe, path: "/assets" },
-      { label: "Financial Tracking", icon: BarChart3, path: "/assets" },
+      { label: "Software Licenses", icon: FileText, path: "/software-licenses" },
+      { label: "Asset Discovery", icon: Globe, path: "/asset-discovery" },
+      { label: "Financial Tracking", icon: BarChart3, path: "/financial-tracking" },
     ],
   },
   {
@@ -54,8 +55,8 @@ const navItems = [
     icon: Database,
     children: [
       { label: "Config Items", icon: Cpu, path: "/cmdb" },
-      { label: "Dependency Map", icon: Network, path: "/cmdb" },
-      { label: "Change Impact", icon: AlertTriangle, path: "/cmdb" },
+      { label: "Dependency Map", icon: Network, path: "/dependency-map" },
+      { label: "Change Impact", icon: AlertTriangle, path: "/change-impact" },
     ],
   },
   {
@@ -63,8 +64,8 @@ const navItems = [
     icon: GitBranch,
     children: [
       { label: "Change Requests", icon: Wrench, path: "/change-management" },
-      { label: "Release Planning", icon: Layers, path: "/change-management" },
-      { label: "Change Calendar", icon: LayoutDashboard, path: "/change-management" },
+      { label: "Release Planning", icon: Layers, path: "/release-planning" },
+      { label: "Change Calendar", icon: LayoutDashboard, path: "/change-calendar" },
     ],
   },
   {
@@ -72,8 +73,8 @@ const navItems = [
     icon: Bug,
     children: [
       { label: "Problems", icon: AlertTriangle, path: "/problem-management" },
-      { label: "Root Cause Analysis", icon: Network, path: "/problem-management" },
-      { label: "Known Errors", icon: Database, path: "/problem-management" },
+      { label: "Root Cause Analysis", icon: Network, path: "/root-cause-analysis" },
+      { label: "Known Errors", icon: Database, path: "/known-errors" },
     ],
   },
   {
@@ -81,8 +82,8 @@ const navItems = [
     icon: BarChart3,
     children: [
       { label: "Executive Dashboard", icon: LayoutDashboard, path: "/analytics" },
-      { label: "Report Builder", icon: FileText, path: "/analytics" },
-      { label: "AI Insights", icon: Activity, path: "/analytics" },
+      { label: "Report Builder", icon: FileText, path: "/report-builder" },
+      { label: "AI Insights", icon: Activity, path: "/ai-insights" },
     ],
   },
   {
@@ -90,32 +91,98 @@ const navItems = [
     icon: Monitor,
     children: [
       { label: "User Activity", icon: Activity, path: "/endpoint-monitoring" },
-      { label: "Device Status", icon: HardDrive, path: "/endpoint-monitoring" },
-      { label: "Network Traffic", icon: Network, path: "/endpoint-monitoring" },
-      { label: "DLP & Security", icon: Lock, path: "/endpoint-monitoring" },
-      { label: "RA 10173 Compliance", icon: Shield, path: "/endpoint-monitoring" },
+      { label: "Device Status", icon: HardDrive, path: "/device-status" },
+      { label: "Network Traffic", icon: Network, path: "/network-traffic" },
+      { label: "DLP & Security", icon: Lock, path: "/dlp-security" },
+      { label: "RA 10173 Compliance", icon: Shield, path: "/ra-10173-compliance" },
     ],
   },
   { label: "System Config", icon: Settings, path: "/settings" },
 ];
 
-function NavGroup({ item, collapsed }) {
+const technicianNavItems = [
+  { label: "Dashboard", icon: LayoutDashboard, path: "/technician/dashboard" },
+  {
+    label: "My Work",
+    icon: Ticket,
+    children: [
+      { label: "Available Tickets", icon: FileText, path: "/technician/dashboard" },
+      { label: "My Assigned Tickets", icon: Ticket, path: "/technician/dashboard" },
+      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
+      { label: "SLA Monitor", icon: Activity, path: "/sla-monitor" },
+    ],
+  },
+  {
+    label: "Assets",
+    icon: Package,
+    children: [
+      { label: "Hardware Assets", icon: HardDrive, path: "/assets" },
+    ],
+  },
+  {
+    label: "Problem Mgmt",
+    icon: Bug,
+    children: [
+      { label: "Problems", icon: AlertTriangle, path: "/problem-management" },
+      { label: "Known Errors", icon: Database, path: "/known-errors" },
+    ],
+  },
+  {
+    label: "Endpoint Monitor",
+    icon: Monitor,
+    children: [
+      { label: "User Activity", icon: Activity, path: "/endpoint-monitoring" },
+      { label: "Device Status", icon: HardDrive, path: "/device-status" },
+    ],
+  },
+];
+
+const employeeNavItems = [
+  { label: "Dashboard", icon: LayoutDashboard, path: "/employee/dashboard" },
+  {
+    label: "Service Portal",
+    icon: Ticket,
+    children: [
+      { label: "Service Catalog", icon: Layers, path: "/service-catalog" },
+      { label: "Create Ticket", icon: FileText, path: "/create-ticket" },
+      { label: "My Tickets", icon: Ticket, path: "/my-tickets" },
+      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
+    ],
+  },
+];
+
+function getDashboardPath(role) {
+  const normalizedRole = String(role || "").toLowerCase();
+
+  if (normalizedRole === "technician") return "/technician/dashboard";
+  if (normalizedRole === "employee") return "/employee/dashboard";
+  if (normalizedRole === "admin") return "/admin/dashboard";
+
+  return "/dashboard";
+}
+
+function NavGroup({ item, collapsed, dashboardPath }) {
   const location = useLocation();
+  const itemPath = item.label === "Dashboard" ? dashboardPath : item.path;
   const [open, setOpen] = useState(
     item.children?.some((child) => child.path === location.pathname) || false
   );
 
-  const isActive = item.path === location.pathname;
-  const hasActiveChild = item.children?.some(
-    (child) => child.path === location.pathname
-  );
+  const hasActiveChild =
+    item.children?.some((child) => location.pathname === child.path) || false;
+  const isDashboardActive =
+    item.label === "Dashboard" &&
+    ["/dashboard", "/admin/dashboard", "/technician/dashboard", "/employee/dashboard"].includes(
+      location.pathname
+    );
+  const isActive = location.pathname === itemPath || hasActiveChild || isDashboardActive;
 
   if (!item.children) {
     const Icon = item.icon;
 
     return (
       <Link
-        to={item.path}
+        to={itemPath}
         title={collapsed ? item.label : undefined}
         className={`flex items-center gap-3 rounded-xl px-3 py-3 transition-all ${
           isActive
@@ -139,7 +206,7 @@ function NavGroup({ item, collapsed }) {
         onClick={() => setOpen((prev) => !prev)}
         title={collapsed ? item.label : undefined}
         className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-all ${
-          hasActiveChild
+          isActive
             ? "bg-blue-600/20 text-white"
             : "text-sky-100 hover:bg-blue-600/15 hover:text-white"
         }`}
@@ -165,7 +232,7 @@ function NavGroup({ item, collapsed }) {
         <div className="ml-4 mt-1 space-y-1 border-l border-blue-500/20 pl-3">
           {item.children.map((child) => {
             const ChildIcon = child.icon;
-            const childActive = child.path === location.pathname;
+            const childActive = location.pathname === child.path;
 
             return (
               <Link
@@ -189,6 +256,17 @@ function NavGroup({ item, collapsed }) {
 }
 
 export default function SideBar({ collapsed, setCollapsed }) {
+  const { user, role } = useAuth();
+  const activeRole = role || user?.role_name || user?.role;
+  const normalizedRole = String(activeRole || "").toLowerCase();
+  const dashboardPath = getDashboardPath(activeRole);
+  const visibleNavItems =
+    normalizedRole === "employee"
+      ? employeeNavItems
+      : normalizedRole === "technician"
+      ? technicianNavItems
+      : adminNavItems;
+
   return (
     <aside
       className={`fixed left-0 top-0 z-40 flex h-screen flex-col transition-all duration-300 ${
@@ -202,15 +280,20 @@ export default function SideBar({ collapsed, setCollapsed }) {
     >
       <div className="flex min-h-[78px] items-center justify-center border-b border-blue-500/15 px-4 py-3">
         {collapsed ? (
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-blue-600 shadow-lg shadow-blue-700/30">
-            <span className="text-lg font-black text-white">A</span>
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/5 shadow-lg shadow-blue-700/20">
+            <img
+              src="/astrea-blue-logo.png"
+              alt="AstreaBlue"
+              className="h-8 w-8 object-contain"
+            />
           </div>
         ) : (
-          <div className="text-center">
-            <div className="text-3xl font-black tracking-tight">
-              <span className="text-violet-300">Astrea</span>
-              <span className="text-blue-400">Blue</span>
-            </div>
+          <div className="flex flex-col items-center text-center">
+            <img
+              src="/astrea-blue-logo.png"
+              alt="AstreaBlue"
+              className="h-11 max-w-[190px] object-contain"
+            />
             <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-500">
               Enterprise ITSM
             </div>
@@ -219,8 +302,13 @@ export default function SideBar({ collapsed, setCollapsed }) {
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 py-4">
-        {navItems.map((item) => (
-          <NavGroup key={item.label} item={item} collapsed={collapsed} />
+        {visibleNavItems.map((item) => (
+          <NavGroup
+            key={item.label}
+            item={item}
+            collapsed={collapsed}
+            dashboardPath={dashboardPath}
+          />
         ))}
       </nav>
 

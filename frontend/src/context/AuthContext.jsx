@@ -18,7 +18,13 @@ export function AuthProvider({ children }) {
   const login = async (email, password, rememberMe) => {
     const data = await loginUser(email, password);
 
-    const loggedUser = data.user;
+    const loggedUser = {
+      user_id: data.user?.user_id,
+      full_name: data.user?.full_name,
+      email: data.user?.email,
+      role_name: data.user?.role_name,
+      company_name: data.user?.company_name,
+    };
 
     saveUser(loggedUser, rememberMe);
     setUser(loggedUser);

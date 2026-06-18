@@ -37,7 +37,7 @@ export default function AIAssistant() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-700 to-violet-700 px-5 py-3 text-sm font-bold text-white shadow-2xl shadow-blue-900/30 transition hover:-translate-y-0.5"
+          className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-700 to-violet-700 px-5 py-3 text-sm font-bold text-white shadow-2xl shadow-blue-900/30 transition hover:-translate-y-0.5"
         >
           <Sparkles size={18} />
           AstreaBlue AI
@@ -45,7 +45,7 @@ export default function AIAssistant() {
       )}
 
       {open && (
-        <div className="fixed bottom-6 right-6 z-50 flex h-[520px] w-[380px] flex-col overflow-hidden rounded-3xl border border-blue-900/30 bg-slate-950 shadow-2xl">
+        <div className="fixed bottom-6 right-6 z-30 flex h-[520px] w-[380px] flex-col overflow-hidden rounded-3xl border border-blue-900/30 bg-slate-950 shadow-2xl">
           <div className="flex items-center justify-between border-b border-blue-900/30 bg-gradient-to-r from-slate-950 to-blue-950 px-5 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-r from-blue-600 to-violet-600 text-white">

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Plus,
   Search,
@@ -11,7 +12,9 @@ import {
   MessageSquare,
   History,
   Send,
+  BookOpen,
 } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 
 const API_BASE = "http://localhost:5000/api/v1";
 
@@ -85,7 +88,7 @@ function NewTicketModal({ categories, onClose, onCreated }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-7 py-5">
           <div>
             <h2 className="text-xl font-black text-slate-900">
@@ -206,13 +209,15 @@ function NewTicketModal({ categories, onClose, onCreated }) {
 }
 
 function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
+  const navigate = useNavigate();
+  const { user, role } = useAuth();
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const [comment, setComment] = useState("");
   const [savingComment, setSavingComment] = useState(false);
 
-  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState(ticket.status || "");
 
   const [technicians, setTechnicians] = useState([]);
   const [selectedTechnician, setSelectedTechnician] = useState("");
@@ -246,26 +251,14 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
     fetchTechnicians();
   }, [fetchDetails, fetchTechnicians]);
 
-  const updateStatus = async (status) => {
-    try {
-      setUpdatingStatus(true);
+  useEffect(() => {
+    const assignedTo = details?.assigned_to ?? ticket.assigned_to ?? "";
+    setSelectedTechnician(assignedTo ? String(assignedTo) : "");
+  }, [details?.assigned_to, ticket.assigned_to]);
 
-      const res = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-
-      if (!res.ok) throw new Error("Failed to update status");
-
-      await fetchDetails();
-      onRefresh();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setUpdatingStatus(false);
-    }
-  };
+  useEffect(() => {
+    setSelectedStatus(details?.status || ticket.status || "");
+  }, [details?.status, ticket.status]);
 
   const addComment = async () => {
     if (!comment.trim()) return;
@@ -290,25 +283,52 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
     }
   };
 
-  const assignTechnician = async () => {
-    if (!selectedTechnician) return;
+  const item = details || ticket;
+  const hasResolution =
+    item.status === "Resolved" || Boolean(item.resolution_notes);
+  const canCreateKbArticle = ["Admin", "Technician"].includes(
+    role || user?.role_name || user?.role
+  );
+  const currentAssignedTo = item.assigned_to ? String(item.assigned_to) : "";
+  const hasAssignmentChange = selectedTechnician !== currentAssignedTo;
+  const currentStatus = item.status || "";
+  const hasStatusChange = selectedStatus !== currentStatus;
+  const hasUnsavedChanges = hasAssignmentChange || hasStatusChange;
+
+  const saveChanges = async () => {
+    if (!hasUnsavedChanges) {
+      onClose();
+      return;
+    }
 
     try {
       setAssigning(true);
 
-      const res = await fetch(`${API_BASE}/tickets/${ticket.id}/assign`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assigned_to: Number(selectedTechnician),
-        }),
-      });
+      if (hasStatusChange) {
+        const statusRes = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: selectedStatus }),
+        });
 
-      if (!res.ok) throw new Error("Failed to assign technician");
+        if (!statusRes.ok) throw new Error("Failed to update status");
+      }
+
+      if (hasAssignmentChange) {
+        const assignRes = await fetch(`${API_BASE}/tickets/${ticket.id}/assign`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            assigned_to: selectedTechnician ? Number(selectedTechnician) : null,
+          }),
+        });
+
+        if (!assignRes.ok) throw new Error("Failed to assign technician");
+      }
 
       await fetchDetails();
-      onRefresh();
-      setSelectedTechnician("");
+      await onRefresh();
+      onClose();
     } catch (err) {
       console.error(err);
     } finally {
@@ -316,11 +336,23 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
     }
   };
 
-  const item = details || ticket;
+  const createKnowledgeBaseArticle = () => {
+    navigate("/knowledge-base", {
+      state: {
+        kbPrefill: {
+          title: item.title || "",
+          category: item.category || "",
+          symptoms: item.description || item.desc || "",
+          resolution: item.resolution_notes || "",
+          related_ticket_id: item.id,
+        },
+      },
+    });
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 backdrop-blur-sm">
-      <div className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl">
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/70 backdrop-blur-sm">
+      <div className="flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl">
         <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-7 py-5">
           <div className="flex items-start justify-between">
             <div>
@@ -342,13 +374,22 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
         </div>
 
         {loading ? (
-          <div className="p-8 font-bold text-slate-500">Loading details...</div>
+          <div className="flex-1 p-8 font-bold text-slate-500">
+            Loading details...
+          </div>
         ) : (
-          <div className="space-y-6 p-7">
+          <div className="flex-1 space-y-6 overflow-y-auto p-7 pb-28">
             <section className="grid grid-cols-2 gap-4">
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-bold text-slate-400">Status</p>
-                <p className="mt-1 font-black text-slate-900">{item.status}</p>
+                <p className="mt-1 font-black text-slate-900">
+                  {selectedStatus}
+                  {hasStatusChange && (
+                    <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-700">
+                      Unsaved
+                    </span>
+                  )}
+                </p>
               </div>
 
               <div className="rounded-2xl bg-slate-50 p-4">
@@ -380,16 +421,16 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 Assign Technician
               </h3>
 
-              <div className="flex gap-2">
+              <div>
                 <select
-                value={selectedTechnician}
-                onChange={(e) => setSelectedTechnician(e.target.value)}
-                className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-600"
-                 style={{ color: "#0f172a" }}
->
+                  value={selectedTechnician}
+                  onChange={(e) => setSelectedTechnician(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-600"
+                  style={{ color: "#0f172a" }}
+                >
                   <option value="" style={{ color: "#0f172a" }}>
-                     Select Technician
-                      </option>
+                    Unassigned
+                  </option>
 
                   {technicians.map((tech) => (
                     <option key={tech.user_id} value={tech.user_id}>
@@ -397,14 +438,6 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                     </option>
                   ))}
                 </select>
-
-                <button
-                  onClick={assignTechnician}
-                  disabled={!selectedTechnician || assigning}
-                  className="rounded-xl bg-blue-700 px-4 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:opacity-60"
-                >
-                  {assigning ? "Assigning..." : "Assign"}
-                </button>
               </div>
             </section>
 
@@ -415,6 +448,65 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               </p>
             </section>
 
+            {hasResolution && (
+              <section className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-5">
+                <div className="mb-4 flex items-center gap-2">
+                  <CheckCircle size={18} className="text-emerald-600" />
+                  <h3 className="font-black text-slate-900">Resolution</h3>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Resolution Notes
+                    </p>
+                    <p className="mt-1 whitespace-pre-line text-sm leading-7 text-slate-700">
+                      {item.resolution_notes || "No resolution notes provided."}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <ResolutionDetail
+                      label="Root Cause"
+                      value={item.root_cause || "Not specified"}
+                    />
+                    <ResolutionDetail
+                      label="Time Spent"
+                      value={
+                        item.time_spent_minutes !== null &&
+                        item.time_spent_minutes !== undefined &&
+                        item.time_spent_minutes !== ""
+                          ? `${item.time_spent_minutes} minutes`
+                          : "Not specified"
+                      }
+                    />
+                    <ResolutionDetail
+                      label="Parts Used"
+                      value={item.parts_used || "None recorded"}
+                    />
+                    <ResolutionDetail
+                      label="Resolved At"
+                      value={
+                        item.resolved_at
+                          ? new Date(item.resolved_at).toLocaleString()
+                          : "Not recorded"
+                      }
+                    />
+                  </div>
+                </div>
+
+                {canCreateKbArticle && item.status === "Resolved" && item.resolution_notes && (
+                  <button
+                    onClick={createKnowledgeBaseArticle}
+                    className="mt-5 flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-black text-white hover:bg-blue-800"
+                  >
+                    <BookOpen size={17} />
+                    Create KB Article
+                  </button>
+                )}
+              </section>
+            )}
+
             <section className="rounded-2xl border border-slate-200 bg-white p-5">
               <h3 className="mb-4 font-black text-slate-900">
                 Update Status
@@ -423,10 +515,10 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 {columns.map((col) => (
                   <button
                     key={col.id}
-                    onClick={() => updateStatus(col.id)}
-                    disabled={updatingStatus || item.status === col.id}
+                    onClick={() => setSelectedStatus(col.id)}
+                    disabled={selectedStatus === col.id}
                     className={`rounded-xl px-4 py-2 text-sm font-black ${
-                      item.status === col.id
+                      selectedStatus === col.id
                         ? "bg-blue-700 text-white"
                         : "bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700"
                     } disabled:opacity-60`}
@@ -471,16 +563,22 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="Write a comment..."
-                  className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-600"
+                  className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-600"
                 />
                 <button
                   onClick={addComment}
-                  disabled={savingComment}
+                  disabled={savingComment || hasUnsavedChanges}
                   className="rounded-xl bg-blue-700 px-4 text-white hover:bg-blue-800 disabled:opacity-60"
                 >
                   <Send size={18} />
                 </button>
               </div>
+
+              {hasUnsavedChanges && (
+                <p className="mt-2 text-xs font-semibold text-slate-400">
+                  Save or cancel pending changes before sending a comment.
+                </p>
+              )}
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -518,7 +616,37 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             </section>
           </div>
         )}
+
+        <div className="sticky bottom-0 z-10 border-t border-slate-200 bg-white/95 px-7 py-4 backdrop-blur">
+          <div className="flex items-center justify-end gap-3">
+            <button
+              onClick={onClose}
+              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+
+            <button
+              onClick={saveChanges}
+              disabled={loading || assigning || !hasUnsavedChanges}
+              className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800 disabled:opacity-60"
+            >
+              {assigning ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function ResolutionDetail({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-white p-4 shadow-sm shadow-emerald-900/5">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-bold text-slate-800">{value}</p>
     </div>
   );
 }
