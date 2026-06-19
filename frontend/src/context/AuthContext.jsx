@@ -24,6 +24,10 @@ export function AuthProvider({ children }) {
       email: data.user?.email,
       role_name: data.user?.role_name,
       company_name: data.user?.company_name,
+      branch_id: data.user?.branch_id,
+      branch_name: data.user?.branch_name,
+      mobile_number: data.user?.mobile_number,
+      is_active: data.user?.is_active,
     };
 
     saveUser(loggedUser, rememberMe);

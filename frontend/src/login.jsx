@@ -23,7 +23,9 @@ export default function Login() {
 
       const role = String(user.role_name || user.role || "").toLowerCase();
 
-      if (role === "admin") {
+      if (role === "superadmin") {
+        navigate("/superadmin/dashboard");
+      } else if (role === "admin") {
         navigate("/admin/dashboard");
       } else if (role === "technician") {
         navigate("/technician/dashboard");

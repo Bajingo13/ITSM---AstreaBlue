@@ -1,103 +1,39 @@
 import { Link, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard,
-  Ticket,
-  Package,
-  Database,
-  GitBranch,
-  Bug,
+  Activity,
   BarChart3,
-  Monitor,
-  Settings,
+  BookOpen,
+  CheckCircle,
   ChevronLeft,
   ChevronRight,
   ChevronRight as ChevronRightSmall,
-  BookOpen,
-  Shield,
-  Activity,
-  Cpu,
   FileText,
-  Layers,
-  Wrench,
-  AlertTriangle,
-  Network,
-  HardDrive,
-  Globe,
-  Lock,
+  GitBranch,
+  LayoutDashboard,
+  Settings,
+  Ticket,
+  UserCog,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 
+const superAdminNavItems = [
+  { label: "Dashboard", icon: LayoutDashboard, path: "/superadmin/dashboard" },
+  { label: "User Management", icon: UserCog, path: "/settings/users" },
+  { label: "Branch Management", icon: GitBranch, path: "/settings/branches" },
+  { label: "Tickets", icon: Ticket, path: "/tickets" },
+  { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
+  { label: "SLA Monitor", icon: Activity, path: "/sla-monitor" },
+  { label: "Analytics", icon: BarChart3, path: "/analytics" },
+  { label: "Settings", icon: Settings, path: "/settings" },
+];
+
 const adminNavItems = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
-  {
-    label: "Service Desk",
-    icon: Ticket,
-    children: [
-      { label: "All Tickets", icon: FileText, path: "/tickets" },
-      { label: "Service Catalog", icon: Layers, path: "/service-catalog" },
-      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
-      { label: "SLA Monitor", icon: Activity, path: "/sla-monitor" },
-    ],
-  },
-  {
-    label: "Asset Management",
-    icon: Package,
-    children: [
-      { label: "Hardware Assets", icon: HardDrive, path: "/assets" },
-      { label: "Software Licenses", icon: FileText, path: "/software-licenses" },
-      { label: "Asset Discovery", icon: Globe, path: "/asset-discovery" },
-      { label: "Financial Tracking", icon: BarChart3, path: "/financial-tracking" },
-    ],
-  },
-  {
-    label: "CMDB",
-    icon: Database,
-    children: [
-      { label: "Config Items", icon: Cpu, path: "/cmdb" },
-      { label: "Dependency Map", icon: Network, path: "/dependency-map" },
-      { label: "Change Impact", icon: AlertTriangle, path: "/change-impact" },
-    ],
-  },
-  {
-    label: "Change & Release",
-    icon: GitBranch,
-    children: [
-      { label: "Change Requests", icon: Wrench, path: "/change-management" },
-      { label: "Release Planning", icon: Layers, path: "/release-planning" },
-      { label: "Change Calendar", icon: LayoutDashboard, path: "/change-calendar" },
-    ],
-  },
-  {
-    label: "Problem Mgmt",
-    icon: Bug,
-    children: [
-      { label: "Problems", icon: AlertTriangle, path: "/problem-management" },
-      { label: "Root Cause Analysis", icon: Network, path: "/root-cause-analysis" },
-      { label: "Known Errors", icon: Database, path: "/known-errors" },
-    ],
-  },
-  {
-    label: "Analytics",
-    icon: BarChart3,
-    children: [
-      { label: "Executive Dashboard", icon: LayoutDashboard, path: "/analytics" },
-      { label: "Report Builder", icon: FileText, path: "/report-builder" },
-      { label: "AI Insights", icon: Activity, path: "/ai-insights" },
-    ],
-  },
-  {
-    label: "Endpoint Monitor",
-    icon: Monitor,
-    children: [
-      { label: "User Activity", icon: Activity, path: "/endpoint-monitoring" },
-      { label: "Device Status", icon: HardDrive, path: "/device-status" },
-      { label: "Network Traffic", icon: Network, path: "/network-traffic" },
-      { label: "DLP & Security", icon: Lock, path: "/dlp-security" },
-      { label: "RA 10173 Compliance", icon: Shield, path: "/ra-10173-compliance" },
-    ],
-  },
-  { label: "System Config", icon: Settings, path: "/settings" },
+  { label: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" },
+  { label: "User Management", icon: UserCog, path: "/settings/users" },
+  { label: "Tickets", icon: Ticket, path: "/tickets" },
+  { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
+  { label: "SLA Monitor", icon: Activity, path: "/sla-monitor" },
 ];
 
 const technicianNavItems = [
@@ -106,57 +42,26 @@ const technicianNavItems = [
     label: "My Work",
     icon: Ticket,
     children: [
-      { label: "Available Tickets", icon: FileText, path: "/technician/dashboard" },
-      { label: "My Assigned Tickets", icon: Ticket, path: "/technician/dashboard" },
-      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
-      { label: "SLA Monitor", icon: Activity, path: "/sla-monitor" },
-    ],
-  },
-  {
-    label: "Assets",
-    icon: Package,
-    children: [
-      { label: "Hardware Assets", icon: HardDrive, path: "/assets" },
-    ],
-  },
-  {
-    label: "Problem Mgmt",
-    icon: Bug,
-    children: [
-      { label: "Problems", icon: AlertTriangle, path: "/problem-management" },
-      { label: "Known Errors", icon: Database, path: "/known-errors" },
-    ],
-  },
-  {
-    label: "Endpoint Monitor",
-    icon: Monitor,
-    children: [
-      { label: "User Activity", icon: Activity, path: "/endpoint-monitoring" },
-      { label: "Device Status", icon: HardDrive, path: "/device-status" },
+      { label: "Available Tickets", icon: FileText, path: "/technician/available" },
+      { label: "My Assigned Tickets", icon: Ticket, path: "/technician/assigned" },
+      { label: "Resolved Tickets", icon: CheckCircle, path: "/technician/resolved" },
     ],
   },
 ];
 
 const employeeNavItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/employee/dashboard" },
-  {
-    label: "Service Portal",
-    icon: Ticket,
-    children: [
-      { label: "Service Catalog", icon: Layers, path: "/service-catalog" },
-      { label: "Create Ticket", icon: FileText, path: "/create-ticket" },
-      { label: "My Tickets", icon: Ticket, path: "/my-tickets" },
-      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
-    ],
-  },
+  { label: "Create Ticket", icon: FileText, path: "/create-ticket" },
+  { label: "My Tickets", icon: Ticket, path: "/my-tickets" },
 ];
 
 function getDashboardPath(role) {
   const normalizedRole = String(role || "").toLowerCase();
 
+  if (normalizedRole === "superadmin") return "/superadmin/dashboard";
+  if (normalizedRole === "admin") return "/admin/dashboard";
   if (normalizedRole === "technician") return "/technician/dashboard";
   if (normalizedRole === "employee") return "/employee/dashboard";
-  if (normalizedRole === "admin") return "/admin/dashboard";
 
   return "/dashboard";
 }
@@ -172,9 +77,13 @@ function NavGroup({ item, collapsed, dashboardPath }) {
     item.children?.some((child) => location.pathname === child.path) || false;
   const isDashboardActive =
     item.label === "Dashboard" &&
-    ["/dashboard", "/admin/dashboard", "/technician/dashboard", "/employee/dashboard"].includes(
-      location.pathname
-    );
+    [
+      "/dashboard",
+      "/superadmin/dashboard",
+      "/admin/dashboard",
+      "/technician/dashboard",
+      "/employee/dashboard",
+    ].includes(location.pathname);
   const isActive = location.pathname === itemPath || hasActiveChild || isDashboardActive;
 
   if (!item.children) {
@@ -236,7 +145,7 @@ function NavGroup({ item, collapsed, dashboardPath }) {
 
             return (
               <Link
-                key={child.label}
+                key={child.path}
                 to={child.path}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all ${
                   childActive
@@ -261,11 +170,13 @@ export default function SideBar({ collapsed, setCollapsed }) {
   const normalizedRole = String(activeRole || "").toLowerCase();
   const dashboardPath = getDashboardPath(activeRole);
   const visibleNavItems =
-    normalizedRole === "employee"
-      ? employeeNavItems
+    normalizedRole === "superadmin"
+      ? superAdminNavItems
+      : normalizedRole === "admin"
+      ? adminNavItems
       : normalizedRole === "technician"
       ? technicianNavItems
-      : adminNavItems;
+      : employeeNavItems;
 
   return (
     <aside
@@ -304,7 +215,7 @@ export default function SideBar({ collapsed, setCollapsed }) {
       <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 py-4">
         {visibleNavItems.map((item) => (
           <NavGroup
-            key={item.label}
+            key={item.path || item.label}
             item={item}
             collapsed={collapsed}
             dashboardPath={dashboardPath}

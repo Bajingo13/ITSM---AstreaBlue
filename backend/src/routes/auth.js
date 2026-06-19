@@ -14,9 +14,14 @@ router.post("/login", async (req, res) => {
         u.email,
         u.password_hash,
         u.company_name,
+        u.branch_id,
+        u.mobile_number,
+        COALESCE(u.is_active, TRUE) AS is_active,
+        b.branch_name,
         sr.role_name
       FROM users u
       JOIN system_roles sr ON u.role_id = sr.role_id
+      LEFT JOIN branches b ON u.branch_id = b.branch_id
       WHERE u.email = $1
       LIMIT 1
       `,
@@ -32,6 +37,13 @@ router.post("/login", async (req, res) => {
 
     const user = result.rows[0];
 
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: "This account is inactive. Please contact your administrator.",
+      });
+    }
+
     if (password !== user.password_hash) {
       return res.status(401).json({
         success: false,
@@ -46,6 +58,10 @@ router.post("/login", async (req, res) => {
         full_name: user.full_name,
         email: user.email,
         company_name: user.company_name,
+        branch_id: user.branch_id,
+        branch_name: user.branch_name,
+        mobile_number: user.mobile_number,
+        is_active: user.is_active,
         role_name: user.role_name,
       },
     });

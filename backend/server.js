@@ -32,6 +32,60 @@ async function ensureKnowledgeBaseTable() {
 
 ensureKnowledgeBaseTable();
 
+async function ensureUserStatusColumn() {
+  try {
+    await db.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Active'
+    `);
+  } catch (err) {
+    console.error("User status column setup error:", err.message);
+  }
+}
+
+ensureUserStatusColumn();
+
+async function ensureRoleBranchManagement() {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS branches (
+        branch_id SERIAL PRIMARY KEY,
+        branch_name VARCHAR(150) NOT NULL,
+        branch_location VARCHAR(255),
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id),
+      ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS mobile_number VARCHAR(20)
+    `);
+
+    await db.query(`
+      INSERT INTO system_roles (role_name)
+      SELECT role_name
+      FROM (VALUES
+        ('SuperAdmin'),
+        ('Admin'),
+        ('Technician'),
+        ('Employee')
+      ) AS required_roles(role_name)
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM system_roles sr
+        WHERE LOWER(sr.role_name) = LOWER(required_roles.role_name)
+      )
+    `);
+  } catch (err) {
+    console.error("Role/branch setup error:", err.message);
+  }
+}
+
+ensureRoleBranchManagement();
+
 /* ==========================
    AUTH ROUTES
 ========================== */
@@ -101,6 +155,499 @@ app.get("/api/v1/technicians", async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to fetch technicians",
+    });
+  }
+});
+
+/* ==========================
+   USER MANAGEMENT
+========================== */
+
+app.get("/api/v1/roles", async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT role_id, role_name
+      FROM system_roles
+      ORDER BY
+        CASE LOWER(role_name)
+          WHEN 'superadmin' THEN 1
+          WHEN 'admin' THEN 2
+          WHEN 'technician' THEN 3
+          WHEN 'employee' THEN 4
+          ELSE 5
+        END,
+        role_name ASC
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Fetch roles error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch roles",
+    });
+  }
+});
+
+app.get("/api/v1/branches", async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT
+        b.branch_id,
+        b.branch_name,
+        b.branch_location,
+        b.is_active,
+        b.created_at,
+        admin.user_id AS admin_user_id,
+        admin.full_name AS admin_name,
+        admin.email AS admin_email
+      FROM branches b
+      LEFT JOIN LATERAL (
+        SELECT u.user_id, u.full_name, u.email
+        FROM users u
+        JOIN system_roles sr
+          ON u.role_id = sr.role_id
+        WHERE u.branch_id = b.branch_id
+          AND LOWER(sr.role_name) = 'admin'
+          AND COALESCE(u.is_active, TRUE) = TRUE
+        ORDER BY u.user_id ASC
+        LIMIT 1
+      ) admin ON TRUE
+      ORDER BY b.branch_name ASC
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Fetch branches error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch branches",
+    });
+  }
+});
+
+app.post("/api/v1/branches", async (req, res) => {
+  try {
+    const { branch_name, branch_location = null, is_active = true, admin_user_id = null } = req.body;
+
+    if (!branch_name) {
+      return res.status(400).json({
+        success: false,
+        error: "Branch name is required",
+      });
+    }
+
+    const result = await db.query(
+      `
+      INSERT INTO branches (branch_name, branch_location, is_active)
+      VALUES ($1, $2, $3)
+      RETURNING *
+      `,
+      [branch_name, branch_location, is_active]
+    );
+
+    if (admin_user_id) {
+      await db.query(
+        `UPDATE users SET branch_id = $1 WHERE user_id = $2`,
+        [result.rows[0].branch_id, admin_user_id]
+      );
+    }
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("Create branch error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to create branch",
+    });
+  }
+});
+
+app.put("/api/v1/branches/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { branch_name, branch_location = null, is_active = true, admin_user_id = null } = req.body;
+
+    if (!branch_name) {
+      return res.status(400).json({
+        success: false,
+        error: "Branch name is required",
+      });
+    }
+
+    const result = await db.query(
+      `
+      UPDATE branches
+      SET
+        branch_name = $1,
+        branch_location = $2,
+        is_active = $3
+      WHERE branch_id = $4
+      RETURNING *
+      `,
+      [branch_name, branch_location, is_active, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Branch not found",
+      });
+    }
+
+    if (admin_user_id) {
+      await db.query(
+        `UPDATE users SET branch_id = $1 WHERE user_id = $2`,
+        [id, admin_user_id]
+      );
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Update branch error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to update branch",
+    });
+  }
+});
+
+app.patch("/api/v1/branches/:id/status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_active } = req.body;
+
+    if (typeof is_active !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        error: "is_active must be true or false",
+      });
+    }
+
+    const result = await db.query(
+      `
+      UPDATE branches
+      SET is_active = $1
+      WHERE branch_id = $2
+      RETURNING *
+      `,
+      [is_active, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Branch not found",
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Update branch status error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to update branch status",
+    });
+  }
+});
+
+app.patch("/api/v1/branches/:id/admin", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_id } = req.body;
+
+    if (!user_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Admin user is required",
+      });
+    }
+
+    const result = await db.query(
+      `
+      UPDATE users
+      SET branch_id = $1
+      WHERE user_id = $2
+      RETURNING user_id, full_name, email, branch_id
+      `,
+      [id, user_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Assign branch admin error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to assign branch admin",
+    });
+  }
+});
+
+app.get("/api/v1/users", async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT
+        u.user_id,
+        u.full_name,
+        u.email,
+        u.company_name,
+        u.mobile_number,
+        u.branch_id,
+        b.branch_name,
+        u.role_id,
+        sr.role_name,
+        COALESCE(u.is_active, TRUE) AS is_active,
+        CASE
+          WHEN COALESCE(u.is_active, TRUE) = TRUE THEN 'Active'
+          ELSE 'Inactive'
+        END AS status,
+        u.created_at
+      FROM users u
+      LEFT JOIN system_roles sr
+        ON u.role_id = sr.role_id
+      LEFT JOIN branches b
+        ON u.branch_id = b.branch_id
+      ORDER BY u.created_at DESC, u.user_id DESC
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Fetch users error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch users",
+    });
+  }
+});
+
+app.post("/api/v1/users", async (req, res) => {
+  try {
+    const {
+      full_name,
+      email,
+      password,
+      password_hash,
+      role_id,
+      company_name = null,
+      branch_id = null,
+      mobile_number = null,
+      status = "Active",
+      is_active,
+    } = req.body;
+
+    const finalPassword = password_hash || password;
+    const finalIsActive =
+      typeof is_active === "boolean" ? is_active : status !== "Inactive";
+
+    if (!full_name || !email || !finalPassword || !role_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Full name, email, temporary password, and role are required",
+      });
+    }
+
+    const result = await db.query(
+      `
+      INSERT INTO users
+      (full_name, email, password_hash, role_id, company_name, branch_id, mobile_number, status, is_active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING user_id, full_name, email, company_name, branch_id, mobile_number, role_id, status, is_active, created_at
+      `,
+      [
+        full_name,
+        email,
+        finalPassword,
+        role_id,
+        company_name,
+        branch_id || null,
+        mobile_number || null,
+        finalIsActive ? "Active" : "Inactive",
+        finalIsActive,
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("Create user error:", err.message);
+
+    if (err.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        error: "A user with this email already exists",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to create user",
+    });
+  }
+});
+
+app.put("/api/v1/users/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      full_name,
+      email,
+      role_id,
+      company_name = null,
+      branch_id = null,
+      mobile_number = null,
+      status = "Active",
+      is_active,
+    } = req.body;
+    const finalIsActive =
+      typeof is_active === "boolean" ? is_active : status !== "Inactive";
+
+    if (!full_name || !email || !role_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Full name, email, and role are required",
+      });
+    }
+
+    const result = await db.query(
+      `
+      UPDATE users
+      SET
+        full_name = $1,
+        email = $2,
+        role_id = $3,
+        company_name = $4,
+        status = $5,
+        is_active = $6,
+        branch_id = $7,
+        mobile_number = $8
+      WHERE user_id = $9
+      RETURNING user_id, full_name, email, company_name, branch_id, mobile_number, role_id, status, is_active, created_at
+      `,
+      [
+        full_name,
+        email,
+        role_id,
+        company_name,
+        finalIsActive ? "Active" : "Inactive",
+        finalIsActive,
+        branch_id || null,
+        mobile_number || null,
+        id,
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Update user error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to update user",
+    });
+  }
+});
+
+app.patch("/api/v1/users/:id/reset-password", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password, password_hash } = req.body;
+    const finalPassword = password_hash || password;
+
+    if (!finalPassword) {
+      return res.status(400).json({
+        success: false,
+        error: "Temporary password is required",
+      });
+    }
+
+    const result = await db.query(
+      `
+      UPDATE users
+      SET password_hash = $1
+      WHERE user_id = $2
+      RETURNING user_id
+      `,
+      [finalPassword, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    res.json({ success: true, message: "Password reset successfully" });
+  } catch (err) {
+    console.error("Reset password error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to reset password",
+    });
+  }
+});
+
+app.patch("/api/v1/users/:id/status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!["Active", "Inactive"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Status must be Active or Inactive",
+      });
+    }
+
+    const nextIsActive = status === "Active";
+
+    const result = await db.query(
+      `
+      UPDATE users
+      SET
+        status = $1,
+        is_active = $2
+      WHERE user_id = $3
+      RETURNING user_id, status, is_active
+      `,
+      [status, nextIsActive, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Update user status error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to update user status",
     });
   }
 });

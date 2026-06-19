@@ -286,7 +286,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   const item = details || ticket;
   const hasResolution =
     item.status === "Resolved" || Boolean(item.resolution_notes);
-  const canCreateKbArticle = ["Admin", "Technician"].includes(
+  const canCreateKbArticle = ["SuperAdmin", "Admin", "Technician"].includes(
     role || user?.role_name || user?.role
   );
   const currentAssignedTo = item.assigned_to ? String(item.assigned_to) : "";

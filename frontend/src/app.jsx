@@ -17,15 +17,18 @@ import ProblemManagement from "./views/ProblemManagement";
 import Analytics from "./views/Analytics";
 import EndpointMonitoring from "./views/EndpointMonitoring";
 import Settings from "./views/Settings";
+import UserManagement from "./views/UserManagement";
+import BranchManagement from "./views/BranchManagement";
+
+const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
+const ADMIN_ROLES = ["SuperAdmin", "Admin"];
 
 function ServiceCatalog() {
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-black text-slate-900">Service Catalog</h1>
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-slate-600">
-          Service Catalog module coming soon.
-        </p>
+        <p className="text-slate-600">Service Catalog module coming soon.</p>
       </div>
     </div>
   );
@@ -36,9 +39,7 @@ function SLAMonitor() {
     <div className="space-y-6">
       <h1 className="text-3xl font-black text-slate-900">SLA Monitor</h1>
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-slate-600">
-          SLA monitoring module coming soon.
-        </p>
+        <p className="text-slate-600">SLA monitoring module coming soon.</p>
       </div>
     </div>
   );
@@ -66,7 +67,7 @@ export default function App() {
 
       <Route
         element={
-          <ProtectedRoute allowedRoles={["Admin", "Technician", "Employee"]}>
+          <ProtectedRoute allowedRoles={ALL_ROLES}>
             <MainLayout />
           </ProtectedRoute>
         }
@@ -74,12 +75,20 @@ export default function App() {
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
               <Dashboard />
             </ProtectedRoute>
           }
         />
 
+        <Route
+          path="/superadmin/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/admin/dashboard"
           element={
@@ -90,6 +99,30 @@ export default function App() {
         />
         <Route
           path="/technician/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["Technician"]}>
+              <TechnicianDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/technician/available"
+          element={
+            <ProtectedRoute allowedRoles={["Technician"]}>
+              <TechnicianDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/technician/assigned"
+          element={
+            <ProtectedRoute allowedRoles={["Technician"]}>
+              <TechnicianDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/technician/resolved"
           element={
             <ProtectedRoute allowedRoles={["Technician"]}>
               <TechnicianDashboard />
@@ -124,7 +157,7 @@ export default function App() {
         <Route
           path="/tickets"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin", "Admin", "Technician"]}>
               <Tickets />
             </ProtectedRoute>
           }
@@ -132,7 +165,7 @@ export default function App() {
         <Route
           path="/service-catalog"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Employee"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin", "Admin", "Employee"]}>
               <ServiceCatalog />
             </ProtectedRoute>
           }
@@ -140,7 +173,7 @@ export default function App() {
         <Route
           path="/knowledge-base"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Technician", "Employee"]}>
+            <ProtectedRoute allowedRoles={ALL_ROLES}>
               <KnowledgeBase />
             </ProtectedRoute>
           }
@@ -148,7 +181,7 @@ export default function App() {
         <Route
           path="/sla-monitor"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin", "Admin"]}>
               <SLAMonitor />
             </ProtectedRoute>
           }
@@ -157,7 +190,7 @@ export default function App() {
         <Route
           path="/assets"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <Assets />
             </ProtectedRoute>
           }
@@ -165,7 +198,7 @@ export default function App() {
         <Route
           path="/software-licenses"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <Assets />
             </ProtectedRoute>
           }
@@ -173,7 +206,7 @@ export default function App() {
         <Route
           path="/asset-discovery"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <Assets />
             </ProtectedRoute>
           }
@@ -181,7 +214,7 @@ export default function App() {
         <Route
           path="/financial-tracking"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <Assets />
             </ProtectedRoute>
           }
@@ -190,7 +223,7 @@ export default function App() {
         <Route
           path="/cmdb"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <CMDB />
             </ProtectedRoute>
           }
@@ -198,7 +231,7 @@ export default function App() {
         <Route
           path="/dependency-map"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <CMDB />
             </ProtectedRoute>
           }
@@ -206,7 +239,7 @@ export default function App() {
         <Route
           path="/change-impact"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <CMDB />
             </ProtectedRoute>
           }
@@ -215,7 +248,7 @@ export default function App() {
         <Route
           path="/change-management"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <ChangeManagement />
             </ProtectedRoute>
           }
@@ -223,7 +256,7 @@ export default function App() {
         <Route
           path="/release-planning"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <ChangeManagement />
             </ProtectedRoute>
           }
@@ -231,7 +264,7 @@ export default function App() {
         <Route
           path="/change-calendar"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <ChangeManagement />
             </ProtectedRoute>
           }
@@ -240,7 +273,7 @@ export default function App() {
         <Route
           path="/problem-management"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <ProblemManagement />
             </ProtectedRoute>
           }
@@ -248,7 +281,7 @@ export default function App() {
         <Route
           path="/root-cause-analysis"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <ProblemManagement />
             </ProtectedRoute>
           }
@@ -256,7 +289,7 @@ export default function App() {
         <Route
           path="/known-errors"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <ProblemManagement />
             </ProtectedRoute>
           }
@@ -265,7 +298,7 @@ export default function App() {
         <Route
           path="/analytics"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <Analytics />
             </ProtectedRoute>
           }
@@ -273,7 +306,7 @@ export default function App() {
         <Route
           path="/report-builder"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <Analytics />
             </ProtectedRoute>
           }
@@ -281,7 +314,7 @@ export default function App() {
         <Route
           path="/ai-insights"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <Analytics />
             </ProtectedRoute>
           }
@@ -290,7 +323,7 @@ export default function App() {
         <Route
           path="/endpoint-monitoring"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <EndpointMonitoring />
             </ProtectedRoute>
           }
@@ -298,7 +331,7 @@ export default function App() {
         <Route
           path="/device-status"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Technician"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <EndpointMonitoring />
             </ProtectedRoute>
           }
@@ -306,7 +339,7 @@ export default function App() {
         <Route
           path="/network-traffic"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <EndpointMonitoring />
             </ProtectedRoute>
           }
@@ -314,7 +347,7 @@ export default function App() {
         <Route
           path="/dlp-security"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <EndpointMonitoring />
             </ProtectedRoute>
           }
@@ -322,7 +355,7 @@ export default function App() {
         <Route
           path="/ra-10173-compliance"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
               <EndpointMonitoring />
             </ProtectedRoute>
           }
@@ -331,8 +364,24 @@ export default function App() {
         <Route
           path="/settings"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
               <Settings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/users"
+          element={
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+              <UserManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/branches"
+          element={
+            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
+              <BranchManagement />
             </ProtectedRoute>
           }
         />
