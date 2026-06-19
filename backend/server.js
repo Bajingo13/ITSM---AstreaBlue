@@ -1,6 +1,9 @@
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+const multer = require("multer");
 const db = require("./config/db");
 const authRoutes = require("./src/routes/auth");
 
@@ -10,6 +13,39 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+const ticketUploadDir = path.join(__dirname, "uploads", "tickets");
+fs.mkdirSync(ticketUploadDir, { recursive: true });
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+const allowedAttachmentMimeTypes = new Set([
+  "image/jpg",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+]);
+
+const ticketAttachmentStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, ticketUploadDir),
+  filename: (req, file, cb) => {
+    const safeBase = path
+      .basename(file.originalname)
+      .replace(/[^a-zA-Z0-9._-]/g, "_");
+    cb(null, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}-${safeBase}`);
+  },
+});
+
+const uploadTicketAttachments = multer({
+  storage: ticketAttachmentStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!allowedAttachmentMimeTypes.has(file.mimetype)) {
+      return cb(new Error("Only JPG, JPEG, PNG, WEBP, and PDF files are supported"));
+    }
+    cb(null, true);
+  },
+});
 
 async function ensureKnowledgeBaseTable() {
   try {
@@ -86,6 +122,27 @@ async function ensureRoleBranchManagement() {
         WHERE LOWER(sr.role_name) = LOWER(required_roles.role_name)
       )
     `);
+
+    await db.query(`
+      INSERT INTO users
+      (full_name, email, password_hash, role_id, company_name, status, is_active)
+      SELECT
+        'Super Administrator',
+        'superadmin@astreablue.com',
+        'superadmin123',
+        sr.role_id,
+        'AstreaBlue',
+        'Active',
+        TRUE
+      FROM system_roles sr
+      WHERE LOWER(sr.role_name) = 'superadmin'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM users u
+          WHERE LOWER(u.email) = 'superadmin@astreablue.com'
+        )
+      LIMIT 1
+    `);
   } catch (err) {
     console.error("Role/branch setup error:", err.message);
   }
@@ -99,14 +156,26 @@ async function ensureAttachmentsAndInvites() {
       CREATE TABLE IF NOT EXISTS ticket_attachments (
         attachment_id SERIAL PRIMARY KEY,
         ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
-        uploaded_by INTEGER REFERENCES users(user_id),
-        file_name VARCHAR(255) NOT NULL,
-        file_type VARCHAR(100),
+        file_name VARCHAR(255),
+        file_path TEXT,
         file_size INTEGER,
-        file_data TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        mime_type VARCHAR(100),
+        uploaded_by INTEGER REFERENCES users(user_id),
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    await db.query(`
+      ALTER TABLE ticket_attachments
+      ADD COLUMN IF NOT EXISTS file_path TEXT,
+      ADD COLUMN IF NOT EXISTS mime_type VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    `);
+
+    await db.query(`
+      ALTER TABLE ticket_attachments
+      ALTER COLUMN file_data DROP NOT NULL
+    `).catch(() => {});
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS user_invites (
@@ -1265,15 +1334,16 @@ app.get("/api/v1/tickets/:id", async (req, res) => {
         ta.ticket_id,
         ta.uploaded_by,
         ta.file_name,
-        ta.file_type,
+        ta.file_path,
+        ta.mime_type,
         ta.file_size,
-        ta.created_at,
+        ta.uploaded_at,
         u.full_name AS uploaded_by_name
       FROM ticket_attachments ta
       LEFT JOIN users u
         ON ta.uploaded_by = u.user_id
       WHERE ta.ticket_id = $1
-      ORDER BY ta.created_at ASC
+      ORDER BY ta.uploaded_at ASC
       `,
       [id]
     );
@@ -1304,12 +1374,13 @@ app.get("/api/v1/tickets/:id/attachments", async (req, res) => {
         ticket_id,
         uploaded_by,
         file_name,
-        file_type,
+        file_path,
+        mime_type,
         file_size,
-        created_at
+        uploaded_at
       FROM ticket_attachments
       WHERE ticket_id = $1
-      ORDER BY created_at ASC
+      ORDER BY uploaded_at ASC
       `,
       [id]
     );
@@ -1321,60 +1392,27 @@ app.get("/api/v1/tickets/:id/attachments", async (req, res) => {
   }
 });
 
-app.get("/api/v1/ticket-attachments/:attachmentId", async (req, res) => {
-  try {
-    const { attachmentId } = req.params;
-    const result = await db.query(
-      `
-      SELECT file_name, file_type, file_data
-      FROM ticket_attachments
-      WHERE attachment_id = $1
-      `,
-      [attachmentId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Attachment not found" });
-    }
-
-    const attachment = result.rows[0];
-    res.json(attachment);
-  } catch (err) {
-    console.error("Fetch attachment error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to fetch attachment" });
-  }
-});
-
-app.post("/api/v1/tickets/:id/attachments", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const {
-      uploaded_by = null,
-      file_name,
-      file_type,
-      file_size = null,
-      file_data,
-    } = req.body;
-
-    const allowedTypes = [
-      "image/png",
-      "image/jpg",
-      "image/jpeg",
-      "image/webp",
-      "application/pdf",
-    ];
-
-    if (!file_name || !file_type || !file_data) {
+app.post("/api/v1/tickets/:id/attachments", (req, res) => {
+  uploadTicketAttachments.array("attachments", 10)(req, res, async (uploadErr) => {
+    if (uploadErr) {
       return res.status(400).json({
         success: false,
-        error: "File name, type, and data are required",
+        error:
+          uploadErr.code === "LIMIT_FILE_SIZE"
+            ? "File size must be 10MB or less"
+            : uploadErr.message || "Failed to upload attachment",
       });
     }
 
-    if (!allowedTypes.includes(file_type)) {
+  try {
+    const { id } = req.params;
+    const uploadedBy = req.body.uploaded_by || null;
+    const files = req.files || [];
+
+    if (files.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "Only PNG, JPG, JPEG, WEBP, and PDF files are supported",
+        error: "At least one attachment file is required",
       });
     }
 
@@ -1383,29 +1421,73 @@ app.post("/api/v1/tickets/:id/attachments", async (req, res) => {
       return res.status(404).json({ success: false, error: "Ticket not found" });
     }
 
-    const result = await db.query(
-      `
-      INSERT INTO ticket_attachments
-      (ticket_id, uploaded_by, file_name, file_type, file_size, file_data)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING attachment_id, ticket_id, uploaded_by, file_name, file_type, file_size, created_at
-      `,
-      [id, uploaded_by, file_name, file_type, file_size, file_data]
-    );
+    const savedAttachments = [];
 
-    await db.query(
-      `
-      INSERT INTO ticket_history
-      (ticket_id, changed_by, action, old_value, new_value)
-      VALUES ($1, $2, 'Attachment Added', NULL, $3)
-      `,
-      [id, uploaded_by, file_name]
-    );
+    for (const file of files) {
+      const relativePath = `/uploads/tickets/${file.filename}`;
+      const result = await db.query(
+        `
+        INSERT INTO ticket_attachments
+        (ticket_id, file_name, file_path, file_size, mime_type, uploaded_by)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING attachment_id, ticket_id, uploaded_by, file_name, file_path, mime_type, file_size, uploaded_at
+        `,
+        [
+          id,
+          file.originalname,
+          relativePath,
+          file.size,
+          file.mimetype,
+          uploadedBy || null,
+        ]
+      );
 
-    res.status(201).json(result.rows[0]);
+      await db.query(
+        `
+        INSERT INTO ticket_history
+        (ticket_id, changed_by, action, old_value, new_value)
+        VALUES ($1, $2, 'Attachment Added', NULL, $3)
+        `,
+        [id, uploadedBy || null, file.originalname]
+      );
+
+      savedAttachments.push(result.rows[0]);
+    }
+
+    res.status(201).json({ success: true, attachments: savedAttachments });
   } catch (err) {
     console.error("Upload attachment error:", err.message);
     res.status(500).json({ success: false, error: "Failed to upload attachment" });
+  }
+  });
+});
+
+app.delete("/api/v1/tickets/:id/attachments/:attachmentId", async (req, res) => {
+  try {
+    const { id, attachmentId } = req.params;
+    const result = await db.query(
+      `
+      DELETE FROM ticket_attachments
+      WHERE ticket_id = $1 AND attachment_id = $2
+      RETURNING attachment_id, file_path
+      `,
+      [id, attachmentId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Attachment not found" });
+    }
+
+    const filePath = result.rows[0].file_path;
+    if (filePath) {
+      const absolutePath = path.join(__dirname, filePath.replace(/^\/uploads[\\/]/, "uploads/"));
+      fs.unlink(absolutePath, () => {});
+    }
+
+    res.json({ success: true, message: "Attachment deleted successfully" });
+  } catch (err) {
+    console.error("Delete attachment error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to delete attachment" });
   }
 });
 
@@ -1814,6 +1896,21 @@ app.delete("/api/v1/tickets/:id", async (req, res) => {
       error: "Failed to delete ticket",
     });
   }
+});
+
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: "API route not found",
+  });
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled server error:", err.message);
+  res.status(500).json({
+    success: false,
+    error: "Internal server error",
+  });
 });
 
 /* ==========================

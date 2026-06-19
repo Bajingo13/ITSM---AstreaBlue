@@ -1,58 +1,141 @@
 import { Link, useLocation } from "react-router-dom";
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   BookOpen,
-  CheckCircle,
+  Briefcase,
   ChevronLeft,
   ChevronRight,
   ChevronRight as ChevronRightSmall,
+  ClipboardList,
+  Database,
   FileText,
   GitBranch,
+  HardDrive,
   LayoutDashboard,
+  Monitor,
+  Package,
+  RotateCcw,
   Settings,
+  Shield,
   Ticket,
   UserCog,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 
-const superAdminNavItems = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/superadmin/dashboard" },
-  { label: "User Management", icon: UserCog, path: "/settings/users" },
-  { label: "Branch Management", icon: GitBranch, path: "/settings/branches" },
-  { label: "Tickets", icon: Ticket, path: "/tickets" },
-  { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
-  { label: "SLA Monitor", icon: Activity, path: "/sla-monitor" },
-  { label: "Analytics", icon: BarChart3, path: "/analytics" },
-  { label: "Settings", icon: Settings, path: "/settings" },
-];
-
-const adminNavItems = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" },
-  { label: "User Management", icon: UserCog, path: "/settings/users" },
-  { label: "Tickets", icon: Ticket, path: "/tickets" },
-  { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
-  { label: "SLA Monitor", icon: Activity, path: "/sla-monitor" },
+const coreModuleItems = [
+  {
+    label: "Service Desk & Ticketing",
+    icon: Ticket,
+    children: [
+      { label: "Incident Management", icon: AlertTriangle, path: "/tickets" },
+      { label: "Service Request Management", icon: ClipboardList, path: "/service-requests" },
+      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
+      { label: "SLA Management", icon: Activity, path: "/sla-monitor" },
+    ],
+  },
+  {
+    label: "Asset Management",
+    icon: Package,
+    children: [
+      { label: "Hardware Asset Tracking", icon: HardDrive, path: "/assets" },
+      { label: "Software License Management", icon: FileText, path: "/software-licenses" },
+      { label: "Asset Discovery & Inventory", icon: Monitor, path: "/asset-discovery" },
+      { label: "Depreciation & Financial Tracking", icon: BarChart3, path: "/financial-tracking" },
+    ],
+  },
+  {
+    label: "Configuration Management (CMDB)",
+    icon: Database,
+    children: [
+      { label: "Configuration Items", icon: Database, path: "/cmdb" },
+      { label: "Dependency Mapping", icon: GitBranch, path: "/dependency-map" },
+      { label: "Change Impact Analysis", icon: AlertTriangle, path: "/change-impact" },
+    ],
+  },
+  {
+    label: "Change & Release Management",
+    icon: GitBranch,
+    children: [
+      { label: "Change Request Workflow", icon: ClipboardList, path: "/change-management" },
+      { label: "Release Planning", icon: Briefcase, path: "/release-planning" },
+      { label: "Rollback Procedures", icon: RotateCcw, path: "/rollback-procedures" },
+    ],
+  },
+  {
+    label: "Problem Management",
+    icon: AlertTriangle,
+    children: [
+      { label: "Root Cause Analysis", icon: GitBranch, path: "/root-cause-analysis" },
+      { label: "Known Error Database", icon: Database, path: "/known-errors" },
+      { label: "Trend Analysis", icon: BarChart3, path: "/trend-analysis" },
+    ],
+  },
+  {
+    label: "Reporting & Analytics",
+    icon: BarChart3,
+    children: [
+      { label: "Executive Dashboards", icon: LayoutDashboard, path: "/analytics" },
+      { label: "Custom Reports", icon: FileText, path: "/custom-reports" },
+      { label: "Predictive Analytics", icon: Activity, path: "/predictive-analytics" },
+    ],
+  },
+  { label: "System Configuration", icon: Settings, path: "/system-configuration" },
+  {
+    label: "Laptop Activity Monitoring",
+    icon: Monitor,
+    children: [
+      { label: "User Activity Tracking", icon: Activity, path: "/endpoint-monitoring" },
+      { label: "Endpoint Data Collection", icon: HardDrive, path: "/endpoint-data-collection" },
+      { label: "Screenshot Capture", icon: Monitor, path: "/screenshot-capture" },
+      { label: "USB & DLP Monitoring", icon: Shield, path: "/usb-dlp-monitoring" },
+      { label: "Network Traffic Analysis", icon: GitBranch, path: "/network-traffic" },
+      { label: "Productivity Analytics", icon: BarChart3, path: "/productivity-analytics" },
+      { label: "Alert & Escalation Engine", icon: AlertTriangle, path: "/alert-escalation-engine" },
+      { label: "RA 10173 Compliance", icon: Shield, path: "/ra-10173-compliance" },
+    ],
+  },
+  {
+    label: "System Administration",
+    icon: UserCog,
+    children: [
+      { label: "User & Role Management", icon: UserCog, path: "/settings/users" },
+      { label: "Branch Management", icon: GitBranch, path: "/settings/branches" },
+      { label: "System Configuration", icon: Settings, path: "/settings" },
+      { label: "Audit Logging", icon: FileText, path: "/audit-logging" },
+      { label: "Backup & Recovery", icon: RotateCcw, path: "/backup-recovery" },
+    ],
+  },
 ];
 
 const technicianNavItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/technician/dashboard" },
   {
-    label: "My Work",
+    label: "Service Desk & Ticketing",
     icon: Ticket,
     children: [
       { label: "Available Tickets", icon: FileText, path: "/technician/available-tickets" },
       { label: "My Assigned Tickets", icon: Ticket, path: "/technician/my-assigned-tickets" },
-      { label: "Resolved Tickets", icon: CheckCircle, path: "/technician/resolved-tickets" },
+      { label: "Resolved Tickets", icon: Activity, path: "/technician/resolved-tickets" },
+      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
+      { label: "SLA Management", icon: Activity, path: "/sla-monitor" },
     ],
   },
 ];
 
 const employeeNavItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/employee/dashboard" },
-  { label: "Create Ticket", icon: FileText, path: "/employee/create-ticket" },
-  { label: "My Tickets", icon: Ticket, path: "/employee/my-tickets" },
+  {
+    label: "Service Desk & Ticketing",
+    icon: Ticket,
+    children: [
+      { label: "Incident Management", icon: Ticket, path: "/employee/my-tickets" },
+      { label: "Service Request Management", icon: FileText, path: "/employee/create-ticket" },
+      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
+    ],
+  },
 ];
 
 function getDashboardPath(role) {
@@ -64,6 +147,20 @@ function getDashboardPath(role) {
   if (normalizedRole === "employee") return "/employee/dashboard";
 
   return "/dashboard";
+}
+
+function getVisibleNavItems(role) {
+  const normalizedRole = String(role || "").toLowerCase();
+  const dashboard = {
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    path: getDashboardPath(role),
+  };
+
+  if (normalizedRole === "technician") return technicianNavItems;
+  if (normalizedRole === "employee") return employeeNavItems;
+
+  return [dashboard, ...coreModuleItems];
 }
 
 function NavGroup({ item, collapsed, dashboardPath }) {
@@ -167,16 +264,8 @@ function NavGroup({ item, collapsed, dashboardPath }) {
 export default function SideBar({ collapsed, setCollapsed }) {
   const { user, role } = useAuth();
   const activeRole = role || user?.role_name || user?.role;
-  const normalizedRole = String(activeRole || "").toLowerCase();
   const dashboardPath = getDashboardPath(activeRole);
-  const visibleNavItems =
-    normalizedRole === "superadmin"
-      ? superAdminNavItems
-      : normalizedRole === "admin"
-      ? adminNavItems
-      : normalizedRole === "technician"
-      ? technicianNavItems
-      : employeeNavItems;
+  const visibleNavItems = getVisibleNavItems(activeRole);
 
   return (
     <aside

@@ -415,34 +415,28 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
 async function uploadTicketAttachments(ticketId, files, uploadedBy) {
   if (!ticketId || !files.length) return;
 
-  for (const file of files) {
-    const fileData = await readFileAsDataUrl(file);
-    const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        uploaded_by: uploadedBy,
-        file_name: file.name,
-        file_type: file.type,
-        file_size: file.size,
-        file_data: fileData,
-      }),
-    });
+  const formData = new FormData();
+  files.forEach((file) => formData.append("attachments", file));
+  if (uploadedBy) formData.append("uploaded_by", uploadedBy);
 
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || `Failed to upload ${file.name}`);
-    }
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const data = await readJsonSafely(res);
+    throw new Error(data.error || "Failed to upload attachments");
   }
 }
 
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+async function readJsonSafely(res) {
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return { error: "Server returned a non-JSON response." };
+  }
 }
 
 function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
@@ -512,16 +506,11 @@ function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
 
   const openAttachment = async (attachmentId) => {
     try {
-      const res = await fetch(`${API_BASE}/ticket-attachments/${attachmentId}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to open attachment");
-
-      const win = window.open();
-      if (win) {
-        win.document.write(
-          `<iframe src="${data.file_data}" title="${data.file_name}" style="border:0;width:100%;height:100vh;"></iframe>`
-        );
-      }
+      const attachment = item.attachments?.find(
+        (entry) => entry.attachment_id === attachmentId
+      );
+      if (!attachment?.file_path) throw new Error("Attachment file path not found");
+      window.open(`http://localhost:5000${attachment.file_path}`, "_blank", "noopener,noreferrer");
     } catch (err) {
       console.error(err);
     }
@@ -585,7 +574,7 @@ function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
                     >
                       <span>{attachment.file_name}</span>
                       <span className="text-xs text-slate-400">
-                        {attachment.file_type}
+                        {attachment.mime_type}
                       </span>
                     </button>
                   ))}

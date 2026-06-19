@@ -29,16 +29,52 @@ WHERE NOT EXISTS (
   WHERE LOWER(sr.role_name) = LOWER(required_roles.role_name)
 );
 
+INSERT INTO users
+(full_name, email, password_hash, role_id, company_name, status, is_active)
+SELECT
+  'Super Administrator',
+  'superadmin@astreablue.com',
+  'superadmin123',
+  sr.role_id,
+  'AstreaBlue',
+  'Active',
+  TRUE
+FROM system_roles sr
+WHERE LOWER(sr.role_name) = 'superadmin'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM users u
+    WHERE LOWER(u.email) = 'superadmin@astreablue.com'
+  )
+LIMIT 1;
+
 CREATE TABLE IF NOT EXISTS ticket_attachments (
   attachment_id SERIAL PRIMARY KEY,
   ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
-  uploaded_by INTEGER REFERENCES users(user_id),
-  file_name VARCHAR(255) NOT NULL,
-  file_type VARCHAR(100),
+  file_name VARCHAR(255),
+  file_path TEXT,
   file_size INTEGER,
-  file_data TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  mime_type VARCHAR(100),
+  uploaded_by INTEGER REFERENCES users(user_id),
+  uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE ticket_attachments
+  ADD COLUMN IF NOT EXISTS file_path TEXT,
+  ADD COLUMN IF NOT EXISTS mime_type VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'ticket_attachments'
+      AND column_name = 'file_data'
+  ) THEN
+    ALTER TABLE ticket_attachments ALTER COLUMN file_data DROP NOT NULL;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS user_invites (
   invite_id SERIAL PRIMARY KEY,
