@@ -11,7 +11,7 @@ import { useAuth } from "../context/AuthContext";
 
 const API_BASE = "http://localhost:5000/api/v1";
 
-export default function TechnicianDashboard() {
+export default function TechnicianDashboard({ view = "dashboard" }) {
   const { user } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +73,10 @@ export default function TechnicianDashboard() {
   const open = assignedTickets.filter((t) => t.status === "Open Queue").length;
   const resolved = resolvedTickets.length;
   const critical = assignedTickets.filter((t) => t.priority === "P1-Critical").length;
+  const showOverview = view === "dashboard";
+  const showAssigned = view === "dashboard" || view === "assigned";
+  const showAvailable = view === "dashboard" || view === "available";
+  const showResolved = view === "dashboard" || view === "resolved";
 
   const updateStatus = async (ticketId, status) => {
     try {
@@ -142,14 +146,16 @@ export default function TechnicianDashboard() {
         </p>
       </section>
 
+      {showOverview && (
       <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card icon={Ticket} label="Assigned To Me" value={assignedTickets.length} color="blue" />
         <Card icon={Clock} label="Open Queue" value={open} color="amber" />
         <Card icon={Play} label="In Progress" value={inProgress} color="sky" />
         <Card icon={CheckCircle} label="Resolved" value={resolved} color="emerald" />
       </section>
+      )}
 
-      {critical > 0 && (
+      {showOverview && critical > 0 && (
         <section className="rounded-2xl border border-red-200 bg-red-50 p-5 text-red-700">
           <div className="flex items-center gap-3">
             <AlertCircle />
@@ -163,6 +169,7 @@ export default function TechnicianDashboard() {
         </section>
       )}
 
+      {showAssigned && (
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-xl font-black text-slate-900">My Assigned Tickets</h2>
         <p className="mt-1 text-sm text-slate-500">
@@ -246,7 +253,9 @@ export default function TechnicianDashboard() {
           </table>
         </div>
       </section>
+      )}
 
+      {showAvailable && (
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-xl font-black text-slate-900">Available Tickets</h2>
         <p className="mt-1 text-sm text-slate-500">
@@ -329,7 +338,9 @@ export default function TechnicianDashboard() {
           </table>
         </div>
       </section>
+      )}
 
+      {showResolved && (
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-xl font-black text-slate-900">Resolved Tickets</h2>
         <p className="mt-1 text-sm text-slate-500">
@@ -401,6 +412,7 @@ export default function TechnicianDashboard() {
           </table>
         </div>
       </section>
+      )}
 
       {resolutionTicket && (
         <ResolutionModal

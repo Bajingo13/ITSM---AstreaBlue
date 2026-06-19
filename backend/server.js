@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const crypto = require("crypto");
 const db = require("./config/db");
 const authRoutes = require("./src/routes/auth");
 
@@ -52,9 +53,15 @@ async function ensureRoleBranchManagement() {
         branch_id SERIAL PRIMARY KEY,
         branch_name VARCHAR(150) NOT NULL,
         branch_location VARCHAR(255),
+        is_headquarters BOOLEAN DEFAULT FALSE,
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    await db.query(`
+      ALTER TABLE branches
+      ADD COLUMN IF NOT EXISTS is_headquarters BOOLEAN DEFAULT FALSE
     `);
 
     await db.query(`
@@ -85,6 +92,44 @@ async function ensureRoleBranchManagement() {
 }
 
 ensureRoleBranchManagement();
+
+async function ensureAttachmentsAndInvites() {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ticket_attachments (
+        attachment_id SERIAL PRIMARY KEY,
+        ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+        uploaded_by INTEGER REFERENCES users(user_id),
+        file_name VARCHAR(255) NOT NULL,
+        file_type VARCHAR(100),
+        file_size INTEGER,
+        file_data TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS user_invites (
+        invite_id SERIAL PRIMARY KEY,
+        token VARCHAR(120) UNIQUE NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        full_name VARCHAR(255),
+        role_id INTEGER REFERENCES system_roles(role_id),
+        branch_id INTEGER REFERENCES branches(branch_id),
+        company_name VARCHAR(255),
+        mobile_number VARCHAR(20),
+        invited_by INTEGER REFERENCES users(user_id),
+        accepted_at TIMESTAMP,
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  } catch (err) {
+    console.error("Attachments/invites setup error:", err.message);
+  }
+}
+
+ensureAttachmentsAndInvites();
 
 /* ==========================
    AUTH ROUTES
@@ -197,6 +242,7 @@ app.get("/api/v1/branches", async (req, res) => {
         b.branch_id,
         b.branch_name,
         b.branch_location,
+        b.is_headquarters,
         b.is_active,
         b.created_at,
         admin.user_id AS admin_user_id,
@@ -230,7 +276,13 @@ app.get("/api/v1/branches", async (req, res) => {
 
 app.post("/api/v1/branches", async (req, res) => {
   try {
-    const { branch_name, branch_location = null, is_active = true, admin_user_id = null } = req.body;
+    const {
+      branch_name,
+      branch_location = null,
+      is_active = true,
+      is_headquarters = false,
+      admin_user_id = null,
+    } = req.body;
 
     if (!branch_name) {
       return res.status(400).json({
@@ -241,11 +293,11 @@ app.post("/api/v1/branches", async (req, res) => {
 
     const result = await db.query(
       `
-      INSERT INTO branches (branch_name, branch_location, is_active)
-      VALUES ($1, $2, $3)
+      INSERT INTO branches (branch_name, branch_location, is_active, is_headquarters)
+      VALUES ($1, $2, $3, $4)
       RETURNING *
       `,
-      [branch_name, branch_location, is_active]
+      [branch_name, branch_location, is_active, is_headquarters]
     );
 
     if (admin_user_id) {
@@ -269,7 +321,13 @@ app.post("/api/v1/branches", async (req, res) => {
 app.put("/api/v1/branches/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { branch_name, branch_location = null, is_active = true, admin_user_id = null } = req.body;
+    const {
+      branch_name,
+      branch_location = null,
+      is_active = true,
+      is_headquarters = false,
+      admin_user_id = null,
+    } = req.body;
 
     if (!branch_name) {
       return res.status(400).json({
@@ -284,11 +342,12 @@ app.put("/api/v1/branches/:id", async (req, res) => {
       SET
         branch_name = $1,
         branch_location = $2,
-        is_active = $3
-      WHERE branch_id = $4
+        is_active = $3,
+        is_headquarters = $4
+      WHERE branch_id = $5
       RETURNING *
       `,
-      [branch_name, branch_location, is_active, id]
+      [branch_name, branch_location, is_active, is_headquarters, id]
     );
 
     if (result.rows.length === 0) {
@@ -652,6 +711,170 @@ app.patch("/api/v1/users/:id/status", async (req, res) => {
   }
 });
 
+app.post("/api/v1/users/invite", async (req, res) => {
+  try {
+    const {
+      full_name,
+      email,
+      role_id,
+      branch_id = null,
+      company_name = null,
+      mobile_number = null,
+      invited_by = null,
+    } = req.body;
+
+    if (!email || !role_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Email and role are required",
+      });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const result = await db.query(
+      `
+      INSERT INTO user_invites
+      (token, email, full_name, role_id, branch_id, company_name, mobile_number, invited_by, expires_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP + INTERVAL '7 days')
+      RETURNING *
+      `,
+      [
+        token,
+        email,
+        full_name || null,
+        role_id,
+        branch_id || null,
+        company_name,
+        mobile_number,
+        invited_by,
+      ]
+    );
+
+    res.status(201).json({
+      ...result.rows[0],
+      invite_link: `http://localhost:5173/register-invite/${token}`,
+    });
+  } catch (err) {
+    console.error("Create invite error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to create invite",
+    });
+  }
+});
+
+app.get("/api/v1/invites/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const result = await db.query(
+      `
+      SELECT
+        i.invite_id,
+        i.token,
+        i.email,
+        i.full_name,
+        i.role_id,
+        sr.role_name,
+        i.branch_id,
+        b.branch_name,
+        i.company_name,
+        i.mobile_number,
+        i.accepted_at,
+        i.expires_at
+      FROM user_invites i
+      LEFT JOIN system_roles sr ON i.role_id = sr.role_id
+      LEFT JOIN branches b ON i.branch_id = b.branch_id
+      WHERE i.token = $1
+      `,
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Invite not found" });
+    }
+
+    const invite = result.rows[0];
+    if (invite.accepted_at) {
+      return res.status(400).json({ success: false, error: "Invite already accepted" });
+    }
+
+    if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+      return res.status(400).json({ success: false, error: "Invite expired" });
+    }
+
+    res.json(invite);
+  } catch (err) {
+    console.error("Fetch invite error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to fetch invite" });
+  }
+});
+
+app.post("/api/v1/invites/:token/accept", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ success: false, error: "Password is required" });
+    }
+
+    const inviteResult = await db.query(
+      `SELECT * FROM user_invites WHERE token = $1`,
+      [token]
+    );
+
+    if (inviteResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Invite not found" });
+    }
+
+    const invite = inviteResult.rows[0];
+    if (invite.accepted_at) {
+      return res.status(400).json({ success: false, error: "Invite already accepted" });
+    }
+
+    if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+      return res.status(400).json({ success: false, error: "Invite expired" });
+    }
+
+    const userResult = await db.query(
+      `
+      INSERT INTO users
+      (full_name, email, password_hash, role_id, company_name, branch_id, mobile_number, status, is_active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'Active', TRUE)
+      RETURNING user_id, full_name, email, role_id, branch_id
+      `,
+      [
+        invite.full_name || invite.email,
+        invite.email,
+        password,
+        invite.role_id,
+        invite.company_name,
+        invite.branch_id,
+        invite.mobile_number,
+      ]
+    );
+
+    await db.query(
+      `UPDATE user_invites SET accepted_at = CURRENT_TIMESTAMP WHERE invite_id = $1`,
+      [invite.invite_id]
+    );
+
+    res.status(201).json({ success: true, user: userResult.rows[0] });
+  } catch (err) {
+    console.error("Accept invite error:", err.message);
+
+    if (err.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        error: "A user with this email already exists",
+      });
+    }
+
+    res.status(500).json({ success: false, error: "Failed to accept invite" });
+  }
+});
+
 /* ==========================
    KNOWLEDGE BASE
 ========================== */
@@ -898,6 +1121,9 @@ app.get("/api/v1/tickets", async (req, res) => {
         t.resolved_at,
         t.closed_at,
         t.resolution_notes,
+        t.root_cause,
+        t.time_spent_minutes,
+        t.parts_used,
         t.satisfaction_rating,
         t.created_at,
         t.updated_at,
@@ -956,6 +1182,9 @@ app.get("/api/v1/tickets/:id", async (req, res) => {
         t.resolved_at,
         t.closed_at,
         t.resolution_notes,
+        t.root_cause,
+        t.time_spent_minutes,
+        t.parts_used,
         t.satisfaction_rating,
         t.created_at,
         t.updated_at,
@@ -1029,10 +1258,31 @@ app.get("/api/v1/tickets/:id", async (req, res) => {
       [id]
     );
 
+    const attachmentsResult = await db.query(
+      `
+      SELECT
+        ta.attachment_id,
+        ta.ticket_id,
+        ta.uploaded_by,
+        ta.file_name,
+        ta.file_type,
+        ta.file_size,
+        ta.created_at,
+        u.full_name AS uploaded_by_name
+      FROM ticket_attachments ta
+      LEFT JOIN users u
+        ON ta.uploaded_by = u.user_id
+      WHERE ta.ticket_id = $1
+      ORDER BY ta.created_at ASC
+      `,
+      [id]
+    );
+
     res.json({
       ...ticketResult.rows[0],
       comments: commentsResult.rows,
       history: historyResult.rows,
+      attachments: attachmentsResult.rows,
     });
   } catch (err) {
     console.error("Fetch single ticket error:", err.message);
@@ -1041,6 +1291,121 @@ app.get("/api/v1/tickets/:id", async (req, res) => {
       success: false,
       error: "Failed to fetch ticket",
     });
+  }
+});
+
+app.get("/api/v1/tickets/:id/attachments", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(
+      `
+      SELECT
+        attachment_id,
+        ticket_id,
+        uploaded_by,
+        file_name,
+        file_type,
+        file_size,
+        created_at
+      FROM ticket_attachments
+      WHERE ticket_id = $1
+      ORDER BY created_at ASC
+      `,
+      [id]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Fetch attachments error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to fetch attachments" });
+  }
+});
+
+app.get("/api/v1/ticket-attachments/:attachmentId", async (req, res) => {
+  try {
+    const { attachmentId } = req.params;
+    const result = await db.query(
+      `
+      SELECT file_name, file_type, file_data
+      FROM ticket_attachments
+      WHERE attachment_id = $1
+      `,
+      [attachmentId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Attachment not found" });
+    }
+
+    const attachment = result.rows[0];
+    res.json(attachment);
+  } catch (err) {
+    console.error("Fetch attachment error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to fetch attachment" });
+  }
+});
+
+app.post("/api/v1/tickets/:id/attachments", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      uploaded_by = null,
+      file_name,
+      file_type,
+      file_size = null,
+      file_data,
+    } = req.body;
+
+    const allowedTypes = [
+      "image/png",
+      "image/jpg",
+      "image/jpeg",
+      "image/webp",
+      "application/pdf",
+    ];
+
+    if (!file_name || !file_type || !file_data) {
+      return res.status(400).json({
+        success: false,
+        error: "File name, type, and data are required",
+      });
+    }
+
+    if (!allowedTypes.includes(file_type)) {
+      return res.status(400).json({
+        success: false,
+        error: "Only PNG, JPG, JPEG, WEBP, and PDF files are supported",
+      });
+    }
+
+    const ticketResult = await db.query(`SELECT id FROM tickets WHERE id = $1`, [id]);
+    if (ticketResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Ticket not found" });
+    }
+
+    const result = await db.query(
+      `
+      INSERT INTO ticket_attachments
+      (ticket_id, uploaded_by, file_name, file_type, file_size, file_data)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING attachment_id, ticket_id, uploaded_by, file_name, file_type, file_size, created_at
+      `,
+      [id, uploaded_by, file_name, file_type, file_size, file_data]
+    );
+
+    await db.query(
+      `
+      INSERT INTO ticket_history
+      (ticket_id, changed_by, action, old_value, new_value)
+      VALUES ($1, $2, 'Attachment Added', NULL, $3)
+      `,
+      [id, uploaded_by, file_name]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("Upload attachment error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to upload attachment" });
   }
 });
 
@@ -1178,6 +1543,9 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
       impact,
       urgency,
       resolution_notes,
+      root_cause,
+      time_spent_minutes,
+      parts_used,
       satisfaction_rating,
       changed_by = null,
     } = req.body;
@@ -1210,6 +1578,11 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         ? new Date()
         : existing.resolved_at;
 
+    const firstResponseAt =
+      finalStatus === "In Progress" && !existing.first_response_at
+        ? new Date()
+        : existing.first_response_at;
+
     const closedAt =
       finalStatus === "Closed" && !existing.closed_at
         ? new Date()
@@ -1230,10 +1603,14 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         impact = $9,
         urgency = $10,
         resolution_notes = $11,
-        satisfaction_rating = $12,
-        resolved_at = $13,
-        closed_at = $14
-      WHERE id = $15
+        root_cause = $12,
+        time_spent_minutes = $13,
+        parts_used = $14,
+        satisfaction_rating = $15,
+        resolved_at = $16,
+        closed_at = $17,
+        first_response_at = $18
+      WHERE id = $19
       RETURNING
         id,
         ticket_number,
@@ -1246,9 +1623,13 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         impact,
         urgency,
         sla_due_date,
+        first_response_at,
         resolved_at,
         closed_at,
         resolution_notes,
+        root_cause,
+        time_spent_minutes,
+        parts_used,
         satisfaction_rating,
         created_at,
         updated_at
@@ -1265,9 +1646,13 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         impact ?? existing.impact,
         urgency ?? existing.urgency,
         resolution_notes ?? existing.resolution_notes,
+        root_cause ?? existing.root_cause,
+        time_spent_minutes ?? existing.time_spent_minutes,
+        parts_used ?? existing.parts_used,
         satisfaction_rating ?? existing.satisfaction_rating,
         resolvedAt,
         closedAt,
+        firstResponseAt,
         id,
       ]
     );

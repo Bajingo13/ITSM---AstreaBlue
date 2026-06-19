@@ -7,9 +7,11 @@ import Dashboard from "./views/Dashboard";
 import AdminDashboard from "./views/AdminDashboard";
 import TechnicianDashboard from "./views/TechnicianDashboard";
 import EmployeeDashboard from "./views/EmployeeDashboard";
+import SuperAdminDashboard from "./views/SuperAdminDashboard";
 
 import Tickets from "./views/Tickets";
 import KnowledgeBase from "./views/KnowledgeBase";
+import SLAMonitor from "./views/SLAMonitor";
 import Assets from "./views/Assets";
 import CMDB from "./views/CMDB";
 import ChangeManagement from "./views/ChangeManagement";
@@ -19,6 +21,7 @@ import EndpointMonitoring from "./views/EndpointMonitoring";
 import Settings from "./views/Settings";
 import UserManagement from "./views/UserManagement";
 import BranchManagement from "./views/BranchManagement";
+import InviteRegistration from "./views/InviteRegistration";
 
 const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
 const ADMIN_ROLES = ["SuperAdmin", "Admin"];
@@ -29,17 +32,6 @@ function ServiceCatalog() {
       <h1 className="text-3xl font-black text-slate-900">Service Catalog</h1>
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-slate-600">Service Catalog module coming soon.</p>
-      </div>
-    </div>
-  );
-}
-
-function SLAMonitor() {
-  return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-black text-slate-900">SLA Monitor</h1>
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-slate-600">SLA monitoring module coming soon.</p>
       </div>
     </div>
   );
@@ -64,6 +56,7 @@ export default function App() {
       <Route path="/" element={<Navigate to="/login" replace />} />
 
       <Route path="/login" element={<Login />} />
+      <Route path="/register-invite/:token" element={<InviteRegistration />} />
 
       <Route
         element={
@@ -85,7 +78,7 @@ export default function App() {
           path="/superadmin/dashboard"
           element={
             <ProtectedRoute allowedRoles={["SuperAdmin"]}>
-              <AdminDashboard />
+              <SuperAdminDashboard />
             </ProtectedRoute>
           }
         />
@@ -101,34 +94,37 @@ export default function App() {
           path="/technician/dashboard"
           element={
             <ProtectedRoute allowedRoles={["Technician"]}>
-              <TechnicianDashboard />
+              <TechnicianDashboard view="dashboard" />
             </ProtectedRoute>
           }
         />
         <Route
-          path="/technician/available"
+          path="/technician/available-tickets"
           element={
             <ProtectedRoute allowedRoles={["Technician"]}>
-              <TechnicianDashboard />
+              <TechnicianDashboard view="available" />
             </ProtectedRoute>
           }
         />
         <Route
-          path="/technician/assigned"
+          path="/technician/my-assigned-tickets"
           element={
             <ProtectedRoute allowedRoles={["Technician"]}>
-              <TechnicianDashboard />
+              <TechnicianDashboard view="assigned" />
             </ProtectedRoute>
           }
         />
         <Route
-          path="/technician/resolved"
+          path="/technician/resolved-tickets"
           element={
             <ProtectedRoute allowedRoles={["Technician"]}>
-              <TechnicianDashboard />
+              <TechnicianDashboard view="resolved" />
             </ProtectedRoute>
           }
         />
+        <Route path="/technician/available" element={<Navigate to="/technician/available-tickets" replace />} />
+        <Route path="/technician/assigned" element={<Navigate to="/technician/my-assigned-tickets" replace />} />
+        <Route path="/technician/resolved" element={<Navigate to="/technician/resolved-tickets" replace />} />
         <Route
           path="/employee/dashboard"
           element={
@@ -138,21 +134,23 @@ export default function App() {
           }
         />
         <Route
-          path="/create-ticket"
+          path="/employee/create-ticket"
           element={
             <ProtectedRoute allowedRoles={["Employee"]}>
-              <EmployeeDashboard />
+              <EmployeeDashboard view="create" />
             </ProtectedRoute>
           }
         />
         <Route
-          path="/my-tickets"
+          path="/employee/my-tickets"
           element={
             <ProtectedRoute allowedRoles={["Employee"]}>
-              <EmployeeDashboard />
+              <EmployeeDashboard view="tickets" />
             </ProtectedRoute>
           }
         />
+        <Route path="/create-ticket" element={<Navigate to="/employee/create-ticket" replace />} />
+        <Route path="/my-tickets" element={<Navigate to="/employee/my-tickets" replace />} />
 
         <Route
           path="/tickets"

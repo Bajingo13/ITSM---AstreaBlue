@@ -4,8 +4,10 @@ import {
   CheckCircle,
   Clock,
   FileText,
+  Paperclip,
   Plus,
   RotateCcw,
+  Star,
   Ticket,
   X,
 } from "lucide-react";
@@ -17,7 +19,7 @@ const priorityOptions = ["P1-Critical", "P2-High", "P3-Medium", "P4-Low"];
 const impactOptions = ["High", "Medium", "Low"];
 const urgencyOptions = ["High", "Medium", "Low"];
 
-export default function EmployeeDashboard() {
+export default function EmployeeDashboard({ view = "dashboard" }) {
   const { user } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -26,6 +28,9 @@ export default function EmployeeDashboard() {
   const [selectedTicket, setSelectedTicket] = useState(null);
 
   const employeeId = user?.user_id;
+  const showOverview = view === "dashboard";
+  const showCreate = view === "create";
+  const showTickets = view === "dashboard" || view === "tickets";
 
   const fetchTickets = useCallback(async () => {
     try {
@@ -55,6 +60,10 @@ export default function EmployeeDashboard() {
     fetchCategories();
   }, [fetchTickets, fetchCategories]);
 
+  useEffect(() => {
+    if (showCreate) setTicketModalOpen(true);
+  }, [showCreate]);
+
   const myTickets = useMemo(() => {
     return tickets.filter(
       (ticket) => Number(ticket.requester_id) === Number(employeeId)
@@ -78,6 +87,7 @@ export default function EmployeeDashboard() {
           </p>
         </div>
 
+        {showOverview && (
         <button
           onClick={() => setTicketModalOpen(true)}
           className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
@@ -85,15 +95,41 @@ export default function EmployeeDashboard() {
           <Plus size={18} />
           Create Ticket
         </button>
+        )}
       </section>
 
+      {showCreate && (
+        <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto flex max-w-xl flex-col items-center">
+            <div className="rounded-2xl bg-blue-50 p-4 text-blue-700">
+              <Plus size={28} />
+            </div>
+            <h2 className="mt-4 text-2xl font-black text-slate-900">
+              Create Ticket
+            </h2>
+            <p className="mt-2 text-sm text-slate-500">
+              File a new incident or service request with optional screenshots or PDFs.
+            </p>
+            <button
+              onClick={() => setTicketModalOpen(true)}
+              className="mt-5 rounded-xl bg-blue-700 px-6 py-3 font-black text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800"
+            >
+              Open Ticket Form
+            </button>
+          </div>
+        </section>
+      )}
+
+      {showOverview && (
       <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card icon={Ticket} label="My Open Tickets" value={openTickets.length} color="blue" />
         <Card icon={Clock} label="In Progress" value={inProgressTickets.length} color="sky" />
         <Card icon={CheckCircle} label="Resolved" value={resolvedTickets.length} color="emerald" />
         <Card icon={FileText} label="Closed" value={closedTickets.length} color="slate" />
       </section>
+      )}
 
+      {showTickets && (
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-xl font-black text-slate-900">My Tickets</h2>
         <p className="mt-1 text-sm text-slate-500">
@@ -171,6 +207,7 @@ export default function EmployeeDashboard() {
           </table>
         </div>
       </section>
+      )}
 
       {ticketModalOpen && (
         <CreateTicketModal
@@ -207,6 +244,7 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
     impact: "Medium",
     urgency: "Medium",
   });
+  const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -242,6 +280,7 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
 
       if (!res.ok) throw new Error(data.error || "Failed to create ticket.");
 
+      await uploadTicketAttachments(data.id, files, user?.user_id);
       onCreated();
     } catch (err) {
       setError(err.message);
@@ -334,6 +373,23 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
             />
           </div>
 
+          <div>
+            <label className="mb-2 block text-sm font-bold text-slate-700">
+              Attach Screenshots or PDF
+            </label>
+            <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 px-4 py-5 text-sm font-bold text-blue-700 hover:bg-blue-50">
+              <Paperclip size={18} />
+              <span>{files.length ? `${files.length} file(s) selected` : "Choose PNG, JPG, JPEG, WEBP, or PDF"}</span>
+              <input
+                type="file"
+                multiple
+                accept=".png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf"
+                onChange={(e) => setFiles(Array.from(e.target.files || []))}
+                className="hidden"
+              />
+            </label>
+          </div>
+
           <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
             <button
               type="button"
@@ -356,10 +412,44 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
   );
 }
 
+async function uploadTicketAttachments(ticketId, files, uploadedBy) {
+  if (!ticketId || !files.length) return;
+
+  for (const file of files) {
+    const fileData = await readFileAsDataUrl(file);
+    const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        uploaded_by: uploadedBy,
+        file_name: file.name,
+        file_type: file.type,
+        file_size: file.size,
+        file_data: fileData,
+      }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || `Failed to upload ${file.name}`);
+    }
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [rating, setRating] = useState(ticket.satisfaction_rating || 0);
 
   const fetchDetails = useCallback(async () => {
     try {
@@ -380,6 +470,10 @@ function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
 
   const item = details || ticket;
 
+  useEffect(() => {
+    setRating(item.satisfaction_rating || 0);
+  }, [item.satisfaction_rating]);
+
   const updateTicketStatus = async (status) => {
     try {
       setUpdating(true);
@@ -397,6 +491,39 @@ function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
       console.error(err);
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const submitRating = async (value) => {
+    try {
+      setRating(value);
+      const res = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ satisfaction_rating: value }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save rating.");
+      fetchDetails();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const openAttachment = async (attachmentId) => {
+    try {
+      const res = await fetch(`${API_BASE}/ticket-attachments/${attachmentId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to open attachment");
+
+      const win = window.open();
+      if (win) {
+        win.document.write(
+          `<iframe src="${data.file_data}" title="${data.file_name}" style="border:0;width:100%;height:100vh;"></iframe>`
+        );
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -443,6 +570,33 @@ function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
               </p>
             </section>
 
+            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="mb-4 flex items-center gap-2">
+                <Paperclip size={18} className="text-blue-600" />
+                <h3 className="font-black text-slate-900">Attachments</h3>
+              </div>
+              {item.attachments?.length ? (
+                <div className="space-y-2">
+                  {item.attachments.map((attachment) => (
+                    <button
+                      key={attachment.attachment_id}
+                      onClick={() => openAttachment(attachment.attachment_id)}
+                      className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+                    >
+                      <span>{attachment.file_name}</span>
+                      <span className="text-xs text-slate-400">
+                        {attachment.file_type}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm font-semibold text-slate-400">
+                  No attachments uploaded.
+                </p>
+              )}
+            </section>
+
             <section className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-5">
               <div className="mb-4 flex items-center gap-2">
                 <CheckCircle size={18} className="text-emerald-600" />
@@ -483,6 +637,29 @@ function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
                 </div>
               </div>
             </section>
+
+            {(item.status === "Resolved" || item.status === "Closed") && (
+              <section className="rounded-2xl border border-blue-100 bg-blue-50/40 p-5">
+                <h3 className="mb-3 font-black text-slate-900">
+                  Satisfaction Rating
+                </h3>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <button
+                      key={value}
+                      onClick={() => submitRating(value)}
+                      className={`rounded-xl p-2 ${
+                        value <= rating
+                          ? "bg-amber-100 text-amber-600"
+                          : "bg-white text-slate-300"
+                      }`}
+                    >
+                      <Star size={22} fill={value <= rating ? "currentColor" : "none"} />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         )}
 

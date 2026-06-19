@@ -13,6 +13,7 @@ import {
   History,
   Send,
   BookOpen,
+  Paperclip,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
@@ -32,7 +33,7 @@ const priorityStyle = {
   "P4-Low": "bg-blue-50 text-blue-700 border-blue-200",
 };
 
-function NewTicketModal({ categories, onClose, onCreated }) {
+function NewTicketModal({ categories, user, onClose, onCreated }) {
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -46,6 +47,7 @@ function NewTicketModal({ categories, onClose, onCreated }) {
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [files, setFiles] = useState([]);
 
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -78,6 +80,7 @@ function NewTicketModal({ categories, onClose, onCreated }) {
 
       if (!res.ok) throw new Error(data.error || "Failed to create ticket.");
 
+      await uploadTicketAttachments(data.id, files, user?.user_id);
       onCreated();
     } catch (err) {
       setError(err.message);
@@ -185,6 +188,27 @@ function NewTicketModal({ categories, onClose, onCreated }) {
             </select>
           </div>
 
+          <div>
+            <label className="mb-2 block text-sm font-bold text-slate-700">
+              Attach Screenshots or PDF
+            </label>
+            <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 px-4 py-5 text-sm font-bold text-blue-700 hover:bg-blue-50">
+              <Paperclip size={18} />
+              <span>
+                {files.length
+                  ? `${files.length} file(s) selected`
+                  : "Choose PNG, JPG, JPEG, WEBP, or PDF"}
+              </span>
+              <input
+                type="file"
+                multiple
+                accept=".png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf"
+                onChange={(e) => setFiles(Array.from(e.target.files || []))}
+                className="hidden"
+              />
+            </label>
+          </div>
+
           <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
             <button
               type="button"
@@ -206,6 +230,39 @@ function NewTicketModal({ categories, onClose, onCreated }) {
       </div>
     </div>
   );
+}
+
+async function uploadTicketAttachments(ticketId, files, uploadedBy) {
+  if (!ticketId || !files.length) return;
+
+  for (const file of files) {
+    const fileData = await readFileAsDataUrl(file);
+    const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        uploaded_by: uploadedBy,
+        file_name: file.name,
+        file_type: file.type,
+        file_size: file.size,
+        file_data: fileData,
+      }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || `Failed to upload ${file.name}`);
+    }
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
@@ -350,6 +407,23 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
     });
   };
 
+  const openAttachment = async (attachmentId) => {
+    try {
+      const res = await fetch(`${API_BASE}/ticket-attachments/${attachmentId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to open attachment");
+
+      const win = window.open();
+      if (win) {
+        win.document.write(
+          `<iframe src="${data.file_data}" title="${data.file_name}" style="border:0;width:100%;height:100vh;"></iframe>`
+        );
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/70 backdrop-blur-sm">
       <div className="flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl">
@@ -446,6 +520,33 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               <p className="whitespace-pre-line text-sm leading-7 text-slate-600">
                 {item.desc || item.description}
               </p>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="mb-4 flex items-center gap-2">
+                <Paperclip size={18} className="text-blue-600" />
+                <h3 className="font-black text-slate-900">Attachments</h3>
+              </div>
+              {item.attachments?.length ? (
+                <div className="space-y-2">
+                  {item.attachments.map((attachment) => (
+                    <button
+                      key={attachment.attachment_id}
+                      onClick={() => openAttachment(attachment.attachment_id)}
+                      className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+                    >
+                      <span>{attachment.file_name}</span>
+                      <span className="text-xs text-slate-400">
+                        {attachment.file_type}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm font-semibold text-slate-400">
+                  No attachments uploaded.
+                </p>
+              )}
             </section>
 
             {hasResolution && (
@@ -730,6 +831,7 @@ function Column({ column, tickets, onTicketClick }) {
 }
 
 export default function Tickets() {
+  const { user } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [categories, setCategories] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -876,6 +978,7 @@ export default function Tickets() {
       {modalOpen && (
         <NewTicketModal
           categories={categories}
+          user={user}
           onClose={() => setModalOpen(false)}
           onCreated={() => {
             setModalOpen(false);

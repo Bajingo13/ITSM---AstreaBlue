@@ -149,13 +149,22 @@ export default function UserManagement() {
           </p>
         </div>
 
-        <button
-          onClick={openAddUser}
-          className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
-        >
-          <Plus size={18} />
-          Add User
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => setFormUser({ ...emptyForm, inviteMode: true })}
+            className="flex items-center justify-center gap-2 rounded-xl bg-blue-100 px-5 py-3 font-black text-blue-800 shadow-lg hover:bg-blue-50"
+          >
+            <Plus size={18} />
+            Invite User
+          </button>
+          <button
+            onClick={openAddUser}
+            className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
+          >
+            <Plus size={18} />
+            Add User
+          </button>
+        </div>
       </section>
 
       <section className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-[1fr_220px_220px]">
@@ -362,6 +371,7 @@ function UserFormModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const isEditing = Boolean(user.user_id);
+  const isInvite = Boolean(user.inviteMode);
 
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -371,7 +381,7 @@ function UserFormModal({
     e.preventDefault();
     setError("");
 
-    if (!form.full_name || !form.email || !form.role_id || (!isEditing && !form.password)) {
+    if (!form.full_name || !form.email || !form.role_id || (!isEditing && !isInvite && !form.password)) {
       setError("Full name, email, role, and temporary password are required.");
       return;
     }
@@ -381,7 +391,11 @@ function UserFormModal({
 
       const finalBranchId = isSuperAdmin ? form.branch_id : currentBranchId;
       const res = await fetch(
-        isEditing ? `${API_BASE}/users/${user.user_id}` : `${API_BASE}/users`,
+        isInvite
+          ? `${API_BASE}/users/invite`
+          : isEditing
+          ? `${API_BASE}/users/${user.user_id}`
+          : `${API_BASE}/users`,
         {
           method: isEditing ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
@@ -402,6 +416,10 @@ function UserFormModal({
 
       if (!res.ok) throw new Error(data.error || "Failed to save user.");
 
+      if (isInvite && data.invite_link) {
+        window.alert(`Invite link created:\n${data.invite_link}`);
+      }
+
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -416,7 +434,7 @@ function UserFormModal({
         <div className="flex items-start justify-between border-b border-slate-200 px-7 py-5">
           <div>
             <h2 className="text-xl font-black text-slate-900">
-              {isEditing ? "Edit User" : "Add User"}
+              {isInvite ? "Invite User" : isEditing ? "Edit User" : "Add User"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               Configure account profile, branch, role, and access status.
@@ -440,7 +458,7 @@ function UserFormModal({
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Field label="Full Name" value={form.full_name} onChange={(value) => updateForm("full_name", value)} />
             <Field label="Email" value={form.email} onChange={(value) => updateForm("email", value)} />
-            {!isEditing && (
+            {!isEditing && !isInvite && (
               <Field
                 label="Temporary Password"
                 value={form.password}

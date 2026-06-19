@@ -7,6 +7,7 @@ const emptyForm = {
   branch_name: "",
   branch_location: "",
   admin_user_id: "",
+  is_headquarters: false,
   is_active: true,
 };
 
@@ -128,6 +129,7 @@ export default function BranchManagement() {
                 <th className="px-4 py-3">Branch</th>
                 <th className="px-4 py-3">Location</th>
                 <th className="px-4 py-3">Branch Admin</th>
+                <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Created</th>
                 <th className="px-4 py-3">Actions</th>
@@ -136,13 +138,13 @@ export default function BranchManagement() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center font-bold text-slate-400">
+                  <td colSpan="7" className="px-4 py-8 text-center font-bold text-slate-400">
                     Loading branches...
                   </td>
                 </tr>
               ) : filteredBranches.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center font-bold text-slate-400">
+                  <td colSpan="7" className="px-4 py-8 text-center font-bold text-slate-400">
                     No branches found.
                   </td>
                 </tr>
@@ -157,6 +159,11 @@ export default function BranchManagement() {
                     </td>
                     <td className="px-4 py-4 text-sm font-semibold text-slate-600">
                       {branch.admin_name || "Unassigned"}
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
+                        {branch.is_headquarters ? "Headquarters" : "Branch"}
+                      </span>
                     </td>
                     <td className="px-4 py-4">
                       <span
@@ -255,6 +262,7 @@ function BranchFormModal({ branch, adminUsers, onClose, onSaved }) {
             branch_location: form.branch_location || null,
             admin_user_id: form.admin_user_id ? Number(form.admin_user_id) : null,
             is_active: Boolean(form.is_active),
+            is_headquarters: Boolean(form.is_headquarters),
           }),
         }
       );
@@ -340,6 +348,16 @@ function BranchFormModal({ branch, adminUsers, onClose, onSaved }) {
               <option value="Inactive">Inactive</option>
             </select>
           </div>
+
+          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
+            <input
+              type="checkbox"
+              checked={Boolean(form.is_headquarters)}
+              onChange={(e) => updateForm("is_headquarters", e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 accent-blue-700"
+            />
+            Mark as Headquarters
+          </label>
 
           <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
             <button

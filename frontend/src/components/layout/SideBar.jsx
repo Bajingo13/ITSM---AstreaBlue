@@ -42,17 +42,17 @@ const technicianNavItems = [
     label: "My Work",
     icon: Ticket,
     children: [
-      { label: "Available Tickets", icon: FileText, path: "/technician/available" },
-      { label: "My Assigned Tickets", icon: Ticket, path: "/technician/assigned" },
-      { label: "Resolved Tickets", icon: CheckCircle, path: "/technician/resolved" },
+      { label: "Available Tickets", icon: FileText, path: "/technician/available-tickets" },
+      { label: "My Assigned Tickets", icon: Ticket, path: "/technician/my-assigned-tickets" },
+      { label: "Resolved Tickets", icon: CheckCircle, path: "/technician/resolved-tickets" },
     ],
   },
 ];
 
 const employeeNavItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/employee/dashboard" },
-  { label: "Create Ticket", icon: FileText, path: "/create-ticket" },
-  { label: "My Tickets", icon: Ticket, path: "/my-tickets" },
+  { label: "Create Ticket", icon: FileText, path: "/employee/create-ticket" },
+  { label: "My Tickets", icon: Ticket, path: "/employee/my-tickets" },
 ];
 
 function getDashboardPath(role) {
