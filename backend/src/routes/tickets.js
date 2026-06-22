@@ -565,7 +565,16 @@ router.patch("/:id/assign", async (req, res) => {
       : "";
 
     const existingResult = await db.query(
-      `SELECT assigned_to FROM tickets t WHERE t.id = $1 ${accessSql}`,
+      `
+      SELECT
+        t.id,
+        t.assigned_to,
+        t.branch_id,
+        COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name
+      FROM tickets t
+      LEFT JOIN branches b ON t.branch_id = b.branch_id
+      WHERE t.id = $1 ${accessSql}
+      `,
       existingParams
     );
 
@@ -574,6 +583,54 @@ router.patch("/:id/assign", async (req, res) => {
         success: false,
         error: "Ticket not found",
       });
+    }
+
+    const ticket = existingResult.rows[0];
+
+    if (assigned_to) {
+      const technicianResult = await db.query(
+        `
+        SELECT
+          u.user_id,
+          u.full_name,
+          u.branch_id,
+          COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name
+        FROM users u
+        JOIN system_roles sr ON u.role_id = sr.role_id
+        LEFT JOIN branches b ON u.branch_id = b.branch_id
+        WHERE u.user_id = $1
+          AND LOWER(sr.role_name) = 'technician'
+          AND COALESCE(u.is_active, TRUE) = TRUE
+        `,
+        [assigned_to]
+      );
+
+      if (technicianResult.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Selected user is not an active technician",
+        });
+      }
+
+      const technician = technicianResult.rows[0];
+
+      if (
+        ticket.branch_id &&
+        technician.branch_id &&
+        Number(ticket.branch_id) !== Number(technician.branch_id)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `Technician must belong to the same branch as the ticket. Ticket branch: ${ticket.branch_name}, Technician branch: ${technician.branch_name}`,
+        });
+      }
+
+      if (ticket.branch_id && !technician.branch_id) {
+        return res.status(400).json({
+          success: false,
+          error: "Technician has no assigned branch",
+        });
+      }
     }
 
     const result = await db.query(
@@ -589,6 +646,7 @@ router.patch("/:id/assign", async (req, res) => {
         priority,
         status,
         assigned_to,
+        branch_id,
         updated_at
       `,
       [assigned_to || null, id]
@@ -604,7 +662,7 @@ router.patch("/:id/assign", async (req, res) => {
         id,
         changed_by,
         "Ticket Assigned",
-        existingResult.rows[0].assigned_to,
+        ticket.assigned_to,
         assigned_to || null,
       ]
     );
@@ -665,6 +723,14 @@ router.post("/:id/comments", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const roleName = String(req.query.role_name || req.body?.role_name || "").toLowerCase();
+
+    if (roleName !== "superadmin") {
+      return res.status(403).json({
+        success: false,
+        error: "Only SuperAdmin can delete tickets",
+      });
+    }
 
     const result = await db.query(
       `
