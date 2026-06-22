@@ -15,6 +15,7 @@ import CreateTicket from "./views/CreateTicket";
 import MyTickets from "./views/MyTickets";
 
 import Tickets from "./views/Tickets";
+import ServiceCatalog from "./views/ServiceCatalog";
 import KnowledgeBase from "./views/KnowledgeBase";
 import SLAMonitor from "./views/SLAMonitor";
 import Assets from "./views/Assets";
@@ -155,19 +156,12 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/service-catalog"
-          element={
-            <ProtectedRoute allowedRoles={["SuperAdmin", "Admin", "Employee"]}>
-              <ModulePlaceholder title="Service Request Management" />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/service-catalog" element={<Navigate to="/service-requests" replace />} />
         <Route
           path="/service-requests"
           element={
             <ProtectedRoute allowedRoles={["SuperAdmin", "Admin"]}>
-              <ModulePlaceholder title="Service Request Management" />
+              <ServiceCatalog />
             </ProtectedRoute>
           }
         />

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle, Paperclip, RotateCcw, Star, Ticket, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
-const API_BASE = "http://localhost:5000/api/v1";
+const API_BASE = "http://localhost:5001/api/v1";
 
 export default function MyTickets() {
   const { user } = useAuth();
@@ -200,7 +200,7 @@ function TicketDetails({ ticket, onClose, onUpdated }) {
         (entry) => entry.attachment_id === attachmentId
       );
       if (!attachment?.file_path) throw new Error("Attachment file path not found");
-      window.open(`http://localhost:5000${attachment.file_path}`, "_blank", "noopener,noreferrer");
+      window.open(`http://localhost:5001${attachment.file_path}`, "_blank", "noopener,noreferrer");
     } catch (err) {
       console.error(err);
     }

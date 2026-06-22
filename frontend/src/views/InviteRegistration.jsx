@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-const API_BASE = "http://localhost:5000/api/v1";
+const API_BASE = "http://localhost:5001/api/v1";
 
 export default function InviteRegistration() {
   const { token } = useParams();

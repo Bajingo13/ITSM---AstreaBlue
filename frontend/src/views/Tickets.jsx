@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
-const API_BASE = "http://localhost:5000/api/v1";
+const API_BASE = "http://localhost:5001/api/v1";
 
 const columns = [
   { id: "Open Queue", label: "Open Queue", color: "bg-sky-500" },
@@ -407,7 +407,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
         (entry) => entry.attachment_id === attachmentId
       );
       if (!attachment?.file_path) throw new Error("Attachment file path not found");
-      window.open(`http://localhost:5000${attachment.file_path}`, "_blank", "noopener,noreferrer");
+      window.open(`http://localhost:5001${attachment.file_path}`, "_blank", "noopener,noreferrer");
     } catch (err) {
       console.error(err);
     }
@@ -819,13 +819,18 @@ function Column({ column, tickets, onTicketClick }) {
   );
 }
 
-export default function Tickets() {
+export default function Tickets({
+  title = "Ticket Management",
+  description = "Track, prioritize, and resolve IT incidents and service requests.",
+  showServiceFilters = false,
+}) {
   const { user } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [categories, setCategories] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [query, setQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All Services");
   const [loading, setLoading] = useState(true);
 
   const fetchTickets = useCallback(async () => {
@@ -856,19 +861,33 @@ export default function Tickets() {
     fetchCategories();
   }, [fetchTickets, fetchCategories]);
 
+  const serviceFilterOptions = useMemo(() => {
+    const uniqueCategories = Array.from(
+      new Set(categories.map((category) => category.category_name).filter(Boolean))
+    );
+    return ["All Services", ...uniqueCategories];
+  }, [categories]);
+
   const filteredTickets = useMemo(() => {
     const text = query.toLowerCase();
 
     return tickets.filter((ticket) => {
-      return (
+      const matchesSearch =
         ticket.title?.toLowerCase().includes(text) ||
         ticket.ticket_number?.toLowerCase().includes(text) ||
         ticket.priority?.toLowerCase().includes(text) ||
         ticket.status?.toLowerCase().includes(text) ||
-        ticket.category?.toLowerCase().includes(text)
-      );
+        ticket.category?.toLowerCase().includes(text) ||
+        ticket.requester_name?.toLowerCase().includes(text) ||
+        ticket.description?.toLowerCase().includes(text);
+
+      const matchesCategory =
+        selectedCategory === "All Services" ||
+        ticket.category === selectedCategory;
+
+      return matchesSearch && matchesCategory;
     });
-  }, [tickets, query]);
+  }, [tickets, query, selectedCategory]);
 
   const totalOpen = tickets.filter((t) => t.status !== "Closed").length;
   const critical = tickets.filter((t) => t.priority === "P1-Critical").length;
@@ -878,10 +897,8 @@ export default function Tickets() {
     <div className="space-y-6">
       <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center">
         <div>
-          <h1 className="text-3xl font-black">Ticket Management</h1>
-          <p className="mt-2 text-blue-100">
-            Track, prioritize, and resolve IT incidents and service requests.
-          </p>
+          <h1 className="text-3xl font-black">{title}</h1>
+          <p className="mt-2 text-blue-100">{description}</p>
         </div>
 
         <button
@@ -933,13 +950,34 @@ export default function Tickets() {
         </div>
       </section>
 
+      {showServiceFilters && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap gap-2">
+            {serviceFilterOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setSelectedCategory(option)}
+                className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                  selectedCategory === option
+                    ? "border-blue-600 bg-blue-600 text-white"
+                    : "border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50"
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center gap-3">
           <Search size={18} className="text-slate-400" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by ticket number, title, status, priority, or category..."
+            placeholder="Search user requests by ticket number, title, requester, status, priority, or category..."
             className="w-full bg-transparent py-2 text-slate-700 outline-none placeholder:text-slate-400"
           />
         </div>
