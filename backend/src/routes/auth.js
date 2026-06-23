@@ -1,6 +1,10 @@
 const express = require("express");
+const jwt = require("jsonwebtoken");
 const router = express.Router();
 const db = require("../../config/db");
+
+const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
+const JWT_EXPIRES = "8h";
 
 router.post("/login", async (req, res) => {
   try {
@@ -51,8 +55,20 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    // Issue JWT so backend can enforce RBAC on service request endpoints
+    const tokenPayload = {
+      userId: user.user_id,
+      role: user.role_name,
+      branchId: user.branch_id || null,
+      email: user.email,
+      name: user.full_name,
+    };
+
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+
     return res.json({
       success: true,
+      token,
       user: {
         user_id: user.user_id,
         full_name: user.full_name,

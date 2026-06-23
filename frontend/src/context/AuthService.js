@@ -3,9 +3,7 @@ const API_URL = "http://localhost:5001/api/auth";
 export async function loginUser(email, password) {
   const response = await fetch(`${API_URL}/login`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
 
@@ -18,15 +16,15 @@ export async function loginUser(email, password) {
   return data;
 }
 
-export function saveUser(user, rememberMe) {
+export function saveUser(user, token, rememberMe) {
   const storage = rememberMe ? localStorage : sessionStorage;
   storage.setItem("user", JSON.stringify(user));
+  if (token) storage.setItem("token", token);
 }
 
 export function getSavedUser() {
   const localUser = localStorage.getItem("user");
   const sessionUser = sessionStorage.getItem("user");
-
   return localUser
     ? JSON.parse(localUser)
     : sessionUser
@@ -36,5 +34,7 @@ export function getSavedUser() {
 
 export function logoutUser() {
   localStorage.removeItem("user");
+  localStorage.removeItem("token");
   sessionStorage.removeItem("user");
+  sessionStorage.removeItem("token");
 }

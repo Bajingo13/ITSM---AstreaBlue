@@ -9,9 +9,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const savedUser = getSavedUser();
-    if (savedUser) {
-      setUser(savedUser);
-    }
+    if (savedUser) setUser(savedUser);
     setLoading(false);
   }, []);
 
@@ -19,20 +17,20 @@ export function AuthProvider({ children }) {
     const data = await loginUser(email, password);
 
     const loggedUser = {
-      user_id: data.user?.user_id,
-      full_name: data.user?.full_name,
-      email: data.user?.email,
-      role_name: data.user?.role_name,
-      company_name: data.user?.company_name,
-      branch_id: data.user?.branch_id,
-      branch_name: data.user?.branch_name,
+      user_id:       data.user?.user_id,
+      full_name:     data.user?.full_name,
+      email:         data.user?.email,
+      role_name:     data.user?.role_name,
+      company_name:  data.user?.company_name,
+      branch_id:     data.user?.branch_id,
+      branch_name:   data.user?.branch_name,
       mobile_number: data.user?.mobile_number,
-      is_active: data.user?.is_active,
+      is_active:     data.user?.is_active,
     };
 
-    saveUser(loggedUser, rememberMe);
+    // data.token is the JWT returned from the updated login route
+    saveUser(loggedUser, data.token || null, rememberMe);
     setUser(loggedUser);
-
     return loggedUser;
   };
 
