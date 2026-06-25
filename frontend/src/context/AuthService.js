@@ -1,13 +1,20 @@
-const API_URL = "http://localhost:5001/api/auth";
+import { API_URL } from "../config/api";
+const AUTH_API_URL = `${API_URL}/api/auth`;
 
 export async function loginUser(email, password) {
-  const response = await fetch(`${API_URL}/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  let response;
 
-  const data = await response.json();
+  try {
+    response = await fetch(`${AUTH_API_URL}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch {
+    throw new Error(`Unable to reach backend at ${API_URL}. Please confirm the API server is running.`);
+  }
+
+  const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
     throw new Error(data.message || "Login failed");
@@ -90,3 +97,4 @@ export function logoutUser() {
   sessionStorage.removeItem("user");
   sessionStorage.removeItem("token");
 }
+

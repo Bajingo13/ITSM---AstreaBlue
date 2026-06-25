@@ -1,7 +1,8 @@
+import { API_URL } from "../config/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle, Clock, Timer } from "lucide-react";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 
 export default function SLAMonitor() {
   const [tickets, setTickets] = useState([]);
@@ -172,3 +173,4 @@ function Card({ icon: Icon, label, value, color }) {
     </div>
   );
 }
+

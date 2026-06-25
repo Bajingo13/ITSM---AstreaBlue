@@ -1,6 +1,7 @@
+import { API_URL } from "../config/api";
 import { getAuthToken } from "./authHeaders";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 
 function authHeaders(extra = {}) {
   const token = getAuthToken();
@@ -58,3 +59,4 @@ export const apiService = {
 };
 
 export default apiService;
+

@@ -1,7 +1,8 @@
+import { API_URL } from "../../config/api";
 import { useState, useEffect, useCallback } from "react";
 
 // ─── Constants & Configuration ────────────────────────────────────────────────
-const API_BASE = "http://localhost:5000/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 
 const COLUMNS = [
   { id: "Open Queue",   label: "Open Queue",   accent: "border-sky-500",     dot: "bg-sky-400",    count_bg: "bg-sky-900/40 text-sky-300" },

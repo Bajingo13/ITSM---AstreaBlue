@@ -1,8 +1,9 @@
+import { API_URL } from "../config/api";
 import { useCallback, useEffect, useState } from "react";
 import { FileText, Paperclip } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 const priorityOptions = ["P1-Critical", "P2-High", "P3-Medium", "P4-Low"];
 const impactOptions = ["High", "Medium", "Low"];
 const urgencyOptions = ["High", "Medium", "Low"];
@@ -264,3 +265,4 @@ function SelectField({ label, value, onChange, options }) {
     </div>
   );
 }
+

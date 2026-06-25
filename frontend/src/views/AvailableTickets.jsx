@@ -1,8 +1,9 @@
+import { API_URL } from "../config/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileText } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 
 export default function AvailableTickets() {
   const { user } = useAuth();
@@ -157,3 +158,4 @@ function TicketTable({ loading, tickets, emptyText, columns, renderRow }) {
     </section>
   );
 }
+

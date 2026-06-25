@@ -9,10 +9,16 @@ require("dotenv").config();
 
 const db = require("./config/db");
 const authRoutes = require("./src/routes/auth");
+const dashboardRoutes = require("./src/routes/dashboard");
 
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 const ticketUploadDir = path.join(__dirname, "uploads", "tickets");
@@ -217,6 +223,7 @@ ensureAttachmentsAndInvites();
 ========================== */
 
 app.use("/api/auth", authRoutes);
+app.use("/api/v1/dashboard", dashboardRoutes);
 
 /* ==========================
    HEALTH CHECK

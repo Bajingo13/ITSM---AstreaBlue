@@ -1,3 +1,4 @@
+import { API_URL } from "../config/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Edit3,
@@ -10,7 +11,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 
 const emptyForm = {
   full_name: "",
@@ -647,3 +648,4 @@ function SelectField({
     </div>
   );
 }
+
