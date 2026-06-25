@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle, Clock, Timer } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
+import { buildTicketQuery } from "../utils/ticketAccess";
 
 const API_BASE = "http://localhost:5001/api/v1";
 
 export default function SLAMonitor() {
+  const { user } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets`);
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`);
       const data = await res.json();
       setTickets(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -18,7 +21,7 @@ export default function SLAMonitor() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     fetchTickets();

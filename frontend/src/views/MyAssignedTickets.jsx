@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 
 const API_BASE = "http://localhost:5001/api/v1";
 
@@ -15,7 +16,7 @@ export default function MyAssignedTickets() {
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets`);
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`);
       const data = await res.json();
       setTickets(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -23,7 +24,7 @@ export default function MyAssignedTickets() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     fetchTickets();
@@ -43,7 +44,7 @@ export default function MyAssignedTickets() {
       const res = await fetch(`${API_BASE}/tickets/${ticketId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(buildTicketPayload(user, { status })),
       });
 
       if (!res.ok) throw new Error("Failed to update ticket");
@@ -142,6 +143,7 @@ export default function MyAssignedTickets() {
       {resolutionTicket && (
         <ResolutionModal
           ticket={resolutionTicket}
+          user={user}
           onClose={() => setResolutionTicket(null)}
           onResolved={() => {
             setResolutionTicket(null);
@@ -153,7 +155,7 @@ export default function MyAssignedTickets() {
   );
 }
 
-function ResolutionModal({ ticket, onClose, onResolved }) {
+function ResolutionModal({ ticket, user, onClose, onResolved }) {
   const [form, setForm] = useState({
     resolution_notes: "",
     root_cause: "",
@@ -186,7 +188,7 @@ function ResolutionModal({ ticket, onClose, onResolved }) {
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(buildTicketPayload(user, {
           status: "Resolved",
           resolution_notes: form.resolution_notes.trim(),
           root_cause: form.root_cause.trim() || null,
@@ -194,7 +196,7 @@ function ResolutionModal({ ticket, onClose, onResolved }) {
             ? Number(form.time_spent_minutes)
             : null,
           parts_used: form.parts_used.trim() || null,
-        }),
+        })),
       });
 
       const data = await res.json();

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileText } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 
 const API_BASE = "http://localhost:5001/api/v1";
 
@@ -15,7 +16,7 @@ export default function AvailableTickets() {
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets`);
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`);
       const data = await res.json();
       setTickets(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -23,7 +24,7 @@ export default function AvailableTickets() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     fetchTickets();
@@ -47,7 +48,9 @@ export default function AvailableTickets() {
       const assignRes = await fetch(`${API_BASE}/tickets/${ticketId}/assign`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assigned_to: technicianId }),
+        body: JSON.stringify(
+          buildTicketPayload(user, { assigned_to: technicianId })
+        ),
       });
 
       if (!assignRes.ok) throw new Error("Failed to accept ticket");
@@ -55,7 +58,7 @@ export default function AvailableTickets() {
       const statusRes = await fetch(`${API_BASE}/tickets/${ticketId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "In Progress" }),
+        body: JSON.stringify(buildTicketPayload(user, { status: "In Progress" })),
       });
 
       if (!statusRes.ok) throw new Error("Failed to start ticket");

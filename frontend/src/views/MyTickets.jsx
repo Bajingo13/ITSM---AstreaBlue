@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle, Paperclip, RotateCcw, Star, Ticket, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 
 const API_BASE = "http://localhost:5001/api/v1";
 
@@ -15,7 +16,7 @@ export default function MyTickets() {
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets`);
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`);
       const data = await res.json();
       setTickets(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -23,7 +24,7 @@ export default function MyTickets() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     fetchTickets();
@@ -122,6 +123,7 @@ export default function MyTickets() {
       {selectedTicket && (
         <TicketDetails
           ticket={selectedTicket}
+          user={user}
           onClose={() => setSelectedTicket(null)}
           onUpdated={() => {
             setSelectedTicket(null);
@@ -133,7 +135,7 @@ export default function MyTickets() {
   );
 }
 
-function TicketDetails({ ticket, onClose, onUpdated }) {
+function TicketDetails({ ticket, user, onClose, onUpdated }) {
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -142,7 +144,7 @@ function TicketDetails({ ticket, onClose, onUpdated }) {
   const fetchDetails = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets/${ticket.id}`);
+      const res = await fetch(`${API_BASE}/tickets/${ticket.id}${buildTicketQuery(user)}`);
       const data = await res.json();
       setDetails(data);
     } catch (err) {
@@ -150,7 +152,7 @@ function TicketDetails({ ticket, onClose, onUpdated }) {
     } finally {
       setLoading(false);
     }
-  }, [ticket.id]);
+  }, [ticket.id, user]);
 
   useEffect(() => {
     fetchDetails();
@@ -168,7 +170,7 @@ function TicketDetails({ ticket, onClose, onUpdated }) {
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(buildTicketPayload(user, { status })),
       });
       if (!res.ok) throw new Error("Failed to update ticket.");
       onUpdated();
@@ -185,7 +187,7 @@ function TicketDetails({ ticket, onClose, onUpdated }) {
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ satisfaction_rating: value }),
+        body: JSON.stringify(buildTicketPayload(user, { satisfaction_rating: value })),
       });
       if (!res.ok) throw new Error("Failed to save rating.");
       fetchDetails();

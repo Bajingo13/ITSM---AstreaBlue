@@ -738,15 +738,21 @@ router.patch("/:id/cancel", async (req, res) => {
 
     const roleName = String(
       req.query.role_name || req.body?.role_name || ""
-    ).toLowerCase();
-
-    const currentBranchId =
-      req.query.current_branch_id || req.body?.current_branch_id;
+    )
+      .toLowerCase()
+      .replace(/[\s_-]+/g, "");
 
     const cancelledBy =
       req.query.current_user_id || req.body?.current_user_id || null;
 
     const reason = req.body?.cancellation_reason || req.body?.reason || "";
+
+    if (roleName !== "superadmin") {
+      return res.status(403).json({
+        success: false,
+        error: "Only superadmins can cancel tickets.",
+      });
+    }
 
     if (!reason.trim()) {
       return res.status(400).json({
@@ -755,55 +761,24 @@ router.patch("/:id/cancel", async (req, res) => {
       });
     }
 
-    if (roleName === "technician" || roleName === "employee") {
-      return res.status(403).json({
-        success: false,
-        error: "You are not allowed to cancel tickets.",
-      });
-    }
-
-    let result;
-
-    if (roleName === "superadmin") {
-      result = await db.query(
-        `
-        UPDATE tickets
-        SET
-          status = 'Cancelled',
-          cancelled_at = NOW(),
-          cancelled_by = $1,
-          cancellation_reason = $2
-        WHERE id = $3
-        RETURNING *
-        `,
-        [cancelledBy, reason, id]
-      );
-    } else if (roleName === "admin") {
-      result = await db.query(
-        `
-        UPDATE tickets
-        SET
-          status = 'Cancelled',
-          cancelled_at = NOW(),
-          cancelled_by = $1,
-          cancellation_reason = $2
-        WHERE id = $3
-          AND branch_id = $4
-        RETURNING *
-        `,
-        [cancelledBy, reason, id, currentBranchId]
-      );
-    } else {
-      return res.status(403).json({
-        success: false,
-        error: "Unauthorized.",
-      });
-    }
+    const result = await db.query(
+      `
+      UPDATE tickets
+      SET
+        status = 'Cancelled',
+        cancelled_at = NOW(),
+        cancelled_by = $1,
+        cancellation_reason = $2
+      WHERE id = $3
+      RETURNING *
+      `,
+      [cancelledBy, reason.trim(), id]
+    );
 
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        error: "Ticket not found or outside your branch.",
+        error: "Ticket not found.",
       });
     }
 
@@ -813,7 +788,7 @@ router.patch("/:id/cancel", async (req, res) => {
       (ticket_id, changed_by, action, old_value, new_value)
       VALUES ($1, $2, $3, $4, $5)
       `,
-      [id, cancelledBy, "Ticket Cancelled", null, reason]
+      [id, cancelledBy, "Ticket Cancelled", null, reason.trim()]
     );
 
     res.json({

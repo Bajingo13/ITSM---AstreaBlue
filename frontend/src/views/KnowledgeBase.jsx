@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { authHeaders } from "../services/authHeaders";
+import { buildTicketQuery } from "../utils/ticketAccess";
 
 const API_BASE = "http://localhost:5001/api/v1";
 
@@ -60,7 +61,7 @@ export default function KnowledgeBase() {
     if (!canManage) return;
 
     try {
-      const res = await fetch(`${API_BASE}/tickets`, {
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`, {
         headers: authHeaders(),
       });
       const data = await res.json();
@@ -68,7 +69,7 @@ export default function KnowledgeBase() {
     } catch (err) {
       console.error("Fetch tickets for KB failed:", err);
     }
-  }, [canManage]);
+  }, [canManage, user]);
 
   const fetchBranches = useCallback(async () => {
     try {

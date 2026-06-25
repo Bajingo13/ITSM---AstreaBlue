@@ -1,7 +1,10 @@
 // frontend/src/components/NewTicketForm.jsx
 import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { buildTicketPayload } from '../utils/ticketAccess';
 
 export default function NewTicketForm({ onTicketCreated }) {
+  const { user } = useAuth();
   const [formData, setFormData] = useState({ title: '', description: '', raised_by: '' });
 
   const handleSubmit = async (e) => {
@@ -9,7 +12,13 @@ export default function NewTicketForm({ onTicketCreated }) {
     const response = await fetch("http://localhost:5001/api/v1/tickets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(formData),
+      body: JSON.stringify(
+        buildTicketPayload(user, {
+          ...formData,
+          requester_id: user?.user_id || null,
+          branch_id: user?.branch_id || null,
+        })
+      ),
     });
 
     if (response.ok) {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  Ban,
   Plus,
   Search,
   X,
@@ -16,6 +17,7 @@ import {
   Paperclip,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 
 const API_BASE = "http://localhost:5001/api/v1";
 
@@ -24,6 +26,7 @@ const columns = [
   { id: "In Progress", label: "In Progress", color: "bg-amber-500" },
   { id: "Resolved", label: "Resolved", color: "bg-emerald-500" },
   { id: "Closed", label: "Closed", color: "bg-slate-500" },
+  { id: "Cancelled", label: "Cancelled", color: "bg-red-500" },
 ];
 
 const priorityStyle = {
@@ -65,10 +68,12 @@ function NewTicketModal({ categories, user, onClose, onCreated }) {
     try {
       setSaving(true);
 
-      const payload = {
+      const payload = buildTicketPayload(user, {
         ...form,
         category_id: form.category_id || null,
-      };
+        requester_id: user?.user_id || null,
+        branch_id: user?.branch_id || null,
+      });
 
       const res = await fetch(`${API_BASE}/tickets`, {
         method: "POST",
@@ -273,11 +278,15 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   const [technicians, setTechnicians] = useState([]);
   const [selectedTechnician, setSelectedTechnician] = useState("");
   const [assigning, setAssigning] = useState(false);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   const fetchDetails = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets/${ticket.id}`);
+      const res = await fetch(`${API_BASE}/tickets/${ticket.id}${buildTicketQuery(user)}`);
       const data = await res.json();
       setDetails(data);
     } catch (err) {
@@ -285,7 +294,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
     } finally {
       setLoading(false);
     }
-  }, [ticket.id]);
+  }, [ticket.id, user]);
 
   const fetchTechnicians = useCallback(async () => {
     try {
@@ -335,11 +344,19 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   };
 
   const item = details || ticket;
+  const normalizedRole = String(role || user?.role_name || user?.role || "")
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
   const hasResolution =
     item.status === "Resolved" || Boolean(item.resolution_notes);
   const canCreateKbArticle = ["SuperAdmin", "Admin", "Technician"].includes(
     role || user?.role_name || user?.role
   );
+  const isCancelled = item.status === "Cancelled";
+  const canCancelTicket =
+    normalizedRole === "superadmin" &&
+    item.status !== "Closed" &&
+    !isCancelled;
   const currentAssignedTo = item.assigned_to ? String(item.assigned_to) : "";
   const hasAssignmentChange = selectedTechnician !== currentAssignedTo;
   const currentStatus = item.status || "";
@@ -359,7 +376,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
         const statusRes = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: selectedStatus }),
+          body: JSON.stringify(buildTicketPayload(user, { status: selectedStatus })),
         });
 
         if (!statusRes.ok) throw new Error("Failed to update status");
@@ -369,9 +386,11 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
         const assignRes = await fetch(`${API_BASE}/tickets/${ticket.id}/assign`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            assigned_to: selectedTechnician ? Number(selectedTechnician) : null,
-          }),
+          body: JSON.stringify(
+            buildTicketPayload(user, {
+              assigned_to: selectedTechnician ? Number(selectedTechnician) : null,
+            })
+          ),
         });
 
         if (!assignRes.ok) throw new Error("Failed to assign technician");
@@ -384,6 +403,44 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
       console.error(err);
     } finally {
       setAssigning(false);
+    }
+  };
+
+  const cancelTicket = async (e) => {
+    e.preventDefault();
+    setActionError("");
+
+    if (!cancellationReason.trim()) {
+      setActionError("Cancellation reason is required.");
+      return;
+    }
+
+    try {
+      setCancelling(true);
+
+      const res = await fetch(`${API_BASE}/tickets/${ticket.id}/cancel`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          buildTicketPayload(user, {
+            cancellation_reason: cancellationReason.trim(),
+          })
+        ),
+      });
+      const data = await readJsonSafely(res);
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to cancel ticket.");
+      }
+
+      setCancellationReason("");
+      setCancelModalOpen(false);
+      await fetchDetails();
+      await onRefresh();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -414,6 +471,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/70 backdrop-blur-sm">
       <div className="flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl">
         <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-7 py-5">
@@ -442,6 +500,12 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
           </div>
         ) : (
           <div className="flex-1 space-y-6 overflow-y-auto p-7 pb-28">
+            {actionError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                {actionError}
+              </div>
+            )}
+
             <section className="grid grid-cols-2 gap-4">
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-bold text-slate-400">Status</p>
@@ -478,6 +542,23 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 </p>
               </div>
             </section>
+
+            {isCancelled && (
+              <section className="rounded-2xl border border-red-100 bg-red-50/60 p-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <Ban size={18} className="text-red-600" />
+                  <h3 className="font-black text-slate-900">Cancellation</h3>
+                </div>
+                <p className="whitespace-pre-line text-sm leading-7 text-red-700">
+                  {item.cancellation_reason || "No cancellation reason recorded."}
+                </p>
+                {item.cancelled_at && (
+                  <p className="mt-2 text-xs font-bold text-red-500">
+                    Cancelled {new Date(item.cancelled_at).toLocaleString()}
+                  </p>
+                )}
+              </section>
+            )}
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5">
               <h3 className="mb-4 font-black text-slate-900">
@@ -602,7 +683,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 Update Status
               </h3>
               <div className="flex flex-wrap gap-2">
-                {columns.map((col) => (
+                {columns.filter((col) => col.id !== "Cancelled").map((col) => (
                   <button
                     key={col.id}
                     onClick={() => setSelectedStatus(col.id)}
@@ -709,11 +790,25 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
         <div className="sticky bottom-0 z-10 border-t border-slate-200 bg-white/95 px-7 py-4 backdrop-blur">
           <div className="flex items-center justify-end gap-3">
+            {canCancelTicket && (
+              <button
+                onClick={() => {
+                  setActionError("");
+                  setCancelModalOpen(true);
+                }}
+                disabled={loading || assigning || cancelling || hasUnsavedChanges}
+                className="flex items-center gap-2 rounded-xl border border-red-200 px-5 py-3 font-bold text-red-700 hover:bg-red-50 disabled:opacity-60"
+              >
+                <Ban size={17} />
+                Cancel Ticket
+              </button>
+            )}
+
             <button
               onClick={onClose}
               className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
             >
-              Cancel
+              Close
             </button>
 
             <button
@@ -727,6 +822,69 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
         </div>
       </div>
     </div>
+
+    {cancelModalOpen && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl">
+          <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-red-600">
+                Cancel Ticket
+              </p>
+              <h3 className="mt-1 text-xl font-black text-slate-900">
+                {item.ticket_number || `TKT-${item.id}`}
+              </h3>
+            </div>
+            <button
+              onClick={() => setCancelModalOpen(false)}
+              className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <form onSubmit={cancelTicket} className="space-y-4 px-6 py-5">
+            {actionError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                {actionError}
+              </div>
+            )}
+
+            <div>
+              <label className="mb-2 block text-sm font-bold text-slate-700">
+                Cancellation Reason *
+              </label>
+              <textarea
+                value={cancellationReason}
+                onChange={(e) => setCancellationReason(e.target.value)}
+                rows={4}
+                placeholder="Why is this ticket being cancelled?"
+                className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-100"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
+              <button
+                type="button"
+                onClick={() => setCancelModalOpen(false)}
+                className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+              >
+                Close
+              </button>
+              <button
+                type="submit"
+                disabled={cancelling}
+                className="flex items-center gap-2 rounded-xl bg-red-600 px-5 py-3 font-bold text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                <Ban size={17} />
+                {cancelling ? "Cancelling..." : "Confirm Cancel"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -836,7 +994,7 @@ export default function Tickets({
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets`);
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`);
       const data = await res.json();
       setTickets(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -844,7 +1002,7 @@ export default function Tickets({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -889,7 +1047,9 @@ export default function Tickets({
     });
   }, [tickets, query, selectedCategory]);
 
-  const totalOpen = tickets.filter((t) => t.status !== "Closed").length;
+  const totalOpen = tickets.filter(
+    (t) => t.status !== "Closed" && t.status !== "Cancelled"
+  ).length;
   const critical = tickets.filter((t) => t.priority === "P1-Critical").length;
   const resolved = tickets.filter((t) => t.status === "Resolved").length;
 
@@ -988,7 +1148,7 @@ export default function Tickets({
           Loading tickets...
         </div>
       ) : (
-        <section className="grid grid-cols-1 gap-5 xl:grid-cols-4">
+        <section className="grid grid-cols-1 gap-5 xl:grid-cols-5">
           {columns.map((column) => (
             <Column
               key={column.id}

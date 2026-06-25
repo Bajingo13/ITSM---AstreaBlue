@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 
 const API_BASE = "http://localhost:5001/api/v1";
 
@@ -35,7 +36,7 @@ export default function EmployeeDashboard({ view = "dashboard" }) {
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets`);
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`);
       const data = await res.json();
       setTickets(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -43,7 +44,7 @@ export default function EmployeeDashboard({ view = "dashboard" }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -224,6 +225,7 @@ export default function EmployeeDashboard({ view = "dashboard" }) {
       {selectedTicket && (
         <EmployeeTicketDetails
           ticket={selectedTicket}
+          user={user}
           onClose={() => setSelectedTicket(null)}
           onUpdated={() => {
             setSelectedTicket(null);
@@ -267,13 +269,14 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
       const res = await fetch(`${API_BASE}/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(buildTicketPayload(user, {
           ...form,
           category_id: form.category_id || null,
           requester_id: user?.user_id,
+          branch_id: user?.branch_id || null,
           status: "Open Queue",
           source: "portal",
-        }),
+        })),
       });
 
       const data = await res.json();
@@ -439,7 +442,7 @@ async function readJsonSafely(res) {
   }
 }
 
-function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
+function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -448,7 +451,7 @@ function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
   const fetchDetails = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets/${ticket.id}`);
+      const res = await fetch(`${API_BASE}/tickets/${ticket.id}${buildTicketQuery(user)}`);
       const data = await res.json();
       setDetails(data);
     } catch (err) {
@@ -456,7 +459,7 @@ function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
     } finally {
       setLoading(false);
     }
-  }, [ticket.id]);
+  }, [ticket.id, user]);
 
   useEffect(() => {
     fetchDetails();
@@ -475,7 +478,7 @@ function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(buildTicketPayload(user, { status })),
       });
 
       if (!res.ok) throw new Error("Failed to update ticket.");
@@ -494,7 +497,7 @@ function EmployeeTicketDetails({ ticket, onClose, onUpdated }) {
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ satisfaction_rating: value }),
+        body: JSON.stringify(buildTicketPayload(user, { satisfaction_rating: value })),
       });
 
       if (!res.ok) throw new Error("Failed to save rating.");

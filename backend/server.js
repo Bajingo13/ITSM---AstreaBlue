@@ -5,10 +5,10 @@ const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
 const jwt = require("jsonwebtoken");
+require("dotenv").config();
+
 const db = require("./config/db");
 const authRoutes = require("./src/routes/auth");
-
-require("dotenv").config();
 
 const app = express();
 
@@ -93,6 +93,20 @@ async function ensureUserStatusColumn() {
 
 ensureUserStatusColumn();
 
+async function ensureTicketWorkflowColumns() {
+  try {
+    await db.query(`
+      ALTER TABLE tickets
+      ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id),
+      ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(user_id),
+      ADD COLUMN IF NOT EXISTS cancellation_reason TEXT
+    `);
+  } catch (err) {
+    console.error("Ticket workflow column setup error:", err.message);
+  }
+}
+
 async function ensureRoleBranchManagement() {
   try {
     await db.query(`
@@ -161,6 +175,7 @@ async function ensureRoleBranchManagement() {
 
 ensureRoleBranchManagement();
 ensureKnowledgeBaseTable();
+ensureTicketWorkflowColumns();
 
 async function ensureAttachmentsAndInvites() {
   try {
@@ -227,6 +242,109 @@ app.get("/api/health", (req, res) => {
     success: true,
     message: "AstreaBlue API is running",
   });
+});
+
+/* ==========================
+   DASHBOARD SUMMARY
+========================== */
+
+function getDashboardAccessFilter(req) {
+  const role = String(req.query.role_name || "").toLowerCase();
+  const branchId = req.query.current_branch_id || req.query.branch_id;
+  const userId = req.query.current_user_id || req.query.user_id;
+
+  if (role === "superadmin") {
+    return { whereSql: "", params: [] };
+  }
+
+  if ((role === "admin" || role === "technician") && branchId) {
+    return {
+      whereSql: "WHERE COALESCE(t.branch_id, requester.branch_id) = $1",
+      params: [branchId],
+    };
+  }
+
+  if (role === "employee" && userId) {
+    return {
+      whereSql: "WHERE t.requester_id = $1",
+      params: [userId],
+    };
+  }
+
+  return { whereSql: "", params: [] };
+}
+
+app.get("/api/v1/dashboard/summary", async (req, res) => {
+  try {
+    const { whereSql, params } = getDashboardAccessFilter(req);
+
+    const statsResult = await db.query(
+      `
+      SELECT
+        COUNT(*)::int AS total_tickets,
+        COUNT(*) FILTER (WHERE t.status = 'Open Queue')::int AS open_tickets,
+        COUNT(*) FILTER (WHERE t.status = 'In Progress')::int AS in_progress_tickets,
+        COUNT(*) FILTER (
+          WHERE t.priority = 'P1-Critical'
+            AND t.status IN ('Open Queue', 'In Progress')
+        )::int AS critical_tickets,
+        COUNT(*) FILTER (WHERE t.status = 'Resolved')::int AS resolved_tickets,
+        COUNT(*) FILTER (WHERE t.status = 'Closed')::int AS closed_tickets,
+        COUNT(*) FILTER (WHERE t.status = 'Cancelled')::int AS cancelled_tickets
+      FROM tickets t
+      LEFT JOIN users requester
+        ON t.requester_id = requester.user_id
+      ${whereSql}
+      `,
+      params
+    );
+
+    const recentResult = await db.query(
+      `
+      SELECT
+        t.id,
+        t.ticket_number,
+        t.title,
+        t.priority,
+        t.status,
+        COALESCE(t.branch_id, requester.branch_id) AS branch_id,
+        COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
+        t.created_at
+      FROM tickets t
+      LEFT JOIN users requester
+        ON t.requester_id = requester.user_id
+      LEFT JOIN branches b
+        ON COALESCE(t.branch_id, requester.branch_id) = b.branch_id
+      ${whereSql}
+      ORDER BY t.created_at DESC
+      LIMIT 10
+      `,
+      params
+    );
+
+    const stats = statsResult.rows[0] || {};
+
+    res.json({
+      success: true,
+      stats: {
+        openTickets: stats.open_tickets || 0,
+        inProgressTickets: stats.in_progress_tickets || 0,
+        criticalTickets: stats.critical_tickets || 0,
+        resolvedTickets: stats.resolved_tickets || 0,
+        closedTickets: stats.closed_tickets || 0,
+        cancelledTickets: stats.cancelled_tickets || 0,
+        totalTickets: stats.total_tickets || 0,
+      },
+      recentTickets: recentResult.rows,
+    });
+  } catch (err) {
+    console.error("Dashboard summary error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch dashboard summary",
+    });
+  }
 });
 
 /* ==========================
@@ -1319,8 +1437,88 @@ app.delete("/api/v1/knowledge-base/:id", async (req, res) => {
    TICKETS
 ========================== */
 
+function getTicketRequestContext(req) {
+  const body = req.body || {};
+  const decoded = decodeRequestUser(req);
+
+  return {
+    currentUserId:
+      decoded?.userId ||
+      req.query.current_user_id ||
+      body.current_user_id ||
+      req.query.user_id ||
+      body.user_id ||
+      null,
+    roleName: decoded?.role || req.query.role_name || body.role_name || null,
+    branchId:
+      decoded?.branchId ||
+      req.query.current_branch_id ||
+      body.current_branch_id ||
+      req.query.branch_id ||
+      body.branch_id ||
+      null,
+    filterBranchId: req.query.filter_branch_id || body.filter_branch_id || null,
+  };
+}
+
+function addTicketAccessClauses(req, params, alias = "t", requesterAlias = "requester") {
+  const { currentUserId, roleName, branchId, filterBranchId } =
+    getTicketRequestContext(req);
+  const role = normalizeRole(roleName);
+  const branchExpression = `COALESCE(${alias}.branch_id, ${requesterAlias}.branch_id)`;
+  const clauses = [];
+
+  if (role === "superadmin") {
+    if (filterBranchId) {
+      params.push(filterBranchId);
+      clauses.push(`${branchExpression} = $${params.length}`);
+    }
+    return clauses;
+  }
+
+  if (role === "admin") {
+    if (!branchId) return ["1 = 0"];
+    params.push(branchId);
+    clauses.push(`${branchExpression} = $${params.length}`);
+    return clauses;
+  }
+
+  if (role === "employee") {
+    if (!currentUserId) return ["1 = 0"];
+    params.push(currentUserId);
+    clauses.push(`${alias}.requester_id = $${params.length}`);
+    return clauses;
+  }
+
+  if (role === "technician") {
+    if (!currentUserId) return ["1 = 0"];
+    params.push(currentUserId);
+    const technicianParam = params.length;
+
+    if (branchId) {
+      params.push(branchId);
+      const branchParam = params.length;
+      clauses.push(
+        `(${alias}.assigned_to = $${technicianParam} OR (${alias}.assigned_to IS NULL AND ${branchExpression} = $${branchParam}))`
+      );
+    } else {
+      clauses.push(`${alias}.assigned_to = $${technicianParam}`);
+    }
+
+    return clauses;
+  }
+
+  return ["1 = 0"];
+}
+
 app.get("/api/v1/tickets", async (req, res) => {
   try {
+    const params = [];
+    const accessClauses = addTicketAccessClauses(req, params, "t", "requester");
+    const whereSql = accessClauses.length
+      ? `WHERE ${accessClauses.join(" AND ")}`
+      : "";
+
     const result = await db.query(`
       SELECT
         t.id,
@@ -1342,11 +1540,16 @@ app.get("/api/v1/tickets", async (req, res) => {
         t.time_spent_minutes,
         t.parts_used,
         t.satisfaction_rating,
+        COALESCE(t.branch_id, requester.branch_id) AS branch_id,
+        t.cancelled_at,
+        t.cancelled_by,
+        t.cancellation_reason,
         t.created_at,
         t.updated_at,
 
         c.category_id,
         c.category_name AS category,
+        b.branch_name,
 
         requester.user_id AS requester_id,
         requester.full_name AS requester_name,
@@ -1361,10 +1564,13 @@ app.get("/api/v1/tickets", async (req, res) => {
         ON t.category_id = c.category_id
       LEFT JOIN users requester
         ON t.requester_id = requester.user_id
+      LEFT JOIN branches b
+        ON COALESCE(t.branch_id, requester.branch_id) = b.branch_id
       LEFT JOIN users assignee
         ON t.assigned_to = assignee.user_id
+      ${whereSql}
       ORDER BY t.created_at DESC
-    `);
+    `, params);
 
     res.json(result.rows);
   } catch (err) {
@@ -1380,6 +1586,11 @@ app.get("/api/v1/tickets", async (req, res) => {
 app.get("/api/v1/tickets/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const params = [id];
+    const accessClauses = addTicketAccessClauses(req, params, "t", "requester");
+    const accessSql = accessClauses.length
+      ? `AND ${accessClauses.join(" AND ")}`
+      : "";
 
     const ticketResult = await db.query(
       `
@@ -1403,11 +1614,16 @@ app.get("/api/v1/tickets/:id", async (req, res) => {
         t.time_spent_minutes,
         t.parts_used,
         t.satisfaction_rating,
+        COALESCE(t.branch_id, requester.branch_id) AS branch_id,
+        t.cancelled_at,
+        t.cancelled_by,
+        t.cancellation_reason,
         t.created_at,
         t.updated_at,
 
         c.category_id,
         c.category_name AS category,
+        b.branch_name,
 
         requester.user_id AS requester_id,
         requester.full_name AS requester_name,
@@ -1422,11 +1638,14 @@ app.get("/api/v1/tickets/:id", async (req, res) => {
         ON t.category_id = c.category_id
       LEFT JOIN users requester
         ON t.requester_id = requester.user_id
+      LEFT JOIN branches b
+        ON COALESCE(t.branch_id, requester.branch_id) = b.branch_id
       LEFT JOIN users assignee
         ON t.assigned_to = assignee.user_id
       WHERE t.id = $1
+      ${accessSql}
       `,
-      [id]
+      params
     );
 
     if (ticketResult.rows.length === 0) {
@@ -1650,6 +1869,8 @@ app.post("/api/v1/tickets", async (req, res) => {
       category_id = null,
       requester_id = null,
       assigned_to = null,
+      branch_id = null,
+      current_branch_id = null,
       source = "portal",
       impact = null,
       urgency = null,
@@ -1679,6 +1900,7 @@ app.post("/api/v1/tickets", async (req, res) => {
 
     const slaDueDate = new Date();
     slaDueDate.setHours(slaDueDate.getHours() + 24);
+    const finalBranchId = current_branch_id || branch_id || null;
 
     const result = await db.query(
       `
@@ -1692,13 +1914,14 @@ app.post("/api/v1/tickets", async (req, res) => {
         category_id,
         requester_id,
         assigned_to,
+        branch_id,
         source,
         impact,
         urgency,
         sla_due_date
       )
       VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING
         id,
         ticket_number,
@@ -1710,6 +1933,7 @@ app.post("/api/v1/tickets", async (req, res) => {
         source,
         impact,
         urgency,
+        branch_id,
         sla_due_date,
         created_at,
         updated_at
@@ -1723,6 +1947,7 @@ app.post("/api/v1/tickets", async (req, res) => {
         category_id,
         requester_id,
         assigned_to,
+        finalBranchId,
         source,
         impact,
         urgency,
@@ -1970,6 +2195,94 @@ app.patch("/api/v1/tickets/:id/assign", async (req, res) => {
   }
 });
 
+app.patch("/api/v1/tickets/:id/cancel", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const roleName = normalizeRole(req.query.role_name || req.body?.role_name);
+    const cancelledBy =
+      req.query.current_user_id || req.body?.current_user_id || req.body?.cancelled_by || null;
+    const reason = req.body?.cancellation_reason || req.body?.reason || "";
+
+    if (roleName !== "superadmin") {
+      return res.status(403).json({
+        success: false,
+        error: "Only superadmins can cancel tickets.",
+      });
+    }
+
+    if (!reason.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Cancellation reason is required.",
+      });
+    }
+
+    const existingResult = await db.query(
+      `SELECT status FROM tickets WHERE id = $1`,
+      [id]
+    );
+
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Ticket not found.",
+      });
+    }
+
+    const previousStatus = existingResult.rows[0].status;
+    if (previousStatus === "Closed" || previousStatus === "Cancelled") {
+      return res.status(400).json({
+        success: false,
+        error: "Closed or already cancelled tickets cannot be cancelled.",
+      });
+    }
+
+    const result = await db.query(
+      `
+      UPDATE tickets
+      SET
+        status = 'Cancelled',
+        cancelled_at = NOW(),
+        cancelled_by = $1,
+        cancellation_reason = $2,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3
+      RETURNING *
+      `,
+      [cancelledBy, reason.trim(), id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Ticket not found.",
+      });
+    }
+
+    await db.query(
+      `
+      INSERT INTO ticket_history
+      (ticket_id, changed_by, action, old_value, new_value)
+      VALUES ($1, $2, $3, $4, $5)
+      `,
+      [id, cancelledBy, "Ticket Cancelled", previousStatus, reason.trim()]
+    );
+
+    res.json({
+      success: true,
+      message: "Ticket cancelled successfully.",
+      ticket: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Cancel ticket error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to cancel ticket",
+    });
+  }
+});
+
 app.post("/api/v1/tickets/:id/comments", async (req, res) => {
   try {
     const { id } = req.params;
@@ -2050,7 +2363,8 @@ app.delete("/api/v1/tickets/:id", async (req, res) => {
    SERVICE REQUESTS (RBAC)
 ========================== */
 
-const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
+const JWT_FALLBACK_SECRET = "astreablue_dev_secret_change_in_prod";
+const JWT_SECRET = process.env.JWT_SECRET || JWT_FALLBACK_SECRET;
 
 // Normalise any role variant to a canonical lowercase token
 function normalizeRole(role) {
@@ -2083,7 +2397,14 @@ function decodeRequestUser(req) {
     const auth = req.headers.authorization || "";
     if (!auth.startsWith("Bearer ")) return null;
     const token = auth.slice(7);
-    return jwt.verify(token, JWT_SECRET);
+    try {
+      return jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      if (JWT_SECRET === JWT_FALLBACK_SECRET) {
+        throw err;
+      }
+      return jwt.verify(token, JWT_FALLBACK_SECRET);
+    }
   } catch {
     return null;
   }
