@@ -1,10 +1,25 @@
 const express = require("express");
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const router = express.Router();
 const db = require("../../config/db");
 
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 const JWT_EXPIRES = "8h";
+
+function passwordMatches(inputPassword, storedPassword) {
+  if (!storedPassword) return false;
+
+  if (storedPassword.startsWith("sha256$")) {
+    const inputHash = crypto
+      .createHash("sha256")
+      .update(inputPassword || "")
+      .digest("hex");
+    return storedPassword === `sha256$${inputHash}`;
+  }
+
+  return inputPassword === storedPassword;
+}
 
 router.post("/login", async (req, res) => {
   try {
@@ -48,7 +63,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    if (password !== user.password_hash) {
+    if (!passwordMatches(password, user.password_hash)) {
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",

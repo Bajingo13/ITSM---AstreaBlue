@@ -8,7 +8,10 @@ async function ensureTicketBranchColumn() {
   try {
     await db.query(`
       ALTER TABLE tickets
-      ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id)
+      ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id),
+      ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(user_id),
+      ADD COLUMN IF NOT EXISTS cancellation_reason TEXT
     `);
   } catch (err) {
     console.error("Ticket branch setup error:", err.message);

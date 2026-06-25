@@ -10,6 +10,9 @@ require("dotenv").config();
 const db = require("./config/db");
 const authRoutes = require("./src/routes/auth");
 const dashboardRoutes = require("./src/routes/dashboard");
+const inviteRoutes = require("./src/routes/invites");
+const attachmentRoutes = require("./src/routes/attachments");
+const ticketRoutes = require("./src/routes/tickets");
 
 const app = express();
 
@@ -224,6 +227,9 @@ ensureAttachmentsAndInvites();
 
 app.use("/api/auth", authRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
+app.use("/api/v1/invites", inviteRoutes);
+app.use("/api/v1/tickets", attachmentRoutes);
+app.use("/api/v1/tickets", ticketRoutes);
 
 /* ==========================
    HEALTH CHECK
