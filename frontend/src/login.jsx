@@ -85,7 +85,7 @@ export default function Login() {
             />
 
             <h2 className="text-3xl font-extrabold text-slate-900">
-              Welcome Back
+              Welcome!
             </h2>
 
             <p className="mt-2 text-sm text-slate-500">

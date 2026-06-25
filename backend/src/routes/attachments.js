@@ -1,0 +1,169 @@
+const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const db = require("../../config/db");
+const { uploadTicketAttachments } = require("./_uploads");
+
+const router = express.Router();
+
+async function ensureAttachmentsTable() {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ticket_attachments (
+        attachment_id SERIAL PRIMARY KEY,
+        ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+        file_name VARCHAR(255),
+        file_path TEXT,
+        file_size INTEGER,
+        mime_type VARCHAR(100),
+        uploaded_by INTEGER REFERENCES users(user_id),
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.query(`
+      ALTER TABLE ticket_attachments
+      ADD COLUMN IF NOT EXISTS file_path TEXT,
+      ADD COLUMN IF NOT EXISTS mime_type VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    `);
+
+    await db.query(`
+      ALTER TABLE ticket_attachments
+      ALTER COLUMN file_data DROP NOT NULL
+    `).catch(() => {});
+  } catch (err) {
+    console.error("Attachments setup error:", err.message);
+  }
+}
+
+ensureAttachmentsTable();
+
+router.get("/:id/attachments", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(
+      `
+      SELECT
+        attachment_id,
+        ticket_id,
+        uploaded_by,
+        file_name,
+        file_path,
+        mime_type,
+        file_size,
+        uploaded_at
+      FROM ticket_attachments
+      WHERE ticket_id = $1
+      ORDER BY uploaded_at ASC
+      `,
+      [id]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Fetch attachments error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to fetch attachments" });
+  }
+});
+
+router.post("/:id/attachments", (req, res) => {
+  uploadTicketAttachments.array("attachments", 10)(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      return res.status(400).json({
+        success: false,
+        error:
+          uploadErr.code === "LIMIT_FILE_SIZE"
+            ? "File size must be 10MB or less"
+            : uploadErr.message || "Failed to upload attachment",
+      });
+    }
+
+  try {
+    const { id } = req.params;
+    const uploadedBy = req.body.uploaded_by || null;
+    const files = req.files || [];
+
+    if (files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "At least one attachment file is required",
+      });
+    }
+
+    const ticketResult = await db.query(`SELECT id FROM tickets WHERE id = $1`, [id]);
+    if (ticketResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Ticket not found" });
+    }
+
+    const savedAttachments = [];
+
+    for (const file of files) {
+      const relativePath = `/uploads/tickets/${file.filename}`;
+      const result = await db.query(
+        `
+        INSERT INTO ticket_attachments
+        (ticket_id, file_name, file_path, file_size, mime_type, uploaded_by)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING attachment_id, ticket_id, uploaded_by, file_name, file_path, mime_type, file_size, uploaded_at
+        `,
+        [
+          id,
+          file.originalname,
+          relativePath,
+          file.size,
+          file.mimetype,
+          uploadedBy || null,
+        ]
+      );
+
+      await db.query(
+        `
+        INSERT INTO ticket_history
+        (ticket_id, changed_by, action, old_value, new_value)
+        VALUES ($1, $2, 'Attachment Added', NULL, $3)
+        `,
+        [id, uploadedBy || null, file.originalname]
+      );
+
+      savedAttachments.push(result.rows[0]);
+    }
+
+    res.status(201).json({ success: true, attachments: savedAttachments });
+  } catch (err) {
+    console.error("Upload attachment error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to upload attachment" });
+  }
+  });
+});
+
+router.delete("/:id/attachments/:attachmentId", async (req, res) => {
+  try {
+    const { id, attachmentId } = req.params;
+    const result = await db.query(
+      `
+      DELETE FROM ticket_attachments
+      WHERE ticket_id = $1 AND attachment_id = $2
+      RETURNING attachment_id, file_path
+      `,
+      [id, attachmentId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Attachment not found" });
+    }
+
+    const filePath = result.rows[0].file_path;
+    if (filePath) {
+      const absolutePath = path.join(__dirname, "..", "..", filePath.replace(/^\/uploads[\\/]/, "uploads/"));
+      fs.unlink(absolutePath, () => {});
+    }
+
+    res.json({ success: true, message: "Attachment deleted successfully" });
+  } catch (err) {
+    console.error("Delete attachment error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to delete attachment" });
+  }
+});
+
+module.exports = router;

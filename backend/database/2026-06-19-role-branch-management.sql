@@ -1,6 +1,10 @@
 CREATE TABLE IF NOT EXISTS branches (
   branch_id SERIAL PRIMARY KEY,
+  branch_code VARCHAR(50),
   branch_name VARCHAR(150) NOT NULL,
+  region VARCHAR(100),
+  province VARCHAR(100),
+  city_municipality VARCHAR(150),
   branch_location VARCHAR(255),
   is_headquarters BOOLEAN DEFAULT FALSE,
   is_active BOOLEAN DEFAULT TRUE,
@@ -8,12 +12,19 @@ CREATE TABLE IF NOT EXISTS branches (
 );
 
 ALTER TABLE branches
+  ADD COLUMN IF NOT EXISTS branch_code VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS region VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS province VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS city_municipality VARCHAR(150),
   ADD COLUMN IF NOT EXISTS is_headquarters BOOLEAN DEFAULT FALSE;
 
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id),
   ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE,
   ADD COLUMN IF NOT EXISTS mobile_number VARCHAR(20);
+
+ALTER TABLE tickets
+  ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id);
 
 INSERT INTO system_roles (role_name)
 SELECT role_name

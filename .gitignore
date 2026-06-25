@@ -5,6 +5,8 @@ node_modules/
 dist/
 build/
 
+frontend/.env
+backend/.env
 # Environment variables
 .env
 .env.local
