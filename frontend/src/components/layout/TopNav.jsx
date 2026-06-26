@@ -97,20 +97,20 @@ export default function TopNav({ collapsed }) {
 
   return (
     <header
-      className="fixed top-0 right-0 z-30 flex h-[60px] items-center gap-3 px-5 transition-all duration-300"
+      className="astrea-topnav fixed top-0 right-0 z-30 flex h-[64px] items-center gap-3 px-5 transition-all duration-300"
       style={{
         left: leftOffset,
         background: "#FFFFFF",
-        borderBottom: "1px solid #E2E8F0",
-        boxShadow: "0 1px 4px rgba(15,23,42,0.06)",
+        borderBottom: "1px solid #E6EEF8",
+        boxShadow: "0 8px 24px rgba(30,80,160,0.05)",
       }}
     >
       <div className="relative max-w-lg flex-1">
         <div
           onClick={() => setSearchOpen(true)}
-          className="flex cursor-text items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+          className="flex cursor-text items-center gap-2.5 rounded-xl border border-[#D9E5F5] bg-[#F8FBFF] px-4 py-2.5 shadow-sm"
         >
-          <Search size={14} className="shrink-0 text-slate-400" />
+          <Search size={16} className="shrink-0 text-blue-700/70" />
 
           {searchOpen ? (
             <input
@@ -135,11 +135,11 @@ export default function TopNav({ collapsed }) {
       </div>
 
       <div className="ml-auto flex items-center gap-1">
-        <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700">
+        <button className="rounded-lg p-2 text-blue-700/75 hover:bg-[#EAF4FF] hover:text-blue-700">
           <RefreshCw size={16} />
         </button>
 
-        <button className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-700">
+        <button className="rounded-lg p-2 text-blue-700/75 hover:bg-[#EAF4FF] hover:text-blue-700">
           <Bot size={17} />
         </button>
 
@@ -149,7 +149,7 @@ export default function TopNav({ collapsed }) {
               setNotifOpen(!notifOpen);
               setProfileOpen(false);
             }}
-            className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            className="relative rounded-lg p-2 text-blue-700/75 hover:bg-[#EAF4FF] hover:text-blue-700"
           >
             <Bell size={17} />
             {unreadCount > 0 && (
@@ -203,9 +203,9 @@ export default function TopNav({ collapsed }) {
               setProfileOpen(!profileOpen);
               setNotifOpen(false);
             }}
-            className="flex items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-3 hover:bg-slate-100"
+            className="flex items-center gap-2.5 rounded-xl py-1.5 pl-2 pr-3 hover:bg-blue-50"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-violet-600 text-xs font-bold text-white">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#2F6DFF] to-[#7C3CFF] text-xs font-bold text-white shadow-lg shadow-blue-700/20">
               {fullName.charAt(0)}
             </div>
 

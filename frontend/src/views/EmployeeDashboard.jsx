@@ -1,3 +1,4 @@
+import { API_URL } from "../config/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -22,7 +23,17 @@ import {
   severityOptions,
 } from "../utils/ticketVisuals";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
+
+const priorityOptions = ["P1-Critical", "P2-High", "P3-Medium", "P4-Low"];
+const impactOptions = ["High", "Medium", "Low"];
+const urgencyOptions = ["High", "Medium", "Low"];
+const priorityDotStyle = {
+  "P1-Critical": "bg-red-500",
+  "P2-High": "bg-orange-500",
+  "P3-Medium": "bg-amber-500",
+  "P4-Low": "bg-green-500",
+};
 
 export default function EmployeeDashboard({ view = "dashboard" }) {
   const { user } = useAuth();
@@ -366,6 +377,7 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
               onChange={(value) => updateForm("priority", value)}
               options={priorityOptions.map((value) => ({ label: value, value }))}
             />
+            <PriorityIndicator value={form.priority} />
             <SelectField
               label="Impact"
               value={form.impact}
@@ -446,6 +458,17 @@ async function readJsonSafely(res) {
   }
 }
 
+function PriorityIndicator({ value }) {
+  return (
+    <div className="flex items-end">
+      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700">
+        <span className={`h-2.5 w-2.5 rounded-full ${priorityDotStyle[value] || "bg-slate-400"}`} />
+        Selected: {value || "Priority"}
+      </div>
+    </div>
+  );
+}
+
 function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -517,7 +540,7 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
         (entry) => entry.attachment_id === attachmentId
       );
       if (!attachment?.file_path) throw new Error("Attachment file path not found");
-      window.open(`http://localhost:5001${attachment.file_path}`, "_blank", "noopener,noreferrer");
+      window.open(`${API_URL}${attachment.file_path}`, "_blank", "noopener,noreferrer");
     } catch (err) {
       console.error(err);
     }
@@ -760,3 +783,4 @@ function Card({ icon: Icon, label, value, color }) {
     </div>
   );
 }
+

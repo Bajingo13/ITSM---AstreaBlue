@@ -1,113 +1,180 @@
 const express = require("express");
 const crypto = require("crypto");
 const db = require("../../config/db");
+const {
+  getMissingSmtpConfig,
+  sendInvitationEmail,
+} = require("../services/emailService");
 
 const router = express.Router();
+
+const INVITE_STATUSES = {
+  PENDING: "Pending",
+  ACCEPTED: "Accepted",
+  EXPIRED: "Expired",
+  REVOKED: "Revoked",
+};
 
 function hashPassword(password) {
   return `sha256$${crypto.createHash("sha256").update(password).digest("hex")}`;
 }
 
-function normalizeRoleName(roleName) {
-  return String(roleName || "").trim().toLowerCase();
+function normalizeRole(role) {
+  return String(role || "").trim().toLowerCase();
 }
 
 function buildInviteLink(req, token) {
-  const origin = req.body?.app_origin || req.get("origin") || "http://localhost:5173";
+  const origin =
+    process.env.FRONTEND_URL ||
+    req.body?.app_origin ||
+    req.get("origin") ||
+    "http://localhost:5173";
   return `${origin.replace(/\/$/, "")}/invite/${token}`;
 }
 
-async function ensureInviteFoundation() {
+async function getBranchName(branchId) {
+  if (!branchId) return "Assigned Branch";
+
+  const result = await db.query(
+    `SELECT branch_name FROM branches WHERE branch_id = $1`,
+    [branchId]
+  );
+
+  return result.rows[0]?.branch_name || "Assigned Branch";
+}
+
+async function sendInviteResponse({
+  req,
+  res,
+  invitation,
+  inviteRole,
+  inviteLink,
+  fullName,
+  personalEmail,
+  branchId,
+}) {
+  const missingSmtpConfig = getMissingSmtpConfig();
+
+  if (missingSmtpConfig.length) {
+    return res.status(201).json({
+      success: true,
+      email_sent: false,
+      warning: `Invite created, but email sending is not configured. Missing: ${missingSmtpConfig.join(", ")}.`,
+      invitation: {
+        ...invitation,
+        role: inviteRole.role_name,
+      },
+      invite_link: inviteLink,
+    });
+  }
+
+  try {
+    const branchName = await getBranchName(branchId);
+    await sendInvitationEmail({
+      to: personalEmail,
+      fullName,
+      roleName: inviteRole.role_name,
+      branchName,
+      inviteLink,
+    });
+
+    return res.status(201).json({
+      success: true,
+      email_sent: true,
+      message: "Invitation email sent successfully.",
+      invitation: {
+        ...invitation,
+        role: inviteRole.role_name,
+      },
+      invite_link: inviteLink,
+    });
+  } catch (err) {
+    console.error("Invite email send failed:", err.message);
+
+    return res.status(201).json({
+      success: true,
+      email_sent: false,
+      warning: "Invite created, but email sending failed.",
+      invitation: {
+        ...invitation,
+        role: inviteRole.role_name,
+      },
+      invite_link: inviteLink,
+    });
+  }
+}
+
+async function ensureInviteColumns() {
   try {
     await db.query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS personal_email VARCHAR(255),
       ADD COLUMN IF NOT EXISTS company_email VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS invite_status VARCHAR(20),
       ADD COLUMN IF NOT EXISTS invite_token VARCHAR(120),
       ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMP,
       ADD COLUMN IF NOT EXISTS invite_used_at TIMESTAMP,
-      ADD COLUMN IF NOT EXISTS invite_status VARCHAR(20)
+      ADD COLUMN IF NOT EXISTS invited_by INTEGER REFERENCES users(user_id),
+      ADD COLUMN IF NOT EXISTS invited_at TIMESTAMP
     `);
 
     await db.query(`
-      CREATE TABLE IF NOT EXISTS user_invites (
-        invite_id SERIAL PRIMARY KEY,
-        token VARCHAR(120) UNIQUE NOT NULL,
-        email VARCHAR(255),
-        personal_email VARCHAR(255),
-        company_email VARCHAR(255),
-        full_name VARCHAR(255),
-        role_id INTEGER REFERENCES system_roles(role_id),
-        branch_id INTEGER REFERENCES branches(branch_id),
-        company_name VARCHAR(255),
-        mobile_number VARCHAR(20),
-        invited_by INTEGER REFERENCES users(user_id),
-        accepted_at TIMESTAMP,
-        expires_at TIMESTAMP,
-        invite_used_at TIMESTAMP,
-        invite_status VARCHAR(20) DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await db.query(`
-      ALTER TABLE user_invites
-      ADD COLUMN IF NOT EXISTS email VARCHAR(255),
-      ADD COLUMN IF NOT EXISTS personal_email VARCHAR(255),
-      ADD COLUMN IF NOT EXISTS company_email VARCHAR(255),
-      ADD COLUMN IF NOT EXISTS invite_used_at TIMESTAMP,
-      ADD COLUMN IF NOT EXISTS invite_status VARCHAR(20) DEFAULT 'pending'
+      CREATE UNIQUE INDEX IF NOT EXISTS users_invite_token_unique
+      ON users(invite_token)
+      WHERE invite_token IS NOT NULL
     `);
   } catch (err) {
-    console.error("Invites setup error:", err.message);
+    console.error("Invite column setup error:", err.message);
   }
 }
 
-async function getRoleByInput({ role_id, role_name }) {
-  if (role_id) {
-    const result = await db.query(
-      `SELECT role_id, role_name FROM system_roles WHERE role_id = $1`,
-      [role_id]
-    );
-    return result.rows[0] || null;
-  }
+async function findRole({ role_id, role_name, role }) {
+  const roleInput = role_name || role;
+  const result = role_id
+    ? await db.query(
+        `
+        SELECT role_id, role_name
+        FROM system_roles
+        WHERE role_id = $1
+        LIMIT 1
+        `,
+        [role_id]
+      )
+    : await db.query(
+        `
+        SELECT role_id, role_name
+        FROM system_roles
+        WHERE LOWER(role_name) = LOWER($1)
+        LIMIT 1
+        `,
+        [roleInput]
+      );
 
-  if (role_name) {
-    const result = await db.query(
-      `SELECT role_id, role_name FROM system_roles WHERE LOWER(role_name) = LOWER($1)`,
-      [role_name]
-    );
-    return result.rows[0] || null;
-  }
-
-  return null;
+  return result.rows[0] || null;
 }
 
 async function findInvite(token) {
   const result = await db.query(
     `
     SELECT
-      i.invite_id,
-      i.token,
-      COALESCE(i.personal_email, i.email) AS personal_email,
-      i.company_email,
-      COALESCE(i.company_email, i.email) AS login_email,
-      i.email,
-      i.full_name,
-      i.role_id,
-      sr.role_name,
-      i.branch_id,
+      u.user_id,
+      u.full_name,
+      u.email,
+      u.personal_email,
+      u.company_email,
+      u.branch_id,
       b.branch_name,
-      i.company_name,
-      i.mobile_number,
-      i.accepted_at,
-      i.expires_at,
-      i.invite_used_at,
-      COALESCE(i.invite_status, 'pending') AS invite_status
-    FROM user_invites i
-    LEFT JOIN system_roles sr ON i.role_id = sr.role_id
-    LEFT JOIN branches b ON i.branch_id = b.branch_id
-    WHERE i.token = $1
+      u.role_id,
+      sr.role_name,
+      u.invite_status,
+      u.invite_token,
+      u.invite_expires_at,
+      u.invite_used_at
+    FROM users u
+    LEFT JOIN system_roles sr ON u.role_id = sr.role_id
+    LEFT JOIN branches b ON u.branch_id = b.branch_id
+    WHERE u.invite_token = $1
+    LIMIT 1
     `,
     [token]
   );
@@ -115,64 +182,73 @@ async function findInvite(token) {
   return result.rows[0] || null;
 }
 
-function validateUsableInvite(invite) {
-  if (!invite) return "Invite not found";
-  if (invite.invite_used_at || invite.accepted_at || invite.invite_status === "used") {
-    return "Invite already used";
+async function validateInvite(token) {
+  const invite = await findInvite(token);
+
+  if (!invite) {
+    return { status: 404, error: "Invite not found." };
   }
-  if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
-    return "Invite expired";
+
+  if (invite.invite_status === INVITE_STATUSES.REVOKED) {
+    return { status: 400, error: "Invite has been revoked." };
   }
-  return "";
+
+  if (invite.invite_used_at || invite.invite_status === INVITE_STATUSES.ACCEPTED) {
+    return { status: 400, error: "Invite has already been used." };
+  }
+
+  if (invite.invite_expires_at && new Date(invite.invite_expires_at) < new Date()) {
+    await db.query(
+      `
+      UPDATE users
+      SET invite_status = $1
+      WHERE user_id = $2
+        AND invite_status = $3
+      `,
+      [INVITE_STATUSES.EXPIRED, invite.user_id, INVITE_STATUSES.PENDING]
+    );
+
+    return { status: 400, error: "Invite has expired." };
+  }
+
+  if (invite.invite_status !== INVITE_STATUSES.PENDING) {
+    return { status: 400, error: "Invite is not active." };
+  }
+
+  return { invite };
 }
 
-ensureInviteFoundation();
+ensureInviteColumns();
 
 router.post("/", async (req, res) => {
   try {
     const {
-      full_name = null,
+      full_name,
       personal_email,
       company_email = null,
-      role_id = null,
+      role,
       role_name = null,
+      role_id = null,
       branch_id,
-      company_name = null,
-      mobile_number = null,
-      current_role = null,
-      current_branch_id = null,
+      company_name = "AstreaBlue",
+      current_role,
+      current_branch_id,
       current_user_id = null,
-      expires_in_hours = 48,
     } = req.body;
 
-    const actorRole = normalizeRoleName(current_role || req.body.role_name_actor);
-    const inviteRole = await getRoleByInput({ role_id, role_name });
+    const actorRole = normalizeRole(current_role || req.body.role_name || req.body.actor_role);
 
     if (!["superadmin", "admin"].includes(actorRole)) {
       return res.status(403).json({
         success: false,
-        error: "You are not allowed to invite users.",
+        error: "You are not allowed to create invitations.",
       });
     }
 
-    if (!inviteRole) {
+    if (!full_name || !personal_email || !(role || role_name || role_id) || !branch_id) {
       return res.status(400).json({
         success: false,
-        error: "Role is required.",
-      });
-    }
-
-    if (!branch_id) {
-      return res.status(400).json({
-        success: false,
-        error: "Branch is required.",
-      });
-    }
-
-    if (!personal_email) {
-      return res.status(400).json({
-        success: false,
-        error: "Personal email is required.",
+        error: "Full name, personal email, role, and branch are required.",
       });
     }
 
@@ -183,119 +259,107 @@ router.post("/", async (req, res) => {
       });
     }
 
+    const inviteRole = await findRole({ role_id, role_name, role });
+
+    if (!inviteRole) {
+      return res.status(400).json({
+        success: false,
+        error: "Role does not exist.",
+      });
+    }
+
     const token = crypto.randomBytes(32).toString("hex");
-    const hours = Number(expires_in_hours) || 48;
     const loginEmail = company_email || personal_email;
 
-    const result = await db.query(
+    const existingResult = await db.query(
       `
-      INSERT INTO user_invites
-      (
-        token,
-        email,
-        personal_email,
-        company_email,
-        full_name,
-        role_id,
-        branch_id,
-        company_name,
-        mobile_number,
-        invited_by,
-        expires_at,
-        invite_status
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_TIMESTAMP + ($11::text || ' hours')::interval,'pending')
-      RETURNING
-        invite_id,
-        token,
-        personal_email,
-        company_email,
-        full_name,
-        role_id,
-        branch_id,
-        expires_at,
-        invite_status
+      SELECT user_id, invite_status, is_active
+      FROM users
+      WHERE LOWER(email) = LOWER($1)
+         OR LOWER(personal_email) = LOWER($2)
+         OR ($3::text IS NOT NULL AND LOWER(company_email) = LOWER($3))
+      LIMIT 1
       `,
-      [
-        token,
-        loginEmail,
-        personal_email,
-        company_email,
-        full_name,
-        inviteRole.role_id,
-        branch_id,
-        company_name,
-        mobile_number,
-        current_user_id,
-        hours,
-      ]
+      [loginEmail, personal_email, company_email]
     );
 
-    res.status(201).json({
-      success: true,
-      ...result.rows[0],
-      role_name: inviteRole.role_name,
-      invite_link: buildInviteLink(req, token),
-    });
-  } catch (err) {
-    console.error("Create invite error:", err.message);
+    const existing = existingResult.rows[0];
 
-    res.status(500).json({
-      success: false,
-      error: "Failed to create invite",
-    });
-  }
-});
-
-router.get("/:token", async (req, res) => {
-  try {
-    const invite = await findInvite(req.params.token);
-    const inviteError = validateUsableInvite(invite);
-
-    if (inviteError) {
-      const status = inviteError === "Invite not found" ? 404 : 400;
-      return res.status(status).json({ success: false, error: inviteError });
-    }
-
-    res.json(invite);
-  } catch (err) {
-    console.error("Fetch invite error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to fetch invite" });
-  }
-});
-
-async function completeInvite(req, res) {
-  try {
-    const { token } = req.params;
-    const { password, confirm_password, confirmPassword } = req.body;
-    const finalConfirmPassword = confirm_password || confirmPassword;
-
-    if (!password || !finalConfirmPassword) {
-      return res.status(400).json({
+    if (existing && existing.invite_status !== INVITE_STATUSES.PENDING) {
+      return res.status(409).json({
         success: false,
-        error: "Password and confirmation are required.",
+        error: "A non-pending user already exists for this email.",
       });
     }
 
-    if (password !== finalConfirmPassword) {
-      return res.status(400).json({
+    if (existing?.is_active) {
+      return res.status(409).json({
         success: false,
-        error: "Passwords do not match.",
+        error: "An active user already exists for this email.",
       });
     }
 
-    const invite = await findInvite(token);
-    const inviteError = validateUsableInvite(invite);
+    if (existing) {
+      const updateResult = await db.query(
+        `
+        UPDATE users
+        SET
+          full_name = $1,
+          email = $2,
+          personal_email = $3,
+          company_email = $4,
+          password_hash = 'INVITE_PENDING',
+          role_id = $5,
+          company_name = $6,
+          branch_id = $7,
+          status = 'Inactive',
+          is_active = FALSE,
+          invite_status = $8,
+          invite_token = $9,
+          invite_expires_at = CURRENT_TIMESTAMP + INTERVAL '48 hours',
+          invite_used_at = NULL,
+          invited_by = $10,
+          invited_at = CURRENT_TIMESTAMP
+        WHERE user_id = $11
+        RETURNING
+          user_id,
+          full_name,
+          personal_email,
+          company_email,
+          branch_id,
+          role_id,
+          invite_status,
+          invite_expires_at,
+          invited_at
+        `,
+        [
+          full_name,
+          loginEmail,
+          personal_email,
+          company_email,
+          inviteRole.role_id,
+          company_name,
+          branch_id,
+          INVITE_STATUSES.PENDING,
+          token,
+          current_user_id,
+          existing.user_id,
+        ]
+      );
 
-    if (inviteError) {
-      const status = inviteError === "Invite not found" ? 404 : 400;
-      return res.status(status).json({ success: false, error: inviteError });
+      return sendInviteResponse({
+        req,
+        res,
+        invitation: updateResult.rows[0],
+        inviteRole,
+        inviteLink: buildInviteLink(req, token),
+        fullName: full_name,
+        personalEmail: personal_email,
+        branchId: branch_id,
+      });
     }
 
-    const passwordHash = hashPassword(password);
-    const loginEmail = invite.company_email || invite.email || invite.personal_email;
-
-    const userResult = await db.query(
+    const result = await db.query(
       `
       INSERT INTO users
       (
@@ -307,60 +371,158 @@ async function completeInvite(req, res) {
         role_id,
         company_name,
         branch_id,
-        mobile_number,
         status,
         is_active,
+        invite_status,
         invite_token,
         invite_expires_at,
-        invite_used_at,
-        invite_status
+        invited_by,
+        invited_at
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Active',TRUE,$10,$11,CURRENT_TIMESTAMP,'used')
-      RETURNING user_id, full_name, email, personal_email, company_email, role_id, branch_id
+      VALUES
+      ($1,$2,$3,$4,'INVITE_PENDING',$5,$6,$7,'Inactive',FALSE,$8,$9,CURRENT_TIMESTAMP + INTERVAL '48 hours',$10,CURRENT_TIMESTAMP)
+      RETURNING
+        user_id,
+        full_name,
+        personal_email,
+        company_email,
+        branch_id,
+        role_id,
+        invite_status,
+        invite_expires_at,
+        invited_at
       `,
       [
-        invite.full_name || loginEmail,
+        full_name,
         loginEmail,
-        invite.personal_email,
-        invite.company_email,
-        passwordHash,
-        invite.role_id,
-        invite.company_name,
-        invite.branch_id,
-        invite.mobile_number,
+        personal_email,
+        company_email,
+        inviteRole.role_id,
+        company_name,
+        branch_id,
+        INVITE_STATUSES.PENDING,
         token,
-        invite.expires_at,
+        current_user_id,
       ]
     );
 
-    await db.query(
-      `
-      UPDATE user_invites
-      SET
-        accepted_at = CURRENT_TIMESTAMP,
-        invite_used_at = CURRENT_TIMESTAMP,
-        invite_status = 'used'
-      WHERE invite_id = $1
-      `,
-      [invite.invite_id]
-    );
-
-    res.status(201).json({ success: true, user: userResult.rows[0] });
+    return sendInviteResponse({
+      req,
+      res,
+      invitation: result.rows[0],
+      inviteRole,
+      inviteLink: buildInviteLink(req, token),
+      fullName: full_name,
+      personalEmail: personal_email,
+      branchId: branch_id,
+    });
   } catch (err) {
-    console.error("Complete invite error:", err.message);
+    console.error("Create invite error:", err.message);
 
     if (err.code === "23505") {
       return res.status(409).json({
         success: false,
-        error: "A user with this email already exists",
+        error: "A user or invite with this email or token already exists.",
       });
     }
 
-    res.status(500).json({ success: false, error: "Failed to complete invite" });
+    res.status(500).json({
+      success: false,
+      error: "Failed to create invite.",
+    });
   }
-}
+});
 
-router.post("/:token/complete", completeInvite);
-router.post("/:token/accept", completeInvite);
+router.get("/:token", async (req, res) => {
+  try {
+    const validation = await validateInvite(req.params.token);
+
+    if (validation.error) {
+      return res.status(validation.status).json({
+        success: false,
+        error: validation.error,
+      });
+    }
+
+    const invite = validation.invite;
+
+    res.json({
+      success: true,
+      invite: {
+        full_name: invite.full_name,
+        role: invite.role_name,
+        branch: invite.branch_name,
+        branch_id: invite.branch_id,
+        personal_email: invite.personal_email,
+      },
+    });
+  } catch (err) {
+    console.error("Validate invite error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to validate invite." });
+  }
+});
+
+router.post("/:token/complete", async (req, res) => {
+  try {
+    const { password, confirm_password } = req.body;
+
+    if (!password || !confirm_password) {
+      return res.status(400).json({
+        success: false,
+        error: "Password and confirmation are required.",
+      });
+    }
+
+    if (password !== confirm_password) {
+      return res.status(400).json({
+        success: false,
+        error: "Passwords do not match.",
+      });
+    }
+
+    const validation = await validateInvite(req.params.token);
+
+    if (validation.error) {
+      return res.status(validation.status).json({
+        success: false,
+        error: validation.error,
+      });
+    }
+
+    const invite = validation.invite;
+    const passwordHash = hashPassword(password);
+
+    await db.query(
+      `
+      UPDATE users
+      SET
+        password_hash = $1,
+        status = 'Active',
+        is_active = TRUE,
+        invite_status = $2,
+        invite_used_at = CURRENT_TIMESTAMP
+      WHERE user_id = $3
+        AND invite_token = $4
+        AND invite_status = $5
+        AND invite_used_at IS NULL
+      `,
+      [
+        passwordHash,
+        INVITE_STATUSES.ACCEPTED,
+        invite.user_id,
+        req.params.token,
+        INVITE_STATUSES.PENDING,
+      ]
+    );
+
+    res.json({
+      success: true,
+      message: "Invite accepted successfully. Account is now active.",
+    });
+  } catch (err) {
+    console.error("Complete invite error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to complete invite." });
+  }
+});
 
 module.exports = router;

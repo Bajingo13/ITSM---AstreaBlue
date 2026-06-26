@@ -8,7 +8,7 @@ export default function MainLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-[#F4F8FF]">
       <SideBar
         collapsed={sidebarCollapsed}
         setCollapsed={setSidebarCollapsed}

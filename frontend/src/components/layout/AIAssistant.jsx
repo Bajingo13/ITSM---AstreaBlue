@@ -37,7 +37,7 @@ export default function AIAssistant() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-700 to-violet-700 px-5 py-3 text-sm font-bold text-white shadow-2xl shadow-blue-900/30 transition hover:-translate-y-0.5"
+          className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#2563EB_0%,#7C3CFF_100%)] px-5 py-3 text-sm font-bold text-white shadow-2xl shadow-blue-900/30 transition hover:-translate-y-0.5"
         >
           <Sparkles size={18} />
           AstreaBlue AI

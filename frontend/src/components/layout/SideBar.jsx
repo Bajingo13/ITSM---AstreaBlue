@@ -21,7 +21,6 @@ import {
   Shield,
   Ticket,
   UserCog,
-  Box,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
@@ -31,7 +30,7 @@ const coreModuleItems = [
     label: "Service Desk & Ticketing",
     icon: Ticket,
     children: [
-      { label: "All Tickets", icon: AlertTriangle, path: "/tickets" },
+      { label: "Incident Management", icon: AlertTriangle, path: "/tickets" },
       { label: "Service Request Management", icon: ClipboardList, path: "/service-requests" },
       { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
       { label: "SLA Management", icon: Activity, path: "/sla-monitor" },
@@ -128,7 +127,6 @@ const technicianNavItems = [
     label: "Service Desk & Ticketing",
     icon: Ticket,
     children: [
-      { label: "Service Request Management", icon: ClipboardList, path: "/service-requests" },
       { label: "Available Tickets", icon: FileText, path: "/technician/available-tickets" },
       { label: "My Assigned Tickets", icon: Ticket, path: "/technician/my-assigned-tickets" },
       { label: "Resolved Tickets", icon: Activity, path: "/technician/resolved-tickets" },
@@ -144,8 +142,8 @@ const employeeNavItems = [
     label: "Service Desk & Ticketing",
     icon: Ticket,
     children: [
-      { label: "Create Ticket", icon: FileText, path: "/employee/create-ticket" },
-      { label: "My Requests", icon: Ticket, path: "/employee/my-tickets" },
+      { label: "Incident Management", icon: Ticket, path: "/employee/my-tickets" },
+      { label: "Service Request Management", icon: FileText, path: "/employee/create-ticket" },
       { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
     ],
   },
@@ -214,13 +212,13 @@ function NavGroup({ item, collapsed, dashboardPath }) {
       <Link
         to={itemPath}
         title={collapsed ? item.label : undefined}
-        className={`flex items-center gap-3 rounded-xl px-3 py-3 transition-all ${
+        className={`astrea-nav-item flex items-center gap-3 rounded-xl px-3 py-3 transition-all ${
           isActive
-            ? "bg-blue-600/30 text-white shadow-lg shadow-blue-900/20"
-            : "text-sky-100 hover:bg-blue-600/15 hover:text-white"
+            ? "astrea-nav-active text-white"
+            : "text-[#1E2A44] hover:bg-[#EEF6FF] hover:text-[#2563EB]"
         }`}
       >
-        <Icon size={18} className="shrink-0 text-sky-300" />
+        <Icon size={18} className="shrink-0 text-[#0B63F6]" />
         {!collapsed && (
           <span className="truncate text-sm font-semibold">{item.label}</span>
         )}
@@ -235,13 +233,13 @@ function NavGroup({ item, collapsed, dashboardPath }) {
       <button
         onClick={() => setOpen((prev) => !prev)}
         title={collapsed ? item.label : undefined}
-        className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-all ${
+        className={`astrea-nav-item flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-all ${
           isActive
-            ? "bg-blue-600/20 text-white"
-            : "text-sky-100 hover:bg-blue-600/15 hover:text-white"
+            ? "astrea-nav-active text-white"
+            : "text-[#1E2A44] hover:bg-[#EEF6FF] hover:text-[#2563EB]"
         }`}
       >
-        <Icon size={18} className="shrink-0 text-sky-300" />
+        <Icon size={18} className="shrink-0 text-[#0B63F6]" />
 
         {!collapsed && (
           <>
@@ -250,7 +248,7 @@ function NavGroup({ item, collapsed, dashboardPath }) {
             </span>
             <ChevronRightSmall
               size={14}
-              className={`text-sky-400 transition-transform ${
+              className={`text-[#0B63F6] transition-transform ${
                 open ? "rotate-90" : ""
               }`}
             />
@@ -259,7 +257,7 @@ function NavGroup({ item, collapsed, dashboardPath }) {
       </button>
 
       {!collapsed && open && (
-        <div className="ml-4 mt-1 space-y-1 border-l border-blue-500/20 pl-3">
+        <div className="ml-4 mt-1 space-y-1 border-l border-[#BFD7FF] pl-3">
           {item.children.map((child) => {
             const ChildIcon = child.icon;
             const childActive = location.pathname === child.path;
@@ -270,11 +268,11 @@ function NavGroup({ item, collapsed, dashboardPath }) {
                 to={child.path}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all ${
                   childActive
-                    ? "bg-blue-600/25 text-white"
-                    : "text-sky-200 hover:bg-blue-600/15 hover:text-white"
+                    ? "bg-[#EEF6FF] text-[#2563EB]"
+                    : "text-[#64748B] hover:bg-[#EEF6FF] hover:text-[#2563EB]"
                 }`}
               >
-                <ChildIcon size={15} className="shrink-0 text-sky-300" />
+                <ChildIcon size={15} className="shrink-0 text-[#0B63F6]" />
                 <span className="truncate">{child.label}</span>
               </Link>
             );
@@ -293,32 +291,30 @@ export default function SideBar({ collapsed, setCollapsed }) {
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-40 flex h-screen flex-col transition-all duration-300 ${
+      className={`astrea-sidebar fixed left-0 top-0 z-40 flex h-screen flex-col transition-all duration-300 ${
         collapsed ? "w-[68px]" : "w-[260px]"
       }`}
       style={{
-        background:
-          "linear-gradient(180deg, #07102E 0%, #060D25 50%, #050920 100%)",
-        borderRight: "1px solid rgba(37,99,235,0.18)",
+        background: "#FFFFFF",
+        borderRight: "1px solid #DCE7F6",
+        boxShadow: "8px 0 24px rgba(30, 80, 160, 0.08)",
       }}
     >
-      <div className="flex min-h-[78px] items-center justify-center border-b border-blue-500/15 px-4 py-3">
+      <div className="relative flex min-h-[150px] items-center justify-center border-b border-[#DCE7F6] px-4 py-4">
         {collapsed ? (
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/5 shadow-lg shadow-blue-700/20">
-            <img
-              src="/astrea-blue-logo.png"
-              alt="AstreaBlue"
-              className="h-8 w-8 object-contain"
-            />
-          </div>
+          <img
+            src="/astrea-blue-logo.png"
+            alt="AstreaBlue"
+            className="h-10 w-10 object-contain"
+          />
         ) : (
           <div className="flex flex-col items-center text-center">
             <img
               src="/astrea-blue-logo.png"
               alt="AstreaBlue"
-              className="h-11 max-w-[190px] object-contain"
+              className="h-20 max-w-[210px] object-contain"
             />
-            <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-500">
+            <div className="mt-4 text-[11px] font-semibold uppercase tracking-[0.36em] text-[#64748B]">
               Enterprise ITSM
             </div>
           </div>
@@ -336,10 +332,10 @@ export default function SideBar({ collapsed, setCollapsed }) {
         ))}
       </nav>
 
-      <div className="border-t border-blue-500/15 p-2.5">
+      <div className="border-t border-[#DCE7F6] p-2.5">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600/10 px-3 py-2.5 text-sm text-sky-300 transition hover:bg-blue-600/20 hover:text-white"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#BFD7FF] bg-white px-3 py-2.5 text-sm text-[#2563EB] transition hover:bg-[#EEF6FF]"
         >
           {collapsed ? (
             <ChevronRight size={16} />

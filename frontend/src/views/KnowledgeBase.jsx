@@ -1,3 +1,4 @@
+import { API_URL } from "../config/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -14,7 +15,7 @@ import { useAuth } from "../context/AuthContext";
 import { authHeaders } from "../services/authHeaders";
 import { buildTicketQuery } from "../utils/ticketAccess";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 
 const emptyArticle = {
   title: "",
@@ -693,3 +694,4 @@ function InfoTile({ label, value }) {
     </div>
   );
 }
+

@@ -1,13 +1,20 @@
-const API_URL = "http://localhost:5001/api/auth";
+import { API_URL } from "../config/api";
+const AUTH_API_URL = `${API_URL}/api/auth`;
 
 export async function loginUser(email, password) {
-  const response = await fetch(`${API_URL}/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  let response;
 
-  const data = await response.json();
+  try {
+    response = await fetch(`${AUTH_API_URL}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch {
+    throw new Error(`Unable to reach backend at ${API_URL}. Please confirm the API server is running.`);
+  }
+
+  const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
     throw new Error(data.message || "Login failed");
@@ -22,14 +29,66 @@ export function saveUser(user, token, rememberMe) {
   if (token) storage.setItem("token", token);
 }
 
+function readSavedSession(storage) {
+  const rawUser = storage.getItem("user");
+  if (!rawUser) return null;
+
+  try {
+    const user = JSON.parse(rawUser);
+    const token =
+      storage.getItem("token") ||
+      user?.token ||
+      user?.accessToken ||
+      "";
+
+    if (!token || tokenIsExpired(token)) return null;
+    return { user, token };
+  } catch {
+    return null;
+  }
+}
+
+function tokenIsExpired(token) {
+  try {
+    if (typeof atob !== "function") return false;
+
+    const payload = token.split(".")[1];
+    if (!payload) return false;
+
+    const paddedPayload = payload.padEnd(
+      payload.length + ((4 - (payload.length % 4)) % 4),
+      "="
+    );
+    const decoded = atob(paddedPayload.replace(/-/g, "+").replace(/_/g, "/"));
+    const exp = JSON.parse(decoded)?.exp;
+
+    return Number.isFinite(exp) && exp * 1000 <= Date.now();
+  } catch {
+    return false;
+  }
+}
+
 export function getSavedUser() {
-  const localUser = localStorage.getItem("user");
-  const sessionUser = sessionStorage.getItem("user");
-  return localUser
-    ? JSON.parse(localUser)
-    : sessionUser
-    ? JSON.parse(sessionUser)
-    : null;
+  return (
+    readSavedSession(localStorage)?.user ||
+    readSavedSession(sessionStorage)?.user ||
+    null
+  );
+}
+
+export function getAuthToken() {
+  return (
+    readSavedSession(localStorage)?.token ||
+    readSavedSession(sessionStorage)?.token ||
+    ""
+  );
+}
+
+export function hasStaleSavedUser() {
+  return Boolean(
+    (localStorage.getItem("user") && !readSavedSession(localStorage)) ||
+      (sessionStorage.getItem("user") && !readSavedSession(sessionStorage))
+  );
 }
 
 export function logoutUser() {
@@ -38,3 +97,4 @@ export function logoutUser() {
   sessionStorage.removeItem("user");
   sessionStorage.removeItem("token");
 }
+

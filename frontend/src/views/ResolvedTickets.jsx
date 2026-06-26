@@ -1,10 +1,11 @@
+import { API_URL } from "../config/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, getStatusBadgeClass } from "../utils/ticketVisuals";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 
 export default function ResolvedTickets() {
   const { user } = useAuth();
@@ -123,3 +124,4 @@ export default function ResolvedTickets() {
     </div>
   );
 }
+

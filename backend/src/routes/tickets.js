@@ -1,6 +1,14 @@
 const express = require("express");
 const db = require("../../config/db");
 const { addTicketAccessFilter } = require("./_ticketAccess");
+const {
+  sendTicketAssignedEmail,
+  sendTicketCancelledEmail,
+  sendTicketClosedEmail,
+  sendTicketCreatedEmail,
+  sendTicketResolvedEmail,
+  sendTicketStatusEmail,
+} = require("../services/emailService");
 
 const router = express.Router();
 
@@ -8,7 +16,10 @@ async function ensureTicketBranchColumn() {
   try {
     await db.query(`
       ALTER TABLE tickets
-      ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id)
+      ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id),
+      ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(user_id),
+      ADD COLUMN IF NOT EXISTS cancellation_reason TEXT
     `);
   } catch (err) {
     console.error("Ticket branch setup error:", err.message);
@@ -16,6 +27,61 @@ async function ensureTicketBranchColumn() {
 }
 
 ensureTicketBranchColumn();
+
+async function getTicketNotificationDetails(ticketId) {
+  const result = await db.query(
+    `
+    SELECT
+      t.id,
+      t.ticket_number,
+      t.title,
+      t.priority,
+      t.status,
+      t.branch_id,
+      COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
+      requester.full_name AS requester_name,
+      requester.email AS requester_email,
+      requester.personal_email AS requester_personal_email,
+      requester.company_email AS requester_company_email,
+      assignee.full_name AS assigned_name,
+      assignee.email AS assigned_email
+    FROM tickets t
+    LEFT JOIN branches b
+      ON t.branch_id = b.branch_id
+    LEFT JOIN users requester
+      ON t.requester_id = requester.user_id
+    LEFT JOIN users assignee
+      ON t.assigned_to = assignee.user_id
+    WHERE t.id = $1
+    LIMIT 1
+    `,
+    [ticketId]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function sendTicketNotification(ticketId, sendEmail) {
+  try {
+    const ticket = await getTicketNotificationDetails(ticketId);
+
+    if (!ticket) {
+      return "Ticket email skipped because ticket details were not found.";
+    }
+
+    const result = await sendEmail(ticket);
+
+    if (result?.warning) {
+      console.warn(`Ticket email warning for ticket ${ticket.ticket_number}: ${result.warning}`);
+      return result.warning;
+    }
+
+    return null;
+  } catch (err) {
+    console.warn("Ticket email notification failed:", err.message);
+    return "Ticket updated, but email notification failed.";
+  }
+}
 
 router.get("/", async (req, res) => {
   try {
@@ -389,7 +455,15 @@ router.post("/", async (req, res) => {
       ]
     );
 
-    res.status(201).json(result.rows[0]);
+    const emailWarning = await sendTicketNotification(
+      result.rows[0].id,
+      sendTicketCreatedEmail
+    );
+
+    res.status(201).json({
+      ...result.rows[0],
+      ...(emailWarning ? { email_warning: emailWarning } : {}),
+    });
   } catch (err) {
     console.error("Create ticket error:", err.message);
 
@@ -537,6 +611,8 @@ router.put("/:id", async (req, res) => {
       ]
     );
 
+    let emailWarning = null;
+
     if (status && status !== existing.status) {
       await db.query(
         `
@@ -546,9 +622,21 @@ router.put("/:id", async (req, res) => {
         `,
         [id, changed_by, "Status Updated", existing.status, status]
       );
+
+      const statusEmail =
+        finalStatus === "Resolved"
+          ? sendTicketResolvedEmail
+          : finalStatus === "Closed"
+          ? sendTicketClosedEmail
+          : sendTicketStatusEmail;
+
+      emailWarning = await sendTicketNotification(id, statusEmail);
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      ...result.rows[0],
+      ...(emailWarning ? { email_warning: emailWarning } : {}),
+    });
   } catch (err) {
     console.error("Update ticket error:", err.message);
 
@@ -563,6 +651,22 @@ router.patch("/:id/assign", async (req, res) => {
   try {
     const { id } = req.params;
     const { assigned_to, changed_by = null } = req.body;
+    const currentRole = String(
+      req.body?.role_name || req.query.role_name || req.body?.current_role || ""
+    ).toLowerCase();
+    const currentBranchId =
+      req.body?.current_branch_id ||
+      req.query.current_branch_id ||
+      req.body?.branch_id ||
+      req.query.branch_id ||
+      null;
+
+    if (!["superadmin", "admin"].includes(currentRole)) {
+      return res.status(403).json({
+        success: false,
+        error: "You are not allowed to assign tickets.",
+      });
+    }
 
     const existingParams = [id];
     const accessClauses = addTicketAccessFilter(req, existingParams, "t");
@@ -593,6 +697,15 @@ router.patch("/:id/assign", async (req, res) => {
     }
 
     const ticket = existingResult.rows[0];
+
+    if (currentRole === "admin") {
+      if (!currentBranchId || Number(ticket.branch_id) !== Number(currentBranchId)) {
+        return res.status(403).json({
+          success: false,
+          error: "Admin can only assign technicians from the same branch.",
+        });
+      }
+    }
 
     if (assigned_to) {
       const technicianResult = await db.query(
@@ -637,8 +750,19 @@ router.patch("/:id/assign", async (req, res) => {
         });
       }
 
+      if (
+        currentRole === "admin" &&
+        (Number(technician.branch_id) !== Number(currentBranchId) ||
+          Number(technician.branch_id) !== Number(ticket.branch_id))
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Admin can only assign technicians from the same branch.",
+        });
+      }
+
       if (Number(ticket.branch_id) !== Number(technician.branch_id)) {
-        return res.status(400).json({
+        return res.status(403).json({
           success: false,
           error: `Technician must belong to the same branch as the ticket. Ticket branch: ${ticket.branch_name}, Technician branch: ${technician.branch_name}`,
         });
@@ -679,7 +803,14 @@ router.patch("/:id/assign", async (req, res) => {
       ]
     );
 
-    res.json(result.rows[0]);
+    const emailWarning = assigned_to
+      ? await sendTicketNotification(id, sendTicketAssignedEmail)
+      : null;
+
+    res.json({
+      ...result.rows[0],
+      ...(emailWarning ? { email_warning: emailWarning } : {}),
+    });
   } catch (err) {
     console.error("Assign ticket error:", err.message);
 
@@ -791,10 +922,16 @@ router.patch("/:id/cancel", async (req, res) => {
       [id, cancelledBy, "Ticket Cancelled", null, reason.trim()]
     );
 
+    const emailWarning = await sendTicketNotification(
+      id,
+      sendTicketCancelledEmail
+    );
+
     res.json({
       success: true,
       message: "Ticket cancelled successfully.",
       ticket: result.rows[0],
+      ...(emailWarning ? { email_warning: emailWarning } : {}),
     });
   } catch (err) {
     console.error("Cancel ticket error:", err.message);

@@ -1,3 +1,256 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --astrea-bg: #f4f8ff;
+  --astrea-surface: #ffffff;
+  --astrea-surface-soft: #f6faff;
+  --astrea-border: #e3ebf7;
+  --astrea-border-soft: #e6eef8;
+  --astrea-primary: #2f6dff;
+  --astrea-primary-hover: #235ce8;
+  --astrea-purple: #7c3cff;
+  --astrea-cyan: #55bfff;
+  --astrea-success: #1db954;
+  --astrea-navy: #07172a;
+  --astrea-text: #07172a;
+  --astrea-secondary: #50627a;
+  --astrea-shadow: 0 12px 30px rgba(20, 60, 120, 0.08);
+}
+
+body {
+  background: var(--astrea-bg);
+  color: var(--astrea-text);
+}
+
+.astrea-nav-item {
+  position: relative;
+}
+
+.astrea-nav-active {
+  position: relative;
+  background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
+  border-left: 0;
+  border-radius: 15px;
+  padding-left: 1rem !important;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22);
+}
+
+.astrea-nav-active::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 4px;
+  height: 22px;
+  border-radius: 999px;
+  background: #ffffff;
+  transform: translateY(-50%);
+}
+
+.astrea-nav-active svg {
+  color: #ffffff !important;
+}
+
+.astrea-topnav {
+  backdrop-filter: blur(18px);
+}
+
+.astrea-login-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.astrea-login {
+  background:
+    radial-gradient(circle at top left, rgba(56,189,248,0.28), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(37,99,235,0.28), transparent 35%),
+    linear-gradient(135deg, #eaf4ff 0%, #dcebff 55%, #cfe3ff 100%);
+}
+
+.astrea-login-card {
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 28px;
+  box-shadow: 0 35px 90px rgba(15, 35, 80, 0.22);
+}
+
+.astrea-login-form-panel {
+  background: rgba(255, 255, 255, 0.96);
+  border-left: 1px solid #e1eaf7;
+  box-shadow: inset 18px 0 34px rgba(20, 60, 120, 0.035);
+}
+
+.astrea-login-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.astrea-login-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.6;
+  background:
+    radial-gradient(circle at 18% 16%, rgba(37, 99, 235, 0.28) 0 1px, transparent 2px),
+    radial-gradient(circle at 32% 12%, rgba(56, 189, 248, 0.32) 0 1px, transparent 2px),
+    radial-gradient(circle at 84% 28%, rgba(37, 99, 235, 0.24) 0 1px, transparent 2px),
+    radial-gradient(circle at 75% 74%, rgba(37, 99, 235, 0.14), transparent 22%);
+}
+
+.astrea-login-panel::after {
+  content: "";
+  position: absolute;
+  right: -32px;
+  bottom: 44px;
+  width: 220px;
+  height: 120px;
+  border-bottom: 5px solid rgba(37, 99, 235, 0.24);
+  border-radius: 0 0 100% 100%;
+  transform: rotate(-13deg);
+}
+
+[class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"] {
+  position: relative;
+  overflow: hidden;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #155dfb 0%, #2563eb 45%, #7c3cff 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 20px 44px rgba(37, 99, 235, 0.2) !important;
+}
+
+[class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"] > * {
+  position: relative;
+  z-index: 1;
+}
+
+[class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.85;
+  background:
+    radial-gradient(circle at 68% 34%, rgba(255, 255, 255, 0.82) 0 1px, transparent 2px),
+    radial-gradient(circle at 79% 25%, rgba(255, 255, 255, 0.8) 0 1px, transparent 2px),
+    radial-gradient(circle at 92% 34%, rgba(255, 255, 255, 0.74) 0 1px, transparent 2px),
+    radial-gradient(circle at 86% 62%, rgba(255, 255, 255, 0.16), transparent 28%);
+}
+
+[class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"]::after {
+  content: "";
+  position: absolute;
+  right: 42px;
+  top: 22px;
+  width: 250px;
+  height: 120px;
+  pointer-events: none;
+  border-right: 0;
+  border-bottom: 7px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0 0 100% 100%;
+  background: transparent;
+  box-shadow:
+    28px -12px 0 -24px rgba(255,255,255,0.7),
+    70px 22px 0 -31px rgba(255,255,255,0.45);
+  transform: rotate(15deg);
+}
+
+[class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"] h1,
+[class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"] h2,
+[class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"] p,
+[class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"] span {
+  color: #ffffff !important;
+}
+
+p[class*="text-slate-500"],
+span[class*="text-slate-500"],
+div[class*="text-slate-500"] {
+  color: var(--astrea-secondary) !important;
+}
+
+[class*="border-slate-200"][class*="bg-white"],
+[class*="border-slate-100"][class*="bg-white"] {
+  border-color: var(--astrea-border) !important;
+  box-shadow: var(--astrea-shadow);
+}
+
+[class*="shadow-sm"][class*="bg-white"],
+[class*="shadow-xl"][class*="bg-white"],
+[class*="shadow-2xl"][class*="bg-white"] {
+  box-shadow: var(--astrea-shadow) !important;
+}
+
+[class*="bg-slate-50"] {
+  background-color: var(--astrea-surface-soft) !important;
+}
+
+[class*="border-slate-200"] {
+  border-color: var(--astrea-border) !important;
+}
+
+[class*="bg-blue-700"] {
+  background-color: var(--astrea-primary) !important;
+}
+
+[class*="hover:bg-blue-800"]:hover,
+[class*="hover:bg-blue-700"]:hover {
+  background-color: var(--astrea-primary-hover) !important;
+}
+
+[class*="text-blue-700"] {
+  color: var(--astrea-primary) !important;
+}
+
+[class*="bg-blue-50"] {
+  background-color: #eef5ff !important;
+}
+
+[class*="text-emerald-600"],
+[class*="text-emerald-700"] {
+  color: var(--astrea-success) !important;
+}
+
+thead[class*="bg-slate-50"],
+[class*="rounded-2xl"][class*="bg-slate-50"] {
+  background: #f8fbff !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--astrea-primary) !important;
+  box-shadow: 0 0 0 4px rgba(47, 109, 255, 0.12) !important;
+}
+
+input,
+select,
+textarea {
+  border-color: #d8e5f6 !important;
+  color: #0f172a;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+}
+
+[class*="rounded-3xl"][class*="bg-white"][class*="shadow-2xl"],
+[class*="rounded-3xl"][class*="bg-white"][class*="shadow-xl"],
+[class*="rounded-2xl"][class*="bg-white"][class*="shadow-2xl"] {
+  border: 1px solid #dce7f6 !important;
+  box-shadow: 0 28px 80px rgba(15, 35, 80, 0.22) !important;
+}
+
+[class*="border-b"][class*="border-slate-200"] {
+  border-color: #e6eef8 !important;
+}
+
+[class*="border-t"][class*="border-slate-200"] {
+  border-color: #e6eef8 !important;
+}
+
+label[class*="border-dashed"] {
+  border-color: #bfd7ff !important;
+  background: #f7faff !important;
+}

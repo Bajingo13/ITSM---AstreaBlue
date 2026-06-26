@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { getSavedUser, loginUser, logoutUser, saveUser } from "./AuthService";
+import {
+  getSavedUser,
+  hasStaleSavedUser,
+  loginUser,
+  logoutUser,
+  saveUser,
+} from "./AuthService";
 
 const AuthContext = createContext(null);
 
@@ -9,6 +15,9 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const savedUser = getSavedUser();
+    if (!savedUser && hasStaleSavedUser()) {
+      logoutUser();
+    }
     if (savedUser) setUser(savedUser);
     try {
       console.debug("AuthProvider: onMount savedUser=", savedUser);

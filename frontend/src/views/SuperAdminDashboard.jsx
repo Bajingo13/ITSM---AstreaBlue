@@ -1,9 +1,10 @@
+import { API_URL } from "../config/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GitBranch, Ticket, UserCog, Users } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 
 export default function SuperAdminDashboard() {
   const { user } = useAuth();
@@ -177,3 +178,4 @@ function UserList({ title, users }) {
     </Panel>
   );
 }
+

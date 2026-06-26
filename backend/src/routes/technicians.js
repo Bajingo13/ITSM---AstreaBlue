@@ -5,14 +5,71 @@ const router = express.Router();
 
 router.get("/", async (req, res) => {
   try {
-    const { branch_id } = req.query;
+    const {
+      branch_id,
+      current_branch_id,
+      current_role,
+      role_name,
+      current_user_id,
+      ticket_id,
+    } = req.query;
+    const actorRole = String(current_role || role_name || "").toLowerCase();
 
     const params = [];
-    let branchFilter = "";
+    const filters = [];
 
-    if (branch_id) {
+    if (actorRole === "employee") {
+      return res.status(403).json({
+        success: false,
+        error: "Employees cannot view technician assignment options.",
+      });
+    }
+
+    if (ticket_id) {
+      const ticketResult = await db.query(
+        `SELECT branch_id FROM tickets WHERE id = $1 LIMIT 1`,
+        [ticket_id]
+      );
+
+      if (ticketResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: "Ticket not found.",
+        });
+      }
+
+      const ticketBranchId = ticketResult.rows[0]?.branch_id;
+
+      if (ticketBranchId) {
+        params.push(ticketBranchId);
+        filters.push(`u.branch_id = $${params.length}`);
+      } else {
+        return res.json([]);
+      }
+    }
+
+    if (actorRole === "admin") {
+      const adminBranchId = current_branch_id || branch_id;
+
+      if (!adminBranchId) {
+        return res.json([]);
+      }
+
+      params.push(adminBranchId);
+      filters.push(`u.branch_id = $${params.length}`);
+    } else if (actorRole === "technician") {
+      if (current_user_id) {
+        params.push(current_user_id);
+        filters.push(`u.user_id = $${params.length}`);
+      } else if (current_branch_id || branch_id) {
+        params.push(current_branch_id || branch_id);
+        filters.push(`u.branch_id = $${params.length}`);
+      } else {
+        return res.json([]);
+      }
+    } else if (!actorRole && branch_id) {
       params.push(branch_id);
-      branchFilter = `AND u.branch_id = $${params.length}`;
+      filters.push(`u.branch_id = $${params.length}`);
     }
 
     const result = await db.query(
@@ -31,7 +88,7 @@ router.get("/", async (req, res) => {
         ON u.branch_id = b.branch_id
       WHERE LOWER(sr.role_name) = 'technician'
         AND COALESCE(u.is_active, TRUE) = TRUE
-        ${branchFilter}
+        ${filters.length ? `AND ${filters.join(" AND ")}` : ""}
       ORDER BY u.full_name ASC
       `,
       params

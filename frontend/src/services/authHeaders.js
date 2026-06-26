@@ -1,7 +1,12 @@
-export const getAuthToken = () =>
-  localStorage.getItem("token") || sessionStorage.getItem("token") || "";
+import { getAuthToken } from "../context/AuthService";
 
-export const authHeaders = (extra = {}) => ({
-  ...extra,
-  Authorization: `Bearer ${getAuthToken()}`,
-});
+export { getAuthToken };
+
+export const authHeaders = (extra = {}) => {
+  const token = getAuthToken();
+
+  return {
+    ...extra,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};

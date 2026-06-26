@@ -17,7 +17,7 @@ function getAccessFilter(req) {
   if ((role === "admin" || role === "technician") && branchId) {
     params.push(branchId);
     return {
-      whereSql: `WHERE t.branch_id = $${params.length}`,
+      whereSql: `WHERE COALESCE(t.branch_id, requester.branch_id) = $${params.length}`,
       params,
     };
   }
@@ -50,6 +50,8 @@ router.get("/summary", async (req, res) => {
         COUNT(*) FILTER (WHERE t.status = 'Resolved')::int AS resolved_tickets,
         COUNT(*) FILTER (WHERE t.status = 'Closed')::int AS closed_tickets
       FROM tickets t
+      LEFT JOIN users requester
+        ON t.requester_id = requester.user_id
       ${whereSql}
       `,
       params
@@ -63,12 +65,14 @@ router.get("/summary", async (req, res) => {
         t.title,
         t.priority,
         t.status,
-        t.branch_id,
+        COALESCE(t.branch_id, requester.branch_id) AS branch_id,
         COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
         t.created_at
       FROM tickets t
+      LEFT JOIN users requester
+        ON t.requester_id = requester.user_id
       LEFT JOIN branches b
-        ON t.branch_id = b.branch_id
+        ON COALESCE(t.branch_id, requester.branch_id) = b.branch_id
       ${whereSql}
       ORDER BY t.created_at DESC
       LIMIT 10

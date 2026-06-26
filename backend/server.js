@@ -9,10 +9,19 @@ require("dotenv").config();
 
 const db = require("./config/db");
 const authRoutes = require("./src/routes/auth");
+const dashboardRoutes = require("./src/routes/dashboard");
+const inviteRoutes = require("./src/routes/invites");
+const attachmentRoutes = require("./src/routes/attachments");
+const ticketRoutes = require("./src/routes/tickets");
 
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 const ticketUploadDir = path.join(__dirname, "uploads", "tickets");
@@ -299,6 +308,10 @@ ensureHardwareAssetTables();
 ========================== */
 
 app.use("/api/auth", authRoutes);
+app.use("/api/v1/dashboard", dashboardRoutes);
+app.use("/api/v1/invites", inviteRoutes);
+app.use("/api/v1/tickets", attachmentRoutes);
+app.use("/api/v1/tickets", ticketRoutes);
 
 /* ==========================
    HEALTH CHECK
@@ -446,18 +459,86 @@ app.get("/api/v1/ticket-categories", async (req, res) => {
 
 app.get("/api/v1/technicians", async (req, res) => {
   try {
+    const {
+      branch_id,
+      current_branch_id,
+      current_role,
+      role_name,
+      current_user_id,
+      ticket_id,
+    } = req.query;
+    const actorRole = String(current_role || role_name || "").toLowerCase();
+    const params = [];
+    const filters = [];
+
+    if (actorRole === "employee") {
+      return res.status(403).json({
+        success: false,
+        error: "Employees cannot view technician assignment options.",
+      });
+    }
+
+    if (ticket_id) {
+      const ticketResult = await db.query(
+        `SELECT branch_id FROM tickets WHERE id = $1 LIMIT 1`,
+        [ticket_id]
+      );
+
+      if (ticketResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: "Ticket not found.",
+        });
+      }
+
+      const ticketBranchId = ticketResult.rows[0]?.branch_id;
+
+      if (!ticketBranchId) return res.json([]);
+
+      params.push(ticketBranchId);
+      filters.push(`u.branch_id = $${params.length}`);
+    }
+
+    if (actorRole === "admin") {
+      const adminBranchId = current_branch_id || branch_id;
+
+      if (!adminBranchId) return res.json([]);
+
+      params.push(adminBranchId);
+      filters.push(`u.branch_id = $${params.length}`);
+    } else if (actorRole === "technician") {
+      if (current_user_id) {
+        params.push(current_user_id);
+        filters.push(`u.user_id = $${params.length}`);
+      } else if (current_branch_id || branch_id) {
+        params.push(current_branch_id || branch_id);
+        filters.push(`u.branch_id = $${params.length}`);
+      } else {
+        return res.json([]);
+      }
+    } else if (!actorRole && branch_id) {
+      params.push(branch_id);
+      filters.push(`u.branch_id = $${params.length}`);
+    }
+
     const result = await db.query(`
       SELECT
         u.user_id,
         u.full_name,
         u.email,
+        u.branch_id,
+        COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
         sr.role_name
       FROM users u
       JOIN system_roles sr
         ON u.role_id = sr.role_id
+      LEFT JOIN branches b
+        ON u.branch_id = b.branch_id
       WHERE LOWER(sr.role_name) = 'technician'
+        AND COALESCE(u.is_active, TRUE) = TRUE
+        ${filters.length ? `AND ${filters.join(" AND ")}` : ""}
       ORDER BY u.full_name ASC
-    `);
+    `, params);
 
     res.json(result.rows);
   } catch (err) {
@@ -2725,9 +2806,35 @@ app.patch("/api/v1/tickets/:id/assign", async (req, res) => {
   try {
     const { id } = req.params;
     const { assigned_to, changed_by = null } = req.body;
+    const currentRole = String(
+      req.body?.role_name || req.query.role_name || req.body?.current_role || ""
+    ).toLowerCase();
+    const currentBranchId =
+      req.body?.current_branch_id ||
+      req.query.current_branch_id ||
+      req.body?.branch_id ||
+      req.query.branch_id ||
+      null;
+
+    if (!["superadmin", "admin"].includes(currentRole)) {
+      return res.status(403).json({
+        success: false,
+        error: "You are not allowed to assign tickets.",
+      });
+    }
 
     const existingResult = await db.query(
-      `SELECT assigned_to FROM tickets WHERE id = $1`,
+      `
+      SELECT
+        t.id,
+        t.assigned_to,
+        t.branch_id,
+        COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name
+      FROM tickets t
+      LEFT JOIN branches b
+        ON t.branch_id = b.branch_id
+      WHERE t.id = $1
+      `,
       [id]
     );
 
@@ -2736,6 +2843,72 @@ app.patch("/api/v1/tickets/:id/assign", async (req, res) => {
         success: false,
         error: "Ticket not found",
       });
+    }
+
+    const ticket = existingResult.rows[0];
+
+    if (currentRole === "admin") {
+      if (!currentBranchId || Number(ticket.branch_id) !== Number(currentBranchId)) {
+        return res.status(403).json({
+          success: false,
+          error: "Admin can only assign technicians from the same branch.",
+        });
+      }
+    }
+
+    if (assigned_to) {
+      const technicianResult = await db.query(
+        `
+        SELECT
+          u.user_id,
+          u.full_name,
+          u.branch_id,
+          COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name
+        FROM users u
+        JOIN system_roles sr
+          ON u.role_id = sr.role_id
+        LEFT JOIN branches b
+          ON u.branch_id = b.branch_id
+        WHERE u.user_id = $1
+          AND LOWER(sr.role_name) = 'technician'
+          AND COALESCE(u.is_active, TRUE) = TRUE
+        `,
+        [assigned_to]
+      );
+
+      if (technicianResult.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Selected user is not an active technician",
+        });
+      }
+
+      const technician = technicianResult.rows[0];
+
+      if (!ticket.branch_id || !technician.branch_id) {
+        return res.status(400).json({
+          success: false,
+          error: "Ticket and technician must both have an assigned branch.",
+        });
+      }
+
+      if (
+        currentRole === "admin" &&
+        (Number(technician.branch_id) !== Number(currentBranchId) ||
+          Number(technician.branch_id) !== Number(ticket.branch_id))
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Admin can only assign technicians from the same branch.",
+        });
+      }
+
+      if (Number(ticket.branch_id) !== Number(technician.branch_id)) {
+        return res.status(403).json({
+          success: false,
+          error: `Technician must belong to the same branch as the ticket. Ticket branch: ${ticket.branch_name}, Technician branch: ${technician.branch_name}`,
+        });
+      }
     }
 
     const result = await db.query(
@@ -2751,6 +2924,7 @@ app.patch("/api/v1/tickets/:id/assign", async (req, res) => {
         priority,
         status,
         assigned_to,
+        branch_id,
         updated_at
       `,
       [assigned_to || null, id]
@@ -2766,7 +2940,7 @@ app.patch("/api/v1/tickets/:id/assign", async (req, res) => {
         id,
         changed_by,
         "Ticket Assigned",
-        existingResult.rows[0].assigned_to,
+        ticket.assigned_to,
         assigned_to || null,
       ]
     );
@@ -3195,8 +3369,14 @@ app.use((err, req, res, next) => {
    START SERVER
 ========================== */
 
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(`🪐 AstreaBlue Secure Server active on port ${PORT}`);
+  console.log(`AstreaBlue API active on port ${PORT}`);
+  console.log(
+    `[AstreaBlue API] health=http://localhost:${PORT}/api/health dashboard=http://localhost:${PORT}/api/v1/dashboard/summary`
+  );
+  console.log(
+    "[AstreaBlue API] mounted routes: /api/auth, /api/v1/dashboard, /api/v1/tickets, /api/v1/branches, /api/v1/users, /api/v1/roles, /api/v1/technicians, /api/v1/ticket-categories, /api/v1/invites, /api/v1/knowledge-base, /api/v1/requests"
+  );
 });

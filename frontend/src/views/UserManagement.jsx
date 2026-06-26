@@ -1,3 +1,4 @@
+import { API_URL } from "../config/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Edit3,
@@ -10,11 +11,13 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 
 const emptyForm = {
   full_name: "",
   email: "",
+  personal_email: "",
+  company_email: "",
   password: "",
   role_id: "",
   company_name: "",
@@ -30,6 +33,8 @@ export default function UserManagement() {
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [branches, setBranches] = useState([]);
+  const [rolesError, setRolesError] = useState("");
+  const [branchesError, setBranchesError] = useState("");
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("All");
   const [branchFilter, setBranchFilter] = useState("All");
@@ -52,21 +57,31 @@ export default function UserManagement() {
 
   const fetchRoles = useCallback(async () => {
     try {
+      setRolesError("");
       const res = await fetch(`${API_BASE}/roles`);
       const data = await res.json();
-      setRoles(Array.isArray(data) ? data : []);
+      if (!res.ok) throw new Error(data.error || "Failed to load roles.");
+      if (!Array.isArray(data)) throw new Error("Roles response was invalid.");
+      setRoles(data);
     } catch (err) {
       console.error("Fetch roles failed:", err);
+      setRolesError(err.message || "Failed to load roles.");
+      setRoles([]);
     }
   }, []);
 
   const fetchBranches = useCallback(async () => {
     try {
+      setBranchesError("");
       const res = await fetch(`${API_BASE}/branches`);
       const data = await res.json();
-      setBranches(Array.isArray(data) ? data : []);
+      if (!res.ok) throw new Error(data.error || "Failed to load branches.");
+      if (!Array.isArray(data)) throw new Error("Branches response was invalid.");
+      setBranches(data);
     } catch (err) {
       console.error("Fetch branches failed:", err);
+      setBranchesError(err.message || "Failed to load branches.");
+      setBranches([]);
     }
   }, []);
 
@@ -79,6 +94,14 @@ export default function UserManagement() {
   const allowedRoles = useMemo(() => {
     const allowedNames = isSuperAdmin
       ? ["SuperAdmin", "Admin", "Technician", "Employee"]
+      : ["Technician", "Employee"];
+
+    return roles.filter((item) => allowedNames.includes(item.role_name));
+  }, [isSuperAdmin, roles]);
+
+  const inviteRoles = useMemo(() => {
+    const allowedNames = isSuperAdmin
+      ? ["Admin", "Technician", "Employee"]
       : ["Technician", "Employee"];
 
     return roles.filter((item) => allowedNames.includes(item.role_name));
@@ -150,13 +173,22 @@ export default function UserManagement() {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => setFormUser({ ...emptyForm, inviteMode: true })}
-            className="flex items-center justify-center gap-2 rounded-xl bg-blue-100 px-5 py-3 font-black text-blue-800 shadow-lg hover:bg-blue-50"
-          >
-            <Plus size={18} />
-            Invite User
-          </button>
+          {["SuperAdmin", "Admin"].includes(activeRole) && (
+            <button
+              onClick={() =>
+                setFormUser({
+                  ...emptyForm,
+                  inviteMode: true,
+                  branch_id: isSuperAdmin ? "" : user?.branch_id || "",
+                  company_name: user?.company_name || "",
+                })
+              }
+              className="flex items-center justify-center gap-2 rounded-xl bg-blue-100 px-5 py-3 font-black text-blue-800 shadow-lg hover:bg-blue-50"
+            >
+              <Plus size={18} />
+              Generate Invite
+            </button>
+          )}
           <button
             onClick={openAddUser}
             className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
@@ -312,9 +344,15 @@ export default function UserManagement() {
         <UserFormModal
           user={formUser}
           roles={allowedRoles}
+          inviteRoles={inviteRoles}
           branches={branches}
+          rolesError={rolesError}
+          branchesError={branchesError}
           isSuperAdmin={isSuperAdmin}
+          activeRole={activeRole}
           currentBranchId={user?.branch_id}
+          currentBranchName={user?.branch_name}
+          currentUserId={user?.user_id}
           onClose={() => setFormUser(null)}
           onSaved={() => {
             setFormUser(null);
@@ -361,17 +399,59 @@ function FilterSelect({ value, onChange, options, label }) {
 function UserFormModal({
   user,
   roles,
+  inviteRoles,
   branches,
+  rolesError,
+  branchesError,
   isSuperAdmin,
+  activeRole,
   currentBranchId,
+  currentBranchName,
+  currentUserId,
   onClose,
   onSaved,
 }) {
   const [form, setForm] = useState(user);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteMessage, setInviteMessage] = useState("");
+  const [inviteMessageType, setInviteMessageType] = useState("success");
   const isEditing = Boolean(user.user_id);
   const isInvite = Boolean(user.inviteMode);
+  const roleOptions = isInvite ? inviteRoles : roles;
+  const activeBranches = isInvite
+    ? branches.filter((branch) => {
+        const status = String(branch.status || "").toLowerCase();
+        return branch.is_active !== false && status !== "inactive";
+      })
+    : branches;
+  const assignedBranchName =
+    currentBranchName ||
+    branches.find((branch) => Number(branch.branch_id) === Number(currentBranchId))
+      ?.branch_name ||
+    (currentBranchId ? `Branch #${currentBranchId}` : "");
+
+  useEffect(() => {
+    if (!isInvite) return;
+
+    setForm((prev) => {
+      const next = { ...prev };
+
+      if (!next.role_id && roleOptions.length) {
+        const employeeRole =
+          roleOptions.find((item) => item.role_name === "Employee") ||
+          roleOptions[0];
+        next.role_id = employeeRole?.role_id ? String(employeeRole.role_id) : "";
+      }
+
+      if (!isSuperAdmin && currentBranchId) {
+        next.branch_id = String(currentBranchId);
+      }
+
+      return next;
+    });
+  }, [currentBranchId, isInvite, isSuperAdmin, roleOptions]);
 
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -380,8 +460,23 @@ function UserFormModal({
   const saveUser = async (e) => {
     e.preventDefault();
     setError("");
+    setInviteMessage("");
 
-    if (!form.full_name || !form.email || !form.role_id || (!isEditing && !isInvite && !form.password)) {
+    if (isInvite) {
+      const finalBranchId = isSuperAdmin ? form.branch_id : currentBranchId;
+      if (roleOptions.length === 0) {
+        setError(rolesError || "No invite roles are available. Please try again.");
+        return;
+      }
+      if (isSuperAdmin && activeBranches.length === 0) {
+        setError(branchesError || "No active branches are available for invites.");
+        return;
+      }
+      if (!form.full_name || !form.personal_email || !form.role_id || !finalBranchId) {
+        setError("Please complete full name, personal email, role, and branch.");
+        return;
+      }
+    } else if (!form.full_name || !form.email || !form.role_id || (!isEditing && !form.password)) {
       setError("Full name, email, role, and temporary password are required.");
       return;
     }
@@ -392,7 +487,7 @@ function UserFormModal({
       const finalBranchId = isSuperAdmin ? form.branch_id : currentBranchId;
       const res = await fetch(
         isInvite
-          ? `${API_BASE}/users/invite`
+          ? `${API_BASE}/invites`
           : isEditing
           ? `${API_BASE}/users/${user.user_id}`
           : `${API_BASE}/users`,
@@ -401,13 +496,22 @@ function UserFormModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             full_name: form.full_name,
-            email: form.email,
+            email: form.email || form.company_email || form.personal_email,
+            personal_email: form.personal_email || null,
+            company_email: form.company_email || null,
             password: form.password,
             role_id: Number(form.role_id),
+            role_name:
+              roleOptions.find((item) => String(item.role_id) === String(form.role_id))
+                ?.role_name || null,
             company_name: form.company_name || null,
             branch_id: finalBranchId ? Number(finalBranchId) : null,
             mobile_number: form.mobile_number || null,
             status: form.status || "Active",
+            current_user_id: currentUserId || null,
+            current_role: activeRole,
+            current_branch_id: currentBranchId || null,
+            app_origin: window.location.origin,
           }),
         }
       );
@@ -416,8 +520,15 @@ function UserFormModal({
 
       if (!res.ok) throw new Error(data.error || "Failed to save user.");
 
-      if (isInvite && data.invite_link) {
-        window.alert(`Invite link created:\n${data.invite_link}`);
+      if (isInvite) {
+        setInviteLink(data.invite_link || "");
+        setInviteMessage(
+          data.message ||
+            data.warning ||
+            "Invite link generated."
+        );
+        setInviteMessageType(data.email_sent === false ? "warning" : "success");
+        return;
       }
 
       onSaved();
@@ -434,10 +545,12 @@ function UserFormModal({
         <div className="flex items-start justify-between border-b border-slate-200 px-7 py-5">
           <div>
             <h2 className="text-xl font-black text-slate-900">
-              {isInvite ? "Invite User" : isEditing ? "Edit User" : "Add User"}
+              {isInvite ? "Generate Invite" : isEditing ? "Edit User" : "Add User"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Configure account profile, branch, role, and access status.
+              {isInvite
+                ? "Create a one-time onboarding link for the user's personal email."
+                : "Configure account profile, branch, role, and access status."}
             </p>
           </div>
           <button
@@ -455,9 +568,46 @@ function UserFormModal({
             </div>
           )}
 
+          {inviteLink && (
+            <div
+              className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
+                inviteMessageType === "warning"
+                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              <p>{inviteMessage || "Invite link generated."}</p>
+              <div className="mt-3 flex flex-col gap-2 rounded-xl bg-white p-3 text-slate-700 md:flex-row md:items-center">
+                <span className="flex-1 break-all">{inviteLink}</span>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard?.writeText(inviteLink)}
+                  className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-700"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Field label="Full Name" value={form.full_name} onChange={(value) => updateForm("full_name", value)} />
-            <Field label="Email" value={form.email} onChange={(value) => updateForm("email", value)} />
+            {isInvite ? (
+              <>
+                <Field
+                  label="Personal Email"
+                  value={form.personal_email}
+                  onChange={(value) => updateForm("personal_email", value)}
+                />
+                <Field
+                  label="Company Email"
+                  value={form.company_email}
+                  onChange={(value) => updateForm("company_email", value)}
+                />
+              </>
+            ) : (
+              <Field label="Email" value={form.email} onChange={(value) => updateForm("email", value)} />
+            )}
             {!isEditing && !isInvite && (
               <Field
                 label="Temporary Password"
@@ -465,46 +615,58 @@ function UserFormModal({
                 onChange={(value) => updateForm("password", value)}
               />
             )}
-            <Field
-              label="Mobile Number"
-              value={form.mobile_number || ""}
-              onChange={(value) => updateForm("mobile_number", value)}
-            />
+            {!isInvite && (
+              <Field
+                label="Mobile Number"
+                value={form.mobile_number || ""}
+                onChange={(value) => updateForm("mobile_number", value)}
+              />
+            )}
             <SelectField
               label="Role"
               value={form.role_id}
               onChange={(value) => updateForm("role_id", value)}
-              options={roles.map((item) => ({
+              options={roleOptions.map((item) => ({
                 value: String(item.role_id),
                 label: item.role_name,
               }))}
-              placeholder="Select role"
+              placeholder={roleOptions.length ? "Select role" : "No roles loaded"}
+              disabled={isInvite && roleOptions.length === 0}
             />
-            <SelectField
-              label="Branch"
-              value={isSuperAdmin ? form.branch_id || "" : currentBranchId || ""}
-              onChange={(value) => updateForm("branch_id", value)}
-              disabled={!isSuperAdmin}
-              options={branches.map((branch) => ({
-                value: String(branch.branch_id),
-                label: branch.branch_name,
-              }))}
-              placeholder="Global or select branch"
-            />
+            {isInvite && !isSuperAdmin ? (
+              <ReadOnlyField
+                label="Branch"
+                value={assignedBranchName || "No branch assigned"}
+              />
+            ) : (
+              <SelectField
+                label="Branch"
+                value={isSuperAdmin ? form.branch_id || "" : currentBranchId || ""}
+                onChange={(value) => updateForm("branch_id", value)}
+                disabled={!isSuperAdmin || (isInvite && activeBranches.length === 0)}
+                options={activeBranches.map((branch) => ({
+                  value: String(branch.branch_id),
+                  label: branch.branch_name,
+                }))}
+                placeholder={activeBranches.length ? "Select branch" : "No branches loaded"}
+              />
+            )}
             <Field
               label="Company Name"
               value={form.company_name || ""}
               onChange={(value) => updateForm("company_name", value)}
             />
-            <SelectField
-              label="Status"
-              value={form.status || "Active"}
-              onChange={(value) => updateForm("status", value)}
-              options={[
-                { value: "Active", label: "Active" },
-                { value: "Inactive", label: "Inactive" },
-              ]}
-            />
+            {!isInvite && (
+              <SelectField
+                label="Status"
+                value={form.status || "Active"}
+                onChange={(value) => updateForm("status", value)}
+                options={[
+                  { value: "Active", label: "Active" },
+                  { value: "Inactive", label: "Inactive" },
+                ]}
+              />
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
@@ -520,7 +682,7 @@ function UserFormModal({
               disabled={saving}
               className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800 disabled:opacity-60"
             >
-              {saving ? "Saving..." : "Save User"}
+              {saving ? "Saving..." : isInvite ? "Generate Invite" : "Save User"}
             </button>
           </div>
         </form>
@@ -620,6 +782,17 @@ function Field({ label, value, onChange }) {
   );
 }
 
+function ReadOnlyField({ label, value }) {
+  return (
+    <div>
+      <label className="mb-2 block text-sm font-bold text-slate-700">{label}</label>
+      <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 font-semibold text-slate-700">
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function SelectField({
   label,
   value,
@@ -647,3 +820,4 @@ function SelectField({
     </div>
   );
 }
+
