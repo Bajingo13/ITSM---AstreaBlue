@@ -43,10 +43,9 @@ export default function Login() {
   };
 
   return (
-    <div className="astrea-login relative flex min-h-screen items-center justify-center overflow-hidden bg-[#F5F9FF] p-6">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(47,109,255,0.16),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(85,191,255,0.18),transparent_42%)]" />
+    <div className="astrea-login relative flex min-h-screen items-center justify-center overflow-hidden p-6">
 
-      <div className="relative flex min-h-[560px] w-full max-w-5xl overflow-hidden rounded-3xl border border-[#E4ECF7] bg-white shadow-[0_24px_70px_rgba(30,80,160,0.14)]">
+      <div className="astrea-login-card relative flex min-h-[560px] w-full max-w-5xl overflow-hidden rounded-3xl bg-white">
         <div className="astrea-login-panel hidden w-1/2 flex-col justify-center bg-[linear-gradient(160deg,#071A3A_0%,#123B8A_45%,#2F6DFF_100%)] p-14 text-white md:flex">
           <img
             src="/astrea-blue-logo.png"
@@ -82,7 +81,7 @@ export default function Login() {
           </div>
         </div>
 
-        <div className="flex w-full flex-col justify-center bg-white px-8 py-12 md:w-1/2 md:px-14">
+        <div className="astrea-login-form-panel flex w-full flex-col justify-center px-8 py-12 md:w-1/2 md:px-14">
           <div className="mb-8 text-center md:text-left">
             <img
               src="/astrea-blue-logo.png"
@@ -117,7 +116,7 @@ export default function Login() {
                 placeholder="Enter your email address"
                 required
                 autoComplete="email"
-                className="w-full rounded-xl border border-[#D9E5F5] bg-[#F8FBFF] px-4 py-3 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                className="w-full rounded-xl border border-[#D8E5F6] bg-[#F7FAFF] px-4 py-3 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
               />
             </div>
 
@@ -134,7 +133,7 @@ export default function Login() {
                   placeholder="Enter your password"
                   required
                   autoComplete="current-password"
-                  className="w-full rounded-xl border border-[#D9E5F5] bg-[#F8FBFF] px-4 py-3 pr-16 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                  className="w-full rounded-xl border border-[#D8E5F6] bg-[#F7FAFF] px-4 py-3 pr-16 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
                 />
 
                 <button
@@ -169,7 +168,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-[linear-gradient(135deg,#2F6DFF_0%,#174FD6_100%)] py-3.5 font-bold text-white shadow-lg shadow-blue-700/25 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-700/30 active:translate-y-0 disabled:cursor-not-allowed disabled:bg-blue-400"
+              className="w-full rounded-xl bg-[linear-gradient(135deg,#2F6DFF_0%,#174FD6_100%)] py-3.5 font-bold text-white shadow-[0_12px_24px_rgba(47,109,255,0.28)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_32px_rgba(47,109,255,0.34)] active:translate-y-0 disabled:cursor-not-allowed disabled:bg-blue-400"
             >
               {loading ? "Signing in..." : "Login"}
             </button>
