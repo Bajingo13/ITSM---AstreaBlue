@@ -1,5 +1,6 @@
 import { useState } from "react";
 import TicketDetails from "../views/TicketDetails";
+import { getStatusBadgeClass } from "../utils/ticketVisuals";
 
 export default function TicketTable({ requests }) {
   const [selectedTicket, setSelectedTicket] = useState(null);
@@ -33,7 +34,11 @@ export default function TicketTable({ requests }) {
                 <td>{r.title}</td>
                 <td>{r.category}</td>
                 <td>{r.branch_name}</td>
-                <td>{r.status}</td>
+                <td>
+                  <span className={`${getStatusBadgeClass(r.status)} px-2.5 py-0.5 font-semibold`}>
+                    {r.status}
+                  </span>
+                </td>
                 <td>
                   <button
                     onClick={() => setSelectedTicket(r.id)}

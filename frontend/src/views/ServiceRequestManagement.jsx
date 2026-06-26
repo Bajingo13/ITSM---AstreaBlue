@@ -97,15 +97,17 @@ function formatDate(val) {
 function StatusBadge({ status }) {
   const s = (status || "").toLowerCase();
   const map = {
-    open: "bg-blue-50 text-blue-700",
-    "open queue": "bg-blue-50 text-blue-700",
-    "in progress": "bg-amber-50 text-amber-700",
-    resolved: "bg-emerald-50 text-emerald-700",
-    closed: "bg-slate-100 text-slate-500",
+    open: "border-blue-200 bg-blue-50 text-blue-700",
+    "open queue": "border-blue-200 bg-blue-50 text-blue-700",
+    "in progress": "border-amber-200 bg-amber-50 text-amber-700",
+    resolved: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    closed: "border-slate-200 bg-slate-100 text-slate-600",
+    cancelled: "border-red-200 bg-red-50 text-red-700",
+    canceled: "border-red-200 bg-red-50 text-red-700",
   };
-  const cls = map[s] || "bg-slate-100 text-slate-600";
+  const cls = map[s] || "border-slate-200 bg-slate-100 text-slate-600";
   return (
-    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${cls}`}>
+    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${cls}`}>
       {status || "—"}
     </span>
   );
@@ -114,16 +116,19 @@ function StatusBadge({ status }) {
 function PriorityBadge({ priority }) {
   const p = (priority || "").toLowerCase();
   const map = {
-    critical: "bg-red-50 text-red-700",
-    "p1-critical": "bg-red-50 text-red-700",
-    high: "bg-orange-50 text-orange-700",
-    medium: "bg-yellow-50 text-yellow-700",
-    low: "bg-green-50 text-green-700",
+    critical: "border-red-200 bg-red-100 text-red-800",
+    "p1-critical": "border-red-200 bg-red-100 text-red-800",
+    high: "border-pink-200 bg-pink-50 text-pink-700",
+    "p2-high": "border-pink-200 bg-pink-50 text-pink-700",
+    medium: "border-yellow-200 bg-yellow-50 text-yellow-800",
+    "p3-medium": "border-yellow-200 bg-yellow-50 text-yellow-800",
+    low: "border-green-200 bg-green-50 text-green-700",
+    "p4-low": "border-green-200 bg-green-50 text-green-700",
   };
-  const cls = map[p] || "bg-slate-100 text-slate-600";
+  const cls = map[p] || "border-slate-200 bg-slate-100 text-slate-600";
   if (!priority) return null;
   return (
-    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${cls}`}>
+    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${cls}`}>
       {priority}
     </span>
   );

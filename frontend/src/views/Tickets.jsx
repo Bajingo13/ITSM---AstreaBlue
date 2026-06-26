@@ -18,6 +18,14 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
+import {
+  getPriorityBadgeClass,
+  getSeverityOptionStyle,
+  getSeveritySelectClass,
+  getStatusBadgeClass,
+  priorityOptions,
+  severityOptions,
+} from "../utils/ticketVisuals";
 
 const API_BASE = "http://localhost:5001/api/v1";
 
@@ -28,13 +36,6 @@ const columns = [
   { id: "Closed", label: "Closed", color: "bg-slate-500" },
   { id: "Cancelled", label: "Cancelled", color: "bg-red-500" },
 ];
-
-const priorityStyle = {
-  "P1-Critical": "bg-red-50 text-red-700 border-red-200",
-  "P2-High": "bg-orange-50 text-orange-700 border-orange-200",
-  "P3-Medium": "bg-amber-50 text-amber-700 border-amber-200",
-  "P4-Low": "bg-blue-50 text-blue-700 border-blue-200",
-};
 
 function NewTicketModal({ categories, user, onClose, onCreated }) {
   const [form, setForm] = useState({
@@ -164,32 +165,49 @@ function NewTicketModal({ categories, user, onClose, onCreated }) {
             <select
               value={form.priority}
               onChange={(e) => updateForm("priority", e.target.value)}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
+              className={`w-full rounded-xl border px-4 py-3 outline-none transition-colors focus:ring-4 ${getSeveritySelectClass(form.priority)}`}
             >
-              <option value="P1-Critical">P1 - Critical</option>
-              <option value="P2-High">P2 - High</option>
-              <option value="P3-Medium">P3 - Medium</option>
-              <option value="P4-Low">P4 - Low</option>
+              {priorityOptions.map((priority) => (
+                <option
+                  key={priority}
+                  value={priority}
+                  style={getSeverityOptionStyle(priority)}
+                >
+                  {priority}
+                </option>
+              ))}
             </select>
 
             <select
               value={form.impact}
               onChange={(e) => updateForm("impact", e.target.value)}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
+              className={`w-full rounded-xl border px-4 py-3 outline-none transition-colors focus:ring-4 ${getSeveritySelectClass(form.impact)}`}
             >
-              <option value="High">High Impact</option>
-              <option value="Medium">Medium Impact</option>
-              <option value="Low">Low Impact</option>
+              {severityOptions.map((severity) => (
+                <option
+                  key={severity}
+                  value={severity}
+                  style={getSeverityOptionStyle(severity)}
+                >
+                  {severity}
+                </option>
+              ))}
             </select>
 
             <select
               value={form.urgency}
               onChange={(e) => updateForm("urgency", e.target.value)}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
+              className={`w-full rounded-xl border px-4 py-3 outline-none transition-colors focus:ring-4 ${getSeveritySelectClass(form.urgency)}`}
             >
-              <option value="High">High Urgency</option>
-              <option value="Medium">Medium Urgency</option>
-              <option value="Low">Low Urgency</option>
+              {severityOptions.map((severity) => (
+                <option
+                  key={severity}
+                  value={severity}
+                  style={getSeverityOptionStyle(severity)}
+                >
+                  {severity}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -484,7 +502,6 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 {item.title}
               </h2>
             </div>
-
             <button
               onClick={onClose}
               className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
@@ -493,7 +510,6 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             </button>
           </div>
         </div>
-
         {loading ? (
           <div className="flex-1 p-8 font-bold text-slate-500">
             Loading details...
@@ -509,8 +525,10 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             <section className="grid grid-cols-2 gap-4">
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-bold text-slate-400">Status</p>
-                <p className="mt-1 font-black text-slate-900">
-                  {selectedStatus}
+                <p className="mt-1">
+                  <span className={getStatusBadgeClass(selectedStatus)}>
+                    {selectedStatus}
+                  </span>
                   {hasStatusChange && (
                     <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-700">
                       Unsaved
@@ -521,8 +539,10 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-bold text-slate-400">Priority</p>
-                <p className="mt-1 font-black text-slate-900">
-                  {item.priority}
+                <p className="mt-1">
+                  <span className={getPriorityBadgeClass(item.priority)}>
+                    {item.priority}
+                  </span>
                 </p>
               </div>
 
@@ -916,10 +936,7 @@ function TicketCard({ ticket, onClick }) {
         </div>
 
         <span
-          className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-black ${
-            priorityStyle[ticket.priority] ||
-            "border-slate-200 bg-slate-50 text-slate-600"
-          }`}
+          className={`${getPriorityBadgeClass(ticket.priority)} shrink-0 px-2.5 text-[11px]`}
         >
           {ticket.priority || "P3-Medium"}
         </span>

@@ -12,6 +12,7 @@ import {
 import { API_URL } from "../config/api";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
+import { getPriorityBadgeClass, getStatusBadgeClass } from "../utils/ticketVisuals";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -300,10 +301,10 @@ const { user } = useAuth();
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-600">
+                  <span className={getPriorityBadgeClass(ticket.priority)}>
                     {ticket.priority || "P3-Medium"}
                   </span>
-                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-600">
+                  <span className={getStatusBadgeClass(ticket.status)}>
                     {ticket.status || "Open Queue"}
                   </span>
                   <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">

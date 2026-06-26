@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
+import { getPriorityBadgeClass, getStatusBadgeClass } from "../utils/ticketVisuals";
 
 const API_BASE = "http://localhost:5001/api/v1";
 
@@ -216,12 +217,12 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
+                      <span className={getPriorityBadgeClass(ticket.priority)}>
                         {ticket.priority}
                       </span>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
+                      <span className={getStatusBadgeClass(ticket.status)}>
                         {ticket.status}
                       </span>
                     </td>
@@ -302,7 +303,7 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
+                      <span className={getPriorityBadgeClass(ticket.priority)}>
                         {ticket.priority}
                       </span>
                     </td>
@@ -387,12 +388,12 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
+                      <span className={getPriorityBadgeClass(ticket.priority)}>
                         {ticket.priority}
                       </span>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                      <span className={getStatusBadgeClass(ticket.status)}>
                         {ticket.status}
                       </span>
                     </td>

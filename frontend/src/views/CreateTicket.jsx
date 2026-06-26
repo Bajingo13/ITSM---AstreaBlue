@@ -2,11 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { FileText, Paperclip } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload } from "../utils/ticketAccess";
+import {
+  getSeverityOptionStyle,
+  getSeveritySelectClass,
+  priorityOptions,
+  severityOptions,
+} from "../utils/ticketVisuals";
 
 const API_BASE = "http://localhost:5001/api/v1";
-const priorityOptions = ["P1-Critical", "P2-High", "P3-Medium", "P4-Low"];
-const impactOptions = ["High", "Medium", "Low"];
-const urgencyOptions = ["High", "Medium", "Low"];
 
 export default function CreateTicket() {
   const { user } = useAuth();
@@ -154,13 +157,13 @@ export default function CreateTicket() {
             label="Impact"
             value={form.impact}
             onChange={(value) => updateForm("impact", value)}
-            options={impactOptions.map((value) => ({ label: value, value }))}
+            options={severityOptions.map((value) => ({ label: value, value }))}
           />
           <SelectField
             label="Urgency"
             value={form.urgency}
             onChange={(value) => updateForm("urgency", value)}
-            options={urgencyOptions.map((value) => ({ label: value, value }))}
+            options={severityOptions.map((value) => ({ label: value, value }))}
           />
         </div>
 
@@ -249,16 +252,27 @@ function Field({ label, value, onChange, placeholder, textarea = false }) {
 }
 
 function SelectField({ label, value, onChange, options }) {
+  const shouldColorBySeverity =
+    label === "Priority" || label === "Impact" || label === "Urgency";
+
   return (
     <div>
       <label className="mb-2 block text-sm font-bold text-slate-700">{label}</label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+        className={`w-full rounded-xl border px-4 py-3 outline-none transition-colors focus:ring-4 ${
+          shouldColorBySeverity
+            ? getSeveritySelectClass(value)
+            : "border-slate-200 bg-slate-50 text-slate-900 hover:bg-white focus:border-blue-600 focus:bg-white focus:ring-blue-100"
+        }`}
       >
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option
+            key={option.value}
+            value={option.value}
+            style={shouldColorBySeverity ? getSeverityOptionStyle(option.value) : {}}
+          >
             {option.label}
           </option>
         ))}

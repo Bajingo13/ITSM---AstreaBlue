@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle, Clock, Timer } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
+import { getPriorityBadgeClass, getStatusBadgeClass } from "../utils/ticketVisuals";
 
 const API_BASE = "http://localhost:5001/api/v1";
 
@@ -110,11 +111,15 @@ export default function SLAMonitor() {
                       {ticket.ticket_number}
                     </td>
                     <td className="px-4 py-4 font-bold text-slate-900">{ticket.title}</td>
-                    <td className="px-4 py-4 text-sm font-semibold text-slate-600">
-                      {ticket.priority}
+                    <td className="px-4 py-4">
+                      <span className={getPriorityBadgeClass(ticket.priority)}>
+                        {ticket.priority}
+                      </span>
                     </td>
-                    <td className="px-4 py-4 text-sm font-semibold text-slate-600">
-                      {ticket.status}
+                    <td className="px-4 py-4">
+                      <span className={getStatusBadgeClass(ticket.status)}>
+                        {ticket.status}
+                      </span>
                     </td>
                     <td className="px-4 py-4 text-sm font-semibold text-slate-600">
                       {ticket.sla_due_date
