@@ -212,13 +212,13 @@ function NavGroup({ item, collapsed, dashboardPath }) {
       <Link
         to={itemPath}
         title={collapsed ? item.label : undefined}
-        className={`flex items-center gap-3 rounded-xl px-3 py-3 transition-all ${
+        className={`astrea-nav-item flex items-center gap-3 rounded-xl px-3 py-3 transition-all ${
           isActive
-            ? "bg-blue-600/30 text-white shadow-lg shadow-blue-900/20"
-            : "text-sky-100 hover:bg-blue-600/15 hover:text-white"
+            ? "astrea-nav-active text-white"
+            : "text-[#F4F8FF] hover:bg-white/12 hover:text-white"
         }`}
       >
-        <Icon size={18} className="shrink-0 text-sky-300" />
+        <Icon size={18} className="shrink-0 text-[#F4F8FF]" />
         {!collapsed && (
           <span className="truncate text-sm font-semibold">{item.label}</span>
         )}
@@ -233,13 +233,13 @@ function NavGroup({ item, collapsed, dashboardPath }) {
       <button
         onClick={() => setOpen((prev) => !prev)}
         title={collapsed ? item.label : undefined}
-        className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-all ${
+        className={`astrea-nav-item flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-all ${
           isActive
-            ? "bg-blue-600/20 text-white"
-            : "text-sky-100 hover:bg-blue-600/15 hover:text-white"
+            ? "astrea-nav-active text-white"
+            : "text-[#F4F8FF] hover:bg-white/12 hover:text-white"
         }`}
       >
-        <Icon size={18} className="shrink-0 text-sky-300" />
+        <Icon size={18} className="shrink-0 text-[#F4F8FF]" />
 
         {!collapsed && (
           <>
@@ -248,7 +248,7 @@ function NavGroup({ item, collapsed, dashboardPath }) {
             </span>
             <ChevronRightSmall
               size={14}
-              className={`text-sky-400 transition-transform ${
+              className={`text-[#BFD2FF] transition-transform ${
                 open ? "rotate-90" : ""
               }`}
             />
@@ -257,7 +257,7 @@ function NavGroup({ item, collapsed, dashboardPath }) {
       </button>
 
       {!collapsed && open && (
-        <div className="ml-4 mt-1 space-y-1 border-l border-blue-500/20 pl-3">
+        <div className="ml-4 mt-1 space-y-1 border-l border-white/20 pl-3">
           {item.children.map((child) => {
             const ChildIcon = child.icon;
             const childActive = location.pathname === child.path;
@@ -268,11 +268,11 @@ function NavGroup({ item, collapsed, dashboardPath }) {
                 to={child.path}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all ${
                   childActive
-                    ? "bg-blue-600/25 text-white"
-                    : "text-sky-200 hover:bg-blue-600/15 hover:text-white"
+                    ? "bg-white/18 text-white"
+                    : "text-[#BFD2FF] hover:bg-white/12 hover:text-white"
                 }`}
               >
-                <ChildIcon size={15} className="shrink-0 text-sky-300" />
+                <ChildIcon size={15} className="shrink-0 text-[#BFD2FF]" />
                 <span className="truncate">{child.label}</span>
               </Link>
             );
@@ -291,18 +291,18 @@ export default function SideBar({ collapsed, setCollapsed }) {
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-40 flex h-screen flex-col transition-all duration-300 ${
+      className={`astrea-sidebar fixed left-0 top-0 z-40 flex h-screen flex-col transition-all duration-300 ${
         collapsed ? "w-[68px]" : "w-[260px]"
       }`}
       style={{
         background:
-          "linear-gradient(180deg, #07102E 0%, #060D25 50%, #050920 100%)",
-        borderRight: "1px solid rgba(37,99,235,0.18)",
+          "linear-gradient(180deg, #071A3A 0%, #0D2D66 45%, #1454D9 100%)",
+        borderRight: "1px solid rgba(255,255,255,0.22)",
       }}
     >
-      <div className="flex min-h-[78px] items-center justify-center border-b border-blue-500/15 px-4 py-3">
+      <div className="relative flex min-h-[86px] items-center justify-center border-b border-white/15 px-4 py-3">
         {collapsed ? (
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/5 shadow-lg shadow-blue-700/20">
+          <div className="flex h-12 w-12 items-center justify-center rounded-[18px] border border-white/20 bg-white/95 shadow-lg shadow-black/20">
             <img
               src="/astrea-blue-logo.png"
               alt="AstreaBlue"
@@ -310,13 +310,13 @@ export default function SideBar({ collapsed, setCollapsed }) {
             />
           </div>
         ) : (
-          <div className="flex flex-col items-center text-center">
+          <div className="flex flex-col items-center rounded-[18px] border border-white/20 bg-white/10 px-4 py-3 text-center shadow-lg shadow-black/15 backdrop-blur-sm">
             <img
               src="/astrea-blue-logo.png"
               alt="AstreaBlue"
-              className="h-11 max-w-[190px] object-contain"
+              className="h-14 max-w-[205px] rounded-xl bg-white/90 px-2 py-1 object-contain shadow-sm"
             />
-            <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-500">
+            <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#BFD2FF]">
               Enterprise ITSM
             </div>
           </div>
@@ -334,10 +334,10 @@ export default function SideBar({ collapsed, setCollapsed }) {
         ))}
       </nav>
 
-      <div className="border-t border-blue-500/15 p-2.5">
+      <div className="border-t border-white/15 p-2.5">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600/10 px-3 py-2.5 text-sm text-sky-300 transition hover:bg-blue-600/20 hover:text-white"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-[#F4F8FF] transition hover:bg-white/18 hover:text-white"
         >
           {collapsed ? (
             <ChevronRight size={16} />

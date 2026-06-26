@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useAuth } from "./context/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { CheckCircle } from "lucide-react";
 
 export default function Login() {
   const { login } = useAuth();
@@ -42,37 +43,42 @@ export default function Login() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-sky-400 via-blue-700 to-slate-950 p-6">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.28),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(15,23,42,0.65),transparent_45%)]" />
-      <div className="absolute left-16 top-16 h-40 w-40 rounded-full bg-white/10 blur-3xl" />
-      <div className="absolute bottom-20 right-24 h-52 w-52 rounded-full bg-blue-300/20 blur-3xl" />
+    <div className="astrea-login relative flex min-h-screen items-center justify-center overflow-hidden bg-[#F5F9FF] p-6">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(47,109,255,0.16),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(85,191,255,0.18),transparent_42%)]" />
 
-      <div className="relative flex min-h-[560px] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl">
-        <div className="hidden w-1/2 flex-col justify-center bg-gradient-to-br from-blue-700 via-blue-900 to-slate-950 p-14 text-white md:flex">
+      <div className="relative flex min-h-[560px] w-full max-w-5xl overflow-hidden rounded-3xl border border-[#E4ECF7] bg-white shadow-[0_24px_70px_rgba(30,80,160,0.14)]">
+        <div className="astrea-login-panel hidden w-1/2 flex-col justify-center bg-[linear-gradient(160deg,#071A3A_0%,#123B8A_45%,#2F6DFF_100%)] p-14 text-white md:flex">
           <img
             src="/astrea-blue-logo.png"
             alt="AstreaBlue Logo"
-            className="mb-10 w-72 max-w-full object-contain drop-shadow-xl"
+            className="mb-10 w-72 max-w-full rounded-[22px] border border-white/25 bg-white/95 p-4 object-contain shadow-xl shadow-black/20 backdrop-blur-sm"
           />
 
           <h1 className="mb-4 text-5xl font-extrabold tracking-tight">
             Hey, Hello!
           </h1>
 
-          <p className="mb-4 text-lg font-semibold text-blue-100">
+          <p className="mb-4 text-lg font-semibold text-white/90">
             Welcome to AstreaBlue ITSM.
           </p>
 
-          <p className="max-w-sm text-sm leading-7 text-blue-200">
+          <p className="max-w-sm text-sm leading-7 text-white/80">
             Manage incidents, service requests, assets, SLA monitoring, and IT
             operations through a centralized platform.
           </p>
 
-          <div className="mt-10 grid gap-3 text-sm text-blue-100">
-            <div>✓ Incident & Service Request Management</div>
-            <div>✓ Asset Lifecycle Monitoring</div>
-            <div>✓ SLA Tracking & Escalation</div>
-            <div>✓ Secure Role-Based Access</div>
+          <div className="mt-10 grid gap-3 text-sm text-white/90">
+            {[
+              "Incident & Service Request Management",
+              "Asset Lifecycle Monitoring",
+              "SLA Tracking & Escalation",
+              "Secure Role-Based Access",
+            ].map((item) => (
+              <div key={item} className="flex items-center gap-2.5">
+                <CheckCircle size={17} className="shrink-0 text-[#55BFFF]" />
+                <span>{item}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -111,7 +117,7 @@ export default function Login() {
                 placeholder="Enter your email address"
                 required
                 autoComplete="email"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                className="w-full rounded-xl border border-[#D9E5F5] bg-[#F8FBFF] px-4 py-3 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
               />
             </div>
 
@@ -128,7 +134,7 @@ export default function Login() {
                   placeholder="Enter your password"
                   required
                   autoComplete="current-password"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 pr-16 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                  className="w-full rounded-xl border border-[#D9E5F5] bg-[#F8FBFF] px-4 py-3 pr-16 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
                 />
 
                 <button
@@ -163,14 +169,14 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-blue-700 py-3.5 font-bold text-white shadow-lg shadow-blue-700/30 transition hover:-translate-y-0.5 hover:bg-blue-800 active:translate-y-0 disabled:cursor-not-allowed disabled:bg-blue-400"
+              className="w-full rounded-xl bg-[linear-gradient(135deg,#2F6DFF_0%,#174FD6_100%)] py-3.5 font-bold text-white shadow-lg shadow-blue-700/25 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-700/30 active:translate-y-0 disabled:cursor-not-allowed disabled:bg-blue-400"
             >
               {loading ? "Signing in..." : "Login"}
             </button>
           </form>
 
           <p className="mt-8 text-center text-xs text-slate-400">
-            © 2026 AstreaBlue. All rights reserved.
+            Copyright 2026 AstreaBlue. All rights reserved.
           </p>
         </div>
       </div>
