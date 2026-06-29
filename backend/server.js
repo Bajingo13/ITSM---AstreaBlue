@@ -18,7 +18,10 @@ const app = express();
 
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: [
+      "http://localhost:5173",
+      "https://vibrant-healing-production-bb79.up.railway.app",
+    ],
     credentials: true,
   })
 );
