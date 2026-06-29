@@ -11,9 +11,6 @@ import {
 } from "../utils/ticketVisuals";
 
 const API_BASE = `${API_URL}/api/v1`;
-const priorityOptions = ["P1-Critical", "P2-High", "P3-Medium", "P4-Low"];
-const impactOptions = ["High", "Medium", "Low"];
-const urgencyOptions = ["High", "Medium", "Low"];
 const priorityDotStyle = {
   "P1-Critical": "bg-red-500",
   "P2-High": "bg-orange-500",

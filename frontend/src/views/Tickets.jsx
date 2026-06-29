@@ -19,6 +19,12 @@ import {
 import { useAuth } from "../context/AuthContext";
 import AttachmentPreviewModal from "../components/AttachmentPreviewModal";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
+import {
+  getPriorityBadgeClass,
+  getSeverityOptionStyle,
+  getSeveritySelectClass,
+  severityOptions,
+} from "../utils/ticketVisuals";
 import { API_URL } from "../config/api";
 
 const API_BASE = `${API_URL}/api/v1`;
