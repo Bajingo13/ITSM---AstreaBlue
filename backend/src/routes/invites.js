@@ -55,13 +55,13 @@ async function sendInviteResponse({
   customMessage,
 }) {
   const safeCustomMessage = customMessage || "Invitation email sent successfully.";
-  const missingSmtpConfig = getMissingSmtpConfig();
+  const missingEmailConfig = getMissingSmtpConfig();
 
-  if (missingSmtpConfig.length) {
+  if (missingEmailConfig.length) {
     return res.status(201).json({
       success: true,
       email_sent: false,
-      warning: `Invite created, but email sending is not configured. Missing: ${missingSmtpConfig.join(", ")}.`,
+      warning: `Invite created, but email sending is not configured. Missing: ${missingEmailConfig.join(", ")}.`,
       invitation: {
         ...invitation,
         role: inviteRole.role_name,
@@ -72,13 +72,17 @@ async function sendInviteResponse({
 
   try {
     const branchName = await getBranchName(branchId);
-    await sendInvitationEmail({
+    const emailResult = await sendInvitationEmail({
       to: personalEmail,
       fullName,
       roleName: inviteRole.role_name,
       branchName,
       inviteLink,
     });
+
+    if (!emailResult?.success) {
+      throw new Error(emailResult?.error || "Email provider did not confirm delivery.");
+    }
 
     return res.status(201).json({
       success: true,

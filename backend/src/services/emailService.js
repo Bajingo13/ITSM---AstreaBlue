@@ -1,4 +1,5 @@
 const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
 function cleanEnv(value) {
   return String(value || "").trim();
@@ -34,9 +35,16 @@ function getTransporter({ fallback = false } = {}) {
   });
 }
 
-async function sendMail(message) {
+function emailProvider() {
+  return cleanEnv(process.env.EMAIL_PROVIDER).toLowerCase() === "resend"
+    ? "resend"
+    : "smtp";
+}
+
+async function sendSmtpMail(message) {
   try {
-    return await getTransporter().sendMail(message);
+    const info = await getTransporter().sendMail(message);
+    return { success: true, provider: "smtp", messageId: info.messageId || null };
   } catch (primaryError) {
     const connectionErrorCodes = new Set([
       "ECONNECTION",
@@ -50,11 +58,41 @@ async function sendMail(message) {
     }
 
     console.warn(`Primary SMTP connection failed (${primaryError.code}); retrying with TLS on port 587.`);
-    return getTransporter({ fallback: true }).sendMail(message);
+    const info = await getTransporter({ fallback: true }).sendMail(message);
+    return { success: true, provider: "smtp", messageId: info.messageId || null };
   }
 }
 
+async function sendResendMail(message) {
+  const apiKey = cleanEnv(process.env.RESEND_API_KEY);
+  if (!apiKey) throw new Error("Resend configuration is incomplete: RESEND_API_KEY is missing.");
+
+  const { data, error } = await new Resend(apiKey).emails.send(message);
+  if (error) {
+    const sendError = new Error(error.message || "Resend email delivery failed.");
+    sendError.code = error.name || "RESEND_ERROR";
+    throw sendError;
+  }
+
+  return { success: true, provider: "resend", messageId: data?.id || null };
+}
+
+async function sendMail(message) {
+  return emailProvider() === "resend"
+    ? sendResendMail(message)
+    : sendSmtpMail(message);
+}
+
 function getMissingSmtpConfig() {
+  if (emailProvider() === "resend") {
+    return ["RESEND_API_KEY", "EMAIL_FROM or SMTP_FROM_EMAIL"].filter((key) => {
+      if (key === "EMAIL_FROM or SMTP_FROM_EMAIL") {
+        return !cleanEnv(process.env.EMAIL_FROM) && !cleanEnv(process.env.SMTP_FROM_EMAIL);
+      }
+      return !cleanEnv(process.env.RESEND_API_KEY);
+    });
+  }
+
   return [
     "SMTP_HOST",
     "SMTP_PORT",
@@ -66,7 +104,7 @@ function getMissingSmtpConfig() {
 
 function fromAddress() {
   const fromName = process.env.SMTP_FROM_NAME || "AstreaBlue ITSM";
-  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+  const fromEmail = process.env.EMAIL_FROM || process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
   return `"${fromName}" <${fromEmail}>`;
 }
 
@@ -90,11 +128,12 @@ async function sendInvitationEmail({
   const safeRole = escapeHtml(roleName || "Employee");
   const safeBranch = escapeHtml(branchName || "Assigned Branch");
 
-  return sendMail({
-    from: fromAddress(),
-    to,
-    subject: `Welcome to AstreaBlue ITSM, ${safeName}`,
-    text: [
+  try {
+    return await sendMail({
+      from: fromAddress(),
+      to,
+      subject: `Welcome to AstreaBlue ITSM, ${safeName}`,
+      text: [
       `Hello ${safeName},`,
       "",
       `You've been invited to join the AstreaBlue ITSM system as a ${safeRole} at ${safeBranch}.`,
@@ -104,8 +143,8 @@ async function sendInvitationEmail({
       "",
       "This link will expire in 24 hours.",
       "If you didn't expect this invitation, please ignore this email.",
-    ].join("\n"),
-    html: `
+      ].join("\n"),
+      html: `
       <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
         <h2 style="margin: 0 0 16px;">Welcome to AstreaBlue ITSM</h2>
         <p>Hello <strong>${safeName}</strong>,</p>
@@ -119,8 +158,15 @@ async function sendInvitationEmail({
         <a href="${inviteLink}">${inviteLink}</a></p>
         <p style="font-size: 0.85em; color: #94a3b8; margin-top: 32px;">This link will expire in 24 hours.</p>
       </div>
-    `,
-  });
+      `,
+    });
+  } catch (error) {
+    return {
+      success: false,
+      provider: emailProvider(),
+      error: error.message || "Email delivery failed.",
+    };
+  }
 }
 
 async function sendWelcomeEmail() {
