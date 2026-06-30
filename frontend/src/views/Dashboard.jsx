@@ -8,11 +8,12 @@ import {
   Calendar,
   BarChart3,
   Clock,
+  XCircle,
 } from "lucide-react";
 import { API_URL } from "../config/api";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
-import { getPriorityBadgeClass, getStatusBadgeClass } from "../utils/ticketVisuals";
+import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -144,6 +145,15 @@ const { user } = useAuth();
         accent: "#64748B",
         bg: "#F1F5F9",
         color: "#475569",
+      },
+      {
+        title: "Cancelled Tickets",
+        value: summary.cancelledTickets || 0,
+        subtitle: "Cancelled tickets",
+        icon: XCircle,
+        accent: "#F43F5E",
+        bg: "#FFF1F2",
+        color: "#E11D48",
       },
       {
         title: "Total Tickets",
@@ -301,8 +311,8 @@ const { user } = useAuth();
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <span className={getPriorityBadgeClass(ticket.priority)}>
-                    {ticket.priority || "P3-Medium"}
+                  <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                    {formatPriority(ticket.priority)}
                   </span>
                   <span className={getStatusBadgeClass(ticket.status)}>
                     {ticket.status || "Open Queue"}

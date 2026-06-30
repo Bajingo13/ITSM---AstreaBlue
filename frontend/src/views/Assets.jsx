@@ -17,8 +17,9 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
+import { API_URL } from "../config/api";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 const ASSET_TYPES = [
   "All",
   "Laptop",
@@ -511,18 +512,18 @@ export default function Assets() {
                     <h3 className="text-lg font-black text-slate-900">{branch.branch_name}</h3>
                     <p className="mt-1 text-sm text-slate-500">{branch.branch_location || "Branch"}</p>
                   </div>
-                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-3xl bg-white p-3 text-center">
+                  <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-3 text-center">
                       <p className="text-2xl font-black text-slate-900">{branch.total}</p>
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Total</p>
+                      <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Total</p>
                     </div>
-                    <div className="rounded-3xl bg-white p-3 text-center">
+                    <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-3 text-center">
                       <p className="text-2xl font-black text-emerald-600">{branch.active}</p>
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Active</p>
+                      <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Active</p>
                     </div>
-                    <div className="rounded-3xl bg-white p-3 text-center">
+                    <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-3 text-center">
                       <p className="text-2xl font-black text-violet-600">{branch.borrowed}</p>
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Borrowed</p>
+                      <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Borrowed</p>
                     </div>
                   </div>
                 </button>

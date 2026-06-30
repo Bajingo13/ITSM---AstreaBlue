@@ -23,7 +23,7 @@ function getTransporter({ fallback = false } = {}) {
   const secure = fallback ? false : configuredSecure ? configuredSecure === "true" : port === 465;
 
   return nodemailer.createTransport({
-    host: "smtp.gmail.com",
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
     port,
     secure,
     requireTLS: fallback || port === 587,
@@ -89,37 +89,35 @@ async function sendInvitationEmail({
   const safeName = escapeHtml(fullName || "there");
   const safeRole = escapeHtml(roleName || "Employee");
   const safeBranch = escapeHtml(branchName || "Assigned Branch");
-  const safeInviteLink = escapeHtml(inviteLink);
 
   return sendMail({
     from: fromAddress(),
     to,
-    subject: "AstreaBlue ITSM Account Invitation",
+    subject: `Welcome to AstreaBlue ITSM, ${safeName}`,
     text: [
-      `Hello ${fullName || "there"},`,
+      `Hello ${safeName},`,
       "",
-      "You have been invited to create your AstreaBlue ITSM account.",
-      `Role: ${roleName || "Employee"}`,
-      `Branch: ${branchName || "Assigned Branch"}`,
+      `You've been invited to join the AstreaBlue ITSM system as a ${safeRole} at ${safeBranch}.`,
+      "Please complete your registration by visiting the link below:",
       "",
-      `Create your account: ${inviteLink}`,
+      inviteLink,
       "",
-      "This one-time link expires in 48 hours.",
+      "This link will expire in 24 hours.",
+      "If you didn't expect this invitation, please ignore this email.",
     ].join("\n"),
     html: `
       <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
-        <h2 style="margin: 0 0 16px;">AstreaBlue ITSM Account Invitation</h2>
-        <p>Hello ${safeName},</p>
-        <p>You have been invited to create your AstreaBlue ITSM account.</p>
-        <p><strong>Role:</strong> ${safeRole}<br/><strong>Branch:</strong> ${safeBranch}</p>
-        <p>
-          <a href="${safeInviteLink}" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;">
-            Create Account
+        <h2 style="margin: 0 0 16px;">Welcome to AstreaBlue ITSM</h2>
+        <p>Hello <strong>${safeName}</strong>,</p>
+        <p>You've been invited to join the system as a <strong>${safeRole}</strong> at <strong>${safeBranch}</strong>.</p>
+        <div style="margin: 32px 0;">
+          <a href="${inviteLink}" style="background-color: #3b82f6; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500;">
+            Complete Registration
           </a>
-        </p>
-        <p>If the button does not work, open this link:</p>
-        <p style="word-break: break-all;">${safeInviteLink}</p>
-        <p>This link is one-time use and expires in 48 hours.</p>
+        </div>
+        <p style="font-size: 0.9em; color: #64748b;">Or copy and paste this link into your browser:<br/>
+        <a href="${inviteLink}">${inviteLink}</a></p>
+        <p style="font-size: 0.85em; color: #94a3b8; margin-top: 32px;">This link will expire in 24 hours.</p>
       </div>
     `,
   });

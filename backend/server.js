@@ -8,6 +8,8 @@ const jwt = require("jsonwebtoken");
 require("dotenv").config();
 
 const db = require("./config/db");
+
+const { calculateSlaDueDate } = require("./src/services/slaService");
 const authRoutes = require("./src/routes/auth");
 const dashboardRoutes = require("./src/routes/dashboard");
 const inviteRoutes = require("./src/routes/invites");
@@ -21,6 +23,7 @@ app.use(
     origin: [
       "http://localhost:5173",
       "https://vibrant-healing-production-bb79.up.railway.app",
+      "https://itsm-astreablue-production.up.railway.app"
     ],
     credentials: true,
   })
@@ -1150,6 +1153,7 @@ app.post("/api/v1/hardware-assets", async (req, res) => {
     const isAdminFromJwt = auth && String(auth.role || "").toLowerCase() === "admin";
     const isSuperAdminFromJwt = auth && String(auth.role || "").toLowerCase() === "superadmin";
 
+    const currentBranchId = req.query.current_branch_id || req.body.current_branch_id;
     let branchId;
     if (isAdminFromJwt && auth.branchId) {
       branchId = auth.branchId;
@@ -1157,13 +1161,11 @@ app.post("/api/v1/hardware-assets", async (req, res) => {
       branchId = requestedBranchId || currentBranchId || null;
     } else {
       const role = String(req.query.role_name || req.body.role_name || "").toLowerCase();
-      const currentBranchId = req.query.current_branch_id || req.body.current_branch_id;
       branchId =
         role === "superadmin"
           ? requestedBranchId || currentBranchId || null
           : currentBranchId || requestedBranchId || null;
     }
-
 
     if (!branchId) {
       return res.status(400).json({
@@ -1368,6 +1370,7 @@ app.put("/api/v1/hardware-assets/:id", async (req, res) => {
     const isAdminFromJwt = auth && String(auth.role || "").toLowerCase() === "admin";
     const isSuperAdminFromJwt = auth && String(auth.role || "").toLowerCase() === "superadmin";
 
+    const currentBranchId = req.query.current_branch_id || req.body.current_branch_id;
     let branchId;
     if (isAdminFromJwt && auth.branchId) {
       branchId = auth.branchId;
@@ -1375,13 +1378,11 @@ app.put("/api/v1/hardware-assets/:id", async (req, res) => {
       branchId = requestedBranchId || currentBranchId || existing.rows[0].branch_id;
     } else {
       const role = String(req.query.role_name || req.body.role_name || "").toLowerCase();
-      const currentBranchId = req.query.current_branch_id || req.body.current_branch_id;
       branchId =
         role === "superadmin"
           ? requestedBranchId || currentBranchId || existing.rows[0].branch_id
           : currentBranchId || existing.rows[0].branch_id;
     }
-
 
     const result = await db.query(
       `
@@ -1670,6 +1671,8 @@ app.post("/api/v1/users", async (req, res) => {
       });
     }
 
+    const hashedPwd = `sha256$${crypto.createHash("sha256").update(finalPassword).digest("hex")}`;
+
     const result = await db.query(
       `
       INSERT INTO users
@@ -1790,6 +1793,8 @@ app.patch("/api/v1/users/:id/reset-password", async (req, res) => {
       });
     }
 
+    const hashedPwd = `sha256$${crypto.createHash("sha256").update(finalPassword).digest("hex")}`;
+
     const result = await db.query(
       `
       UPDATE users
@@ -1797,14 +1802,11 @@ app.patch("/api/v1/users/:id/reset-password", async (req, res) => {
       WHERE user_id = $2
       RETURNING user_id
       `,
-      [finalPassword, id]
+      [hashedPwd, id]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "User not found",
-      });
+      return res.status(404).json({ success: false, error: "User not found" });
     }
 
     res.json({ success: true, message: "Password reset successfully" });
@@ -2850,8 +2852,7 @@ app.post("/api/v1/tickets", async (req, res) => {
       .slice(0, 10)
       .replace(/-/g, "")}-${String(nextNumber).padStart(4, "0")}`;
 
-    const slaDueDate = new Date();
-    slaDueDate.setHours(slaDueDate.getHours() + 24);
+    const slaDueDate = await calculateSlaDueDate(priority || "P3-Medium");
     const finalBranchId = current_branch_id || branch_id || null;
 
     const result = await db.query(

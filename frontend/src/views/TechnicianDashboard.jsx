@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
-import { getPriorityBadgeClass, getStatusBadgeClass } from "../utils/ticketVisuals";
+import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass, getSeverityLevel } from "../utils/ticketVisuals";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -75,7 +75,7 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
   const inProgress = assignedTickets.filter((t) => t.status === "In Progress").length;
   const open = assignedTickets.filter((t) => t.status === "Open Queue").length;
   const resolved = resolvedTickets.length;
-  const critical = assignedTickets.filter((t) => t.priority === "P1-Critical").length;
+  const critical = assignedTickets.filter((t) => getSeverityLevel(t.priority) === "critical").length;
   const showOverview = view === "dashboard";
   const showAssigned = view === "dashboard" || view === "assigned";
   const showAvailable = view === "dashboard" || view === "available";
@@ -218,8 +218,8 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass(ticket.priority)}>
-                        {ticket.priority}
+                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                        {formatPriority(ticket.priority)}
                       </span>
                     </td>
                     <td className="px-4 py-4">
@@ -304,8 +304,8 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass(ticket.priority)}>
-                        {ticket.priority}
+                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                        {formatPriority(ticket.priority)}
                       </span>
                     </td>
                     <td className="px-4 py-4 text-sm font-semibold text-slate-600">
@@ -389,8 +389,8 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass(ticket.priority)}>
-                        {ticket.priority}
+                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                        {formatPriority(ticket.priority)}
                       </span>
                     </td>
                     <td className="px-4 py-4">

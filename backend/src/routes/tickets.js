@@ -9,6 +9,7 @@ const {
   sendTicketResolvedEmail,
   sendTicketStatusEmail,
 } = require("../services/emailService");
+const { calculateSlaDueDate } = require("../services/slaService");
 
 const router = express.Router();
 
@@ -422,8 +423,7 @@ router.post("/", async (req, res) => {
       .slice(0, 10)
       .replace(/-/g, "")}-${String(nextNumber).padStart(4, "0")}`;
 
-    const slaDueDate = new Date();
-    slaDueDate.setHours(slaDueDate.getHours() + 24);
+    const slaDueDate = await calculateSlaDueDate(priority || "P3-Medium");
 
     const result = await db.query(
       `
@@ -949,6 +949,27 @@ router.patch("/:id/cancel", async (req, res) => {
       });
     }
 
+    const ticketCheck = await db.query(
+      `SELECT status FROM tickets WHERE id = $1`,
+      [id]
+    );
+
+    if (ticketCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Ticket not found.",
+      });
+    }
+
+    if (
+      ["Cancelled", "Resolved", "Closed"].includes(ticketCheck.rows[0].status)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: `Ticket cannot be cancelled because it is already ${ticketCheck.rows[0].status}.`,
+      });
+    }
+
     const result = await db.query(
       `
       UPDATE tickets
@@ -962,13 +983,6 @@ router.patch("/:id/cancel", async (req, res) => {
       `,
       [cancelledBy, reason.trim(), id]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Ticket not found.",
-      });
-    }
 
     await db.query(
       `

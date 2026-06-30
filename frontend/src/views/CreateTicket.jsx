@@ -7,7 +7,6 @@ import {
   getSeverityOptionStyle,
   getSeveritySelectClass,
   priorityOptions,
-  severityOptions,
 } from "../utils/ticketVisuals";
 
 const API_BASE = `${API_URL}/api/v1`;
@@ -30,8 +29,6 @@ export default function CreateTicket() {
     description: "",
     category_id: "",
     priority: "P3-Medium",
-    impact: "Medium",
-    urgency: "Medium",
   });
 
   const fetchCategories = useCallback(async () => {
@@ -58,8 +55,6 @@ export default function CreateTicket() {
       description: "",
       category_id: "",
       priority: "P3-Medium",
-      impact: "Medium",
-      urgency: "Medium",
     });
     setFiles([]);
   };
@@ -81,6 +76,8 @@ export default function CreateTicket() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildTicketPayload(user, {
           ...form,
+          impact: "Medium",
+          urgency: "Medium",
           category_id: form.category_id || null,
           requester_id: user?.user_id,
           branch_id: user?.branch_id || null,
@@ -161,19 +158,7 @@ export default function CreateTicket() {
             onChange={(value) => updateForm("priority", value)}
             options={priorityOptions.map((value) => ({ label: value, value }))}
           />
-          <PriorityIndicator value={form.priority} />
-          <SelectField
-            label="Impact"
-            value={form.impact}
-            onChange={(value) => updateForm("impact", value)}
-            options={severityOptions.map((value) => ({ label: value, value }))}
-          />
-          <SelectField
-            label="Urgency"
-            value={form.urgency}
-            onChange={(value) => updateForm("urgency", value)}
-            options={severityOptions.map((value) => ({ label: value, value }))}
-          />
+          
         </div>
 
         <div>
@@ -272,8 +257,7 @@ function PriorityIndicator({ value }) {
 }
 
 function SelectField({ label, value, onChange, options }) {
-  const shouldColorBySeverity =
-    label === "Priority" || label === "Impact" || label === "Urgency";
+  const shouldColorBySeverity = label === "Priority";
 
   return (
     <div>

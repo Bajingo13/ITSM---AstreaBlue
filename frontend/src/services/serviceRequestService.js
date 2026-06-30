@@ -1,12 +1,8 @@
-import API from "./api";
+import apiService from "./api";
 
 export const getRequests = (category, search) =>
-  API.get("/service-requests", {
-    params: { category, search },
-  });
+  apiService.fetchRequests({ category, search });
 
-export const getPopular = () =>
-  API.get("/service-requests/popular");
+export const getPopular = () => apiService.fetchPopularServices();
 
-export const getRequestById = (id) =>
-  API.get(`/service-requests/${id}`);
+export const getRequestById = (id) => apiService.fetchRequestById(id);

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle, Clock, Timer } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
-import { getPriorityBadgeClass, getStatusBadgeClass } from "../utils/ticketVisuals";
+import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -50,6 +50,7 @@ export default function SLAMonitor() {
   }, [now, tickets]);
 
   const breached = enrichedTickets.filter((ticket) => ticket.breached);
+  const tracked = enrichedTickets.filter((ticket) => ticket.sla_due_date);
   const dueSoon = enrichedTickets.filter((ticket) => {
     if (!ticket.sla_due_date || ticket.status === "Closed") return false;
     const due = new Date(ticket.sla_due_date).getTime();
@@ -70,9 +71,9 @@ export default function SLAMonitor() {
       </section>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <Card icon={Timer} label="Tracked Tickets" value={enrichedTickets.length} color="blue" />
+        <Card icon={Timer} label="Tracked Tickets" value={tracked.length} color="blue" />
         <Card icon={AlertTriangle} label="Breached" value={breached.length} color="red" />
-        <Card icon={Clock} label="Due Soon" value={dueSoon.length} color="amber" />
+        <Card icon={Clock} label="Due within 4 hours" value={dueSoon.length} color="amber" />
         <Card icon={CheckCircle} label="Met SLA" value={met.length} color="emerald" />
       </section>
 
@@ -113,8 +114,8 @@ export default function SLAMonitor() {
                     </td>
                     <td className="px-4 py-4 font-bold text-slate-900">{ticket.title}</td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass(ticket.priority)}>
-                        {ticket.priority}
+                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                        {formatPriority(ticket.priority)}
                       </span>
                     </td>
                     <td className="px-4 py-4">
@@ -140,12 +141,18 @@ export default function SLAMonitor() {
                     <td className="px-4 py-4">
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-black ${
-                          ticket.breached
+                          !ticket.sla_due_date
+                            ? "bg-slate-100 text-slate-600"
+                            : ticket.breached
                             ? "bg-red-50 text-red-700"
                             : "bg-emerald-50 text-emerald-700"
                         }`}
                       >
-                        {ticket.breached ? "Breached" : "Within SLA"}
+                        {!ticket.sla_due_date
+                          ? "SLA not configured"
+                          : ticket.breached
+                          ? "Breached"
+                          : "Within SLA"}
                       </span>
                     </td>
                   </tr>

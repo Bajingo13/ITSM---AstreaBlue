@@ -44,11 +44,12 @@ router.get("/summary", async (req, res) => {
         COUNT(*) FILTER (WHERE t.status = 'Open Queue')::int AS open_tickets,
         COUNT(*) FILTER (WHERE t.status = 'In Progress')::int AS in_progress_tickets,
         COUNT(*) FILTER (
-          WHERE t.priority = 'P1-Critical'
+          WHERE t.priority LIKE 'P1%'
             AND t.status IN ('Open Queue', 'In Progress')
         )::int AS critical_tickets,
         COUNT(*) FILTER (WHERE t.status = 'Resolved')::int AS resolved_tickets,
-        COUNT(*) FILTER (WHERE t.status = 'Closed')::int AS closed_tickets
+        COUNT(*) FILTER (WHERE t.status = 'Closed')::int AS closed_tickets,
+        COUNT(*) FILTER (WHERE t.status = 'Cancelled' OR t.status = 'Canceled')::int AS cancelled_tickets
       FROM tickets t
       LEFT JOIN users requester
         ON t.requester_id = requester.user_id
@@ -90,6 +91,7 @@ router.get("/summary", async (req, res) => {
         criticalTickets: stats.critical_tickets || 0,
         resolvedTickets: stats.resolved_tickets || 0,
         closedTickets: stats.closed_tickets || 0,
+        cancelledTickets: stats.cancelled_tickets || 0,
         totalTickets: stats.total_tickets || 0,
       },
       recentTickets: recentResult.rows,

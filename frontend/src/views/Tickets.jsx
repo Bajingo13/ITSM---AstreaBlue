@@ -15,15 +15,14 @@ import {
   Send,
   BookOpen,
   Paperclip,
+  XCircle,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import AttachmentPreviewModal from "../components/AttachmentPreviewModal";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import {
-  getPriorityBadgeClass,
-  getSeverityOptionStyle,
-  getSeveritySelectClass,
-  severityOptions,
+  getPriorityBadgeClass, formatPriority,
+  getSeverityLevel,
 } from "../utils/ticketVisuals";
 import { API_URL } from "../config/api";
 
@@ -62,8 +61,6 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
     status: "Open Queue",
     category_id: "",
     source: "portal",
-    impact: "Medium",
-    urgency: "Medium",
     branch_id: user?.branch_id || "",
   });
 
@@ -89,6 +86,8 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
 
       const payload = buildTicketPayload(user, {
         ...form,
+        impact: "Medium",
+        urgency: "Medium",
         category_id: form.category_id || null,
         requester_id: user?.user_id || null,
         branch_id: isSuperAdmin ? form.branch_id || null : user?.branch_id || null,
@@ -209,37 +208,6 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
               <PriorityIndicator value={form.priority} />
             </div>
 
-            <select
-              value={form.impact}
-              onChange={(e) => updateForm("impact", e.target.value)}
-              className={`w-full rounded-xl border px-4 py-3 outline-none transition-colors focus:ring-4 ${getSeveritySelectClass(form.impact)}`}
-            >
-              {severityOptions.map((severity) => (
-                <option
-                  key={severity}
-                  value={severity}
-                  style={getSeverityOptionStyle(severity)}
-                >
-                  {severity}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={form.urgency}
-              onChange={(e) => updateForm("urgency", e.target.value)}
-              className={`w-full rounded-xl border px-4 py-3 outline-none transition-colors focus:ring-4 ${getSeveritySelectClass(form.urgency)}`}
-            >
-              {severityOptions.map((severity) => (
-                <option
-                  key={severity}
-                  value={severity}
-                  style={getSeverityOptionStyle(severity)}
-                >
-                  {severity}
-                </option>
-              ))}
-            </select>
           </div>
 
           <div>
@@ -660,8 +628,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-bold text-slate-400">Priority</p>
                 <p className="mt-1">
-                  <span className={getPriorityBadgeClass(item.priority)}>
-                    {item.priority}
+                  <span className={getPriorityBadgeClass, formatPriority(item.priority)}>
+                    {formatPriority(item.priority)}
                   </span>
                 </p>
               </div>
@@ -1134,9 +1102,9 @@ function TicketCard({ ticket, onClick }) {
         </div>
 
         <span
-          className={`${getPriorityBadgeClass(ticket.priority)} shrink-0 px-2.5 text-[11px]`}
+          className={`${getPriorityBadgeClass, formatPriority(ticket.priority)} shrink-0 px-2.5 text-[11px]`}
         >
-          {ticket.priority || "P3-Medium"}
+          {formatPriority(ticket.priority)}
         </span>
       </div>
 
@@ -1281,8 +1249,9 @@ export default function Tickets() {
   const totalOpen = tickets.filter(
     (t) => t.status !== "Closed" && t.status !== "Cancelled"
   ).length;
-  const critical = tickets.filter((t) => t.priority === "P1-Critical").length;
+  const critical = tickets.filter((t) => getSeverityLevel(t.priority) === "critical").length;
   const resolved = tickets.filter((t) => t.status === "Resolved").length;
+  const cancelled = tickets.filter((t) => t.status === "Cancelled" || t.status === "Canceled").length;
   const isSuperAdmin = (user?.role_name || user?.role) === "SuperAdmin";
 
   return (
@@ -1310,7 +1279,7 @@ export default function Tickets() {
         </div>
       )}
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-blue-50 p-3 text-blue-700">
@@ -1345,6 +1314,18 @@ export default function Tickets() {
             <div>
               <p className="text-2xl font-black text-slate-900">{resolved}</p>
               <p className="text-sm font-semibold text-slate-500">Resolved</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-rose-50 p-3 text-rose-600">
+              <XCircle size={22} />
+            </div>
+            <div>
+              <p className="text-2xl font-black text-slate-900">{cancelled}</p>
+              <p className="text-sm font-semibold text-slate-500">Cancelled</p>
             </div>
           </div>
         </div>

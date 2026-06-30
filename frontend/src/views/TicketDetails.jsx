@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { fetchRequestById } from "../services/api";
+import apiService from "../services/api";
 
 export default function TicketDetails({ id, onClose }) {
   const [ticket, setTicket] = useState(null);
 
   useEffect(() => {
-    fetchRequestById(id).then((res) => {
+    apiService.fetchRequestById(id).then((res) => {
       setTicket(res.data);
     });
   }, [id]);
@@ -27,7 +27,7 @@ export default function TicketDetails({ id, onClose }) {
         <p><b>Description:</b> {ticket.description}</p>
         <p><b>Category:</b> {ticket.category}</p>
         <p><b>Status:</b> {ticket.status}</p>
-        <p><b>Priority:</b> {ticket.priority}</p>
+        <p><b>Priority:</b> {formatPriority(ticket.priority)}</p>
         <p><b>Branch:</b> {ticket.branch_name}</p>
         <p><b>Requester:</b> {ticket.requester_name}</p>
 
