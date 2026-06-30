@@ -267,7 +267,7 @@ function RoleDistributionCard({ users, loading }) {
   ], [roleCounts]);
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+    <div className="flex flex-col rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-50 text-purple-600">
           <BarChart3 size={20} />
@@ -278,30 +278,30 @@ function RoleDistributionCard({ users, loading }) {
         </div>
       </div>
 
-      <div className="mt-4 flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+      <div className="mt-4 flex flex-1 flex-col items-center gap-4 sm:flex-row sm:items-stretch">
         {loading ? (
           <p className="py-6 text-center text-sm text-slate-400">Loading...</p>
         ) : (
           <>
-            <div className="shrink-0">
-              <DonutChart segments={segments} size={120} strokeWidth={20} />
+            <div className="flex shrink-0 items-center justify-center">
+              <DonutChart segments={segments} size={160} strokeWidth={24} />
             </div>
 
-            <div className="flex-1 space-y-3 self-center sm:self-auto">
+            <div className="flex w-full flex-1 flex-col justify-center gap-2.5">
               {roleInfo.map((role) => {
                 const RoleIcon = role.icon;
                 return (
-                  <div key={role.label} className="flex items-center gap-3 rounded-xl px-3 py-2 transition hover:bg-slate-50">
-                    <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${role.bg}`}>
-                      <RoleIcon size={16} />
+                  <div key={role.label} className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition hover:bg-slate-50">
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${role.bg}`}>
+                      <RoleIcon size={18} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-bold text-slate-800">{role.label}</p>
                         <span className="text-sm font-black text-slate-900">{role.count}</span>
                       </div>
-                      <div className="mt-1 flex items-center gap-2">
-                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
                           <div
                             className={`h-full rounded-full ${role.color}`}
                             style={{ width: `${role.pct}%` }}

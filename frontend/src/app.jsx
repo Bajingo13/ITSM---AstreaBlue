@@ -4,6 +4,7 @@ import ProtectedRoute from "./context/ProtectedRoute";
 import MainLayout from "./components/layout/MainLayout";
 
 import Dashboard from "./views/Dashboard";
+import SoftwareLicenses from "./views/SoftwareLicenses";
 import AdminDashboard from "./views/AdminDashboard";
 import TechnicianDashboard from "./views/TechnicianDashboard";
 import EmployeeDashboard from "./views/EmployeeDashboard";
@@ -194,8 +195,8 @@ export default function App() {
         <Route
           path="/software-licenses"
           element={
-            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <Assets />
+            <ProtectedRoute allowedRoles={["SuperAdmin", "Admin"]}>
+              <SoftwareLicenses />
             </ProtectedRoute>
           }
         />
