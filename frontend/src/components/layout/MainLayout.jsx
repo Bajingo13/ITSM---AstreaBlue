@@ -20,7 +20,7 @@ export default function MainLayout() {
         className="min-h-screen pt-[70px] transition-all duration-300"
         style={{ marginLeft: sidebarCollapsed ? 68 : 260 }}
       >
-        <div className="p-6">
+        <div className="p-5">
           <Outlet />
         </div>
       </main>

@@ -24,6 +24,15 @@ body {
   color: var(--astrea-text);
 }
 
+.astrea-no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.astrea-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .astrea-nav-item {
   position: relative;
 }
@@ -117,7 +126,7 @@ body {
   color: #ffffff !important;
   background: linear-gradient(135deg, #155dfb 0%, #2563eb 45%, #7c3cff 100%) !important;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 20px 44px rgba(37, 99, 235, 0.2) !important;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.15) !important;
 }
 
 [class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"] > * {
@@ -130,30 +139,28 @@ body {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.85;
+  opacity: 0.35;
   background:
-    radial-gradient(circle at 68% 34%, rgba(255, 255, 255, 0.82) 0 1px, transparent 2px),
-    radial-gradient(circle at 79% 25%, rgba(255, 255, 255, 0.8) 0 1px, transparent 2px),
-    radial-gradient(circle at 92% 34%, rgba(255, 255, 255, 0.74) 0 1px, transparent 2px),
-    radial-gradient(circle at 86% 62%, rgba(255, 255, 255, 0.16), transparent 28%);
+    radial-gradient(circle at 68% 34%, rgba(255, 255, 255, 0.5) 0 1px, transparent 2px),
+    radial-gradient(circle at 79% 25%, rgba(255, 255, 255, 0.45) 0 1px, transparent 2px),
+    radial-gradient(circle at 92% 30%, rgba(255, 255, 255, 0.35) 0 1px, transparent 2px),
+    radial-gradient(circle at 86% 62%, rgba(255, 255, 255, 0.1), transparent 32%);
 }
 
 [class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"]::after {
   content: "";
   position: absolute;
-  right: 42px;
-  top: 22px;
-  width: 250px;
-  height: 120px;
+  right: 8px;
+  top: 8px;
+  width: 64px;
+  height: 36px;
   pointer-events: none;
   border-right: 0;
-  border-bottom: 7px solid rgba(255, 255, 255, 0.3);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.15);
   border-radius: 0 0 100% 100%;
   background: transparent;
-  box-shadow:
-    28px -12px 0 -24px rgba(255,255,255,0.7),
-    70px 22px 0 -31px rgba(255,255,255,0.45);
-  transform: rotate(15deg);
+  opacity: 0.8;
+  transform: rotate(12deg);
 }
 
 [class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"] h1,

@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Box,
+  Building2,
+  CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
   Download,
   Eye,
   Filter,
@@ -77,6 +82,7 @@ const ACTION_MODES = {
   retire: { label: "Retire Asset", status: "Retired", icon: AlertTriangle },
   dispose: { label: "Dispose Asset", status: "Disposed", icon: Box },
 };
+const BRANCH_CARD_GAP = 16;
 
 function getBranchCode(branchName) {
   if (!branchName) return "UNK";
@@ -182,6 +188,102 @@ function getAssetFormInitialState(asset, currentBranchId) {
   };
 }
 
+/* ─────────────────────────────────────────────
+   SearchableBranchDropdown — compact branch filter
+   ───────────────────────────────────────────── */
+function SearchableBranchDropdown({ branches = [], value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapperRef = useRef(null);
+  const inputRef = useRef(null);
+
+  const selected = value && value !== "All"
+    ? branches.find((b) => String(b.branch_id) === String(value))
+    : null;
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return branches;
+    const q = query.trim().toLowerCase();
+    return branches.filter((b) => (b.branch_name || "").toLowerCase().includes(q));
+  }, [branches, query]);
+
+  useEffect(() => {
+    if (open && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (open && wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-[220px] items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-left text-sm font-bold text-slate-700 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+      >
+        <Building2 size={16} className="shrink-0 text-slate-400" />
+        <span className="flex-1 truncate">{selected ? selected.branch_name : "All Branches"}</span>
+        <ChevronDown size={14} className={`shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-20 mt-1.5 w-[260px] rounded-2xl border border-slate-200 bg-white shadow-xl">
+          <div className="relative border-b border-slate-100 p-2">
+            <Search size={14} className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search branches..."
+              className="w-full rounded-xl border border-slate-100 bg-slate-50 py-2 pl-8 pr-3 text-xs font-bold text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+            />
+          </div>
+          <div className="max-h-52 overflow-y-auto p-1.5">
+            <button
+              type="button"
+              onClick={() => { onChange("All"); setOpen(false); }}
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-bold transition ${
+                !selected ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <Building2 size={14} className="shrink-0 text-slate-400" />
+              All Branches
+            </button>
+            {filtered.map((b) => (
+              <button
+                key={b.branch_id}
+                type="button"
+                onClick={() => { onChange(String(b.branch_id)); setOpen(false); }}
+                className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-bold transition ${
+                  String(b.branch_id) === String(value) ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <Building2 size={14} className="shrink-0 text-slate-400" />
+                {b.branch_name}
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <p className="px-3 py-4 text-center text-xs text-slate-400">No branches match.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 export default function Assets() {
   const { user, role } = useAuth();
   const activeRole = role || user?.role_name || user?.role || "";
@@ -360,6 +462,94 @@ export default function Assets() {
   const totalActive = visibleAssets.filter((asset) => asset.status === "Active").length;
   const totalBorrowed = visibleAssets.filter((asset) => asset.status === "Borrowed").length;
 
+
+  /* Branch carousel scroll state */
+  const carouselRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const getCarouselMeasurements = useCallback((el) => {
+    const card = el.querySelector(".branch-card");
+    if (!card) return null;
+
+    const cardWidth = card.offsetWidth;
+    const slideBy = Math.max(1, Math.floor((el.clientWidth + BRANCH_CARD_GAP) / (cardWidth + BRANCH_CARD_GAP)));
+    const pageWidth = slideBy * (cardWidth + BRANCH_CARD_GAP);
+
+    return { slideBy, pageWidth };
+  }, []);
+
+  const getCarouselPageOffset = useCallback((el, page, pageWidth) => {
+    const maxScroll = Math.max(el.scrollWidth - el.clientWidth, 0);
+    return Math.min(page * pageWidth, maxScroll);
+  }, []);
+
+  const updateCarouselState = useCallback(() => {
+    const el = carouselRef.current;
+    if (!el) return;
+
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+
+    const measurements = getCarouselMeasurements(el);
+    if (!measurements) {
+      setCurrentPage(0);
+      setTotalPages(1);
+      return;
+    }
+
+    const pages = Math.ceil(branchMetrics.length / measurements.slideBy) || 1;
+    setTotalPages(pages);
+
+    const pageOffsets = Array.from({ length: pages }, (_, index) =>
+      getCarouselPageOffset(el, index, measurements.pageWidth)
+    );
+    const page = pageOffsets.reduce((closestIndex, offset, index) => {
+      const closestDistance = Math.abs(el.scrollLeft - pageOffsets[closestIndex]);
+      const distance = Math.abs(el.scrollLeft - offset);
+      return distance < closestDistance ? index : closestIndex;
+    }, 0);
+    setCurrentPage(page);
+  }, [branchMetrics.length, getCarouselMeasurements, getCarouselPageOffset]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(updateCarouselState);
+    return () => window.cancelAnimationFrame(frame);
+  }, [branchMetrics, updateCarouselState]);
+
+  useEffect(() => {
+    const el = carouselRef.current;
+    if (!el) return;
+    const handler = () => updateCarouselState();
+    el.addEventListener("scroll", handler, { passive: true });
+    window.addEventListener("resize", handler);
+    return () => {
+      el.removeEventListener("scroll", handler);
+      window.removeEventListener("resize", handler);
+    };
+  }, [updateCarouselState]);
+
+  const scrollCarousel = (direction) => {
+    const el = carouselRef.current;
+    if (!el) return;
+    const measurements = getCarouselMeasurements(el);
+    if (!measurements) return;
+    const amount = measurements.pageWidth * (direction === "prev" ? -1 : 1);
+    el.scrollBy({ left: amount, behavior: "smooth" });
+  };
+
+  const scrollCarouselToPage = (page) => {
+    const el = carouselRef.current;
+    if (!el) return;
+    const measurements = getCarouselMeasurements(el);
+    if (!measurements) return;
+    el.scrollTo({
+      left: getCarouselPageOffset(el, page, measurements.pageWidth),
+      behavior: "smooth",
+    });
+  };
+
   const statusMetrics = useMemo(
     () =>
       STATUS_OPTIONS.filter((item) => item !== "All").map((status) => ({
@@ -430,34 +620,6 @@ export default function Assets() {
     setModalError("");
   };
 
-  const handleSaveAsset = async (payload, assetId) => {
-    try {
-      setSaving(true);
-      const body = Object.fromEntries(
-        Object.entries({ ...payload, ...buildTicketPayload(user) }).filter(
-          ([, value]) => value !== undefined
-        )
-      );
-      const url = assetId ? `${API_BASE}/hardware-assets/${assetId}` : `${API_BASE}/hardware-assets`;
-      const method = assetId ? "PUT" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const errorBody = await res.json();
-        throw new Error(errorBody.error || "Unable to save asset");
-      }
-      await fetchAssets();
-      closeAssetModal();
-    } catch (err) {
-      console.error(err);
-      setModalError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const openAction = (asset, mode) => {
     setActionAsset(asset);
@@ -523,109 +685,138 @@ export default function Assets() {
         </div>
       </section>
 
-      {isSuperAdmin ? (
-        <section className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-black text-slate-900">Filter by Branch</h2>
-              <p className="mt-1 text-sm text-slate-500">View branch inventory and status counts across the network.</p>
+      {/* Branch Filter — compact searchable dropdown */}
+      {isSuperAdmin && (
+        <section className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-blue-50 p-2">
+              <Building2 size={18} className="text-blue-600" />
             </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setBranchFilter("All")}
-                className={`rounded-full px-4 py-2 text-sm font-black transition ${branchFilter === "All" ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-              >
-                All Branches
-              </button>
-              {visibleBranches.map((branch) => (
-                <button
-                  key={branch.branch_id}
-                  onClick={() => setBranchFilter(String(branch.branch_id))}
-                  className={`rounded-full px-4 py-2 text-sm font-black transition ${branchFilter === String(branch.branch_id) ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                >
-                  {branch.branch_name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
-            {branchMetrics.map((branch) => {
-              const isSelected = String(branch.branch_id) === branchFilter;
-              return (
-                <button
-                  key={branch.branch_id}
-                  type="button"
-                  onClick={() => setBranchFilter(isSelected ? "All" : String(branch.branch_id))}
-                  className={`rounded-3xl border p-5 text-left shadow-sm transition hover:shadow-md ${isSelected ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200" : "border-slate-200 bg-slate-50"}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="rounded-2xl bg-white p-3 shadow-sm">
-                      <FolderOpen size={22} className="text-blue-600" />
-                    </div>
-                    <span className="rounded-2xl bg-slate-900 px-3 py-1 text-xs font-black uppercase tracking-wide text-white">
-                      {branch.branch_code}
-                    </span>
-                  </div>
-                  <div className="mt-5">
-                    <h3 className="text-lg font-black text-slate-900">{branch.branch_name}</h3>
-                    <p className="mt-1 text-sm text-slate-500">{branch.branch_location || "Branch"}</p>
-                  </div>
-                  <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-3 text-center">
-                      <p className="text-2xl font-black text-slate-900">{branch.total}</p>
-                      <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Total</p>
-                    </div>
-                    <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-3 text-center">
-                      <p className="text-2xl font-black text-emerald-600">{branch.active}</p>
-                      <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Active</p>
-                    </div>
-                    <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-3 text-center">
-                      <p className="text-2xl font-black text-violet-600">{branch.borrowed}</p>
-                      <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Borrowed</p>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      ) : (
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-5">
             <div>
-              <h2 className="text-xl font-black text-slate-900">Branch Asset Overview</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                {visibleBranches[0]?.branch_name || "Branch"} hardware asset status distribution.
+              <h2 className="text-sm font-black text-slate-900">Branch Summary</h2>
+              <p className="text-xs text-slate-500">
+                {branchFilter === "All"
+                  ? `${visibleBranches.length} branch${visibleBranches.length === 1 ? "" : "es"}`
+                  : `${branches.find((b) => String(b.branch_id) === String(branchFilter))?.branch_name || "Branch"}`}
               </p>
             </div>
           </div>
-          <div className="grid gap-5 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
-            {[
-              { label: "Total", count: assets.length, color: "bg-slate-900" },
-              { label: "Active", count: assets.filter(a => a.status === "Active").length, color: "bg-emerald-500" },
-              { label: "Borrowed", count: assets.filter(a => a.status === "Borrowed").length, color: "bg-violet-500" },
-              { label: "In Repair", count: assets.filter(a => a.status === "In Repair").length, color: "bg-amber-500" },
-              { label: "In Stock", count: assets.filter(a => a.status === "In Stock").length, color: "bg-sky-500" },
-              { label: "Retired", count: assets.filter(a => a.status === "Retired").length, color: "bg-slate-400" },
-              { label: "Disposed", count: assets.filter(a => a.status === "Disposed").length, color: "bg-rose-500" },
-            ].map((item) => {
-              const maxCount = Math.max(1, assets.length);
-              const pct = maxCount > 0 ? Math.round((item.count / maxCount) * 100) : 0;
-              return (
-                <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center">
-                  <p className="text-3xl font-black text-slate-900">{item.count}</p>
-                  <div className="mt-3 h-2.5 w-full rounded-full bg-slate-200">
-                    <div className={`h-2.5 rounded-full ${item.color} transition-all`} style={{ width: `${pct}%` }} />
-                  </div>
-                  <p className="mt-2 text-xs font-black uppercase tracking-[0.18em] text-slate-500">{item.label}</p>
-                </div>
-              );
-            })}
-          </div>
+          <SearchableBranchDropdown
+            branches={visibleBranches}
+            value={branchFilter}
+            onChange={(val) => setBranchFilter(val)}
+          />
         </section>
       )}
+
+      {/* Branch Summary Carousel */}
+      <section>
+        <div className="relative px-10 sm:px-14">
+          {/* Left arrow */}
+          <button
+            type="button"
+            onClick={() => scrollCarousel("prev")}
+            disabled={!canScrollLeft}
+            className={`absolute left-0 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-lg transition sm:flex ${
+              canScrollLeft
+                ? "hover:-translate-x-0.5 hover:bg-slate-50 hover:text-blue-700 hover:shadow-xl"
+                : "cursor-default text-slate-300 opacity-40"
+            }`}
+            aria-label="Previous branches"
+          >
+            <ChevronLeft size={20} />
+          </button>
+
+          <div
+            ref={carouselRef}
+            className="astrea-no-scrollbar flex snap-x snap-mandatory gap-5 overflow-x-auto scroll-smooth pb-1"
+          >
+            {branchMetrics.length === 0 ? (
+              <div className="flex w-full items-center justify-center rounded-3xl border border-slate-200 bg-white py-12 text-sm text-slate-400 shadow-sm">
+                No branches available.
+              </div>
+            ) : (
+              branchMetrics.map((branch) => {
+                const isSelected = String(branch.branch_id) === branchFilter;
+                return (
+                  <button
+                    key={branch.branch_id}
+                    type="button"
+                    onClick={() => setBranchFilter(isSelected ? "All" : String(branch.branch_id))}
+                    className={`branch-card w-[85vw] shrink-0 snap-start rounded-3xl border p-4 text-left shadow-sm transition-all hover:shadow-md sm:w-[300px] lg:w-[340px] xl:w-[360px] ${
+                      isSelected
+                        ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
+                        : "border-slate-200 bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="rounded-2xl bg-white p-2 shadow-sm">
+                        <FolderOpen size={22} className="text-blue-600" />
+                      </div>
+                      <span className="rounded-2xl bg-slate-900 px-3 py-1 text-xs font-black uppercase tracking-wide text-white">
+                        {branch.branch_code}
+                      </span>
+                    </div>
+                    <div className="mt-3">
+                      <h3 className="text-base font-black text-slate-900">{branch.branch_name}</h3>
+                      <p className="mt-1 text-sm text-slate-500">{branch.branch_location || "Branch"}</p>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-2 text-center">
+                        <p className="text-2xl font-black text-slate-900">{branch.total}</p>
+                        <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Total</p>
+                      </div>
+                      <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-2 text-center">
+                        <p className="text-2xl font-black text-emerald-600">{branch.active}</p>
+                        <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Active</p>
+                      </div>
+                      <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-2 text-center">
+                        <p className="text-2xl font-black text-violet-600">{branch.borrowed}</p>
+                        <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Borrowed</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {/* Right arrow */}
+          <button
+            type="button"
+            onClick={() => scrollCarousel("next")}
+            disabled={!canScrollRight}
+            className={`absolute right-0 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-lg transition sm:flex ${
+              canScrollRight
+                ? "hover:translate-x-0.5 hover:bg-slate-50 hover:text-blue-700 hover:shadow-xl"
+                : "cursor-default text-slate-300 opacity-40"
+            }`}
+            aria-label="Next branches"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
+
+        {/* Pagination dots */}
+        {totalPages > 1 && (
+          <div className="mt-4 flex items-center justify-center gap-1.5">
+            {Array.from({ length: totalPages }).map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => scrollCarouselToPage(i)}
+                className={`block h-2 rounded-full transition-all ${
+                  i === currentPage
+                    ? "w-6 bg-blue-600"
+                    : "w-2 bg-slate-300 hover:bg-slate-400"
+                }`}
+                aria-label={`Go to branch slide ${i + 1}`}
+                aria-current={i === currentPage ? "true" : undefined}
+              />
+            ))}
+          </div>
+        )}
+      </section>
       <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <div className="grid gap-4 md:grid-cols-3">
           {statusMetrics.map((item) => {
