@@ -13,63 +13,65 @@ import {
   Info,
   AlertCircle,
   RefreshCw,
+  FileText,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Settings2,
+  UserPlus,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
-const notifications = [
-  {
-    id: 1,
-    type: "error",
-    title: "Critical SLA Breach",
-    message: "VPN outage ticket has breached SLA.",
-    read: false,
-  },
-  {
-    id: 2,
-    type: "warning",
-    title: "Warranty Expiring",
-    message: "3 assets have warranty expiring within 30 days.",
-    read: false,
-  },
-  {
-    id: 3,
-    type: "success",
-    title: "Change Approved",
-    message: "Exchange patch deployment was approved.",
-    read: true,
-  },
-];
+import { useEffect } from "react";
+import { API_URL } from "../../config/api";
 
-function NotifIcon({ type }) {
-  const base = "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg";
+function NotifIcon({ type, title }) {
+  const base = "flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-sm border";
+  const t = (title || "").toLowerCase();
 
-  if (type === "error") {
+  if (type === "success" || t.includes("resolved") || t.includes("closed")) {
     return (
-      <div className={`${base} bg-red-50`}>
-        <AlertCircle size={14} className="text-red-500" />
+      <div className={`${base} bg-emerald-50 border-emerald-100`}>
+        <CheckCircle2 size={20} className="text-emerald-500" />
       </div>
     );
   }
 
-  if (type === "warning") {
+  if (type === "error" || t.includes("cancel")) {
     return (
-      <div className={`${base} bg-amber-50`}>
-        <AlertTriangle size={14} className="text-amber-500" />
+      <div className={`${base} bg-red-50 border-red-100`}>
+        <XCircle size={20} className="text-red-500" />
       </div>
     );
   }
 
-  if (type === "success") {
+  if (type === "warning" || t.includes("assign")) {
     return (
-      <div className={`${base} bg-emerald-50`}>
-        <CheckCircle size={14} className="text-emerald-500" />
+      <div className={`${base} bg-orange-50 border-orange-100`}>
+        <AlertTriangle size={20} className="text-orange-500" />
+      </div>
+    );
+  }
+
+  if (t.includes("invite") || t.includes("account")) {
+    return (
+      <div className={`${base} bg-purple-50 border-purple-100`}>
+        <UserPlus size={20} className="text-purple-500" />
+      </div>
+    );
+  }
+
+  if (t.includes("ticket") || t.includes("status") || t.includes("update")) {
+    return (
+      <div className={`${base} bg-blue-50 border-blue-100`}>
+        <FileText size={20} className="text-blue-500" />
       </div>
     );
   }
 
   return (
-    <div className={`${base} bg-blue-50`}>
-      <Info size={14} className="text-blue-500" />
+    <div className={`${base} bg-slate-50 border-slate-200`}>
+      <Bell size={20} className="text-slate-500" />
     </div>
   );
 }
@@ -82,6 +84,48 @@ export default function TopNav({ collapsed }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [notifications, setNotifications] = useState([]);
+  
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+
+  const fetchNotifications = async () => {
+    if (!user?.user_id) return;
+    try {
+      const res = await fetch(`${API_URL}/api/v1/notifications?user_id=${user.user_id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch notifications:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000); // refresh every 30s
+    return () => clearInterval(interval);
+  }, [user]);
+
+  const handleMarkAsRead = async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/notifications/${id}/read`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ user_id: user.user_id })
+      });
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      }
+    } catch (err) {
+      console.error("Failed to mark read:", err);
+    }
+  };
 
   const leftOffset = collapsed ? 68 : 260;
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -171,27 +215,43 @@ export default function TopNav({ collapsed }) {
               </div>
 
               <div className="max-h-[400px] overflow-y-auto">
-                {notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    className={`flex gap-3 border-b border-slate-50 px-4 py-3 ${
-                      !n.read ? "bg-blue-50" : "bg-white"
-                    }`}
-                  >
-                    <NotifIcon type={n.type} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-900">
-                        {n.title}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {n.message}
-                      </p>
-                    </div>
-                    {!n.read && (
-                      <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-blue-500" />
-                    )}
+                {notifications.length === 0 ? (
+                  <div className="p-4 text-center text-sm text-slate-500">
+                    No new notifications
                   </div>
-                ))}
+                ) : (
+                  notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      onClick={() => !n.read && handleMarkAsRead(n.id)}
+                      className={`group flex cursor-pointer items-start gap-4 p-4 transition-all hover:bg-slate-50 border-b border-slate-100 last:border-0 ${
+                        !n.read ? "bg-[#f8fafc]" : "opacity-80"
+                      }`}
+                    >
+                      <NotifIcon type={n.type} title={n.title} />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <p className={`text-sm ${!n.read ? "font-bold text-slate-900" : "font-medium text-slate-700"}`}>
+                            {n.title}
+                          </p>
+                          {!n.read && (
+                            <span className="h-2 w-2 rounded-full bg-blue-600 shadow-[0_0_8px_rgba(37,99,235,0.6)]"></span>
+                          )}
+                        </div>
+                        <p className={`mt-1 text-xs leading-relaxed ${!n.read ? "text-slate-600" : "text-slate-500"}`}>{n.message}</p>
+                        <p className="mt-2 flex items-center text-[11px] text-slate-400 font-medium">
+                          <Clock size={12} className="mr-1 opacity-70" />
+                          {new Date(n.created_at).toLocaleString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}

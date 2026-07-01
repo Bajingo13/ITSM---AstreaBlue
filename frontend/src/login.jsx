@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useAuth } from "./context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { CheckCircle } from "lucide-react";
 
 export default function Login() {
@@ -159,12 +159,12 @@ export default function Login() {
                 Remember me
               </label>
 
-              <button
-                type="button"
+              <Link
+                to="/forgot-password"
                 className="font-semibold text-blue-700 hover:text-blue-900"
               >
                 Forgot Password?
-              </button>
+              </Link>
             </div>
 
             <button

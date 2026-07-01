@@ -98,3 +98,40 @@ export function logoutUser() {
   sessionStorage.removeItem("token");
 }
 
+export async function forgotPassword(email) {
+  let response;
+  try {
+    response = await fetch(`${AUTH_API_URL}/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+  } catch {
+    throw new Error(`Unable to reach backend at ${API_URL}.`);
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to process request");
+  }
+  return data;
+}
+
+export async function resetPassword(token, password) {
+  let response;
+  try {
+    response = await fetch(`${AUTH_API_URL}/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, password }),
+    });
+  } catch {
+    throw new Error(`Unable to reach backend at ${API_URL}.`);
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to reset password");
+  }
+  return data;
+}

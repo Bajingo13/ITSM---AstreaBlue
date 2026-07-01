@@ -39,6 +39,12 @@ async function getTicketNotificationDetails(ticketId) {
       t.priority,
       t.status,
       t.branch_id,
+      t.created_at,
+      t.closed_at,
+      t.cancelled_at,
+      t.resolution_notes,
+      t.cancellation_reason,
+      c.category_name,
       COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
       requester.full_name AS requester_name,
       requester.email AS requester_email,
@@ -49,6 +55,8 @@ async function getTicketNotificationDetails(ticketId) {
     FROM tickets t
     LEFT JOIN branches b
       ON t.branch_id = b.branch_id
+    LEFT JOIN ticket_categories c
+      ON t.category_id = c.category_id
     LEFT JOIN users requester
       ON t.requester_id = requester.user_id
     LEFT JOIN users assignee
@@ -81,6 +89,18 @@ async function sendTicketNotification(ticketId, sendEmail) {
   } catch (err) {
     console.warn("Ticket email notification failed:", err.message);
     return "Ticket updated, but email notification failed.";
+  }
+}
+
+async function createInAppNotification(userId, title, message, type = "info") {
+  if (!userId) return;
+  try {
+    await db.query(
+      "INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)",
+      [userId, title, message, type]
+    );
+  } catch (err) {
+    console.error("Failed to create in-app notification:", err.message);
   }
 }
 
@@ -652,14 +672,16 @@ router.put("/:id", async (req, res) => {
         [id, changed_by, "Status Updated", existing.status, status]
       );
 
-      const statusEmail =
-        finalStatus === "Resolved"
-          ? sendTicketResolvedEmail
-          : finalStatus === "Closed"
-          ? sendTicketClosedEmail
-          : sendTicketStatusEmail;
-
-      emailWarning = await sendTicketNotification(id, statusEmail);
+      if (finalStatus === "Closed" || finalStatus === "Cancelled") {
+        const statusEmail =
+          finalStatus === "Closed"
+            ? sendTicketClosedEmail
+            : sendTicketCancelledEmail;
+        emailWarning = await sendTicketNotification(id, statusEmail);
+      }
+      
+      const notifType = finalStatus === "Closed" ? "success" : finalStatus === "Resolved" ? "success" : "info";
+      await createInAppNotification(existing.requester_id, "Ticket Update", `Ticket ${existing.ticket_number} status changed to ${status}.`, notifType);
     }
 
     res.json({
@@ -860,9 +882,11 @@ router.patch("/:id/assign", async (req, res) => {
       ]
     );
 
-    const emailWarning = assigned_to
-      ? await sendTicketNotification(id, sendTicketAssignedEmail)
-      : null;
+    const emailWarning = null;
+    
+    if (assigned_to) {
+      await createInAppNotification(assigned_to, "Ticket Assigned", `Ticket ${existing.ticket_number || id} has been assigned to you.`, "warning");
+    }
 
     res.json({
       ...result.rows[0],
@@ -997,6 +1021,8 @@ router.patch("/:id/cancel", async (req, res) => {
       id,
       sendTicketCancelledEmail
     );
+    
+    await createInAppNotification(existing.requester_id, "Ticket Cancelled", `Your ticket ${existing.ticket_number || id} was cancelled.`, "error");
 
     res.json({
       success: true,

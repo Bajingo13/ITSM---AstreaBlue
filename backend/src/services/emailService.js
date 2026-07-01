@@ -1,4 +1,5 @@
 const nodemailer = require("nodemailer");
+const { generateEmailHtml } = require("./emailTemplates");
 
 function cleanEnv(value) {
   return String(value || "").trim();
@@ -132,6 +133,16 @@ async function sendInvitationEmail({
   const safeBranch = escapeHtml(branchName || "Assigned Branch");
 
   try {
+    const bodyContent = `
+      <p>Hello <strong>${safeName}</strong>,</p>
+      <p>You've been invited to join the AstreaBlue ITSM system as a <strong>${safeRole}</strong> at <strong>${safeBranch}</strong>.</p>
+      <p>Please complete your registration by visiting the link below:</p>
+      <a href="${inviteLink}" class="button">Complete Registration</a>
+      <p style="font-size: 0.9em; margin-top: 24px; color: #64748b;">Or copy and paste this link into your browser:<br/>
+      <a href="${inviteLink}" style="color: #2563EB; word-break: break-all;">${inviteLink}</a></p>
+      <p style="font-size: 0.85em; margin-top: 32px; color: #64748b;">This link will expire in 24 hours.<br/>If you didn't expect this invitation, please ignore this email.</p>
+    `;
+
     return await sendMail({
       from: fromAddress(),
       to,
@@ -147,21 +158,7 @@ async function sendInvitationEmail({
       "This link will expire in 24 hours.",
       "If you didn't expect this invitation, please ignore this email.",
       ].join("\n"),
-      html: `
-      <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
-        <h2 style="margin: 0 0 16px;">Welcome to AstreaBlue ITSM</h2>
-        <p>Hello <strong>${safeName}</strong>,</p>
-        <p>You've been invited to join the system as a <strong>${safeRole}</strong> at <strong>${safeBranch}</strong>.</p>
-        <div style="margin: 32px 0;">
-          <a href="${inviteLink}" style="background-color: #3b82f6; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500;">
-            Complete Registration
-          </a>
-        </div>
-        <p style="font-size: 0.9em; color: #64748b;">Or copy and paste this link into your browser:<br/>
-        <a href="${inviteLink}">${inviteLink}</a></p>
-        <p style="font-size: 0.85em; color: #94a3b8; margin-top: 32px;">This link will expire in 24 hours.</p>
-      </div>
-      `,
+      html: generateEmailHtml("Welcome to AstreaBlue ITSM", bodyContent),
     });
   } catch (error) {
     return {
@@ -198,30 +195,16 @@ async function sendTestEmail(to) {
       "AstreaBlue ITSM"
     ].join("\n");
 
-    const htmlContent = `
-      <div style="font-family: 'Inter', Roboto, Arial, sans-serif; color: #0F172A; line-height: 1.6; background-color: #E0F2FE; padding: 40px 20px;">
-        <div style="max-width: 600px; margin: 0 auto; background-color: #FFFFFF; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);">
-          <div style="background: linear-gradient(135deg, #2563EB 0%, #38BDF8 100%); padding: 32px 24px; text-align: center;">
-            <h1 style="color: #FFFFFF; margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">AstreaBlue ITSM</h1>
-          </div>
-          <div style="padding: 40px 32px;">
-            <p style="font-size: 16px; margin-top: 0;">Hello,</p>
-            <p style="font-size: 16px;">This is a test email from <strong>AstreaBlue ITSM</strong>.</p>
-            <p style="font-size: 16px;">Your email provider is configured correctly.</p>
-            <p style="font-size: 16px;">If you received this email, production email delivery is working successfully.</p>
-            
-            <div style="background-color: #F8FAFC; border-left: 4px solid #38BDF8; padding: 20px; margin: 32px 0; border-radius: 0 8px 8px 0;">
-              <p style="margin: 0 0 12px 0; font-size: 15px;"><strong>Provider:</strong> ${providerName}</p>
-              <p style="margin: 0 0 4px 0; font-size: 15px;"><strong>Time:</strong></p>
-              <p style="margin: 0; font-size: 15px; color: #475569;">${timestamp}</p>
-            </div>
-            
-            <p style="font-size: 16px; margin-bottom: 0;">Regards,<br><strong style="color: #2563EB;">AstreaBlue ITSM</strong></p>
-          </div>
-          <div style="background-color: #F1F5F9; padding: 20px 32px; text-align: center; border-top: 1px solid #E2E8F0;">
-            <p style="margin: 0; color: #64748B; font-size: 13px;">This is an automated system message. Please do not reply.</p>
-          </div>
-        </div>
+    const bodyContent = `
+      <p>Hello,</p>
+      <p>This is a test email from <strong>AstreaBlue ITSM</strong>.</p>
+      <p>Your email provider is configured correctly.</p>
+      <p>If you received this email, production email delivery is working successfully.</p>
+      
+      <div style="background-color: #f8fafc; border-left: 4px solid #38BDF8; padding: 20px; margin: 32px 0; border-radius: 0 8px 8px 0;">
+        <p style="margin: 0 0 12px 0;"><strong>Provider:</strong> ${providerName}</p>
+        <p style="margin: 0 0 4px 0;"><strong>Time:</strong></p>
+        <p style="margin: 0; color: #64748b;">${timestamp}</p>
       </div>
     `;
 
@@ -230,7 +213,7 @@ async function sendTestEmail(to) {
       to,
       subject: "AstreaBlue ITSM - Email Test",
       text: textContent,
-      html: htmlContent,
+      html: generateEmailHtml("AstreaBlue ITSM - Email Test", bodyContent),
     });
   } catch (error) {
     const config = smtpConfig();
@@ -270,6 +253,12 @@ function ticketFields(ticket) {
     priority: ticket?.priority || "P3-Medium",
     branch: ticket?.branch_name || "Unassigned Branch",
     technician: ticket?.assigned_name || "Not assigned",
+    category: ticket?.category_name || "General",
+    created_at: ticket?.created_at ? new Date(ticket.created_at).toLocaleString() : null,
+    closed_at: ticket?.closed_at ? new Date(ticket.closed_at).toLocaleString() : null,
+    cancelled_at: ticket?.cancelled_at ? new Date(ticket.cancelled_at).toLocaleString() : null,
+    resolution_notes: ticket?.resolution_notes || null,
+    cancellation_reason: ticket?.cancellation_reason || null,
   };
 }
 
@@ -288,6 +277,37 @@ async function sendTicketEmail(ticket, { subject, message }) {
   const safeMessage = escapeHtml(message);
   const safeLink = link ? escapeHtml(link) : null;
 
+  const rowsHtml = [];
+  rowsHtml.push(`<tr><th>Ticket Number</th><td>${escapeHtml(fields.number)}</td></tr>`);
+  rowsHtml.push(`<tr><th>Title</th><td>${escapeHtml(fields.title)}</td></tr>`);
+  rowsHtml.push(`<tr><th>Status</th><td>${escapeHtml(fields.status)}</td></tr>`);
+  
+  if (message === "Your ticket was successfully filed.") {
+    rowsHtml.push(`<tr><th>Category</th><td>${escapeHtml(fields.category)}</td></tr>`);
+    rowsHtml.push(`<tr><th>Priority</th><td>${escapeHtml(fields.priority)}</td></tr>`);
+    rowsHtml.push(`<tr><th>Branch</th><td>${escapeHtml(fields.branch)}</td></tr>`);
+    if (fields.created_at) rowsHtml.push(`<tr><th>Created Date</th><td>${escapeHtml(fields.created_at)}</td></tr>`);
+  } else if (message === "Your ticket has been closed.") {
+    if (fields.closed_at) rowsHtml.push(`<tr><th>Closed Date</th><td>${escapeHtml(fields.closed_at)}</td></tr>`);
+    if (fields.resolution_notes) rowsHtml.push(`<tr><th>Resolution Remarks</th><td>${escapeHtml(fields.resolution_notes)}</td></tr>`);
+  } else if (message === "Your ticket has been cancelled.") {
+    if (fields.cancelled_at) rowsHtml.push(`<tr><th>Cancelled Date</th><td>${escapeHtml(fields.cancelled_at)}</td></tr>`);
+    if (fields.cancellation_reason) rowsHtml.push(`<tr><th>Cancellation Reason</th><td>${escapeHtml(fields.cancellation_reason)}</td></tr>`);
+  } else {
+    // Default fallback
+    rowsHtml.push(`<tr><th>Priority</th><td>${escapeHtml(fields.priority)}</td></tr>`);
+    rowsHtml.push(`<tr><th>Branch</th><td>${escapeHtml(fields.branch)}</td></tr>`);
+    rowsHtml.push(`<tr><th>Assigned Technician</th><td>${escapeHtml(fields.technician)}</td></tr>`);
+  }
+
+  const bodyContent = `
+    <p>${safeMessage}</p>
+    <table class="data-table">
+      ${rowsHtml.join("")}
+    </table>
+    ${safeLink ? `<a href="${safeLink}" class="button">View Ticket</a><p style="font-size: 0.9em; margin-top: 24px; color: #64748b;">Or copy and paste this link into your browser:<br/><a href="${safeLink}" style="color: #2563EB; word-break: break-all;">${safeLink}</a></p>` : ""}
+  `;
+
   await sendMail({
     from: fromAddress(),
     to,
@@ -298,30 +318,9 @@ async function sendTicketEmail(ticket, { subject, message }) {
       `Ticket Number: ${fields.number}`,
       `Title: ${fields.title}`,
       `Status: ${fields.status}`,
-      `Priority: ${fields.priority}`,
-      `Branch: ${fields.branch}`,
-      `Assigned Technician: ${fields.technician}`,
       ...(link ? ["", `View ticket: ${link}`] : []),
     ].join("\n"),
-    html: `
-      <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
-        <h2 style="margin: 0 0 16px;">${escapeHtml(subject)}</h2>
-        <p>${safeMessage}</p>
-        <table style="border-collapse: collapse; margin: 18px 0; width: 100%; max-width: 620px;">
-          <tr><td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Ticket Number</strong></td><td style="padding: 8px; border: 1px solid #e5e7eb;">${escapeHtml(fields.number)}</td></tr>
-          <tr><td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Title</strong></td><td style="padding: 8px; border: 1px solid #e5e7eb;">${escapeHtml(fields.title)}</td></tr>
-          <tr><td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Status</strong></td><td style="padding: 8px; border: 1px solid #e5e7eb;">${escapeHtml(fields.status)}</td></tr>
-          <tr><td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Priority</strong></td><td style="padding: 8px; border: 1px solid #e5e7eb;">${escapeHtml(fields.priority)}</td></tr>
-          <tr><td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Branch</strong></td><td style="padding: 8px; border: 1px solid #e5e7eb;">${escapeHtml(fields.branch)}</td></tr>
-          <tr><td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Assigned Technician</strong></td><td style="padding: 8px; border: 1px solid #e5e7eb;">${escapeHtml(fields.technician)}</td></tr>
-        </table>
-        ${
-          safeLink
-            ? `<p><a href="${safeLink}" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;">View Ticket</a></p><p style="word-break: break-all;">${safeLink}</p>`
-            : ""
-        }
-      </div>
-    `,
+    html: generateEmailHtml(escapeHtml(subject), bodyContent),
   });
 
   return { sent: true };
@@ -330,7 +329,7 @@ async function sendTicketEmail(ticket, { subject, message }) {
 async function sendTicketCreatedEmail(ticket) {
   return sendTicketEmail(ticket, {
     subject: `Ticket Created: ${ticket?.ticket_number || ""}`.trim(),
-    message: "Your ticket has been created and logged in AstreaBlue ITSM.",
+    message: "Your ticket was successfully filed.",
   });
 }
 
@@ -369,6 +368,44 @@ async function sendTicketCancelledEmail(ticket) {
   });
 }
 
+async function sendPasswordResetEmail(to, resetLink) {
+  try {
+    const bodyContent = `
+      <p>Hello,</p>
+      <p>We received a request to reset your AstreaBlue ITSM password.</p>
+      <p>Click the button below to create a new password.</p>
+      <a href="${resetLink}" class="button">Reset Password</a>
+      <p style="font-size: 0.9em; margin-top: 24px; color: #64748b;">Or copy and paste this link into your browser:<br/>
+      <a href="${resetLink}" style="color: #2563EB; word-break: break-all;">${resetLink}</a></p>
+      <p style="font-size: 0.85em; margin-top: 32px; color: #64748b;">This link will expire in 30 minutes.<br/>If you did not request this, you can safely ignore this email.</p>
+    `;
+
+    return await sendMail({
+      from: fromAddress(),
+      to,
+      subject: "AstreaBlue ITSM - Password Reset Request",
+      text: [
+        "Hello,",
+        "",
+        "We received a request to reset your AstreaBlue ITSM password.",
+        "Please click the link below to set a new password:",
+        "",
+        resetLink,
+        "",
+        "This link will expire in 30 minutes.",
+        "If you did not request this, you can safely ignore this email.",
+      ].join("\n"),
+      html: generateEmailHtml("Password Reset Request", bodyContent),
+    });
+  } catch (error) {
+    return {
+      success: false,
+      provider: "smtp",
+      error: exactEmailError(error),
+    };
+  }
+}
+
 module.exports = {
   getMissingSmtpConfig,
   sendTestEmail,
@@ -380,4 +417,5 @@ module.exports = {
   sendTicketResolvedEmail,
   sendTicketClosedEmail,
   sendTicketCancelledEmail,
+  sendPasswordResetEmail,
 };

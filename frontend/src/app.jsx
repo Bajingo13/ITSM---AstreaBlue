@@ -30,6 +30,8 @@ import BranchManagement from "./views/BranchManagement";
 import InviteRegistration from "./views/InviteRegistration";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import ModulePlaceholder from "./views/ModulePlaceholder";
+import ForgotPassword from "./ForgotPassword";
+import ResetPassword from "./ResetPassword";
 
 const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
 const ADMIN_ROLES = ["SuperAdmin", "Admin"];
@@ -53,6 +55,8 @@ export default function App() {
       <Route path="/" element={<Navigate to="/login" replace />} />
 
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password/:token" element={<ResetPassword />} />
       <Route path="/invite/:token" element={<ErrorBoundary><InviteRegistration /></ErrorBoundary>} />
       <Route path="/register-invite/:token" element={<ErrorBoundary><InviteRegistration /></ErrorBoundary>} />
 

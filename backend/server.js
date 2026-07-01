@@ -16,6 +16,7 @@ const inviteRoutes = require("./src/routes/invites");
 const emailRoutes = require("./src/routes/email");
 const attachmentRoutes = require("./src/routes/attachments");
 const ticketRoutes = require("./src/routes/tickets");
+const notificationRoutes = require("./src/routes/notifications");
 
 const app = express();
 
@@ -254,6 +255,29 @@ async function ensureAttachmentsAndInvites() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        reset_id SERIAL PRIMARY KEY,
+        token VARCHAR(120) UNIQUE NOT NULL,
+        user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        type VARCHAR(50) DEFAULT 'info',
+        read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
   } catch (err) {
     console.error("Attachments/invites setup error:", err.message);
   }
@@ -433,6 +457,7 @@ app.use("/api/v1/invites", inviteRoutes);
 app.use("/api/v1/email", emailRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
+app.use("/api/v1/notifications", notificationRoutes);
 
 /* ==========================
    HEALTH CHECK
