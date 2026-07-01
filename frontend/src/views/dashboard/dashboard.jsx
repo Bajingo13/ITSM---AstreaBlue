@@ -82,7 +82,7 @@ function TicketCard({ ticket, onStatusChange, onDelete, onEdit, onAssignTech }) 
         </select>
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-white/5 pt-3">
-        <PriorityBadge priority={ticket.priority} />
+        <PriorityBadge priority={formatPriority(ticket.priority)} />
         <SLATag sla={ticket.sla} />
       </div>
     </div>

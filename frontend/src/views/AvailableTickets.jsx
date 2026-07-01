@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileText } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
-import { getPriorityBadgeClass } from "../utils/ticketVisuals";
+import { getPriorityBadgeClass, formatPriority } from "../utils/ticketVisuals";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -100,8 +100,8 @@ export default function AvailableTickets() {
               </p>
             </td>
             <td className="px-4 py-4">
-              <span className={getPriorityBadgeClass(ticket.priority)}>
-                {ticket.priority}
+              <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                {formatPriority(ticket.priority)}
               </span>
             </td>
             <td className="px-4 py-4 text-sm font-semibold text-slate-600">

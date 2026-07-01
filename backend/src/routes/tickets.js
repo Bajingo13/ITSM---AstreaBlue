@@ -9,6 +9,7 @@ const {
   sendTicketResolvedEmail,
   sendTicketStatusEmail,
 } = require("../services/emailService");
+const { calculateSlaDueDate } = require("../services/slaService");
 
 const router = express.Router();
 
@@ -80,6 +81,51 @@ async function sendTicketNotification(ticketId, sendEmail) {
   } catch (err) {
     console.warn("Ticket email notification failed:", err.message);
     return "Ticket updated, but email notification failed.";
+  }
+}
+
+async function runTicketCreatedSideEffects({ ticketId, requesterId, branchId }) {
+  try {
+    let branchName = "Unassigned Branch";
+
+    if (branchId) {
+      try {
+        const branchResult = await db.query(
+          "SELECT branch_name FROM branches WHERE branch_id = $1",
+          [branchId]
+        );
+        branchName = branchResult.rows[0]?.branch_name || branchName;
+      } catch (branchError) {
+        console.warn("Ticket branch lookup failed:", branchError.message);
+      }
+    }
+
+    try {
+      await db.query(
+        `
+        INSERT INTO ticket_history
+        (ticket_id, changed_by, action, old_value, new_value)
+        VALUES ($1, $2, $3, $4, $5)
+        `,
+        [
+          ticketId,
+          requesterId,
+          "Ticket Created",
+          null,
+          `Ticket filed from ${branchName}`,
+        ]
+      );
+    } catch (historyError) {
+      console.warn("Ticket history creation failed:", historyError.message);
+    }
+
+    try {
+      await sendTicketNotification(ticketId, sendTicketCreatedEmail);
+    } catch (notificationError) {
+      console.warn("Ticket creation notification failed:", notificationError.message);
+    }
+  } catch (error) {
+    console.error("Ticket post-save processing failed:", error.message);
   }
 }
 
@@ -377,8 +423,7 @@ router.post("/", async (req, res) => {
       .slice(0, 10)
       .replace(/-/g, "")}-${String(nextNumber).padStart(4, "0")}`;
 
-    const slaDueDate = new Date();
-    slaDueDate.setHours(slaDueDate.getHours() + 24);
+    const slaDueDate = await calculateSlaDueDate(priority || "P3-Medium");
 
     const result = await db.query(
       `
@@ -433,43 +478,27 @@ router.post("/", async (req, res) => {
       ]
     );
 
-    const branchResult = finalBranchId
-      ? await db.query(`SELECT branch_name FROM branches WHERE branch_id = $1`, [
-          finalBranchId,
-        ])
-      : { rows: [] };
-    const branchName = branchResult.rows[0]?.branch_name || "Unassigned Branch";
+    const createdTicket = result.rows[0];
 
-    await db.query(
-      `
-      INSERT INTO ticket_history
-      (ticket_id, changed_by, action, old_value, new_value)
-      VALUES ($1, $2, $3, $4, $5)
-      `,
-      [
-        result.rows[0].id,
-        requester_id,
-        "Ticket Created",
-        null,
-        `Ticket filed from ${branchName}`,
-      ]
-    );
+    runTicketCreatedSideEffects({
+      ticketId: createdTicket.id,
+      requesterId: requester_id,
+      branchId: finalBranchId,
+    }).catch((sideEffectError) => {
+      console.error("Ticket post-save processing failed:", sideEffectError.message);
+    });
 
-    const emailWarning = await sendTicketNotification(
-      result.rows[0].id,
-      sendTicketCreatedEmail
-    );
-
-    res.status(201).json({
-      ...result.rows[0],
-      ...(emailWarning ? { email_warning: emailWarning } : {}),
+    return res.status(201).json({
+      success: true,
+      message: "Ticket created successfully",
+      data: createdTicket,
     });
   } catch (err) {
     console.error("Create ticket error:", err.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: "Failed to create ticket",
+      error: err.message,
     });
   }
 });
@@ -920,6 +949,27 @@ router.patch("/:id/cancel", async (req, res) => {
       });
     }
 
+    const ticketCheck = await db.query(
+      `SELECT status FROM tickets WHERE id = $1`,
+      [id]
+    );
+
+    if (ticketCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Ticket not found.",
+      });
+    }
+
+    if (
+      ["Cancelled", "Resolved", "Closed"].includes(ticketCheck.rows[0].status)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: `Ticket cannot be cancelled because it is already ${ticketCheck.rows[0].status}.`,
+      });
+    }
+
     const result = await db.query(
       `
       UPDATE tickets
@@ -933,13 +983,6 @@ router.patch("/:id/cancel", async (req, res) => {
       `,
       [cancelledBy, reason.trim(), id]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Ticket not found.",
-      });
-    }
 
     await db.query(
       `

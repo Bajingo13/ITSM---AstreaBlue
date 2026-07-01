@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiService } from "../services/apiService";
+import apiService from "../services/api";
 
 export const ServiceRequestPage = () => {
   const [requests, setRequests] = useState([]);

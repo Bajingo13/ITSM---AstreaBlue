@@ -15,12 +15,11 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import {
-  getPriorityBadgeClass,
+  getPriorityBadgeClass, formatPriority,
   getSeverityOptionStyle,
   getSeveritySelectClass,
   getStatusBadgeClass,
   priorityOptions,
-  severityOptions,
 } from "../utils/ticketVisuals";
 
 const API_BASE = `${API_URL}/api/v1`;
@@ -196,8 +195,8 @@ export default function EmployeeDashboard({ view = "dashboard" }) {
                       {ticket.category || "Uncategorized"}
                     </td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass(ticket.priority)}>
-                        {ticket.priority}
+                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                        {formatPriority(ticket.priority)}
                       </span>
                     </td>
                     <td className="px-4 py-4">
@@ -255,8 +254,6 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
     description: "",
     category_id: "",
     priority: "P3-Medium",
-    impact: "Medium",
-    urgency: "Medium",
   });
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -283,6 +280,8 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildTicketPayload(user, {
           ...form,
+          impact: "Medium",
+          urgency: "Medium",
           category_id: form.category_id || null,
           requester_id: user?.user_id,
           branch_id: user?.branch_id || null,
@@ -295,7 +294,21 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
 
       if (!res.ok) throw new Error(data.error || "Failed to create ticket.");
 
-      await uploadTicketAttachments(data.id, files, user?.user_id);
+      const createdTicket = data.data || data;
+      setForm({
+        title: "",
+        description: "",
+        category_id: "",
+        priority: "P3-Medium",
+      });
+      setFiles([]);
+
+      try {
+        await uploadTicketAttachments(createdTicket.id, files, user?.user_id);
+      } catch (attachmentError) {
+        console.warn("Ticket created, but attachment upload failed:", attachmentError.message);
+      }
+
       onCreated();
     } catch (err) {
       setError(err.message);
@@ -368,25 +381,17 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
                 })),
               ]}
             />
-            <SelectField
-              label="Priority"
-              value={form.priority}
-              onChange={(value) => updateForm("priority", value)}
-              options={priorityOptions.map((value) => ({ label: value, value }))}
-            />
-            <PriorityIndicator value={form.priority} />
-            <SelectField
-              label="Impact"
-              value={form.impact}
-              onChange={(value) => updateForm("impact", value)}
-              options={severityOptions.map((value) => ({ label: value, value }))}
-            />
-            <SelectField
-              label="Urgency"
-              value={form.urgency}
-              onChange={(value) => updateForm("urgency", value)}
-              options={severityOptions.map((value) => ({ label: value, value }))}
-            />
+            <div>
+              <SelectField
+                label="Priority"
+                value={form.priority}
+                onChange={(value) => updateForm("priority", value)}
+                options={priorityOptions.map((value) => ({ label: value, value }))}
+              />
+              <div className="mt-2">
+                
+              </div>
+            </div>
           </div>
 
           <div>
@@ -575,7 +580,7 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
             <section className="grid grid-cols-2 gap-4">
               <InfoTile label="Status" value={item.status} />
               <InfoTile label="Assigned Technician" value={item.assigned_name || "Unassigned"} />
-              <InfoTile label="Priority" value={item.priority || "Not set"} />
+              <InfoTile label="Priority" value={formatPriority(item.priority)} />
               <InfoTile label="Category" value={item.category || "Uncategorized"} />
             </section>
 
@@ -716,8 +721,7 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
 }
 
 function SelectField({ label, value, onChange, options }) {
-  const shouldColorBySeverity =
-    label === "Priority" || label === "Impact" || label === "Urgency";
+  const shouldColorBySeverity = label === "Priority";
 
   return (
     <div>

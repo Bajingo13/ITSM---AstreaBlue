@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle, Paperclip, RotateCcw, Star, Ticket, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
-import { getPriorityBadgeClass, getStatusBadgeClass } from "../utils/ticketVisuals";
+import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -99,8 +99,8 @@ export default function MyTickets() {
                       {ticket.category || "Uncategorized"}
                     </td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass(ticket.priority)}>
-                        {ticket.priority}
+                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                        {formatPriority(ticket.priority)}
                       </span>
                     </td>
                     <td className="px-4 py-4">
@@ -241,7 +241,7 @@ function TicketDetails({ ticket, user, onClose, onUpdated }) {
             <section className="grid grid-cols-2 gap-4">
               <InfoTile label="Status" value={item.status} />
               <InfoTile label="Assigned Technician" value={item.assigned_name || "Unassigned"} />
-              <InfoTile label="Priority" value={item.priority || "Not set"} />
+              <InfoTile label="Priority" value={formatPriority(item.priority)} />
               <InfoTile label="Category" value={item.category || "Uncategorized"} />
             </section>
 

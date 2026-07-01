@@ -6,7 +6,11 @@ import {
   Eye,
   Filter,
   FolderOpen,
+  Grid3X3,
+  History,
+  List,
   Loader2,
+  Pencil,
   Plus,
   Printer,
   Search,
@@ -17,8 +21,9 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
+import { API_URL } from "../config/api";
 
-const API_BASE = "http://localhost:5001/api/v1";
+const API_BASE = `${API_URL}/api/v1`;
 const ASSET_TYPES = [
   "All",
   "Laptop",
@@ -34,12 +39,16 @@ const ASSET_TYPES = [
 ];
 const STATUS_OPTIONS = [
   "All",
+  "Available",
+  "In Use",
+  "Maintenance",
   "Active",
   "In Stock",
   "Borrowed",
   "In Repair",
   "Retired",
   "Disposed",
+  "Lost/Damaged",
 ];
 const MODAL_ASSET_TYPE_OPTIONS = [
   { label: "laptop", value: "Laptop" },
@@ -51,12 +60,16 @@ const MODAL_ASSET_TYPE_OPTIONS = [
   { label: "other", value: "Other" },
 ];
 const MODAL_STATUS_OPTIONS = [
+  { label: "available", value: "Available" },
+  { label: "in use", value: "In Use" },
+  { label: "maintenance", value: "Maintenance" },
   { label: "active", value: "Active" },
   { label: "in repair", value: "In Repair" },
   { label: "in stock", value: "In Stock" },
   { label: "retired", value: "Retired" },
   { label: "disposed", value: "Disposed" },
   { label: "borrowed", value: "Borrowed" },
+  { label: "lost / damaged", value: "Lost/Damaged" },
 ];
 const ACTION_MODES = {
   borrow: { label: "Mark as Borrowed", status: "Borrowed", icon: User },
@@ -83,6 +96,16 @@ function getBranchCode(branchName) {
 
 function getStatusClasses(status) {
   switch (status) {
+    case "Available":
+      return "bg-emerald-50 text-emerald-700";
+    case "In Use":
+      return "bg-blue-50 text-blue-700";
+    case "Maintenance":
+      return "bg-orange-50 text-orange-700";
+    case "Lost":
+    case "Damaged":
+    case "Lost/Damaged":
+      return "bg-red-50 text-red-700";
     case "Active":
       return "bg-emerald-50 text-emerald-700";
     case "In Stock":
@@ -142,10 +165,8 @@ function getAssetFormInitialState(asset, currentBranchId) {
     storage: asset?.storage || "",
     signature_link: asset?.signature_link || "",
     returned_name_forms: asset?.returned_name_forms || "",
-    attachments: [],
-    attachment_names: Array.isArray(asset?.attachments)
-      ? asset.attachments.map((item) => item?.name || item).filter(Boolean)
-      : [],
+    attachments: Array.isArray(asset?.attachments) ? asset.attachments : [],
+    image_url: asset?.image_url || "",
     location: asset?.location || "",
     department: asset?.department || "",
     warranty_expiration: formatDateInput(asset?.warranty_expiration),
@@ -177,6 +198,7 @@ export default function Assets() {
   const [manufacturerFilter, setManufacturerFilter] = useState("All");
   const [conditionFilter, setConditionFilter] = useState("All");
   const [departmentFilter, setDepartmentFilter] = useState("All");
+  const [assignedFilter, setAssignedFilter] = useState("All");
   const [sortLatest, setSortLatest] = useState(false);
   const [branchFilter, setBranchFilter] = useState(isSuperAdmin ? "All" : String(currentBranchId || ""));
   const [showAssetModal, setShowAssetModal] = useState(false);
@@ -185,6 +207,32 @@ export default function Assets() {
   const [actionAsset, setActionAsset] = useState(null);
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState("");
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem("hardwareAssetsView") || "grid");
+  const [viewingAsset, setViewingAsset] = useState(null);
+  const [historyAsset, setHistoryAsset] = useState(null);
+  const [historyRecords, setHistoryRecords] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const changeViewMode = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem("hardwareAssetsView", mode);
+  };
+
+  const openHistory = async (asset) => {
+    try {
+      setHistoryAsset(asset);
+      setHistoryLoading(true);
+      const res = await fetch(`${API_BASE}/hardware-assets/${asset.asset_id}/history`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to load asset history");
+      setHistoryRecords(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Fetch asset history failed:", err);
+      setHistoryRecords([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const fetchBranches = useCallback(async () => {
     try {
@@ -260,6 +308,10 @@ export default function Assets() {
         const dept = asset.department || asset.team_department || asset.borrower_department || "";
         if (dept !== departmentFilter) return false;
       }
+      if (assignedFilter && assignedFilter !== "All") {
+        const assigned = asset.assigned_name || asset.borrower_name || "";
+        if (assigned !== assignedFilter) return false;
+      }
       // Search filter
       if (search && search.trim()) {
         const q = search.trim().toLowerCase();
@@ -288,7 +340,7 @@ export default function Assets() {
       });
     }
     return filtered;
-  }, [assets, branchFilter, isSuperAdmin, statusFilter, typeFilter, manufacturerFilter, conditionFilter, departmentFilter, search, sortLatest]);
+  }, [assets, branchFilter, isSuperAdmin, statusFilter, typeFilter, manufacturerFilter, conditionFilter, departmentFilter, assignedFilter, search, sortLatest]);
 
   const branchMetrics = useMemo(() => {
     return visibleBranches.map((branch) => {
@@ -344,6 +396,15 @@ export default function Assets() {
     return ["All", ...Array.from(set).sort()];
   }, [assets]);
 
+  const assignedOptions = useMemo(() => {
+    const set = new Set();
+    assets.forEach((asset) => {
+      const assigned = asset.assigned_name || asset.borrower_name;
+      if (assigned) set.add(assigned);
+    });
+    return ["All", ...Array.from(set).sort()];
+  }, [assets]);
+
   // ── Clear all filters ────────────────────────────────────
   const clearFilters = () => {
     setBranchFilter(isSuperAdmin ? "All" : String(currentBranchId || ""));
@@ -352,6 +413,7 @@ export default function Assets() {
     setManufacturerFilter("All");
     setConditionFilter("All");
     setDepartmentFilter("All");
+    setAssignedFilter("All");
     setSearch("");
     setSortLatest(false);
   };
@@ -372,7 +434,11 @@ export default function Assets() {
   const handleSaveAsset = async (payload, assetId) => {
     try {
       setSaving(true);
-      const body = { ...payload, ...buildTicketPayload(user) };
+      const body = Object.fromEntries(
+        Object.entries({ ...payload, ...buildTicketPayload(user) }).filter(
+          ([, value]) => value !== undefined
+        )
+      );
       const url = assetId ? `${API_BASE}/hardware-assets/${assetId}` : `${API_BASE}/hardware-assets`;
       const method = assetId ? "PUT" : "POST";
       const res = await fetch(url, {
@@ -511,18 +577,18 @@ export default function Assets() {
                     <h3 className="text-lg font-black text-slate-900">{branch.branch_name}</h3>
                     <p className="mt-1 text-sm text-slate-500">{branch.branch_location || "Branch"}</p>
                   </div>
-                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-3xl bg-white p-3 text-center">
+                  <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-3 text-center">
                       <p className="text-2xl font-black text-slate-900">{branch.total}</p>
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Total</p>
+                      <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Total</p>
                     </div>
-                    <div className="rounded-3xl bg-white p-3 text-center">
+                    <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-3 text-center">
                       <p className="text-2xl font-black text-emerald-600">{branch.active}</p>
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Active</p>
+                      <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Active</p>
                     </div>
-                    <div className="rounded-3xl bg-white p-3 text-center">
+                    <div className="flex flex-col items-center justify-center rounded-3xl bg-white p-3 text-center">
                       <p className="text-2xl font-black text-violet-600">{branch.borrowed}</p>
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Borrowed</p>
+                      <p className="w-full truncate text-[10px] uppercase tracking-wider text-slate-400 sm:text-xs">Borrowed</p>
                     </div>
                   </div>
                 </button>
@@ -667,6 +733,14 @@ export default function Assets() {
             </option>
           ))}
         </select>
+        <select
+          value={assignedFilter}
+          onChange={(e) => setAssignedFilter(e.target.value)}
+          className="min-w-[140px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
+        >
+          <option value="All">Assigned: All</option>
+          {assignedOptions.filter((name) => name !== "All").map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
         {isSuperAdmin && (
           <button
             onClick={() => setSortLatest((prev) => !prev)}
@@ -689,6 +763,37 @@ export default function Assets() {
         </button>
       </section>
 
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm font-bold text-slate-500">
+          Showing {visibleAssets.length} hardware asset{visibleAssets.length === 1 ? "" : "s"}
+        </p>
+        <div className="inline-flex w-fit rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+          <button type="button" onClick={() => changeViewMode("grid")} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition ${viewMode === "grid" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+            <Grid3X3 size={16} /> Grid
+          </button>
+          <button type="button" onClick={() => changeViewMode("table")} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition ${viewMode === "table" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+            <List size={16} /> Table
+          </button>
+        </div>
+      </div>
+
+      {viewMode === "grid" ? (
+        <section>
+          {loading ? (
+            <div className="flex min-h-56 items-center justify-center rounded-3xl border border-slate-200 bg-white text-slate-400 shadow-sm">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading assets...
+            </div>
+          ) : visibleAssets.length === 0 ? (
+            <div className="flex min-h-56 items-center justify-center rounded-3xl border border-slate-200 bg-white text-slate-400 shadow-sm">No hardware assets found.</div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {visibleAssets.map((asset) => (
+                <AssetCard key={asset.asset_id} asset={asset} onView={() => setViewingAsset(asset)} onEdit={() => openEditAsset(asset)} onHistory={() => openHistory(asset)} />
+              ))}
+            </div>
+          )}
+        </section>
+      ) : (
       <section className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
         <table className="min-w-full text-left">
           <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
@@ -699,6 +804,9 @@ export default function Assets() {
               <th className="px-4 py-3">Brand / Model</th>
               <th className="px-4 py-3">Serial Number</th>
               <th className="px-4 py-3">Branch</th>
+              <th className="px-4 py-3">Location</th>
+              <th className="px-4 py-3">Purchase Date</th>
+              <th className="px-4 py-3">Warranty</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Borrowed By</th>
               <th className="px-4 py-3">Department</th>
@@ -711,7 +819,7 @@ export default function Assets() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="13" className="px-4 py-12 text-center text-slate-400">
+                <td colSpan="16" className="px-4 py-12 text-center text-slate-400">
                   <div className="inline-flex items-center gap-2 text-sm font-semibold">
                     <Loader2 className="h-4 w-4 animate-spin" /> Loading assets...
                   </div>
@@ -719,7 +827,7 @@ export default function Assets() {
               </tr>
             ) : visibleAssets.length === 0 ? (
               <tr>
-                <td colSpan="13" className="px-4 py-12 text-center text-slate-400">
+                <td colSpan="16" className="px-4 py-12 text-center text-slate-400">
                   No hardware assets found.
                 </td>
               </tr>
@@ -732,6 +840,9 @@ export default function Assets() {
                   <td className="px-4 py-4 text-sm text-slate-600">{asset.brand || "—"} / {asset.model || "—"}</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{asset.serial_number}</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{asset.branch_name}</td>
+                  <td className="px-4 py-4 text-sm text-slate-600">{asset.location || asset.department || asset.team_department || "—"}</td>
+                  <td className="px-4 py-4 text-sm text-slate-600">{formatDate(asset.purchase_date)}</td>
+                  <td className="px-4 py-4 text-sm text-slate-600">{formatDate(asset.warranty_expiration || asset.warranty)}</td>
                   <td className="px-4 py-4">
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${getStatusClasses(asset.status)}`}>
                       {asset.status}
@@ -745,7 +856,7 @@ export default function Assets() {
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
                       <button
-                        onClick={() => openEditAsset(asset)}
+                        onClick={() => setViewingAsset(asset)}
                         className="rounded-2xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
                       >
                         <Eye size={14} />
@@ -755,6 +866,12 @@ export default function Assets() {
                         className="rounded-2xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
                       >
                         Edit
+                      </button>
+                      <button
+                        onClick={() => openHistory(asset)}
+                        className="rounded-2xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 hover:bg-violet-100"
+                      >
+                        History
                       </button>
                       {asset.status !== "Borrowed" && (
                         <button
@@ -798,6 +915,7 @@ export default function Assets() {
           </tbody>
         </table>
       </section>
+      )}
       {showAssetModal && (
         <AssetFormModal
           asset={editingAsset}
@@ -822,6 +940,79 @@ export default function Assets() {
           error={modalError}
         />
       )}
+      {viewingAsset && <AssetDetailsModal asset={viewingAsset} onClose={() => setViewingAsset(null)} />}
+      {historyAsset && (
+        <AssetHistoryModal asset={historyAsset} records={historyRecords} loading={historyLoading} onClose={() => setHistoryAsset(null)} />
+      )}
+    </div>
+  );
+}
+
+function AssetCard({ asset, onView, onEdit, onHistory }) {
+  const location = asset.location || asset.branch_name || asset.department || asset.team_department || "Unassigned";
+  const assignedTo = asset.assigned_name || asset.borrower_name || "Unassigned";
+
+  return (
+    <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+      <div className="flex h-44 max-h-[180px] items-center justify-center overflow-hidden bg-slate-100 p-4">
+        {asset.image_url ? (
+          <img src={asset.image_url} alt={asset.asset_name || asset.model} className="h-full w-full object-contain" />
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-slate-400"><Box size={36} /><span className="text-sm font-bold">No Image</span></div>
+        )}
+      </div>
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-wider text-blue-600">{asset.asset_type || "Hardware"}</p>
+            <h3 className="mt-1 truncate text-lg font-black text-slate-900">{asset.asset_name || `${asset.brand || ""} ${asset.model || ""}`.trim()}</h3>
+            <p className="mt-1 truncate text-sm text-slate-500">{asset.serial_number || "No serial number"}</p>
+          </div>
+          <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${getStatusClasses(asset.status)}`}>{asset.status}</span>
+        </div>
+        <div className="mt-4 space-y-2 text-sm text-slate-600">
+          <p><span className="font-bold text-slate-800">Location:</span> {location}</p>
+          <p><span className="font-bold text-slate-800">Assigned:</span> {assignedTo}</p>
+        </div>
+        <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
+          <button onClick={onView} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"><Eye size={14} /> View</button>
+          <button onClick={onEdit} className="inline-flex items-center justify-center gap-1 rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-100"><Pencil size={14} /> Edit</button>
+          <button onClick={onHistory} className="inline-flex items-center justify-center gap-1 rounded-xl bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 hover:bg-violet-100"><History size={14} /> History</button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function AssetDetailsModal({ asset, onClose }) {
+  const details = [
+    ["Asset Tag", asset.asset_tag], ["Type", asset.asset_type], ["Brand / Model", `${asset.brand || "—"} / ${asset.model || "—"}`],
+    ["Serial Number", asset.serial_number], ["Status", asset.status], ["Branch", asset.branch_name],
+    ["Location", asset.location || asset.department || asset.team_department], ["Assigned To", asset.assigned_name || asset.borrower_name],
+    ["Purchase Date", formatDate(asset.purchase_date)], ["Warranty", formatDate(asset.warranty_expiration || asset.warranty)],
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 p-6"><h2 className="text-xl font-black text-slate-900">Asset Details</h2><button onClick={onClose} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X size={20} /></button></div>
+        <div className="p-6">
+          <div className="mb-6 flex aspect-[16/7] items-center justify-center overflow-hidden rounded-2xl bg-slate-100">{asset.image_url ? <img src={asset.image_url} alt={asset.asset_name} className="h-full w-full object-contain" /> : <span className="font-bold text-slate-400">No Image</span>}</div>
+          <h3 className="text-2xl font-black text-slate-900">{asset.asset_name}</h3>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">{details.map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 font-bold text-slate-800">{value || "—"}</p></div>)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssetHistoryModal({ asset, records, loading, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 p-6"><div><h2 className="text-xl font-black text-slate-900">Asset History</h2><p className="text-sm text-slate-500">{asset.asset_name}</p></div><button onClick={onClose} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X size={20} /></button></div>
+        <div className="space-y-3 p-6">{loading ? <p className="text-slate-500">Loading history...</p> : records.length === 0 ? <p className="text-slate-500">No history records found.</p> : records.map((record) => <div key={record.history_id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between gap-4"><p className="font-black text-slate-900">{record.event_type}</p><p className="text-xs text-slate-500">{new Date(record.created_at).toLocaleString()}</p></div>{record.event_data && <p className="mt-2 text-sm text-slate-600">{Object.entries(record.event_data).map(([key, value]) => `${key}: ${value}`).join(" · ")}</p>}</div>)}</div>
+      </div>
     </div>
   );
 }
@@ -858,6 +1049,23 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
         return next;
       });
     }
+  };
+
+  const handleImageChange = (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setLocalError("Asset photo must be an image file.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setLocalError("Asset photo must be 2 MB or smaller.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => updateField("image_url", String(reader.result || ""));
+    reader.onerror = () => setLocalError("Unable to preview the selected image.");
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = (event) => {
@@ -943,6 +1151,23 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
                 {displayError}
               </div>
             )}
+
+            <div className="mb-6 grid gap-4 rounded-3xl border border-[#D8E5F6] bg-blue-50/30 p-5 sm:grid-cols-[180px_1fr] sm:items-center">
+              <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-2xl border border-[#D8E5F6] bg-white">
+                {form.image_url ? <img src={form.image_url} alt="Asset preview" className="h-full w-full object-cover" /> : <span className="text-sm font-bold text-slate-400">No Image</span>}
+              </div>
+              <div>
+                <p className="text-sm font-black text-slate-800">Asset Image / Photo</p>
+                <p className="mt-1 text-xs text-slate-500">PNG, JPG, or WEBP up to 2 MB. A preview appears before saving.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <label className="cursor-pointer rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white hover:bg-blue-700">
+                    Choose Image
+                    <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => handleImageChange(event.target.files?.[0])} />
+                  </label>
+                  {form.image_url && <button type="button" onClick={() => updateField("image_url", "")} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-100">Remove</button>}
+                </div>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 gap-x-5 gap-y-5 md:grid-cols-2">
               <AssetField label="Asset Tag" required error={fieldErrors.asset_tag}>
@@ -1131,13 +1356,6 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
                   className={assetInputClass}
                 />
               </AssetField>
-              <AssetField label="Attachments" className="md:col-span-2">
-                <AssetFileInput
-                  files={form.attachments}
-                  existingNames={form.attachment_names}
-                  onChange={(files) => updateField("attachments", files)}
-                />
-              </AssetField>
             </div>
           </div>
 
@@ -1165,7 +1383,7 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
 }
 
 const assetInputClass =
-  "w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500";
+  "w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15 disabled:bg-slate-100 disabled:text-slate-500";
 
 function AssetField({ label, required = false, className = "", error = "", children }) {
   return (
@@ -1207,34 +1425,6 @@ function AssetSelect({ value, onChange, options, placeholder, ...props }) {
         </option>
       ))}
     </select>
-  );
-}
-
-function AssetFileInput({ files, existingNames = [], onChange }) {
-  const selectedNames = files.map((file) => file.name);
-  const names = selectedNames.length ? selectedNames : existingNames;
-
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4">
-      <input
-        type="file"
-        multiple
-        onChange={(event) => onChange(Array.from(event.target.files || []))}
-        className="block w-full cursor-pointer text-sm text-slate-600 file:mr-4 file:rounded-xl file:border-0 file:bg-blue-600 file:px-4 file:py-2 file:text-sm file:font-black file:text-white hover:file:bg-blue-700"
-      />
-      {names.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {names.map((name) => (
-            <span
-              key={name}
-              className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm"
-            >
-              {name}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 

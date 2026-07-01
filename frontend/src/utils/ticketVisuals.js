@@ -96,3 +96,12 @@ export function getStatusBadgeClass(status) {
   const level = getStatusLevel(status);
   return `${badgeBaseClass} ${statusStyles[level]}`;
 }
+
+export function formatPriority(priority) {
+  const level = getSeverityLevel(priority);
+  if (level === "critical") return "P1 - Critical";
+  if (level === "high") return "P2 - High";
+  if (level === "medium") return "P3 - Medium";
+  if (level === "low") return "P4 - Low";
+  return priority || "P3 - Medium";
+}

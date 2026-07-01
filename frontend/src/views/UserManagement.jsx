@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import InviteManagement from "./InviteManagement";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -41,6 +42,7 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(true);
   const [formUser, setFormUser] = useState(null);
   const [resetUser, setResetUser] = useState(null);
+  const [activeTab, setActiveTab] = useState("users");
 
   const fetchUsers = useCallback(async () => {
     try {

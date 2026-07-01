@@ -29,6 +29,7 @@ import Settings from "./views/Settings";
 import UserManagement from "./views/UserManagement";
 import BranchManagement from "./views/BranchManagement";
 import InviteRegistration from "./views/InviteRegistration";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import ModulePlaceholder from "./views/ModulePlaceholder";
 
 const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
@@ -53,8 +54,8 @@ export default function App() {
       <Route path="/" element={<Navigate to="/login" replace />} />
 
       <Route path="/login" element={<Login />} />
-      <Route path="/invite/:token" element={<InviteRegistration />} />
-      <Route path="/register-invite/:token" element={<InviteRegistration />} />
+      <Route path="/invite/:token" element={<ErrorBoundary><InviteRegistration /></ErrorBoundary>} />
+      <Route path="/register-invite/:token" element={<ErrorBoundary><InviteRegistration /></ErrorBoundary>} />
 
       <Route
         element={

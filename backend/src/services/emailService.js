@@ -1,27 +1,57 @@
 const nodemailer = require("nodemailer");
 
-function getTransporter() {
-  const {
-    SMTP_HOST,
-    SMTP_PORT,
-    SMTP_SECURE,
-    SMTP_USER,
-    SMTP_PASS,
-  } = process.env;
+function cleanEnv(value) {
+  return String(value || "").trim();
+}
 
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+function smtpCredentials() {
+  const user = cleanEnv(process.env.SMTP_USER);
+  const pass = cleanEnv(process.env.SMTP_PASS).replace(/\s+/g, "");
+
+  if (!user || !pass) {
     throw new Error("SMTP configuration is incomplete.");
   }
 
+  return { user, pass };
+}
+
+function getTransporter({ fallback = false } = {}) {
+  const auth = smtpCredentials();
+  const configuredPort = Number.parseInt(cleanEnv(process.env.SMTP_PORT), 10);
+  const configuredSecure = cleanEnv(process.env.SMTP_SECURE).toLowerCase();
+  const port = fallback ? 587 : Number.isInteger(configuredPort) ? configuredPort : 465;
+  const secure = fallback ? false : configuredSecure ? configuredSecure === "true" : port === 465;
+
   return nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT),
-    secure: String(SMTP_SECURE).toLowerCase() === "true",
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS,
-    },
+    host: cleanEnv(process.env.SMTP_HOST) || "smtp.gmail.com",
+    port,
+    secure,
+    requireTLS: fallback || port === 587,
+    auth,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
+}
+
+async function sendMail(message) {
+  try {
+    return await getTransporter().sendMail(message);
+  } catch (primaryError) {
+    const connectionErrorCodes = new Set([
+      "ECONNECTION",
+      "ETIMEDOUT",
+      "ECONNREFUSED",
+      "ECONNRESET",
+    ]);
+
+    if (!connectionErrorCodes.has(primaryError.code)) {
+      throw primaryError;
+    }
+
+    console.warn(`Primary SMTP connection failed (${primaryError.code}); retrying with TLS on port 587.`);
+    return getTransporter({ fallback: true }).sendMail(message);
+  }
 }
 
 function getMissingSmtpConfig() {
@@ -56,41 +86,38 @@ async function sendInvitationEmail({
   branchName,
   inviteLink,
 }) {
-  const transporter = getTransporter();
   const safeName = escapeHtml(fullName || "there");
   const safeRole = escapeHtml(roleName || "Employee");
   const safeBranch = escapeHtml(branchName || "Assigned Branch");
-  const safeInviteLink = escapeHtml(inviteLink);
 
-  return transporter.sendMail({
+  return sendMail({
     from: fromAddress(),
     to,
-    subject: "AstreaBlue ITSM Account Invitation",
+    subject: `Welcome to AstreaBlue ITSM, ${safeName}`,
     text: [
-      `Hello ${fullName || "there"},`,
+      `Hello ${safeName},`,
       "",
-      "You have been invited to create your AstreaBlue ITSM account.",
-      `Role: ${roleName || "Employee"}`,
-      `Branch: ${branchName || "Assigned Branch"}`,
+      `You've been invited to join the AstreaBlue ITSM system as a ${safeRole} at ${safeBranch}.`,
+      "Please complete your registration by visiting the link below:",
       "",
-      `Create your account: ${inviteLink}`,
+      inviteLink,
       "",
-      "This one-time link expires in 48 hours.",
+      "This link will expire in 24 hours.",
+      "If you didn't expect this invitation, please ignore this email.",
     ].join("\n"),
     html: `
       <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
-        <h2 style="margin: 0 0 16px;">AstreaBlue ITSM Account Invitation</h2>
-        <p>Hello ${safeName},</p>
-        <p>You have been invited to create your AstreaBlue ITSM account.</p>
-        <p><strong>Role:</strong> ${safeRole}<br/><strong>Branch:</strong> ${safeBranch}</p>
-        <p>
-          <a href="${safeInviteLink}" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;">
-            Create Account
+        <h2 style="margin: 0 0 16px;">Welcome to AstreaBlue ITSM</h2>
+        <p>Hello <strong>${safeName}</strong>,</p>
+        <p>You've been invited to join the system as a <strong>${safeRole}</strong> at <strong>${safeBranch}</strong>.</p>
+        <div style="margin: 32px 0;">
+          <a href="${inviteLink}" style="background-color: #3b82f6; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500;">
+            Complete Registration
           </a>
-        </p>
-        <p>If the button does not work, open this link:</p>
-        <p style="word-break: break-all;">${safeInviteLink}</p>
-        <p>This link is one-time use and expires in 48 hours.</p>
+        </div>
+        <p style="font-size: 0.9em; color: #64748b;">Or copy and paste this link into your browser:<br/>
+        <a href="${inviteLink}">${inviteLink}</a></p>
+        <p style="font-size: 0.85em; color: #94a3b8; margin-top: 32px;">This link will expire in 24 hours.</p>
       </div>
     `,
   });
@@ -139,13 +166,12 @@ async function sendTicketEmail(ticket, { subject, message }) {
     };
   }
 
-  const transporter = getTransporter();
   const fields = ticketFields(ticket);
   const link = ticketLink(ticket);
   const safeMessage = escapeHtml(message);
   const safeLink = link ? escapeHtml(link) : null;
 
-  await transporter.sendMail({
+  await sendMail({
     from: fromAddress(),
     to,
     subject,
