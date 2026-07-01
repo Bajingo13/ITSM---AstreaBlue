@@ -21,7 +21,8 @@ function smtpConfig() {
   const auth = smtpCredentials();
   const configuredPort = Number.parseInt(cleanEnv(process.env.SMTP_PORT), 10);
   const port = Number.isInteger(configuredPort) ? configuredPort : 587;
-  const secure = cleanEnv(process.env.SMTP_SECURE).toLowerCase() === "true";
+  const secureStr = cleanEnv(process.env.SMTP_SECURE).toLowerCase();
+  const secure = secureStr === "true" ? true : (secureStr === "false" ? false : port === 465);
 
   return {
     host: cleanEnv(process.env.SMTP_HOST),
