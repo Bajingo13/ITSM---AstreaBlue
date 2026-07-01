@@ -24,6 +24,15 @@ body {
   color: var(--astrea-text);
 }
 
+.astrea-no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.astrea-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .astrea-nav-item {
   position: relative;
 }
