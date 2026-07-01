@@ -4,12 +4,14 @@ import {
   Edit3,
   Filter,
   KeyRound,
+  Mail,
   Plus,
   Search,
   UserCog,
   X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { getAuthToken } from "../context/AuthService";
 import InviteManagement from "./InviteManagement";
 
 const API_BASE = `${API_URL}/api/v1`;
@@ -42,7 +44,36 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(true);
   const [formUser, setFormUser] = useState(null);
   const [resetUser, setResetUser] = useState(null);
-  const [activeTab, setActiveTab] = useState("users");
+  const [testEmail, setTestEmail] = useState("");
+  const [emailTestResult, setEmailTestResult] = useState(null);
+  const [emailTestLoading, setEmailTestLoading] = useState(false);
+
+  const sendTestEmail = async (event) => {
+    event.preventDefault();
+    setEmailTestResult(null);
+
+    try {
+      setEmailTestLoading(true);
+      const res = await fetch(`${API_BASE}/email/test`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getAuthToken()}`,
+        },
+        body: JSON.stringify({ to: testEmail.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Test email failed.");
+      setEmailTestResult({
+        success: true,
+        message: `Test email sent using ${data.provider}${data.messageId ? ` (${data.messageId})` : ""}.`,
+      });
+    } catch (error) {
+      setEmailTestResult({ success: false, message: error.message || "Test email failed." });
+    } finally {
+      setEmailTestLoading(false);
+    }
+  };
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -201,6 +232,40 @@ export default function UserManagement() {
         </div>
       </section>
 
+      {isSuperAdmin && (
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="rounded-2xl bg-blue-50 p-3 text-blue-700"><Mail size={22} /></div>
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Email Test</h2>
+              <p className="text-sm text-slate-500">Verify the configured production email provider.</p>
+            </div>
+          </div>
+          <form onSubmit={sendTestEmail} className="flex flex-col gap-3 sm:flex-row">
+            <input
+              type="email"
+              required
+              value={testEmail}
+              onChange={(event) => setTestEmail(event.target.value)}
+              placeholder="recipient@example.com"
+              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={emailTestLoading}
+              className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:opacity-50"
+            >
+              {emailTestLoading ? "Sending..." : "Send Test Email"}
+            </button>
+          </form>
+          {emailTestResult && (
+            <p className={`mt-3 rounded-xl p-3 text-sm font-bold ${emailTestResult.success ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+              {emailTestResult.message}
+            </p>
+          )}
+        </section>
+      )}
+
       <section className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-[1fr_220px_220px]">
         <div className="flex items-center gap-3">
           <Search size={18} className="text-slate-400" />
@@ -341,6 +406,8 @@ export default function UserManagement() {
           </table>
         </div>
       </section>
+
+      {["SuperAdmin", "Admin"].includes(activeRole) && <InviteManagement />}
 
       {formUser && (
         <UserFormModal

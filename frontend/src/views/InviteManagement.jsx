@@ -13,6 +13,7 @@ export default function InviteManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState(null);
+  const [latestInviteLink, setLatestInviteLink] = useState("");
 
   const fetchInvites = useCallback(async () => {
     try {
@@ -56,6 +57,9 @@ export default function InviteManagement() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Failed to ${action} invite`);
       
+      if (action === "resend" && data.invite_link) {
+        setLatestInviteLink(data.invite_link);
+      }
       alert(data.message || data.warning || `Invite ${action}ed successfully.`);
       fetchInvites();
     } catch (err) {
@@ -81,6 +85,21 @@ export default function InviteManagement() {
       {error && (
         <div className="rounded-xl bg-red-50 p-4 text-red-700 font-bold text-sm">
           {error}
+        </div>
+      )}
+
+      {latestInviteLink && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+          <p className="font-black">New invite link</p>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <span className="min-w-0 flex-1 break-all font-semibold">{latestInviteLink}</span>
+            <button
+              onClick={() => copyToClipboard(latestInviteLink)}
+              className="shrink-0 rounded-lg bg-white px-3 py-2 font-bold text-blue-700"
+            >
+              <LinkIcon size={14} className="mr-1 inline" /> Copy Invite Link
+            </button>
+          </div>
         </div>
       )}
 
@@ -158,7 +177,7 @@ export default function InviteManagement() {
                       ) : "-"}
                     </td>
                     <td className="px-4 py-4 text-right space-x-2">
-                      {item.invite_status === "Pending" && (
+                      {["Pending", "Expired"].includes(item.invite_status) && (
                         <>
                           <button
                             onClick={() => copyToClipboard(item.invite_link)}
@@ -174,16 +193,16 @@ export default function InviteManagement() {
                           >
                             <Mail size={14} /> Resend
                           </button>
-                          <button
+                          {item.invite_status === "Pending" && <button
                             onClick={() => handleAction(item, "revoke")}
                             disabled={actionLoading === item.user_id}
                             className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 disabled:opacity-50"
                           >
                             <XCircle size={14} /> Revoke
-                          </button>
+                          </button>}
                         </>
                       )}
-                      {(item.invite_status === "Expired" || item.invite_status === "Revoked") && (
+                      {item.invite_status === "Revoked" && (
                         <button
                           onClick={() => handleAction(item, "reactivate")}
                           disabled={actionLoading === item.user_id}

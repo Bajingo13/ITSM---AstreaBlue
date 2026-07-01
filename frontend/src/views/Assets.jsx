@@ -12,7 +12,6 @@ import {
   Loader2,
   Pencil,
   Plus,
-  Printer,
   Search,
   ShieldCheck,
   Truck,
@@ -520,10 +519,6 @@ export default function Assets() {
           <button className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
             <Download size={18} />
             Export
-          </button>
-          <button className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
-            <Printer size={18} />
-            Print
           </button>
         </div>
       </section>

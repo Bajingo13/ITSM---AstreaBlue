@@ -13,6 +13,7 @@ const { calculateSlaDueDate } = require("./src/services/slaService");
 const authRoutes = require("./src/routes/auth");
 const dashboardRoutes = require("./src/routes/dashboard");
 const inviteRoutes = require("./src/routes/invites");
+const emailRoutes = require("./src/routes/email");
 const attachmentRoutes = require("./src/routes/attachments");
 const ticketRoutes = require("./src/routes/tickets");
 
@@ -411,6 +412,7 @@ const hardwareAssetTablesReady = ensureHardwareAssetTables();
 app.use("/api/auth", authRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/invites", inviteRoutes);
+app.use("/api/v1/email", emailRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
 
@@ -3643,7 +3645,6 @@ app.get("/api/v1/requests", async (req, res) => {
       queryParams
     );
 
-    // [DEBUG] console.log("[requests] user:", user?.role, "branch:", user?.branchId, "rows:", result.rows.length);
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error("Fetch requests error:", err.message);
@@ -3678,7 +3679,6 @@ app.get("/api/v1/requests/popular", async (req, res) => {
       scope.params
     );
 
-    // [DEBUG] console.log("[popular] user:", user?.role, "branch:", user?.branchId, "rows:", result.rows.length);
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error("Fetch popular requests error:", err.message);
@@ -3770,6 +3770,6 @@ app.listen(PORT, () => {
     `[AstreaBlue API] health=http://localhost:${PORT}/api/health dashboard=http://localhost:${PORT}/api/v1/dashboard/summary`
   );
   console.log(
-    "[AstreaBlue API] mounted routes: /api/auth, /api/v1/dashboard, /api/v1/tickets, /api/v1/branches, /api/v1/users, /api/v1/roles, /api/v1/technicians, /api/v1/ticket-categories, /api/v1/invites, /api/v1/knowledge-base, /api/v1/requests"
+    "[AstreaBlue API] mounted routes: /api/auth, /api/v1/dashboard, /api/v1/tickets, /api/v1/branches, /api/v1/users, /api/v1/roles, /api/v1/technicians, /api/v1/ticket-categories, /api/v1/invites, /api/v1/email, /api/v1/knowledge-base, /api/v1/requests"
   );
 });

@@ -10,57 +10,57 @@ function smtpCredentials() {
   const pass = cleanEnv(process.env.SMTP_PASS).replace(/\s+/g, "");
 
   if (!user || !pass) {
-    throw new Error("SMTP configuration is incomplete.");
+    const missing = [!user && "SMTP_USER", !pass && "SMTP_PASS"].filter(Boolean);
+    throw new Error(`SMTP configuration is incomplete. Missing: ${missing.join(", ")}.`);
   }
 
   return { user, pass };
 }
 
-function getTransporter({ fallback = false } = {}) {
+function smtpConfig() {
   const auth = smtpCredentials();
   const configuredPort = Number.parseInt(cleanEnv(process.env.SMTP_PORT), 10);
-  const configuredSecure = cleanEnv(process.env.SMTP_SECURE).toLowerCase();
-  const port = fallback ? 587 : Number.isInteger(configuredPort) ? configuredPort : 465;
-  const secure = fallback ? false : configuredSecure ? configuredSecure === "true" : port === 465;
+  const port = Number.isInteger(configuredPort) ? configuredPort : 587;
+  const secure = cleanEnv(process.env.SMTP_SECURE).toLowerCase() === "true";
 
-  return nodemailer.createTransport({
-    host: cleanEnv(process.env.SMTP_HOST) || "smtp.gmail.com",
+  return {
+    host: cleanEnv(process.env.SMTP_HOST),
     port,
     secure,
-    requireTLS: fallback || port === 587,
+    requireTLS: port === 587,
     auth,
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-  });
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 30000,
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
+  };
+}
+
+function getTransporter() {
+  return nodemailer.createTransport(smtpConfig());
 }
 
 function emailProvider() {
-  return cleanEnv(process.env.EMAIL_PROVIDER).toLowerCase() === "resend"
+  return cleanEnv(process.env.EMAIL_PROVIDER).toLowerCase() === "resend" &&
+    cleanEnv(process.env.RESEND_API_KEY)
     ? "resend"
     : "smtp";
 }
 
 async function sendSmtpMail(message) {
-  try {
-    const info = await getTransporter().sendMail(message);
-    return { success: true, provider: "smtp", messageId: info.messageId || null };
-  } catch (primaryError) {
-    const connectionErrorCodes = new Set([
-      "ECONNECTION",
-      "ETIMEDOUT",
-      "ECONNREFUSED",
-      "ECONNRESET",
-    ]);
-
-    if (!connectionErrorCodes.has(primaryError.code)) {
-      throw primaryError;
-    }
-
-    console.warn(`Primary SMTP connection failed (${primaryError.code}); retrying with TLS on port 587.`);
-    const info = await getTransporter({ fallback: true }).sendMail(message);
-    return { success: true, provider: "smtp", messageId: info.messageId || null };
-  }
+  const config = smtpConfig();
+  const transporter = getTransporter();
+  await transporter.verify();
+  const info = await transporter.sendMail(message);
+  return {
+    success: true,
+    provider: "smtp",
+    host: config.host,
+    port: config.port,
+    messageId: info.messageId || null,
+  };
 }
 
 async function sendResendMail(message) {
@@ -78,9 +78,40 @@ async function sendResendMail(message) {
 }
 
 async function sendMail(message) {
-  return emailProvider() === "resend"
-    ? sendResendMail(message)
-    : sendSmtpMail(message);
+  const provider = emailProvider();
+  const startedAt = Date.now();
+  const config = provider === "smtp" ? smtpConfig() : null;
+  const diagnostics = {
+    provider,
+    host: config?.host || "api.resend.com",
+    port: config?.port || 443,
+    secure: config?.secure ?? true,
+    sender: message.from,
+    receiver: message.to,
+  };
+
+  console.info("Email delivery started", diagnostics);
+  try {
+    const result = provider === "resend"
+      ? await sendResendMail(message)
+      : await sendSmtpMail(message);
+    console.info("Email delivery succeeded", { ...diagnostics, responseTimeMs: Date.now() - startedAt });
+    return result;
+  } catch (error) {
+    console.error("Email delivery failed", {
+      ...diagnostics,
+      responseTimeMs: Date.now() - startedAt,
+      error: exactEmailError(error),
+    });
+    throw error;
+  }
+}
+
+function exactEmailError(error) {
+  return [error?.code, error?.command, error?.response, error?.message]
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .join(": ") || "Unknown email provider error.";
 }
 
 function getMissingSmtpConfig() {
@@ -95,11 +126,13 @@ function getMissingSmtpConfig() {
 
   return [
     "SMTP_HOST",
-    "SMTP_PORT",
     "SMTP_USER",
     "SMTP_PASS",
-    "SMTP_FROM_EMAIL",
-  ].filter((key) => !process.env[key]);
+  ].filter((key) => !cleanEnv(process.env[key])).concat(
+    cleanEnv(process.env.EMAIL_FROM) || cleanEnv(process.env.SMTP_FROM_EMAIL)
+      ? []
+      : ["EMAIL_FROM or SMTP_FROM_EMAIL"]
+  );
 }
 
 function fromAddress() {
@@ -164,13 +197,82 @@ async function sendInvitationEmail({
     return {
       success: false,
       provider: emailProvider(),
-      error: error.message || "Email delivery failed.",
+      error: exactEmailError(error),
     };
   }
 }
 
 async function sendWelcomeEmail() {
   throw new Error("sendWelcomeEmail is not implemented yet.");
+}
+
+async function sendTestEmail(to) {
+  try {
+    const timestamp = new Date().toLocaleString();
+    const provider = emailProvider();
+    const providerName = provider === "smtp" ? "SMTP" : "Resend";
+
+    const textContent = [
+      "Hello,",
+      "",
+      "This is a test email from AstreaBlue ITSM.",
+      "",
+      "Your email provider is configured correctly.",
+      "",
+      "If you received this email, production email delivery is working successfully.",
+      "",
+      `Provider: ${providerName}`,
+      "Time:",
+      timestamp,
+      "",
+      "Regards,",
+      "AstreaBlue ITSM"
+    ].join("\n");
+
+    const htmlContent = `
+      <div style="font-family: 'Inter', Roboto, Arial, sans-serif; color: #0F172A; line-height: 1.6; background-color: #E0F2FE; padding: 40px 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #FFFFFF; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);">
+          <div style="background: linear-gradient(135deg, #2563EB 0%, #38BDF8 100%); padding: 32px 24px; text-align: center;">
+            <h1 style="color: #FFFFFF; margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">AstreaBlue ITSM</h1>
+          </div>
+          <div style="padding: 40px 32px;">
+            <p style="font-size: 16px; margin-top: 0;">Hello,</p>
+            <p style="font-size: 16px;">This is a test email from <strong>AstreaBlue ITSM</strong>.</p>
+            <p style="font-size: 16px;">Your email provider is configured correctly.</p>
+            <p style="font-size: 16px;">If you received this email, production email delivery is working successfully.</p>
+            
+            <div style="background-color: #F8FAFC; border-left: 4px solid #38BDF8; padding: 20px; margin: 32px 0; border-radius: 0 8px 8px 0;">
+              <p style="margin: 0 0 12px 0; font-size: 15px;"><strong>Provider:</strong> ${providerName}</p>
+              <p style="margin: 0 0 4px 0; font-size: 15px;"><strong>Time:</strong></p>
+              <p style="margin: 0; font-size: 15px; color: #475569;">${timestamp}</p>
+            </div>
+            
+            <p style="font-size: 16px; margin-bottom: 0;">Regards,<br><strong style="color: #2563EB;">AstreaBlue ITSM</strong></p>
+          </div>
+          <div style="background-color: #F1F5F9; padding: 20px 32px; text-align: center; border-top: 1px solid #E2E8F0;">
+            <p style="margin: 0; color: #64748B; font-size: 13px;">This is an automated system message. Please do not reply.</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    return await sendMail({
+      from: fromAddress(),
+      to,
+      subject: "AstreaBlue ITSM - Email Test",
+      text: textContent,
+      html: htmlContent,
+    });
+  } catch (error) {
+    const provider = emailProvider();
+    const config = provider === "smtp" ? smtpConfig() : null;
+    return {
+      success: false,
+      provider,
+      ...(config ? { host: config.host, port: config.port } : {}),
+      error: exactEmailError(error),
+    };
+  }
 }
 
 function ticketRecipient(ticket) {
@@ -300,6 +402,7 @@ async function sendTicketCancelledEmail(ticket) {
 
 module.exports = {
   getMissingSmtpConfig,
+  sendTestEmail,
   sendInvitationEmail,
   sendWelcomeEmail,
   sendTicketCreatedEmail,
