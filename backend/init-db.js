@@ -8,7 +8,6 @@ const migrationFiles = [
   "2026-06-25-invite-link-registration-foundation.sql",
   "2026-06-30-hardware-assets-image.sql",
   "2026-07-02-asset-discovery-financial.sql",
-  "2026-07-02-login-lockout.sql",
 ];
 
 const defaultTicketCategories = [
