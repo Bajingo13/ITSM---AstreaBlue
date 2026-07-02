@@ -4,6 +4,7 @@ import { FileText } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority } from "../utils/ticketVisuals";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -75,12 +76,7 @@ export default function AvailableTickets() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
-        <h1 className="text-3xl font-black">Available Tickets</h1>
-        <p className="mt-2 text-blue-100">
-          Open Queue tickets waiting for a technician to accept ownership.
-        </p>
-      </section>
+      <PageHero eyebrow="Technician Queue" title="Available Tickets" subtitle="Review open service work awaiting technician ownership." compact />
 
       <TicketTable
         icon={FileText}

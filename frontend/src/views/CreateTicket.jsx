@@ -8,6 +8,7 @@ import {
   getSeveritySelectClass,
   priorityOptions,
 } from "../utils/ticketVisuals";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 const priorityDotStyle = {
@@ -101,17 +102,7 @@ export default function CreateTicket() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
-        <div className="flex items-center gap-3">
-          <FileText />
-          <div>
-            <h1 className="text-3xl font-black">Create Ticket</h1>
-            <p className="mt-2 text-blue-100">
-              File a new incident or service request to the IT team.
-            </p>
-          </div>
-        </div>
-      </section>
+      <PageHero eyebrow="Employee Service Hub" title="Create Ticket" subtitle="Submit an incident or service request with the details needed for a fast response." compact />
 
       <form onSubmit={handleSubmit} className="space-y-5 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
         {error && (

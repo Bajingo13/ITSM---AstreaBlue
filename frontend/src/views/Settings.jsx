@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { GitBranch, UserCog } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import PageHero from "../components/layout/PageHero";
 
 export default function Settings() {
   const { user, role } = useAuth();
@@ -9,12 +10,7 @@ export default function Settings() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
-        <h1 className="text-3xl font-black">Settings</h1>
-        <p className="mt-2 text-blue-100">
-          Manage AstreaBlue ITSM access controls, users, and branch structure.
-        </p>
-      </section>
+      <PageHero eyebrow="System Administration" title="System Configuration" subtitle="Control platform settings, email diagnostics, security options, and system preferences." />
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <SettingsCard

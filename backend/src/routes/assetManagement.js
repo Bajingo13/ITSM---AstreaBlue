@@ -1,13 +1,12 @@
 const express = require("express");
 const crypto = require("crypto");
-const dns = require("dns").promises;
-const net = require("net");
 const jwt = require("jsonwebtoken");
 const db = require("../../config/db");
 const { calculateStraightLine } = require("../services/assetFinancialService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
+const AGENT_MESSAGE = "Network scanning requires a local discovery agent inside the company network. You can import discoveries or use manual registration for now.";
 
 function requireAssetManager(req, res, next) {
   try {
@@ -19,209 +18,279 @@ function requireAssetManager(req, res, next) {
       return res.status(403).json({ success: false, message: "Asset manager access required.", error: "Asset manager access required." });
     }
     req.assetUser = user;
+    req.assetBranchId = role === "admin" ? user.branchId : null;
     return next();
   } catch (error) {
     return res.status(401).json({ success: false, message: error.message, error: error.message });
   }
 }
 
-function configuredTargets() {
-  const raw = String(process.env.ASSET_DISCOVERY_TARGETS || "").trim();
-  if (!raw) return [];
-  try {
-    const targets = JSON.parse(raw);
-    return (Array.isArray(targets) ? targets : []).map((target) =>
-      typeof target === "string" ? { hostname: target } : target
-    );
-  } catch {
-    return raw.split(",").map((hostname) => ({ hostname: hostname.trim() })).filter((item) => item.hostname);
-  }
+function clean(value) {
+  const text = String(value || "").trim();
+  return text || null;
 }
 
-function probe(host, port, timeoutMs) {
-  return new Promise((resolve) => {
-    const socket = net.createConnection({ host, port });
-    const finish = (online) => {
-      socket.destroy();
-      resolve(online);
-    };
-    socket.setTimeout(timeoutMs);
-    socket.once("connect", () => finish(true));
-    socket.once("timeout", () => finish(false));
-    socket.once("error", () => finish(false));
-  });
-}
-
-async function inspectTarget(target) {
-  const hostname = String(target.hostname || target.ip_address || target.ip || "").trim();
-  if (!hostname) return null;
-  let ipAddress = String(target.ip_address || target.ip || "").trim();
+router.patch("/:id/procurement", requireAssetManager, async (req, res) => {
   try {
-    if (!ipAddress) ipAddress = (await dns.lookup(hostname)).address;
-  } catch {
-    ipAddress = hostname;
-  }
-  const ports = Array.isArray(target.ports) ? target.ports : [443, 80, 22, 3389];
-  const timeoutMs = Math.max(250, Number(process.env.ASSET_DISCOVERY_TIMEOUT_MS) || 1200);
-  let online = false;
-  for (const port of ports) {
-    if (await probe(ipAddress, Number(port), timeoutMs)) {
-      online = true;
-      break;
-    }
-  }
-  return {
-    hostname,
-    ip_address: ipAddress,
-    mac_address: target.mac_address || target.mac || null,
-    manufacturer: target.manufacturer || "Unknown",
-    operating_system: target.operating_system || target.os || "Unknown",
-    device_type: target.device_type || target.type || "Other",
-    model: target.model || "Discovered Device",
-    online,
-  };
-}
-
-router.post("/discovery/scan", requireAssetManager, async (req, res) => {
-  const startedAt = Date.now();
-  const branchId = req.assetUser.role?.toLowerCase() === "admin"
-    ? req.assetUser.branchId
-    : req.body?.branch_id || req.assetUser.branchId || null;
-  let scanId;
-  try {
-    const scan = await db.query(
-      `INSERT INTO asset_discovery_scans (branch_id, initiated_by) VALUES ($1,$2) RETURNING scan_id`,
-      [branchId, req.assetUser.userId || null]
+    const result = await db.query(
+      `UPDATE hardware_assets SET vendor=$1,invoice_number=$2,updated_at=CURRENT_TIMESTAMP
+       WHERE asset_id=$3 AND ($4::int IS NULL OR branch_id=$4) RETURNING *`,
+      [clean(req.body?.vendor), clean(req.body?.invoice_number), req.params.id, req.assetBranchId]
     );
-    scanId = scan.rows[0].scan_id;
-    const devices = (await Promise.all(configuredTargets().map(inspectTarget))).filter(Boolean);
-    let newAssets = 0;
-    let updatedAssets = 0;
-
-    for (const device of devices) {
-      const existing = await db.query(
-        `SELECT asset_id FROM hardware_assets
-         WHERE ($1::text IS NOT NULL AND LOWER(mac_address) = LOWER($1))
-            OR ($2::text IS NOT NULL AND LOWER(hostname) = LOWER($2) AND branch_id IS NOT DISTINCT FROM $4)
-            OR ($3::text IS NOT NULL AND ip_address = $3 AND branch_id IS NOT DISTINCT FROM $4)
-         LIMIT 1`,
-        [device.mac_address, device.hostname, device.ip_address, branchId]
-      );
-      let assetId;
-      if (existing.rows.length) {
-        assetId = existing.rows[0].asset_id;
-        await db.query(
-          `UPDATE hardware_assets SET hostname=$1, ip_address=$2, mac_address=COALESCE($3,mac_address),
-           manufacturer=COALESCE(NULLIF($4,'Unknown'),manufacturer), operating_system=$5, device_type=$6,
-           last_seen=CASE WHEN $7 THEN CURRENT_TIMESTAMP ELSE last_seen END,
-           discovery_status=$8, discovery_source='Network Scan', updated_at=CURRENT_TIMESTAMP WHERE asset_id=$9`,
-          [device.hostname, device.ip_address, device.mac_address, device.manufacturer, device.operating_system,
-            device.device_type, device.online, device.online ? "Online" : "Offline", assetId]
-        );
-        updatedAssets += 1;
-      } else {
-        const fingerprint = device.mac_address || `${device.hostname}-${device.ip_address}`;
-        const suffix = crypto.createHash("sha256").update(fingerprint).digest("hex").slice(0, 12).toUpperCase();
-        const inserted = await db.query(
-          `INSERT INTO hardware_assets
-           (asset_name,asset_type,brand,manufacturer,model,serial_number,asset_tag,branch_id,status,
-            hostname,ip_address,mac_address,operating_system,device_type,last_seen,discovery_status,discovery_source,discovered_at)
-           VALUES ($1,$2,$3,$3,$4,$5,$6,$7,'Active',$8,$9,$10,$11,$12,
-            CASE WHEN $13 THEN CURRENT_TIMESTAMP ELSE NULL END,$14,'Network Scan',CURRENT_TIMESTAMP)
-           RETURNING asset_id`,
-          [device.hostname, device.device_type, device.manufacturer, device.model, `DISC-${suffix}`, `DISC-${suffix}`,
-            branchId, device.hostname, device.ip_address, device.mac_address, device.operating_system,
-            device.device_type, device.online, device.online ? "Online" : "Offline"]
-        );
-        assetId = inserted.rows[0].asset_id;
-        newAssets += 1;
-      }
-      await db.query(
-        `INSERT INTO asset_history (asset_id,event_type,event_data,branch_id,created_by)
-         VALUES ($1,'Network Discovery',$2::jsonb,$3,$4)`,
-        [assetId, JSON.stringify(device), branchId, req.assetUser.userId || null]
-      );
-    }
-
-    const durationMs = Date.now() - startedAt;
-    await db.query(
-      `UPDATE asset_discovery_scans SET completed_at=CURRENT_TIMESTAMP,duration_ms=$1,devices_found=$2,
-       new_assets=$3,updated_assets=$4,status='Completed' WHERE scan_id=$5`,
-      [durationMs, devices.length, newAssets, updatedAssets, scanId]
-    );
-    return res.json({ success: true, message: "Network scan completed.", data: {
-      scan_id: scanId, devices_found: devices.length, new_assets: newAssets,
-      updated_assets: updatedAssets, duration_ms: durationMs, devices,
-    } });
+    if (!result.rows.length) return res.status(404).json({ success:false,message:"Asset not found.",error:"Asset not found." });
+    return res.json({ success:true,message:"Asset procurement details updated.",data:result.rows[0] });
   } catch (error) {
-    if (scanId) await db.query(
-      `UPDATE asset_discovery_scans SET completed_at=CURRENT_TIMESTAMP,duration_ms=$1,status='Failed',error_message=$2 WHERE scan_id=$3`,
-      [Date.now() - startedAt, error.message, scanId]
-    ).catch(() => {});
-    return res.status(500).json({ success: false, message: "Asset discovery failed.", error: error.message });
+    return res.status(500).json({ success:false,message:"Failed to update procurement details.",error:error.message });
   }
 });
 
-router.get("/discovery/history", requireAssetManager, async (req, res) => {
-  const adminBranch = String(req.assetUser.role || "").toLowerCase() === "admin" ? req.assetUser.branchId : null;
+async function getFinancialAssets(user) {
+  const isAdmin = String(user.role || "").toLowerCase() === "admin";
   const result = await db.query(
-    `SELECT * FROM asset_discovery_scans WHERE ($1::int IS NULL OR branch_id=$1) ORDER BY started_at DESC LIMIT 25`,
-    [adminBranch]
+    `SELECT a.asset_id,a.asset_tag,a.asset_name,a.serial_number,a.purchase_date,a.purchase_price,
+            a.vendor,a.supplier,a.branch_id,b.branch_name,
+            COALESCE(f.useful_life_years,5) useful_life_years,
+            COALESCE(f.salvage_value,0) salvage_value,
+            COALESCE(f.depreciation_method,'Straight-Line') depreciation_method,
+            COALESCE(f.depreciation_start_date,a.purchase_date) depreciation_start_date,
+            f.disposal_value,f.notes financial_notes
+       FROM hardware_assets a
+       LEFT JOIN asset_financials f ON f.asset_id=a.asset_id
+       LEFT JOIN branches b ON b.branch_id=a.branch_id
+       ${isAdmin ? "WHERE a.branch_id=$1" : ""}
+       ORDER BY a.asset_tag`,
+    isAdmin ? [user.branchId] : []
   );
-  return res.json({ success: true, message: "Discovery history loaded.", data: result.rows });
-});
+  return result.rows.map((asset) => ({ ...asset, ...calculateStraightLine(asset) }));
+}
 
-router.patch("/:id/financial", requireAssetManager, async (req, res) => {
-  const { vendor, invoice_number, useful_life_years, salvage_value, depreciation_method } = req.body || {};
-  if (depreciation_method && depreciation_method !== "Straight-Line") {
-    return res.status(400).json({ success: false, message: "Only Straight-Line depreciation is currently supported.", error: "Only Straight-Line depreciation is currently supported." });
+router.get("/financial/assets", requireAssetManager, async (req, res) => {
+  try {
+    return res.json({ success: true, message: "Depreciation records loaded.", data: await getFinancialAssets(req.assetUser) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to load depreciation records.", error: error.message });
   }
-  const adminBranch = String(req.assetUser.role || "").toLowerCase() === "admin" ? req.assetUser.branchId : null;
-  const result = await db.query(
-    `UPDATE hardware_assets SET vendor=$1,invoice_number=$2,useful_life_years=$3,salvage_value=$4,
-     depreciation_method=COALESCE($5,'Straight-Line'),updated_at=CURRENT_TIMESTAMP
-     WHERE asset_id=$6 AND ($7::int IS NULL OR branch_id=$7) RETURNING *`,
-    [vendor || null, invoice_number || null, useful_life_years || 5, salvage_value || 0,
-      depreciation_method || "Straight-Line", req.params.id, adminBranch]
-  );
-  if (!result.rows.length) return res.status(404).json({ success: false, message: "Asset not found.", error: "Asset not found." });
-  const data = { ...result.rows[0], ...calculateStraightLine(result.rows[0]) };
-  return res.json({ success: true, message: "Asset financial details updated.", data });
 });
 
 router.get("/financial/summary", requireAssetManager, async (req, res) => {
-  const isAdmin = String(req.assetUser.role || "").toLowerCase() === "admin";
-  const result = await db.query(
-    `SELECT * FROM hardware_assets ${isAdmin ? "WHERE branch_id = $1" : ""}`,
-    isAdmin ? [req.assetUser.branchId] : []
-  );
-  const assets = result.rows.map((asset) => ({ ...asset, ...calculateStraightLine(asset) }));
-  const sum = (field) => assets.reduce((total, asset) => total + Number(asset[field] || 0), 0);
-  const now = Date.now();
-  const inNinetyDays = now + 90 * 86400000;
-  const data = {
-    total_asset_value: sum("purchase_cost"),
-    current_asset_value: sum("current_book_value"),
-    accumulated_depreciation: sum("accumulated_depreciation"),
-    assets_near_warranty_expiration: assets.filter((asset) => {
-      const date = asset.warranty_expiration ? new Date(asset.warranty_expiration).getTime() : 0;
-      return date >= now && date <= inNinetyDays;
-    }).length,
-    assets_near_end_of_life: assets.filter((asset) => asset.remaining_useful_life_years <= 0.25).length,
-  };
-  return res.json({ success: true, message: "Asset financial summary loaded.", data });
+  try {
+    const assets = await getFinancialAssets(req.assetUser);
+    const sum = (field) => assets.reduce((total, asset) => total + Number(asset[field] || 0), 0);
+    return res.json({ success: true, message: "Depreciation summary loaded.", data: {
+      total_asset_value: sum("purchase_cost"),
+      current_book_value: sum("current_book_value"),
+      accumulated_depreciation: sum("accumulated_depreciation"),
+      monthly_depreciation_expense: sum("monthly_depreciation"),
+      fully_depreciated_assets: assets.filter((asset) => asset.fully_depreciated).length,
+      assets_near_end_of_life: assets.filter((asset) => asset.remaining_useful_life_months > 0 && asset.remaining_useful_life_months <= 6).length,
+    } });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to load depreciation summary.", error: error.message });
+  }
 });
 
-router.get("/financial/reports/:type", requireAssetManager, async (req, res) => {
-  const allowed = new Set(["asset-register", "depreciation", "financial-summary", "budget-forecast", "tco"]);
-  if (!allowed.has(req.params.type)) return res.status(404).json({ success: false, message: "Unknown report type.", error: "Unknown report type." });
-  const isAdmin = String(req.assetUser.role || "").toLowerCase() === "admin";
+router.patch("/:id/financial", requireAssetManager, async (req, res) => {
+  const { useful_life_years, salvage_value, depreciation_method, depreciation_start_date, disposal_value, notes } = req.body || {};
+  if (!Number.isFinite(Number(useful_life_years)) || Number(useful_life_years) <= 0) {
+    return res.status(400).json({ success: false, message: "Useful life must be greater than zero.", error: "Invalid useful life." });
+  }
+  if (!Number.isFinite(Number(salvage_value)) || Number(salvage_value) < 0) {
+    return res.status(400).json({ success: false, message: "Salvage value cannot be negative.", error: "Invalid salvage value." });
+  }
+  if (depreciation_method && depreciation_method !== "Straight-Line") {
+    return res.status(400).json({ success: false, message: "Only Straight-Line depreciation is currently supported.", error: "Unsupported depreciation method." });
+  }
+  try {
+    const asset = await db.query(
+      `SELECT asset_id FROM hardware_assets WHERE asset_id=$1 AND ($2::int IS NULL OR branch_id=$2)`,
+      [req.params.id, req.assetBranchId]
+    );
+    if (!asset.rows.length) return res.status(404).json({ success: false, message: "Asset not found.", error: "Asset not found." });
+    await db.query(
+      `INSERT INTO asset_financials
+       (asset_id,useful_life_years,salvage_value,depreciation_method,depreciation_start_date,disposal_value,notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (asset_id) DO UPDATE SET useful_life_years=EXCLUDED.useful_life_years,
+       salvage_value=EXCLUDED.salvage_value,depreciation_method=EXCLUDED.depreciation_method,
+       depreciation_start_date=EXCLUDED.depreciation_start_date,disposal_value=EXCLUDED.disposal_value,
+       notes=EXCLUDED.notes,updated_at=CURRENT_TIMESTAMP`,
+      [req.params.id, Number(useful_life_years) || 5, Number(salvage_value) || 0,
+        depreciation_method || "Straight-Line", depreciation_start_date || null,
+        disposal_value === "" || disposal_value == null ? null : Number(disposal_value), notes || null]
+    );
+    const data = (await getFinancialAssets(req.assetUser)).find((row) => Number(row.asset_id) === Number(req.params.id));
+    return res.json({ success: true, message: "Finance settings updated.", data });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to update finance settings.", error: error.message });
+  }
+});
+
+router.get("/financial/reports/depreciation", requireAssetManager, async (req, res) => {
+  try {
+    return res.json({ success: true, message: "Depreciation report generated.", data: {
+      generated_at: new Date().toISOString(), assets: await getFinancialAssets(req.assetUser),
+    } });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to generate depreciation report.", error: error.message });
+  }
+});
+
+async function findAssetMatch(record, branchId) {
   const result = await db.query(
-    `SELECT * FROM hardware_assets ${isAdmin ? "WHERE branch_id = $1" : ""} ORDER BY asset_tag`,
-    isAdmin ? [req.assetUser.branchId] : []
+    `SELECT asset_id FROM hardware_assets WHERE (($1::text IS NOT NULL AND LOWER(serial_number)=LOWER($1))
+      OR ($2::text IS NOT NULL AND LOWER(mac_address)=LOWER($2))
+      OR ($3::text IS NOT NULL AND LOWER(asset_tag)=LOWER($3)))
+      AND ($4::int IS NULL OR branch_id=$4)
+      ORDER BY CASE WHEN branch_id IS NOT DISTINCT FROM $4 THEN 0 ELSE 1 END LIMIT 2`,
+    [clean(record.serial_number), clean(record.mac_address), clean(record.asset_tag), branchId]
   );
-  const assets = result.rows.map((asset) => ({ ...asset, ...calculateStraightLine(asset) }));
-  return res.json({ success: true, message: "Financial report generated.", data: { type: req.params.type, generated_at: new Date().toISOString(), assets } });
+  return { assetId: result.rows[0]?.asset_id || null, duplicate: result.rows.length > 1 };
+}
+
+async function registerDiscovery(record, user, source = "Manual") {
+  if (!clean(record.hostname)) throw new Error("Hostname is required.");
+  const branchId = String(user.role || "").toLowerCase() === "admin" ? user.branchId : record.branch_id || user.branchId || null;
+  const match = await findAssetMatch(record, branchId);
+  const status = clean(record.status) || "Online";
+  const reconciliation = status.toLowerCase() === "offline" ? "Offline" : match.duplicate ? "Duplicate" : match.assetId ? "Matched" : "Unmanaged";
+  const existing = await db.query(
+    `SELECT discovery_id FROM asset_discoveries WHERE
+      (($1::text IS NOT NULL AND LOWER(mac_address)=LOWER($1)) OR
+      ($2::text IS NOT NULL AND LOWER(serial_number)=LOWER($2)) OR
+      ($3::text IS NOT NULL AND LOWER(asset_tag)=LOWER($3)))
+      AND ($4::int IS NULL OR branch_id=$4) LIMIT 1`,
+    [clean(record.mac_address), clean(record.serial_number), clean(record.asset_tag), branchId]
+  );
+  const values = [clean(record.hostname), clean(record.ip_address), clean(record.mac_address), clean(record.serial_number),
+    clean(record.asset_tag), clean(record.os_name || record.operating_system), clean(record.manufacturer),
+    clean(record.device_type), source, status, reconciliation, match.assetId, branchId,
+    JSON.stringify(record), user.userId || null];
+  if (existing.rows.length) {
+    const result = await db.query(
+      `UPDATE asset_discoveries SET hostname=$1,ip_address=$2,mac_address=COALESCE($3,mac_address),
+       serial_number=COALESCE($4,serial_number),asset_tag=COALESCE($5,asset_tag),os_name=$6,manufacturer=$7,
+       device_type=$8,source=$9,last_seen=CURRENT_TIMESTAMP,status=$10,reconciliation_status=$11,
+       matched_asset_id=$12,branch_id=$13,raw_data=$14::jsonb,updated_at=CURRENT_TIMESTAMP
+       WHERE discovery_id=$16 RETURNING *`,
+      [...values, existing.rows[0].discovery_id]
+    );
+    return { record: result.rows[0], created: false };
+  }
+  const result = await db.query(
+    `INSERT INTO asset_discoveries
+     (hostname,ip_address,mac_address,serial_number,asset_tag,os_name,manufacturer,device_type,source,
+      status,reconciliation_status,matched_asset_id,branch_id,raw_data,created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15) RETURNING *`, values
+  );
+  return { record: result.rows[0], created: true };
+}
+
+router.get("/discovery", requireAssetManager, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT d.*,a.asset_name,a.asset_tag matched_asset_tag,b.branch_name FROM asset_discoveries d
+       LEFT JOIN hardware_assets a ON a.asset_id=d.matched_asset_id LEFT JOIN branches b ON b.branch_id=d.branch_id
+       WHERE ($1::int IS NULL OR d.branch_id=$1) ORDER BY d.last_seen DESC`, [req.assetBranchId]
+    );
+    return res.json({ success: true, message: "Discovery registry loaded.", data: result.rows });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to load discovery registry.", error: error.message });
+  }
+});
+
+router.post("/discovery", requireAssetManager, async (req, res) => {
+  try {
+    const result = await registerDiscovery(req.body || {}, req.assetUser, "Manual");
+    return res.status(result.created ? 201 : 200).json({ success: true, message: result.created ? "Discovery registered." : "Discovery updated.", data: result.record });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message, error: error.message });
+  }
+});
+
+router.post("/discovery/import", requireAssetManager, async (req, res) => {
+  const records = Array.isArray(req.body?.records) ? req.body.records : [];
+  if (!records.length) return res.status(400).json({ success: false, message: "No discovery records supplied.", error: "No discovery records supplied." });
+  try {
+    let created = 0;
+    let updated = 0;
+    for (const record of records) {
+      const result = await registerDiscovery(record, req.assetUser, "CSV Import");
+      result.created ? created++ : updated++;
+    }
+    await db.query(
+      `INSERT INTO asset_discovery_scans (completed_at,duration_ms,devices_found,new_assets,updated_assets,status,branch_id,initiated_by,source)
+       VALUES (CURRENT_TIMESTAMP,0,$1,$2,$3,'Completed',$4,$5,'CSV Import')`,
+      [records.length, created, updated, req.assetBranchId || req.body.branch_id || null, req.assetUser.userId || null]
+    );
+    return res.json({ success: true, message: "Discovery import completed.", data: { records: records.length, created, updated } });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: "Discovery import failed.", error: error.message });
+  }
+});
+
+router.post("/discovery/agent", requireAssetManager, async (req, res) => {
+  req.body = { records: Array.isArray(req.body?.records) ? req.body.records : [] };
+  const records = req.body.records;
+  if (!records.length) return res.status(400).json({ success: false, message: "No agent discoveries supplied.", error: "No agent discoveries supplied." });
+  try {
+    for (const record of records) await registerDiscovery(record, req.assetUser, "Discovery Agent");
+    return res.json({ success: true, message: "Agent discoveries accepted.", data: { records: records.length } });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: "Agent discovery ingestion failed.", error: error.message });
+  }
+});
+
+router.post("/discovery/scan", requireAssetManager, async (req, res) => {
+  await db.query(
+    `INSERT INTO asset_discovery_scans (completed_at,duration_ms,status,branch_id,initiated_by,error_message,source)
+     VALUES (CURRENT_TIMESTAMP,0,'Agent Required',$1,$2,$3,'Network Scan')`,
+    [req.assetBranchId || req.body?.branch_id || null, req.assetUser.userId || null, AGENT_MESSAGE]
+  ).catch(() => {});
+  return res.status(409).json({ success: false, message: AGENT_MESSAGE, error: AGENT_MESSAGE, data: { mode: "agent-required" } });
+});
+
+router.get("/discovery/history", requireAssetManager, async (req, res) => {
+  const result = await db.query(`SELECT * FROM asset_discovery_scans WHERE ($1::int IS NULL OR branch_id=$1) ORDER BY started_at DESC LIMIT 25`, [req.assetBranchId]);
+  return res.json({ success: true, message: "Discovery history loaded.", data: result.rows });
+});
+
+router.patch("/discovery/:id/link", requireAssetManager, async (req, res) => {
+  try {
+    const asset = await db.query(`SELECT asset_id FROM hardware_assets WHERE asset_id=$1 AND ($2::int IS NULL OR branch_id=$2)`, [req.body?.asset_id, req.assetBranchId]);
+    if (!asset.rows.length) return res.status(404).json({ success: false, message: "Hardware asset not found.", error: "Hardware asset not found." });
+    const result = await db.query(
+      `UPDATE asset_discoveries SET matched_asset_id=$1,reconciliation_status='Matched',updated_at=CURRENT_TIMESTAMP
+       WHERE discovery_id=$2 AND ($3::int IS NULL OR branch_id=$3) RETURNING *`,
+      [req.body.asset_id, req.params.id, req.assetBranchId]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, message: "Discovery record not found.", error: "Discovery record not found." });
+    return res.json({ success: true, message: "Discovery linked to hardware asset.", data: result.rows[0] });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to link discovery.", error: error.message });
+  }
+});
+
+router.post("/discovery/:id/create-asset", requireAssetManager, async (req, res) => {
+  try {
+    const found = await db.query(`SELECT * FROM asset_discoveries WHERE discovery_id=$1 AND ($2::int IS NULL OR branch_id=$2)`, [req.params.id, req.assetBranchId]);
+    if (!found.rows.length) return res.status(404).json({ success: false, message: "Discovery record not found.", error: "Discovery record not found." });
+    const discovery = found.rows[0];
+    if (discovery.matched_asset_id) return res.status(409).json({ success: false, message: "Discovery is already linked.", error: "Discovery is already linked." });
+    const suffix = crypto.createHash("sha256").update(`${discovery.discovery_id}-${discovery.hostname}`).digest("hex").slice(0, 10).toUpperCase();
+    const assetTag = discovery.asset_tag || `DISC-${suffix}`;
+    const serial = discovery.serial_number || discovery.mac_address || `DISC-SN-${suffix}`;
+    const branchId = req.assetBranchId || discovery.branch_id || req.body?.branch_id;
+    if (!branchId) return res.status(400).json({ success: false, message: "A branch is required before creating an asset.", error: "Branch is required." });
+    const inserted = await db.query(
+      `INSERT INTO hardware_assets (asset_name,asset_type,brand,manufacturer,model,serial_number,asset_tag,branch_id,status)
+       VALUES ($1,$2,$3,$3,$4,$5,$6,$7,'Active') RETURNING *`,
+      [discovery.hostname, discovery.device_type || "Other", discovery.manufacturer || "Unknown", "Discovered Device", serial, assetTag, branchId]
+    );
+    await db.query(`UPDATE asset_discoveries SET matched_asset_id=$1,reconciliation_status='Matched',updated_at=CURRENT_TIMESTAMP WHERE discovery_id=$2`, [inserted.rows[0].asset_id, discovery.discovery_id]);
+    return res.status(201).json({ success: true, message: "Hardware asset created from discovery.", data: inserted.rows[0] });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to create hardware asset from discovery.", error: error.message });
+  }
 });
 
 module.exports = router;

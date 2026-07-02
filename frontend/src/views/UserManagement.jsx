@@ -13,6 +13,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { getAuthToken } from "../context/AuthService";
 import InviteManagement from "./InviteManagement";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -197,15 +198,7 @@ export default function UserManagement() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center">
-        <div>
-          <h1 className="text-3xl font-black">User Management</h1>
-          <p className="mt-2 text-blue-100">
-            Create accounts, assign branch access, reset passwords, and manage status.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
+      <PageHero eyebrow="System Administration" title="User Management" subtitle="Manage accounts, roles, branch access, and onboarding invitations." actions={<>
           {["SuperAdmin", "Admin"].includes(activeRole) && (
             <button
               onClick={() =>
@@ -229,8 +222,7 @@ export default function UserManagement() {
             <Plus size={18} />
             Add User
           </button>
-        </div>
-      </section>
+        </>} />
 
       {isSuperAdmin && (
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">

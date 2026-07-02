@@ -1,12 +1,8 @@
+import PageHero from "../components/layout/PageHero";
 export default function ModulePlaceholder({ title, description }) {
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
-        <h1 className="text-3xl font-black">{title}</h1>
-        <p className="mt-2 text-blue-100">
-          {description || "This AstreaBlue ITSM module is ready for implementation."}
-        </p>
-      </section>
+      <PageHero eyebrow="AstreaBlue ITSM" title={title} subtitle={description || "Access the connected controls and operational workspace for this module."} compact />
 
       <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
         <h2 className="text-xl font-black text-slate-900">Module Workspace</h2>

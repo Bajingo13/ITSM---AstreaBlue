@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle, Clock, Timer } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -63,12 +64,7 @@ export default function SLAMonitor() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
-        <h1 className="text-3xl font-black">SLA Monitor</h1>
-        <p className="mt-2 text-blue-100">
-          Track SLA due dates, breached tickets, and response and resolution timing.
-        </p>
-      </section>
+      <PageHero eyebrow="Service Level Management" title="SLA Management" subtitle="Track commitments, approaching deadlines, breaches, and response performance." />
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card icon={Timer} label="Tracked Tickets" value={tracked.length} color="blue" />

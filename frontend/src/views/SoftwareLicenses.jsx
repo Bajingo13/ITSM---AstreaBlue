@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { API_URL } from "../config/api";
 import { useAuth } from "../context/AuthContext";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -657,18 +658,10 @@ export default function SoftwareLicenses() {
   return (
     <div className="space-y-5">
       {/* Hero Banner */}
-      <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-black">Software License Management</h1>
-          <p className="mt-2 max-w-2xl text-slate-200">
-            Track software licenses, compliance status, renewal dates, usage, and branch assignments.
-          </p>
-          <p className="mt-4 text-sm text-blue-100">
+      <PageHero eyebrow="Asset Management" title="Software License Management" subtitle="Track entitlements, compliance, renewals, utilization, and branch assignments." actions={<>
+          <span className="rounded-xl bg-white/10 px-4 py-3 text-sm font-bold">
             {totalLicensesCount} total licenses · {activeCount} active · {expiringSoonCount} expiring soon · {expiredCount} expired
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
+          </span>
           <button
             type="button"
             onClick={() => {
@@ -696,8 +689,7 @@ export default function SoftwareLicenses() {
             <Printer size={18} />
             Print
           </button>
-        </div>
-      </section>
+        </>} />
 
       {/* Error banner */}
       {error && (

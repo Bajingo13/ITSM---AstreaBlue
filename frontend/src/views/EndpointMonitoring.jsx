@@ -1,7 +1,8 @@
+import PageHero from "../components/layout/PageHero";
 export default function EndpointMonitoring() {
   return (
     <div>
-      <h1 className="text-3xl font-bold">Endpoint Monitoring</h1>
+      <PageHero eyebrow="System Administration" title="Endpoint Monitoring" subtitle="Monitor device health, security signals, connectivity, and operational availability." />
     </div>
   );
 }

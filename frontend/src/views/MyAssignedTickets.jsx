@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -58,12 +59,7 @@ export default function MyAssignedTickets() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
-        <h1 className="text-3xl font-black">My Assigned Tickets</h1>
-        <p className="mt-2 text-blue-100">
-          Active tickets assigned to your technician account.
-        </p>
-      </section>
+      <PageHero eyebrow="Technician Workspace" title="My Assigned Tickets" subtitle="Manage active service work assigned to your technician account." compact />
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="overflow-x-auto rounded-2xl border border-slate-200">

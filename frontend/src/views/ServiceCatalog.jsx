@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import apiService from "../services/api";
+import PageHero from "../components/layout/PageHero";
 
 /* ─── Category config ──────────────────────────────────────────────────────── */
 const CATEGORIES = [
@@ -376,26 +377,12 @@ export default function ServiceCatalog() {
   return (
     <div className="space-y-6">
       {/* ── Page Header ── */}
-      <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-black">
-              {branchLabel ? "Branch Service Request Management" : "Service Request Management"}
-            </h1>
-            <p className="mt-2 text-sm text-blue-200">
-              {branchLabel
-                ? `Showing requests for ${branchLabel} branch.`
-                : "Showing all service requests across all branches."}
-            </p>
-          </div>
-          {roleName && (
+      <PageHero eyebrow="Service Operations" title={branchLabel ? "Branch Service Request Management" : "Service Request Management"} subtitle={branchLabel ? `Review and manage requests for the ${branchLabel} branch.` : "Coordinate service requests across branches, categories, and operational teams."} actions={roleName && (
             <span className="inline-flex self-start items-center gap-2 rounded-2xl bg-white/10 px-4 py-2 text-sm font-bold text-white sm:self-auto">
               <Lock size={14} />
               {roleName}
             </span>
-          )}
-        </div>
-      </section>
+          )} />
 
       {/* ── Service Category Cards ── */}
       <section className="rounded-3xl bg-white p-7 shadow-sm border border-slate-200">

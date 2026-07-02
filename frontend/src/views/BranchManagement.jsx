@@ -1,6 +1,7 @@
 import { API_URL } from "../config/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Edit3, GitBranch, Plus, Search, X } from "lucide-react";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -81,14 +82,7 @@ export default function BranchManagement() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center">
-        <div>
-          <h1 className="text-3xl font-black">Branch Management</h1>
-          <p className="mt-2 text-blue-100">
-            Manage company branches, branch status, and assigned branch admins.
-          </p>
-        </div>
-
+      <PageHero eyebrow="Organization Structure" title="Branch Management" subtitle="Manage branch locations, operational status, and assigned branch administrators." actions={
         <button
           onClick={() => setFormBranch({ ...emptyForm })}
           className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
@@ -96,7 +90,7 @@ export default function BranchManagement() {
           <Plus size={18} />
           Add Branch
         </button>
-      </section>
+      } />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center gap-3">

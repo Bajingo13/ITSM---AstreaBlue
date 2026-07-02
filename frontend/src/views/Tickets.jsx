@@ -26,6 +26,7 @@ import {
   getSeverityLevel,
 } from "../utils/ticketVisuals";
 import { API_URL } from "../config/api";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -1286,15 +1287,7 @@ export default function Tickets() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center">
-        <div>
-          <h1 className="text-3xl font-black">Ticket Management</h1>
-          <p className="mt-2 text-blue-100">
-            Track, prioritize, and resolve IT incidents and service requests.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
+      <PageHero eyebrow="Service Desk" title="Ticket Management" subtitle="Track, prioritize, and resolve incidents and service requests across your branches." actions={<>
           <button
             onClick={() => fetchTickets().catch(() => {})}
             disabled={loading}
@@ -1310,8 +1303,7 @@ export default function Tickets() {
             <Plus size={18} />
             New Ticket
           </button>
-        </div>
-      </section>
+        </>} />
 
       {pageMessage && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-700 shadow-sm">

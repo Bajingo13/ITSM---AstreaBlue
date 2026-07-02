@@ -1,7 +1,8 @@
+import PageHero from "../components/layout/PageHero";
 export default function ProblemManagement() {
   return (
     <div>
-      <h1 className="text-3xl font-bold">Problem Management</h1>
+      <PageHero eyebrow="Problem Management" title="Problem Investigation" subtitle="Identify recurring incidents, document root causes, and manage permanent resolutions." />
     </div>
   );
 }

@@ -5,10 +5,12 @@
 :root {
   --astrea-bg: #f4f8ff;
   --astrea-surface: #ffffff;
+  --astrea-surface-elevated: #ffffff;
   --astrea-surface-soft: #f6faff;
   --astrea-border: #e3ebf7;
   --astrea-border-soft: #e6eef8;
   --astrea-primary: #2f6dff;
+  --astrea-cyan-accent: #38bdf8;
   --astrea-primary-hover: #235ce8;
   --astrea-purple: #7c3cff;
   --astrea-cyan: #55bfff;
@@ -17,6 +19,14 @@
   --astrea-text: #07172a;
   --astrea-secondary: #50627a;
   --astrea-shadow: 0 12px 30px rgba(20, 60, 120, 0.08);
+  --astrea-card-shadow: 0 12px 30px rgba(20, 60, 120, 0.08);
+  --astrea-hero-shadow: 0 24px 60px rgba(15, 74, 160, 0.24);
+  --astrea-hero-gradient: linear-gradient(135deg, #071b3a 0%, #0b4fa8 55%, #0ea5e9 100%);
+  --astrea-input-bg: #ffffff;
+  --astrea-sidebar-bg: #ffffff;
+  --astrea-topbar-bg: rgba(255, 255, 255, 0.97);
+  --astrea-warning: #f59e0b;
+  --astrea-danger: #ef4444;
 }
 
 body {
@@ -64,6 +74,10 @@ body {
 
 .astrea-topnav {
   backdrop-filter: blur(18px);
+}
+
+.astrea-page-hero {
+  background: var(--astrea-hero-gradient);
 }
 
 .astrea-login-panel {
@@ -234,12 +248,101 @@ input,
 select,
 textarea {
   border-color: #d8e5f6 !important;
+  border-radius: 0.75rem;
+  background-color: var(--astrea-input-bg);
   color: #0f172a;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]),
+select {
+  width: 100%;
+  min-height: 2.75rem;
+}
+
+textarea {
+  width: 100%;
+  min-height: 6rem;
+  resize: vertical;
 }
 
 input::placeholder,
 textarea::placeholder {
   color: #94a3b8;
+}
+
+/* Shared dialog foundation: every full-screen popup uses the Manual Discovery language. */
+.fixed.inset-0 {
+  align-items: center !important;
+  justify-content: center !important;
+  padding: clamp(1rem, 3vw, 2rem) !important;
+  background-color: rgba(2, 12, 27, 0.62) !important;
+  backdrop-filter: blur(6px);
+  overflow-y: auto;
+  animation: astrea-dialog-backdrop-in 160ms ease-out both;
+}
+
+.fixed.inset-0 > :is(div, form, section) {
+  width: 100%;
+  max-height: calc(100vh - 2rem);
+  margin: auto;
+  overflow-y: auto;
+  border: 1px solid #dce7f6 !important;
+  border-radius: 1.5rem !important;
+  background: var(--astrea-surface) !important;
+  box-shadow: 0 30px 90px rgba(8, 31, 68, 0.3) !important;
+  animation: astrea-dialog-panel-in 190ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.fixed.inset-0 form label {
+  display: block;
+  color: var(--astrea-text);
+  line-height: 1.35;
+}
+
+.fixed.inset-0 form button[type="submit"] {
+  min-height: 2.875rem;
+  border-radius: 0.75rem;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.fixed.inset-0 form button[type="submit"]:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(47, 109, 255, 0.24);
+}
+
+.fixed.inset-0 > :is(div, form, section) button:has(> svg:only-child):not([type="submit"]) {
+  display: inline-flex;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--astrea-secondary);
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.fixed.inset-0 > :is(div, form, section) button:has(> svg:only-child):not([type="submit"]):hover {
+  background: var(--astrea-surface-soft);
+  color: var(--astrea-text);
+  transform: translateY(-1px);
+}
+
+@keyframes astrea-dialog-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes astrea-dialog-panel-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fixed.inset-0,
+  .fixed.inset-0 > :is(div, form, section) {
+    animation: none;
+  }
 }
 
 [class*="rounded-3xl"][class*="bg-white"][class*="shadow-2xl"],
@@ -260,4 +363,102 @@ textarea::placeholder {
 label[class*="border-dashed"] {
   border-color: #bfd7ff !important;
   background: #f7faff !important;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --astrea-bg: #07111f;
+  --astrea-surface: #0d1b2e;
+  --astrea-surface-elevated: #13263e;
+  --astrea-surface-soft: #12243a;
+  --astrea-border: #233852;
+  --astrea-border-soft: #1c3048;
+  --astrea-text: #e7f1ff;
+  --astrea-secondary: #9eb1c9;
+  --astrea-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  --astrea-card-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  --astrea-hero-shadow: 0 24px 64px rgba(0, 0, 0, 0.44);
+  --astrea-hero-gradient: linear-gradient(135deg, #061426 0%, #0b3569 56%, #087aa5 100%);
+  --astrea-input-bg: #102138;
+  --astrea-sidebar-bg: #0a182a;
+  --astrea-topbar-bg: rgba(10, 24, 42, 0.97);
+}
+
+html[data-theme="dark"] body,
+html[data-theme="dark"] .astrea-app-shell {
+  background: var(--astrea-bg) !important;
+  color: var(--astrea-text);
+}
+
+html[data-theme="dark"] .astrea-topnav,
+html[data-theme="dark"] .astrea-sidebar {
+  background: rgba(10, 24, 42, 0.97) !important;
+  border-color: #233852 !important;
+}
+
+html[data-theme="dark"] [class*="bg-white"] {
+  background-color: var(--astrea-surface) !important;
+}
+
+html[data-theme="dark"] [class*="bg-slate-50"],
+html[data-theme="dark"] [class*="bg-blue-50"] {
+  background-color: var(--astrea-surface-soft) !important;
+}
+
+html[data-theme="dark"] [class*="text-slate-900"],
+html[data-theme="dark"] [class*="text-slate-950"],
+html[data-theme="dark"] [class*="text-slate-800"],
+html[data-theme="dark"] [class*="text-slate-700"] {
+  color: #e7f1ff !important;
+}
+
+html[data-theme="dark"] [class*="text-slate-600"],
+html[data-theme="dark"] [class*="text-slate-500"],
+html[data-theme="dark"] [class*="text-slate-400"] {
+  color: #9eb1c9 !important;
+}
+
+html[data-theme="dark"] [class*="border-slate-100"],
+html[data-theme="dark"] [class*="border-slate-200"],
+html[data-theme="dark"] [class*="border-[#DCE7F6]"] {
+  border-color: #233852 !important;
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  background-color: #102138 !important;
+  border-color: #2b4565 !important;
+  color: #e7f1ff !important;
+}
+
+html[data-theme="dark"] .fixed.inset-0 {
+  background-color: rgba(1, 8, 18, 0.76) !important;
+}
+
+html[data-theme="dark"] .fixed.inset-0 > :is(div, form, section) {
+  background: #0d1b2e !important;
+  border-color: #2b4565 !important;
+  box-shadow: 0 32px 96px rgba(0, 0, 0, 0.58) !important;
+}
+
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: #7087a3;
+}
+
+html[data-theme="dark"] .astrea-dashboard-hero {
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42) !important;
+}
+
+html[data-theme="dark"] [class*="from-slate-950"][class*="via-blue-950"][class*="to-blue-800"] {
+  background: var(--astrea-hero-gradient) !important;
+  border-color: rgba(125, 211, 252, 0.18) !important;
+  box-shadow: var(--astrea-hero-shadow) !important;
+}
+
+html[data-theme="dark"] table,
+html[data-theme="dark"] [role="dialog"],
+html[data-theme="dark"] .astrea-notification-panel {
+  color: var(--astrea-text);
 }

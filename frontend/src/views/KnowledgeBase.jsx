@@ -14,6 +14,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { authHeaders } from "../services/authHeaders";
 import { buildTicketQuery } from "../utils/ticketAccess";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -156,15 +157,7 @@ export default function KnowledgeBase() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center">
-        <div>
-          <h1 className="text-3xl font-black">Knowledge Base</h1>
-          <p className="mt-2 text-blue-100">
-            Search known issues, fixes, root causes, and reusable resolutions.
-          </p>
-        </div>
-
-        {canManage && (
+      <PageHero eyebrow="Knowledge Management" title="Knowledge Base" subtitle="Search proven fixes, known issues, root causes, and reusable service resolutions." actions={canManage && (
           <button
             onClick={() => setArticleForm({ ...emptyArticle })}
             className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
@@ -172,8 +165,7 @@ export default function KnowledgeBase() {
             <Plus size={18} />
             Create Article
           </button>
-        )}
-      </section>
+        )} />
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_240px]">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

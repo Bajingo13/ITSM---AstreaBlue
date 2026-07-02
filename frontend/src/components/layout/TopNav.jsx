@@ -3,22 +3,22 @@ import { useNavigate } from "react-router-dom";
 import {
   Search,
   Bell,
-  Bot,
   ChevronDown,
   LogOut,
   Settings,
   X,
   CheckCircle,
   AlertTriangle,
-  Info,
   AlertCircle,
   RefreshCw,
   FileText,
   CheckCircle2,
   XCircle,
   Clock,
-  Settings2,
   UserPlus,
+  Moon,
+  Sun,
+  Zap,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
@@ -76,7 +76,7 @@ function NotifIcon({ type, title }) {
   );
 }
 
-export default function TopNav({ collapsed }) {
+export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
@@ -84,6 +84,8 @@ export default function TopNav({ collapsed }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [notifications, setNotifications] = useState([]);
   
   const token = localStorage.getItem("token") || sessionStorage.getItem("token");
@@ -139,6 +141,31 @@ export default function TopNav({ collapsed }) {
     navigate("/login", { replace: true });
   };
 
+  const searchItems = [
+    { label: "Ticket Management", keywords: "tickets incidents requests", path: "/tickets", roles: ["SuperAdmin", "Admin", "Technician"] },
+    { label: "My Tickets", keywords: "tickets incidents requests", path: "/employee/my-tickets", roles: ["Employee"] },
+    { label: "Hardware Assets", keywords: "assets inventory hardware", path: "/assets", roles: ["SuperAdmin", "Admin"] },
+    { label: "User Management", keywords: "users access roles", path: "/settings/users", roles: ["SuperAdmin", "Admin"] },
+    { label: "Knowledge Base", keywords: "knowledge articles solutions", path: "/knowledge-base", roles: ["SuperAdmin", "Admin", "Technician", "Employee"] },
+    { label: "Service Requests", keywords: "service catalog requests", path: "/service-requests", roles: ["SuperAdmin", "Admin", "Technician"] },
+  ].filter((item) => item.roles.includes(role) && `${item.label} ${item.keywords}`.toLowerCase().includes(searchQuery.trim().toLowerCase()));
+
+  const refreshDashboard = async () => {
+    setRefreshing(true);
+    try {
+      await fetchNotifications();
+      window.dispatchEvent(new CustomEvent("astreablue:refresh-dashboard"));
+    } finally {
+      window.setTimeout(() => setRefreshing(false), 450);
+    }
+  };
+
+  const openSearchItem = (path) => {
+    navigate(path);
+    setSearchOpen(false);
+    setSearchQuery("");
+  };
+
   return (
     <header
       className="astrea-topnav fixed top-0 right-0 z-30 flex h-[64px] items-center gap-3 px-5 transition-all duration-300"
@@ -176,16 +203,44 @@ export default function TopNav({ collapsed }) {
             </button>
           )}
         </div>
+        {searchOpen && searchQuery.trim() && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+            {searchItems.length ? searchItems.map((item) => (
+              <button key={item.path} onClick={() => openSearchItem(item.path)} className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700 last:border-0 hover:bg-blue-50 hover:text-blue-700">
+                <Search size={14} /> {item.label}
+              </button>
+            )) : <p className="px-4 py-3 text-sm text-slate-500">No matching ITSM module.</p>}
+          </div>
+        )}
       </div>
 
       <div className="ml-auto flex items-center gap-1">
-        <button className="rounded-lg p-2 text-blue-700/75 hover:bg-[#EAF4FF] hover:text-blue-700">
-          <RefreshCw size={16} />
+        <button onClick={refreshDashboard} disabled={refreshing} title="Refresh dashboard" className="rounded-lg p-2 text-blue-700/75 hover:bg-[#EAF4FF] hover:text-blue-700 disabled:opacity-50">
+          <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
         </button>
 
-        <button className="rounded-lg p-2 text-blue-700/75 hover:bg-[#EAF4FF] hover:text-blue-700">
-          <Bot size={17} />
+        <button onClick={onToggleTheme} title={`Use ${theme === "dark" ? "light" : "dark"} mode`} className="rounded-lg p-2 text-blue-700/75 hover:bg-[#EAF4FF] hover:text-blue-700">
+          {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
         </button>
+
+        <div className="relative">
+          <button onClick={() => setQuickOpen((value) => !value)} title="Quick actions" className="rounded-lg p-2 text-blue-700/75 hover:bg-[#EAF4FF] hover:text-blue-700">
+            <Zap size={17} />
+          </button>
+          {quickOpen && (
+            <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+              {(
+                role === "Employee"
+                  ? [["Create ticket", "/employee/create-ticket"], ["My tickets", "/employee/my-tickets"], ["Knowledge base", "/knowledge-base"]]
+                  : [["Ticket management", "/tickets"], ["Knowledge base", "/knowledge-base"], ...(role === "SuperAdmin" || role === "Admin" ? [["View assets", "/assets"]] : [["Service requests", "/service-requests"]])]
+              ).map(([label, path]) => (
+                <button key={path + label} onClick={() => { navigate(path); setQuickOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700">
+                  <Zap size={13} /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="relative">
           <button

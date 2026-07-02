@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
+import DashboardHero from "../components/DashboardHero";
 import {
   getPriorityBadgeClass, formatPriority,
   getSeverityOptionStyle,
@@ -73,6 +74,15 @@ export default function EmployeeDashboard({ view = "dashboard" }) {
   }, [fetchTickets, fetchCategories]);
 
   useEffect(() => {
+    const refresh = () => {
+      fetchTickets();
+      fetchCategories();
+    };
+    window.addEventListener("astreablue:refresh-dashboard", refresh);
+    return () => window.removeEventListener("astreablue:refresh-dashboard", refresh);
+  }, [fetchCategories, fetchTickets]);
+
+  useEffect(() => {
     if (showCreate) setTicketModalOpen(true);
   }, [showCreate]);
 
@@ -91,7 +101,7 @@ export default function EmployeeDashboard({ view = "dashboard" }) {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center">
+      {showOverview ? <DashboardHero title="Employee Service Hub" subtitle="Track requests, follow ticket progress, and stay informed about the services supporting your workday." /> : <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center">
         <div>
           <h1 className="text-3xl font-black">Employee Service Portal</h1>
           <p className="mt-2 text-blue-100">
@@ -108,7 +118,15 @@ export default function EmployeeDashboard({ view = "dashboard" }) {
           Create Ticket
         </button>
         )}
-      </section>
+      </section>}
+
+      {showOverview && (
+        <div className="flex justify-end">
+          <button onClick={() => setTicketModalOpen(true)} className="flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-3 font-black text-white shadow-lg hover:bg-blue-800">
+            <Plus size={18} /> Create Ticket
+          </button>
+        </div>
+      )}
 
       {showCreate && (
         <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">

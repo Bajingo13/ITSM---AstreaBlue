@@ -20,6 +20,8 @@ import ServiceCatalog from "./views/ServiceCatalog";
 import KnowledgeBase from "./views/KnowledgeBase";
 import SLAMonitor from "./views/SLAMonitor";
 import Assets from "./views/Assets";
+import AssetDiscovery from "./views/AssetDiscovery";
+import AssetFinancials from "./views/AssetFinancials";
 import CMDB from "./views/CMDB";
 import ChangeManagement from "./views/ChangeManagement";
 import ProblemManagement from "./views/ProblemManagement";
@@ -209,7 +211,7 @@ export default function App() {
           path="/asset-discovery"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <Assets />
+              <AssetDiscovery />
             </ProtectedRoute>
           }
         />
@@ -217,7 +219,7 @@ export default function App() {
           path="/financial-tracking"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <Assets />
+              <AssetFinancials />
             </ProtectedRoute>
           }
         />

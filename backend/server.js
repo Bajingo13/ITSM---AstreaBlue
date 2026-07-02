@@ -468,6 +468,42 @@ async function ensureHardwareAssetTables() {
         error_message TEXT
       )
     `);
+    await db.query(`ALTER TABLE asset_discovery_scans ADD COLUMN IF NOT EXISTS source VARCHAR(100) DEFAULT 'Manual Import'`);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS asset_financials (
+        financial_id BIGSERIAL PRIMARY KEY,
+        asset_id INTEGER NOT NULL UNIQUE REFERENCES hardware_assets(asset_id) ON DELETE CASCADE,
+        useful_life_years NUMERIC(6,2) NOT NULL DEFAULT 5 CHECK (useful_life_years > 0),
+        salvage_value NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (salvage_value >= 0),
+        depreciation_method VARCHAR(50) NOT NULL DEFAULT 'Straight-Line',
+        depreciation_start_date DATE,
+        disposal_value NUMERIC(12,2),
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await db.query(`
+      INSERT INTO asset_financials (asset_id,useful_life_years,salvage_value,depreciation_method,depreciation_start_date)
+      SELECT asset_id,COALESCE(useful_life_years,5),COALESCE(salvage_value,0),COALESCE(depreciation_method,'Straight-Line'),purchase_date
+      FROM hardware_assets ON CONFLICT (asset_id) DO NOTHING
+    `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS asset_discoveries (
+        discovery_id BIGSERIAL PRIMARY KEY,
+        hostname VARCHAR(255) NOT NULL,
+        ip_address VARCHAR(64), mac_address VARCHAR(32), serial_number VARCHAR(150), asset_tag VARCHAR(150),
+        os_name VARCHAR(150), manufacturer VARCHAR(150), device_type VARCHAR(100),
+        source VARCHAR(100) NOT NULL DEFAULT 'Manual',
+        first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        status VARCHAR(30) NOT NULL DEFAULT 'Online',
+        reconciliation_status VARCHAR(30) NOT NULL DEFAULT 'Unmanaged',
+        matched_asset_id INTEGER REFERENCES hardware_assets(asset_id) ON DELETE SET NULL,
+        branch_id INTEGER REFERENCES branches(branch_id), raw_data JSONB,
+        created_by INTEGER REFERENCES users(user_id), updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
     return true;
   } catch (err) {
     console.error("Hardware asset table setup error:", err.message);
@@ -486,7 +522,10 @@ app.use("/api/auth", authRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/invites", inviteRoutes);
 app.use("/api/v1/email", emailRoutes);
-app.use("/api/v1/hardware-assets", assetManagementRoutes);
+app.use("/api/v1/hardware-assets", async (_req, res, next) => {
+  if (await hardwareAssetTablesReady) return next();
+  return res.status(503).json({ success: false, message: "Hardware asset storage is unavailable." });
+}, assetManagementRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
@@ -1178,9 +1217,10 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
         a.notes,
         a.vendor,
         a.invoice_number,
-        a.useful_life_years,
-        a.salvage_value,
-        a.depreciation_method,
+        COALESCE(f.useful_life_years, a.useful_life_years, 5) AS useful_life_years,
+        COALESCE(f.salvage_value, a.salvage_value, 0) AS salvage_value,
+        COALESCE(f.depreciation_method, a.depreciation_method, 'Straight-Line') AS depreciation_method,
+        COALESCE(f.depreciation_start_date, a.purchase_date) AS depreciation_start_date,
         a.hostname,
         a.ip_address,
         a.mac_address,
@@ -1196,6 +1236,7 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
         a.updated_at
       FROM hardware_assets a
       LEFT JOIN branches b ON a.branch_id = b.branch_id
+      LEFT JOIN asset_financials f ON f.asset_id = a.asset_id
       ${whereSql}
       ORDER BY a.created_at DESC
       `,

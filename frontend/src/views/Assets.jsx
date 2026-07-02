@@ -4,13 +4,11 @@ import {
   Box,
   Building2,
   CheckCircle,
-  CircleDollarSign,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   Download,
   Eye,
-  Filter,
   FolderOpen,
   Grid3X3,
   History,
@@ -18,7 +16,6 @@ import {
   Loader2,
   Pencil,
   Plus,
-  Radar,
   Search,
   ShieldCheck,
   Truck,
@@ -28,6 +25,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { API_URL } from "../config/api";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 const ASSET_TYPES = [
@@ -161,9 +159,6 @@ function getAssetFormInitialState(asset, currentBranchId) {
     supplier: asset?.supplier || "",
     vendor: asset?.vendor || asset?.supplier || "",
     invoice_number: asset?.invoice_number || "",
-    useful_life_years: asset?.useful_life_years || 5,
-    salvage_value: asset?.salvage_value || 0,
-    depreciation_method: asset?.depreciation_method || "Straight-Line",
     assigned_name: asset?.assigned_name || asset?.borrower_name || "",
     returned_name: asset?.returned_name || "",
     warranty: formatDateInput(asset?.warranty_expiration || asset?.warranty),
@@ -320,10 +315,6 @@ export default function Assets() {
   const [historyAsset, setHistoryAsset] = useState(null);
   const [historyRecords, setHistoryRecords] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
-  const [financialSummary, setFinancialSummary] = useState(null);
-  const [discoveryHistory, setDiscoveryHistory] = useState([]);
 
   const changeViewMode = (mode) => {
     setViewMode(mode);
@@ -371,69 +362,6 @@ export default function Assets() {
     }
   }, [user, isSuperAdmin]);
 
-  const fetchFinancialSummary = useCallback(async () => {
-    if (!["SuperAdmin", "Admin"].includes(activeRole)) return;
-    try {
-      const res = await fetch(`${API_BASE}/hardware-assets/financial/summary`);
-      const body = await res.json();
-      if (!res.ok || body.success === false) throw new Error(body.message || body.error);
-      setFinancialSummary(body.data || null);
-    } catch (error) {
-      if (import.meta.env.DEV) console.error("Asset financial summary failed:", error);
-    }
-  }, [activeRole]);
-
-  const scanNetwork = async () => {
-    try {
-      setScanning(true);
-      setScanResult(null);
-      const res = await fetch(`${API_BASE}/hardware-assets/discovery/scan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branch_id: branchFilter === "All" ? currentBranchId : branchFilter }),
-      });
-      const body = await res.json();
-      if (!res.ok || body.success === false) throw new Error(body.message || body.error || "Network scan failed.");
-      setScanResult({ success: true, ...body.data });
-      await fetchAssets();
-      await fetchFinancialSummary();
-      await fetchDiscoveryHistory();
-    } catch (error) {
-      setScanResult({ success: false, message: error.message });
-    } finally {
-      setScanning(false);
-    }
-  };
-
-  const fetchDiscoveryHistory = useCallback(async () => {
-    if (!["SuperAdmin", "Admin"].includes(activeRole)) return;
-    try {
-      const res = await fetch(`${API_BASE}/hardware-assets/discovery/history`);
-      const body = await res.json();
-      if (res.ok && body.success !== false) setDiscoveryHistory(body.data || []);
-    } catch (error) {
-      if (import.meta.env.DEV) console.error("Discovery history failed:", error);
-    }
-  }, [activeRole]);
-
-  const downloadFinancialReport = async (type = "asset-register") => {
-    try {
-      const res = await fetch(`${API_BASE}/hardware-assets/financial/reports/${type}`);
-      const body = await res.json();
-      if (!res.ok || body.success === false) throw new Error(body.message || body.error);
-      const blob = new Blob([JSON.stringify(body.data, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${type}-${new Date().toISOString().slice(0, 10)}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setModalError(error.message || "Unable to generate financial report.");
-    }
-  };
-
-
 
   useEffect(() => {
     fetchBranches();
@@ -442,11 +370,6 @@ export default function Assets() {
   useEffect(() => {
     fetchAssets();
   }, [fetchAssets]);
-
-  useEffect(() => {
-    fetchFinancialSummary();
-    fetchDiscoveryHistory();
-  }, [fetchDiscoveryHistory, fetchFinancialSummary]);
 
   const visibleBranches = useMemo(() => {
     if (isSuperAdmin) return branches;
@@ -539,7 +462,6 @@ export default function Assets() {
   const totalAssets = visibleAssets.length;
   const totalActive = visibleAssets.filter((asset) => asset.status === "Active").length;
   const totalBorrowed = visibleAssets.filter((asset) => asset.status === "Borrowed").length;
-
 
   /* Branch carousel scroll state */
   const carouselRef = useRef(null);
@@ -720,23 +642,19 @@ export default function Assets() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Failed to ${id ? "update" : "create"} asset.`);
       const savedAsset = data.data || data;
-      const financialRes = await fetch(`${API_BASE}/hardware-assets/${savedAsset.asset_id || id}/financial`, {
+      const procurementRes = await fetch(`${API_BASE}/hardware-assets/${savedAsset.asset_id || id}/procurement`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vendor: payload.vendor || payload.supplier || null,
           invoice_number: payload.invoice_number || null,
-          useful_life_years: payload.useful_life_years || 5,
-          salvage_value: payload.salvage_value || 0,
-          depreciation_method: payload.depreciation_method || "Straight-Line",
         }),
       });
-      const financialBody = await financialRes.json();
-      if (!financialRes.ok || financialBody.success === false) {
-        setModalError(`Asset saved. Financial details warning: ${financialBody.message || financialBody.error}`);
+      const procurementBody = await procurementRes.json();
+      if (!procurementRes.ok || procurementBody.success === false) {
+        throw new Error(procurementBody.message || procurementBody.error || "Failed to save procurement details.");
       }
       await fetchAssets();
-      await fetchFinancialSummary();
       closeAssetModal();
     } catch (err) {
       console.error(err);
@@ -783,20 +701,20 @@ export default function Assets() {
     }
   };
 
+  const exportAssets = () => {
+    const headers = ["Asset Tag", "Serial Number", "Asset Name", "Type", "Brand", "Model", "Branch", "Department", "Assigned User", "Status", "Purchase Date", "Purchase Cost", "Vendor", "Warranty End"];
+    const rows = visibleAssets.map((asset) => [asset.asset_tag, asset.serial_number, asset.asset_name, asset.asset_type, asset.brand, asset.model, asset.branch_name, asset.department || asset.team_department, asset.assigned_name || asset.borrower_name, asset.status, asset.purchase_date, asset.purchase_price, asset.vendor || asset.supplier, asset.warranty_expiration]);
+    const csv = [headers, ...rows].map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const link = document.createElement("a"); link.href = url; link.download = `hardware-assets-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
-      <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-black">Hardware Assets</h1>
-          <p className="mt-2 max-w-2xl text-slate-200">
-            Track company laptops, desktops, printers, phones and hardware by branch with status monitoring, borrower history, and lifecycle controls.
-          </p>
-          <p className="mt-4 text-sm text-blue-100">
+      <PageHero eyebrow="Asset Management" title="Hardware Assets" subtitle="Track company laptops, desktops, printers, phones, and lifecycle activity by branch." actions={<>
+          <span className="rounded-xl bg-white/10 px-4 py-3 text-sm font-bold">
             {totalAssets} total assets · {totalActive} active · {totalBorrowed} borrowed
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
+          </span>
           <button
             onClick={openAddAsset}
             className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
@@ -804,54 +722,11 @@ export default function Assets() {
             <Plus size={18} />
             Add Asset
           </button>
-          {["SuperAdmin", "Admin"].includes(activeRole) && (
-            <button
-              onClick={scanNetwork}
-              disabled={scanning}
-              className="inline-flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-black text-blue-800 transition hover:bg-blue-100 disabled:opacity-50"
-            >
-              {scanning ? <Loader2 size={18} className="animate-spin" /> : <Radar size={18} />}
-              {scanning ? "Scanning..." : "Scan Network"}
-            </button>
-          )}
-          <button onClick={() => downloadFinancialReport("asset-register")} className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
+          <button onClick={exportAssets} className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
             <Download size={18} />
             Export
           </button>
-        </div>
-      </section>
-
-      {scanResult && (
-        <section className={`rounded-2xl border p-4 text-sm font-bold ${scanResult.success ? "border-blue-200 bg-blue-50 text-blue-800" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
-          {scanResult.success
-            ? `Scan completed in ${scanResult.duration_ms} ms · ${scanResult.devices_found} devices found · ${scanResult.new_assets} new · ${scanResult.updated_assets} updated`
-            : scanResult.message}
-        </section>
-      )}
-
-      {!scanResult && discoveryHistory[0] && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-          <span className="font-black text-slate-900">Last scan:</span> {new Date(discoveryHistory[0].started_at).toLocaleString()} · {discoveryHistory[0].devices_found} devices · {discoveryHistory[0].duration_ms || 0} ms
-        </section>
-      )}
-
-      {financialSummary && (
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          {[
-            ["Total Asset Value", financialSummary.total_asset_value, true],
-            ["Current Book Value", financialSummary.current_asset_value, true],
-            ["Accumulated Depreciation", financialSummary.accumulated_depreciation, true],
-            ["Warranty Expiring", financialSummary.assets_near_warranty_expiration, false],
-            ["Near End of Life", financialSummary.assets_near_end_of_life, false],
-          ].map(([label, value, currency]) => (
-            <div key={label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <CircleDollarSign size={20} className="text-blue-600" />
-              <p className="mt-3 text-xs font-black uppercase tracking-wider text-slate-500">{label}</p>
-              <p className="mt-1 text-xl font-black text-slate-900">{currency ? Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "PHP" }) : value || 0}</p>
-            </div>
-          ))}
-        </section>
-      )}
+        </>} />
 
       {/* Branch Filter — compact searchable dropdown */}
       {isSuperAdmin && (
@@ -985,8 +860,7 @@ export default function Assets() {
           </div>
         )}
       </section>
-      <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <div className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {statusMetrics.map((item) => {
             const isActive = statusFilter === item.status;
             return (
@@ -1005,16 +879,6 @@ export default function Assets() {
               </button>
             );
           })}
-        </div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-3">
-            <Filter size={20} className="text-slate-500" />
-            <div>
-              <p className="text-sm font-black text-slate-900">Branch Status Summary</p>
-              <p className="text-sm text-slate-500">Review current hardware status for each branch at a glance.</p>
-            </div>
-          </div>
-        </div>
       </section>
 
       <section className="flex flex-wrap items-center gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -1327,14 +1191,6 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
         <div className="mt-4 space-y-2 text-sm text-slate-600">
           <p><span className="font-bold text-slate-800">Location:</span> {location}</p>
           <p><span className="font-bold text-slate-800">Assigned:</span> {assignedTo}</p>
-          {asset.discovery_source && (
-            <p className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-violet-50 px-2 py-1 text-xs font-black text-violet-700">Discovered</span>
-              <span className={`rounded-full px-2 py-1 text-xs font-black ${asset.discovery_status === "Online" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                {asset.discovery_status || "Unknown"}
-              </span>
-            </p>
-          )}
         </div>
         <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
           <button onClick={onView} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"><Eye size={14} /> View</button>
@@ -1353,13 +1209,6 @@ function AssetDetailsModal({ asset, onClose }) {
     ["Location", asset.location || asset.department || asset.team_department], ["Assigned To", asset.assigned_name || asset.borrower_name],
     ["Purchase Date", formatDate(asset.purchase_date)], ["Warranty", formatDate(asset.warranty_expiration || asset.warranty)],
     ["Vendor", asset.vendor || asset.supplier], ["Invoice Number", asset.invoice_number],
-    ["Current Book Value", Number(asset.current_book_value || 0).toLocaleString(undefined, { style: "currency", currency: "PHP" })],
-    ["Annual Depreciation", Number(asset.annual_depreciation || 0).toLocaleString(undefined, { style: "currency", currency: "PHP" })],
-    ["Useful Life", asset.useful_life_years ? `${asset.useful_life_years} years` : null],
-    ["End of Life", formatDate(asset.end_of_life_date)],
-    ["Hostname", asset.hostname], ["IP Address", asset.ip_address], ["MAC Address", asset.mac_address],
-    ["Operating System", asset.operating_system], ["Discovery Status", asset.discovery_status],
-    ["Last Seen", asset.last_seen ? new Date(asset.last_seen).toLocaleString() : null],
   ];
 
   return (
@@ -1649,31 +1498,6 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
                   value={form.invoice_number}
                   onChange={(value) => updateField("invoice_number", value)}
                   placeholder="Invoice reference..."
-                />
-              </AssetField>
-              <AssetField label="Useful Life (Years)">
-                <AssetInput
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  value={form.useful_life_years}
-                  onChange={(value) => updateField("useful_life_years", value)}
-                />
-              </AssetField>
-              <AssetField label="Salvage Value">
-                <AssetInput
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.salvage_value}
-                  onChange={(value) => updateField("salvage_value", value)}
-                />
-              </AssetField>
-              <AssetField label="Depreciation Method">
-                <AssetSelect
-                  value={form.depreciation_method}
-                  onChange={(value) => updateField("depreciation_method", value)}
-                  options={[{ label: "Straight-Line", value: "Straight-Line" }]}
                 />
               </AssetField>
               <AssetField label="Assigned Name">
