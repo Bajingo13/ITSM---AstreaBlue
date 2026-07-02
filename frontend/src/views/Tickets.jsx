@@ -432,6 +432,31 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
       (activeRole === "Admin" && isOwnBranchTicket)) &&
     !nonCancellableStatuses.includes(currentStatus);
 
+  const updateStatusDirectly = async (newStatus) => {
+    if (isCancelled) return;
+    try {
+      setAssigning(true);
+      setActionError("");
+      setSelectedStatus(newStatus);
+
+      const statusRes = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildTicketPayload(user, { status: newStatus })),
+      });
+
+      if (!statusRes.ok) throw new Error("Failed to update status");
+
+      await fetchDetails();
+      await onRefresh();
+    } catch (err) {
+      console.error(err);
+      setActionError(err.message);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
   const saveChanges = async () => {
     if (isCancelled) return;
 
@@ -548,14 +573,16 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
       const data = await readJsonSafely(res);
 
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to cancel ticket.");
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to cancel ticket.");
       }
 
       setCancelModalOpen(false);
       setCancellationReason("");
-      await onRefresh();
       onClose(data.message || "Ticket cancelled successfully.");
+      void Promise.resolve(onRefresh()).catch((refreshError) => {
+        if (import.meta.env.DEV) console.error("Ticket refresh failed:", refreshError);
+      });
     } catch (err) {
       setCancelError(err.message);
     } finally {
@@ -860,8 +887,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                     .map((col) => (
                     <button
                       key={col.id}
-                      onClick={() => setSelectedStatus(col.id)}
-                      disabled={selectedStatus === col.id}
+                      onClick={() => updateStatusDirectly(col.id)}
+                      disabled={selectedStatus === col.id || assigning || loading}
                       className={`rounded-xl px-4 py-2 text-sm font-black ${
                         selectedStatus === col.id
                           ? "bg-blue-700 text-white"

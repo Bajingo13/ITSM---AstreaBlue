@@ -663,29 +663,37 @@ router.put("/:id", async (req, res) => {
     let emailWarning = null;
 
     if (status && status !== existing.status) {
-      await db.query(
-        `
-        INSERT INTO ticket_history
-        (ticket_id, changed_by, action, old_value, new_value)
-        VALUES ($1, $2, $3, $4, $5)
-        `,
-        [id, changed_by, "Status Updated", existing.status, status]
-      );
+      try {
+        await db.query(
+          `
+          INSERT INTO ticket_history
+          (ticket_id, changed_by, action, old_value, new_value)
+          VALUES ($1, $2, $3, $4, $5)
+          `,
+          [id, changed_by, "Status Updated", existing.status, status]
+        );
+      } catch(e) { console.warn("History insert failed:", e.message); }
 
       if (finalStatus === "Closed" || finalStatus === "Cancelled") {
-        const statusEmail =
-          finalStatus === "Closed"
-            ? sendTicketClosedEmail
-            : sendTicketCancelledEmail;
-        emailWarning = await sendTicketNotification(id, statusEmail);
+        try {
+          const statusEmail =
+            finalStatus === "Closed"
+              ? sendTicketClosedEmail
+              : sendTicketCancelledEmail;
+          emailWarning = await sendTicketNotification(id, statusEmail);
+        } catch(e) { console.warn("Email failed:", e.message); }
       }
       
-      const notifType = finalStatus === "Closed" ? "success" : finalStatus === "Resolved" ? "success" : "info";
-      await createInAppNotification(existing.requester_id, "Ticket Update", `Ticket ${existing.ticket_number} status changed to ${status}.`, notifType);
+      try {
+        const notifType = finalStatus === "Closed" ? "success" : finalStatus === "Resolved" ? "success" : "info";
+        await createInAppNotification(existing.requester_id, "Ticket Update", `Ticket ${existing.ticket_number} status changed to ${status}.`, notifType);
+      } catch(e) { console.warn("Notification failed:", e.message); }
     }
 
     res.json({
-      ...result.rows[0],
+      success: true,
+      message: "Ticket updated successfully.",
+      data: result.rows[0],
       ...(emailWarning ? { email_warning: emailWarning } : {}),
     });
   } catch (err) {
@@ -867,29 +875,36 @@ router.patch("/:id/assign", async (req, res) => {
       [assigned_to || null, id]
     );
 
-    await db.query(
-      `
-      INSERT INTO ticket_history
-      (ticket_id, changed_by, action, old_value, new_value)
-      VALUES ($1, $2, $3, $4, $5)
-      `,
-      [
-        id,
-        changed_by || currentUserId,
-        "Ticket Assigned",
-        ticket.assigned_to,
-        assigned_to || null,
-      ]
-    );
+    try {
+      await db.query(
+        `
+        INSERT INTO ticket_history
+        (ticket_id, changed_by, action, old_value, new_value)
+        VALUES ($1, $2, $3, $4, $5)
+        `,
+        [
+          id,
+          changed_by || currentUserId,
+          "Ticket Assigned",
+          ticket.assigned_to,
+          assigned_to || null,
+        ]
+      );
+    } catch(e) { console.warn("History insert failed:", e.message); }
 
     const emailWarning = null;
     
     if (assigned_to) {
-      await createInAppNotification(assigned_to, "Ticket Assigned", `Ticket ${existing.ticket_number || id} has been assigned to you.`, "warning");
+      try {
+        await createInAppNotification(assigned_to, "Ticket Assigned", `Ticket ${ticket.ticket_number || id} has been assigned to you.`, "warning");
+      } catch(e) { console.warn("Notification failed:", e.message); }
     }
 
     res.json({
-      ...result.rows[0],
+      success: true,
+      message: "Ticket assigned successfully.",
+      data: result.rows[0],
+      ticket: result.rows[0],
       ...(emailWarning ? { email_warning: emailWarning } : {}),
     });
   } catch (err) {
@@ -974,7 +989,7 @@ router.patch("/:id/cancel", async (req, res) => {
     }
 
     const ticketCheck = await db.query(
-      `SELECT status FROM tickets WHERE id = $1`,
+      `SELECT status, requester_id, ticket_number FROM tickets WHERE id = $1`,
       [id]
     );
 
@@ -985,12 +1000,14 @@ router.patch("/:id/cancel", async (req, res) => {
       });
     }
 
+    const existing = ticketCheck.rows[0];
+
     if (
-      ["Cancelled", "Resolved", "Closed"].includes(ticketCheck.rows[0].status)
+      ["Cancelled", "Resolved", "Closed"].includes(existing.status)
     ) {
       return res.status(400).json({
         success: false,
-        error: `Ticket cannot be cancelled because it is already ${ticketCheck.rows[0].status}.`,
+        error: `Ticket cannot be cancelled because it is already ${existing.status}.`,
       });
     }
 
@@ -1008,25 +1025,33 @@ router.patch("/:id/cancel", async (req, res) => {
       [cancelledBy, reason.trim(), id]
     );
 
-    await db.query(
-      `
-      INSERT INTO ticket_history
-      (ticket_id, changed_by, action, old_value, new_value)
-      VALUES ($1, $2, $3, $4, $5)
-      `,
-      [id, cancelledBy, "Ticket Cancelled", null, reason.trim()]
-    );
+    try {
+      await db.query(
+        `
+        INSERT INTO ticket_history
+        (ticket_id, changed_by, action, old_value, new_value)
+        VALUES ($1, $2, $3, $4, $5)
+        `,
+        [id, cancelledBy, "Ticket Cancelled", null, reason.trim()]
+      );
+    } catch(e) { console.warn("History insert failed:", e.message); }
 
-    const emailWarning = await sendTicketNotification(
-      id,
-      sendTicketCancelledEmail
-    );
+    let emailWarning = null;
+    try {
+      emailWarning = await sendTicketNotification(
+        id,
+        sendTicketCancelledEmail
+      );
+    } catch(e) { console.warn("Email failed:", e.message); }
     
-    await createInAppNotification(existing.requester_id, "Ticket Cancelled", `Your ticket ${existing.ticket_number || id} was cancelled.`, "error");
+    try {
+      await createInAppNotification(existing.requester_id, "Ticket Cancelled", `Your ticket ${existing.ticket_number || id} was cancelled.`, "error");
+    } catch(e) { console.warn("Notification failed:", e.message); }
 
     res.json({
       success: true,
       message: "Ticket cancelled successfully.",
+      data: result.rows[0],
       ticket: result.rows[0],
       ...(emailWarning ? { email_warning: emailWarning } : {}),
     });
