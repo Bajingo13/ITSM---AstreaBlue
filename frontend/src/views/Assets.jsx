@@ -4,6 +4,7 @@ import {
   Box,
   Building2,
   CheckCircle,
+  CircleDollarSign,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -17,6 +18,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Radar,
   Search,
   ShieldCheck,
   Truck,
@@ -157,6 +159,11 @@ function getAssetFormInitialState(asset, currentBranchId) {
     purchase_date: formatDateInput(asset?.purchase_date),
     purchase_price: asset?.purchase_price || "",
     supplier: asset?.supplier || "",
+    vendor: asset?.vendor || asset?.supplier || "",
+    invoice_number: asset?.invoice_number || "",
+    useful_life_years: asset?.useful_life_years || 5,
+    salvage_value: asset?.salvage_value || 0,
+    depreciation_method: asset?.depreciation_method || "Straight-Line",
     assigned_name: asset?.assigned_name || asset?.borrower_name || "",
     returned_name: asset?.returned_name || "",
     warranty: formatDateInput(asset?.warranty_expiration || asset?.warranty),
@@ -313,6 +320,10 @@ export default function Assets() {
   const [historyAsset, setHistoryAsset] = useState(null);
   const [historyRecords, setHistoryRecords] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+  const [financialSummary, setFinancialSummary] = useState(null);
+  const [discoveryHistory, setDiscoveryHistory] = useState([]);
 
   const changeViewMode = (mode) => {
     setViewMode(mode);
@@ -360,6 +371,68 @@ export default function Assets() {
     }
   }, [user, isSuperAdmin]);
 
+  const fetchFinancialSummary = useCallback(async () => {
+    if (!["SuperAdmin", "Admin"].includes(activeRole)) return;
+    try {
+      const res = await fetch(`${API_BASE}/hardware-assets/financial/summary`);
+      const body = await res.json();
+      if (!res.ok || body.success === false) throw new Error(body.message || body.error);
+      setFinancialSummary(body.data || null);
+    } catch (error) {
+      if (import.meta.env.DEV) console.error("Asset financial summary failed:", error);
+    }
+  }, [activeRole]);
+
+  const scanNetwork = async () => {
+    try {
+      setScanning(true);
+      setScanResult(null);
+      const res = await fetch(`${API_BASE}/hardware-assets/discovery/scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branch_id: branchFilter === "All" ? currentBranchId : branchFilter }),
+      });
+      const body = await res.json();
+      if (!res.ok || body.success === false) throw new Error(body.message || body.error || "Network scan failed.");
+      setScanResult({ success: true, ...body.data });
+      await fetchAssets();
+      await fetchFinancialSummary();
+      await fetchDiscoveryHistory();
+    } catch (error) {
+      setScanResult({ success: false, message: error.message });
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const fetchDiscoveryHistory = useCallback(async () => {
+    if (!["SuperAdmin", "Admin"].includes(activeRole)) return;
+    try {
+      const res = await fetch(`${API_BASE}/hardware-assets/discovery/history`);
+      const body = await res.json();
+      if (res.ok && body.success !== false) setDiscoveryHistory(body.data || []);
+    } catch (error) {
+      if (import.meta.env.DEV) console.error("Discovery history failed:", error);
+    }
+  }, [activeRole]);
+
+  const downloadFinancialReport = async (type = "asset-register") => {
+    try {
+      const res = await fetch(`${API_BASE}/hardware-assets/financial/reports/${type}`);
+      const body = await res.json();
+      if (!res.ok || body.success === false) throw new Error(body.message || body.error);
+      const blob = new Blob([JSON.stringify(body.data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${type}-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setModalError(error.message || "Unable to generate financial report.");
+    }
+  };
+
 
 
   useEffect(() => {
@@ -369,6 +442,11 @@ export default function Assets() {
   useEffect(() => {
     fetchAssets();
   }, [fetchAssets]);
+
+  useEffect(() => {
+    fetchFinancialSummary();
+    fetchDiscoveryHistory();
+  }, [fetchDiscoveryHistory, fetchFinancialSummary]);
 
   const visibleBranches = useMemo(() => {
     if (isSuperAdmin) return branches;
@@ -551,12 +629,21 @@ export default function Assets() {
   };
 
   const statusMetrics = useMemo(
-    () =>
+    () => {
+      const countableAssets = assets.filter((asset) => {
+        if (isSuperAdmin && branchFilter && branchFilter !== "All" && String(asset.branch_id) !== String(branchFilter)) return false;
+        if (typeFilter !== "All" && asset.asset_type !== typeFilter) return false;
+        if (manufacturerFilter !== "All" && (asset.brand || "") !== manufacturerFilter) return false;
+        return true;
+      });
+      return (
       STATUS_OPTIONS.filter((item) => item !== "All").map((status) => ({
         status,
-        count: visibleAssets.filter((asset) => asset.status === status).length,
-      })),
-    [visibleAssets]
+        count: countableAssets.filter((asset) => asset.status === status).length,
+      }))
+      );
+    },
+    [assets, branchFilter, isSuperAdmin, manufacturerFilter, typeFilter]
   );
 
   const manufacturers = useMemo(() => {
@@ -632,7 +719,24 @@ export default function Assets() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Failed to ${id ? "update" : "create"} asset.`);
+      const savedAsset = data.data || data;
+      const financialRes = await fetch(`${API_BASE}/hardware-assets/${savedAsset.asset_id || id}/financial`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vendor: payload.vendor || payload.supplier || null,
+          invoice_number: payload.invoice_number || null,
+          useful_life_years: payload.useful_life_years || 5,
+          salvage_value: payload.salvage_value || 0,
+          depreciation_method: payload.depreciation_method || "Straight-Line",
+        }),
+      });
+      const financialBody = await financialRes.json();
+      if (!financialRes.ok || financialBody.success === false) {
+        setModalError(`Asset saved. Financial details warning: ${financialBody.message || financialBody.error}`);
+      }
       await fetchAssets();
+      await fetchFinancialSummary();
       closeAssetModal();
     } catch (err) {
       console.error(err);
@@ -700,12 +804,54 @@ export default function Assets() {
             <Plus size={18} />
             Add Asset
           </button>
-          <button className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
+          {["SuperAdmin", "Admin"].includes(activeRole) && (
+            <button
+              onClick={scanNetwork}
+              disabled={scanning}
+              className="inline-flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-black text-blue-800 transition hover:bg-blue-100 disabled:opacity-50"
+            >
+              {scanning ? <Loader2 size={18} className="animate-spin" /> : <Radar size={18} />}
+              {scanning ? "Scanning..." : "Scan Network"}
+            </button>
+          )}
+          <button onClick={() => downloadFinancialReport("asset-register")} className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
             <Download size={18} />
             Export
           </button>
         </div>
       </section>
+
+      {scanResult && (
+        <section className={`rounded-2xl border p-4 text-sm font-bold ${scanResult.success ? "border-blue-200 bg-blue-50 text-blue-800" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
+          {scanResult.success
+            ? `Scan completed in ${scanResult.duration_ms} ms · ${scanResult.devices_found} devices found · ${scanResult.new_assets} new · ${scanResult.updated_assets} updated`
+            : scanResult.message}
+        </section>
+      )}
+
+      {!scanResult && discoveryHistory[0] && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+          <span className="font-black text-slate-900">Last scan:</span> {new Date(discoveryHistory[0].started_at).toLocaleString()} · {discoveryHistory[0].devices_found} devices · {discoveryHistory[0].duration_ms || 0} ms
+        </section>
+      )}
+
+      {financialSummary && (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {[
+            ["Total Asset Value", financialSummary.total_asset_value, true],
+            ["Current Book Value", financialSummary.current_asset_value, true],
+            ["Accumulated Depreciation", financialSummary.accumulated_depreciation, true],
+            ["Warranty Expiring", financialSummary.assets_near_warranty_expiration, false],
+            ["Near End of Life", financialSummary.assets_near_end_of_life, false],
+          ].map(([label, value, currency]) => (
+            <div key={label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <CircleDollarSign size={20} className="text-blue-600" />
+              <p className="mt-3 text-xs font-black uppercase tracking-wider text-slate-500">{label}</p>
+              <p className="mt-1 text-xl font-black text-slate-900">{currency ? Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "PHP" }) : value || 0}</p>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Branch Filter — compact searchable dropdown */}
       {isSuperAdmin && (
@@ -1181,6 +1327,14 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
         <div className="mt-4 space-y-2 text-sm text-slate-600">
           <p><span className="font-bold text-slate-800">Location:</span> {location}</p>
           <p><span className="font-bold text-slate-800">Assigned:</span> {assignedTo}</p>
+          {asset.discovery_source && (
+            <p className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-violet-50 px-2 py-1 text-xs font-black text-violet-700">Discovered</span>
+              <span className={`rounded-full px-2 py-1 text-xs font-black ${asset.discovery_status === "Online" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                {asset.discovery_status || "Unknown"}
+              </span>
+            </p>
+          )}
         </div>
         <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
           <button onClick={onView} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"><Eye size={14} /> View</button>
@@ -1198,6 +1352,14 @@ function AssetDetailsModal({ asset, onClose }) {
     ["Serial Number", asset.serial_number], ["Status", asset.status], ["Branch", asset.branch_name],
     ["Location", asset.location || asset.department || asset.team_department], ["Assigned To", asset.assigned_name || asset.borrower_name],
     ["Purchase Date", formatDate(asset.purchase_date)], ["Warranty", formatDate(asset.warranty_expiration || asset.warranty)],
+    ["Vendor", asset.vendor || asset.supplier], ["Invoice Number", asset.invoice_number],
+    ["Current Book Value", Number(asset.current_book_value || 0).toLocaleString(undefined, { style: "currency", currency: "PHP" })],
+    ["Annual Depreciation", Number(asset.annual_depreciation || 0).toLocaleString(undefined, { style: "currency", currency: "PHP" })],
+    ["Useful Life", asset.useful_life_years ? `${asset.useful_life_years} years` : null],
+    ["End of Life", formatDate(asset.end_of_life_date)],
+    ["Hostname", asset.hostname], ["IP Address", asset.ip_address], ["MAC Address", asset.mac_address],
+    ["Operating System", asset.operating_system], ["Discovery Status", asset.discovery_status],
+    ["Last Seen", asset.last_seen ? new Date(asset.last_seen).toLocaleString() : null],
   ];
 
   return (
@@ -1473,6 +1635,45 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
                   value={form.supplier}
                   onChange={(value) => updateField("supplier", value)}
                   placeholder="Supplier name..."
+                />
+              </AssetField>
+              <AssetField label="Vendor">
+                <AssetInput
+                  value={form.vendor}
+                  onChange={(value) => updateField("vendor", value)}
+                  placeholder="Vendor name..."
+                />
+              </AssetField>
+              <AssetField label="Invoice Number">
+                <AssetInput
+                  value={form.invoice_number}
+                  onChange={(value) => updateField("invoice_number", value)}
+                  placeholder="Invoice reference..."
+                />
+              </AssetField>
+              <AssetField label="Useful Life (Years)">
+                <AssetInput
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={form.useful_life_years}
+                  onChange={(value) => updateField("useful_life_years", value)}
+                />
+              </AssetField>
+              <AssetField label="Salvage Value">
+                <AssetInput
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.salvage_value}
+                  onChange={(value) => updateField("salvage_value", value)}
+                />
+              </AssetField>
+              <AssetField label="Depreciation Method">
+                <AssetSelect
+                  value={form.depreciation_method}
+                  onChange={(value) => updateField("depreciation_method", value)}
+                  options={[{ label: "Straight-Line", value: "Straight-Line" }]}
                 />
               </AssetField>
               <AssetField label="Assigned Name">

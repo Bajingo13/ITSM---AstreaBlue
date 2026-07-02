@@ -15,6 +15,7 @@ import {
   Send,
   BookOpen,
   Paperclip,
+  RefreshCw,
   XCircle,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -317,7 +318,15 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
       setLoading(true);
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}${buildTicketQuery(user)}`);
       const data = await res.json();
-      setDetails(data);
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to load ticket details.");
+      }
+      const detail = data.data || data;
+      setDetails({
+        ...detail,
+        description: detail.description || detail.desc || ticket.description || ticket.desc || "",
+        desc: detail.desc || detail.description || ticket.desc || ticket.description || "",
+      });
     } catch (err) {
       console.error("Fetch ticket details failed:", err);
     } finally {
@@ -432,29 +441,10 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
       (activeRole === "Admin" && isOwnBranchTicket)) &&
     !nonCancellableStatuses.includes(currentStatus);
 
-  const updateStatusDirectly = async (newStatus) => {
+  const selectStatus = (newStatus) => {
     if (isCancelled) return;
-    try {
-      setAssigning(true);
-      setActionError("");
-      setSelectedStatus(newStatus);
-
-      const statusRes = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildTicketPayload(user, { status: newStatus })),
-      });
-
-      if (!statusRes.ok) throw new Error("Failed to update status");
-
-      await fetchDetails();
-      await onRefresh();
-    } catch (err) {
-      console.error(err);
-      setActionError(err.message);
-    } finally {
-      setAssigning(false);
-    }
+    setActionError("");
+    setSelectedStatus(newStatus);
   };
 
   const saveChanges = async () => {
@@ -476,7 +466,10 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
           body: JSON.stringify(buildTicketPayload(user, { status: selectedStatus })),
         });
 
-        if (!statusRes.ok) throw new Error("Failed to update status");
+        const statusData = await readJsonSafely(statusRes);
+        if (!statusRes.ok || statusData.success === false) {
+          throw new Error(statusData.message || statusData.error || "Failed to update status");
+        }
       }
 
       if (hasAssignmentChange) {
@@ -496,14 +489,15 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
         const assignData = await readJsonSafely(assignRes);
 
-        if (!assignRes.ok) {
-          throw new Error(assignData.error || "Failed to assign technician");
+        if (!assignRes.ok || assignData.success === false) {
+          throw new Error(assignData.message || assignData.error || "Failed to assign technician");
         }
       }
 
-      await fetchDetails();
-      await onRefresh();
-      onClose();
+      onClose("Ticket changes saved successfully.");
+      void Promise.resolve(onRefresh()).catch((refreshError) => {
+        if (import.meta.env.DEV) console.error("Ticket refresh failed:", refreshError);
+      });
     } catch (err) {
       console.error(err);
       setActionError(err.message);
@@ -887,7 +881,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                     .map((col) => (
                     <button
                       key={col.id}
-                      onClick={() => updateStatusDirectly(col.id)}
+                      type="button"
+                      onClick={() => selectStatus(col.id)}
                       disabled={selectedStatus === col.id || assigning || loading}
                       className={`rounded-xl px-4 py-2 text-sm font-black ${
                         selectedStatus === col.id
@@ -1208,19 +1203,27 @@ export default function Tickets() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [pageMessage, setPageMessage] = useState("");
+  const [pageError, setPageError] = useState("");
 
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
+      setPageError("");
       const res = await fetch(
         `${API_BASE}/tickets${buildTicketQuery(user, {
           filter_branch_id: branchFilter,
         })}`
       );
       const data = await res.json();
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to refresh tickets.");
+      }
       setTickets(Array.isArray(data) ? data : []);
+      return data;
     } catch (err) {
       console.error("Fetch tickets failed:", err);
+      setPageError(err.message || "Failed to refresh tickets.");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -1291,18 +1294,33 @@ export default function Tickets() {
           </p>
         </div>
 
-        <button
-          onClick={() => setModalOpen(true)}
-          className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
-        >
-          <Plus size={18} />
-          New Ticket
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => fetchTickets().catch(() => {})}
+            disabled={loading}
+            className="flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 font-black text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+          >
+            <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
+          >
+            <Plus size={18} />
+            New Ticket
+          </button>
+        </div>
       </section>
 
       {pageMessage && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-700 shadow-sm">
           {pageMessage}
+        </div>
+      )}
+      {pageError && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-bold text-rose-700 shadow-sm">
+          {pageError}
         </div>
       )}
 

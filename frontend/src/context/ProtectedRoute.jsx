@@ -19,9 +19,6 @@ export default function ProtectedRoute({ children, allowedRoles }) {
 
   const role = (user?.role_name || user?.role || "").toString();
   const normalizedRole = role.trim().toLowerCase();
-  try {
-    console.debug("ProtectedRoute: user=", user, "allowedRoles=", allowedRoles, "normalizedRole=", normalizedRole);
-  } catch (e) {}
 
   if (
     allowedRoles &&

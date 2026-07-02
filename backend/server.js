@@ -10,10 +10,12 @@ require("dotenv").config();
 const db = require("./config/db");
 
 const { calculateSlaDueDate } = require("./src/services/slaService");
+const { calculateStraightLine } = require("./src/services/assetFinancialService");
 const authRoutes = require("./src/routes/auth");
 const dashboardRoutes = require("./src/routes/dashboard");
 const inviteRoutes = require("./src/routes/invites");
 const emailRoutes = require("./src/routes/email");
+const assetManagementRoutes = require("./src/routes/assetManagement");
 const attachmentRoutes = require("./src/routes/attachments");
 const ticketRoutes = require("./src/routes/tickets");
 const notificationRoutes = require("./src/routes/notifications");
@@ -372,6 +374,20 @@ async function ensureHardwareAssetTables() {
       ADD COLUMN IF NOT EXISTS condition_before TEXT,
       ADD COLUMN IF NOT EXISTS condition_after TEXT,
       ADD COLUMN IF NOT EXISTS notes TEXT,
+      ADD COLUMN IF NOT EXISTS vendor VARCHAR(150),
+      ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(150),
+      ADD COLUMN IF NOT EXISTS useful_life_years NUMERIC(6,2) DEFAULT 5,
+      ADD COLUMN IF NOT EXISTS salvage_value NUMERIC(12,2) DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS depreciation_method VARCHAR(50) DEFAULT 'Straight-Line',
+      ADD COLUMN IF NOT EXISTS hostname VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS ip_address VARCHAR(64),
+      ADD COLUMN IF NOT EXISTS mac_address VARCHAR(32),
+      ADD COLUMN IF NOT EXISTS operating_system VARCHAR(150),
+      ADD COLUMN IF NOT EXISTS device_type VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS discovery_status VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS discovery_source VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS discovered_at TIMESTAMP,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     `);
@@ -437,6 +453,21 @@ async function ensureHardwareAssetTables() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS asset_discovery_scans (
+        scan_id BIGSERIAL PRIMARY KEY,
+        started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP,
+        duration_ms INTEGER,
+        devices_found INTEGER NOT NULL DEFAULT 0,
+        new_assets INTEGER NOT NULL DEFAULT 0,
+        updated_assets INTEGER NOT NULL DEFAULT 0,
+        status VARCHAR(30) NOT NULL DEFAULT 'Running',
+        branch_id INTEGER REFERENCES branches(branch_id),
+        initiated_by INTEGER REFERENCES users(user_id),
+        error_message TEXT
+      )
+    `);
     return true;
   } catch (err) {
     console.error("Hardware asset table setup error:", err.message);
@@ -455,6 +486,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/invites", inviteRoutes);
 app.use("/api/v1/email", emailRoutes);
+app.use("/api/v1/hardware-assets", assetManagementRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
@@ -1144,6 +1176,20 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
         a.condition_before,
         a.condition_after,
         a.notes,
+        a.vendor,
+        a.invoice_number,
+        a.useful_life_years,
+        a.salvage_value,
+        a.depreciation_method,
+        a.hostname,
+        a.ip_address,
+        a.mac_address,
+        a.operating_system,
+        a.device_type,
+        a.last_seen,
+        a.discovery_status,
+        a.discovery_source,
+        a.discovered_at,
         a.branch_id,
         COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
         a.created_at,
@@ -1156,7 +1202,7 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
       params
     );
 
-    res.json(result.rows);
+    res.json(result.rows.map((asset) => ({ ...asset, ...calculateStraightLine(asset) })));
   } catch (err) {
     logHardwareAssetError("GET", err);
     return res.status(500).json({

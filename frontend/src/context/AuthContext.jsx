@@ -19,9 +19,6 @@ export function AuthProvider({ children }) {
       logoutUser();
     }
     if (savedUser) setUser(savedUser);
-    try {
-      console.debug("AuthProvider: onMount savedUser=", savedUser);
-    } catch (e) {}
     setLoading(false);
   }, []);
 
@@ -43,9 +40,6 @@ export function AuthProvider({ children }) {
     // data.token is the JWT returned from the updated login route
     saveUser(loggedUser, data.token || null, rememberMe);
     setUser(loggedUser);
-    try {
-      console.debug("AuthProvider: login ->", { loggedUser, token: data.token, rememberMe });
-    } catch (e) {}
     return loggedUser;
   };
 

@@ -6,6 +6,8 @@ const db = require("../../config/db");
 
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 const JWT_EXPIRES = "8h";
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOCK_MESSAGE = "Your account has been temporarily locked due to multiple failed login attempts. Please try again after 10 minutes.";
 
 const bcrypt = require("bcryptjs");
 const { sendPasswordResetEmail } = require("../services/emailService");
@@ -45,6 +47,9 @@ router.post("/login", async (req, res) => {
         u.branch_id,
         u.mobile_number,
         COALESCE(u.is_active, TRUE) AS is_active,
+        COALESCE(u.failed_login_attempts, 0) AS failed_login_attempts,
+        u.locked_until,
+        (u.locked_until IS NOT NULL AND u.locked_until > CURRENT_TIMESTAMP) AS is_locked,
         b.branch_name,
         sr.role_name
       FROM users u
@@ -65,6 +70,14 @@ router.post("/login", async (req, res) => {
 
     const user = result.rows[0];
 
+    if (user.is_locked) {
+      return res.status(423).json({
+        success: false,
+        message: LOCK_MESSAGE,
+        error: LOCK_MESSAGE,
+      });
+    }
+
     if (!user.is_active) {
       return res.status(403).json({
         success: false,
@@ -73,11 +86,50 @@ router.post("/login", async (req, res) => {
     }
 
     if (!passwordMatches(password, user.password_hash)) {
+      const failureResult = await db.query(
+        `
+        UPDATE users
+        SET
+          failed_login_attempts = CASE
+            WHEN locked_until IS NOT NULL AND locked_until <= CURRENT_TIMESTAMP THEN 1
+            ELSE COALESCE(failed_login_attempts, 0) + 1
+          END,
+          locked_until = CASE
+            WHEN (
+              CASE
+                WHEN locked_until IS NOT NULL AND locked_until <= CURRENT_TIMESTAMP THEN 1
+                ELSE COALESCE(failed_login_attempts, 0) + 1
+              END
+            ) >= $1
+            THEN CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+            ELSE NULL
+          END
+        WHERE user_id = $2
+        RETURNING failed_login_attempts, locked_until,
+          (locked_until IS NOT NULL AND locked_until > CURRENT_TIMESTAMP) AS is_locked
+        `,
+        [MAX_FAILED_LOGIN_ATTEMPTS, user.user_id]
+      );
+
+      if (failureResult.rows[0]?.is_locked) {
+        return res.status(423).json({
+          success: false,
+          message: LOCK_MESSAGE,
+          error: LOCK_MESSAGE,
+        });
+      }
+
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
+        error: "Invalid email or password",
       });
     }
+
+    await db.query(
+      `UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE user_id = $1`,
+      [user.user_id]
+    );
 
     const tokenPayload = {
       userId: user.user_id,

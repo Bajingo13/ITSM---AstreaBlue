@@ -16,8 +16,8 @@ export async function loginUser(email, password) {
 
   const data = await response.json().catch(() => ({}));
 
-  if (!response.ok) {
-    throw new Error(data.message || "Login failed");
+  if (!response.ok || data.success === false) {
+    throw new Error(data.message || data.error || "Login failed");
   }
 
   return data;
@@ -111,8 +111,8 @@ export async function forgotPassword(email) {
   }
 
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.message || "Failed to process request");
+  if (!response.ok || data.success === false) {
+    throw new Error(data.message || data.error || "Failed to process request");
   }
   return data;
 }
@@ -130,8 +130,8 @@ export async function resetPassword(token, password) {
   }
 
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.message || "Failed to reset password");
+  if (!response.ok || data.success === false) {
+    throw new Error(data.message || data.error || "Failed to reset password");
   }
   return data;
 }

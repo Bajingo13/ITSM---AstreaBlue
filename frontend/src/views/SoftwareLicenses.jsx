@@ -586,7 +586,7 @@ export default function SoftwareLicenses() {
         body: JSON.stringify(buildLicensePayload(user, formData)),
       });
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Failed to add license.");
+      if (!res.ok || data.success === false) throw new Error(data.message || data.error || "Failed to add license.");
       setShowAddModal(false);
       await fetchData();
     } catch (err) {
@@ -607,7 +607,7 @@ export default function SoftwareLicenses() {
         body: JSON.stringify(buildLicensePayload(user, formData)),
       });
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Failed to update license.");
+      if (!res.ok || data.success === false) throw new Error(data.message || data.error || "Failed to update license.");
       setEditingLicense(null);
       await fetchData();
     } catch (err) {
@@ -624,7 +624,7 @@ export default function SoftwareLicenses() {
         method: "DELETE",
       });
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Failed to delete license.");
+      if (!res.ok || data.success === false) throw new Error(data.message || data.error || "Failed to delete license.");
       await fetchData();
     } catch (err) {
       console.error("Delete error:", err.message);
