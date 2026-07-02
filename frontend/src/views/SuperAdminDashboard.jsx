@@ -89,6 +89,7 @@ function HeroBanner() {
    TicketsPerBranchCard — branch ticket distribution
    ───────────────────────────────────────────── */
 function TicketsPerBranchCard({ branches, tickets, loading }) {
+  const navigate = useNavigate();
   const data = useMemo(() => {
     if (!branches.length) return [];
     const ticketCounts = {};
@@ -159,7 +160,7 @@ function TicketsPerBranchCard({ branches, tickets, loading }) {
         </p>
         <button
           type="button"
-          onClick={() => window.location.assign("/tickets")}
+          onClick={() => navigate("/tickets")}
           className="rounded-xl bg-blue-50 px-4 py-2 text-xs font-black text-blue-700 transition hover:bg-blue-100"
         >
           View Report
@@ -225,6 +226,7 @@ function DonutChart({ segments, size = 140, strokeWidth = 28 }) {
    RoleDistributionCard — donut chart + role list
    ───────────────────────────────────────────── */
 function RoleDistributionCard({ users, loading }) {
+  const navigate = useNavigate();
   const roleCounts = useMemo(() => {
     if (!users.length) return { admins: 0, technicians: 0, employees: 0, total: 0 };
     const admins = users.filter((u) => u.role_name === "Admin").length;
@@ -321,7 +323,7 @@ function RoleDistributionCard({ users, loading }) {
       <div className="mt-4 flex justify-end border-t border-slate-100 pt-4">
         <button
           type="button"
-          onClick={() => window.location.assign("/settings/users")}
+          onClick={() => navigate("/settings/users")}
           className="rounded-xl bg-blue-50 px-4 py-2 text-xs font-black text-blue-700 transition hover:bg-blue-100"
         >
           View Report
@@ -387,6 +389,7 @@ function QuickActions() {
    UserListCard — role-filtered user list
    ───────────────────────────────────────────── */
 function UserListCard({ title, icon: Icon, users, accent = "blue", loading, emptyMessage }) {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const MAX_VISIBLE = 5;
 
@@ -431,7 +434,7 @@ function UserListCard({ title, icon: Icon, users, accent = "blue", loading, empt
         </div>
         <button
           type="button"
-          onClick={() => window.location.assign("/settings/users")}
+          onClick={() => navigate("/settings/users")}
           className="text-xs font-bold text-blue-600 hover:text-blue-800"
         >
           View All
@@ -491,7 +494,7 @@ function UserListCard({ title, icon: Icon, users, accent = "blue", loading, empt
         <div className="border-t border-slate-100 px-5 py-3 text-center">
           <button
             type="button"
-            onClick={() => window.location.assign("/settings/users")}
+            onClick={() => navigate("/settings/users")}
             className="text-xs font-bold text-blue-600 hover:text-blue-800"
           >
             +{filtered.length - MAX_VISIBLE} more
@@ -507,6 +510,7 @@ function UserListCard({ title, icon: Icon, users, accent = "blue", loading, empt
    ───────────────────────────────────────────── */
 export default function SuperAdminDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [branches, setBranches] = useState([]);
   const [users, setUsers] = useState([]);
   const [tickets, setTickets] = useState([]);
@@ -559,7 +563,7 @@ export default function SuperAdminDashboard() {
       value: branches.length,
       description: "Active branch locations",
       accent: "blue",
-      onClick: () => window.location.assign("/settings/branches"),
+      onClick: () => navigate("/settings/branches"),
     },
     {
       icon: Users,
@@ -567,7 +571,7 @@ export default function SuperAdminDashboard() {
       value: activeUsers.length,
       description: "System-wide registered users",
       accent: "purple",
-      onClick: () => window.location.assign("/settings/users"),
+      onClick: () => navigate("/settings/users"),
     },
     {
       icon: Ticket,
@@ -575,7 +579,7 @@ export default function SuperAdminDashboard() {
       value: tickets.length,
       description: "All-time support tickets",
       accent: "emerald",
-      onClick: () => window.location.assign("/tickets"),
+      onClick: () => navigate("/tickets"),
     },
     {
       icon: UserCog,
@@ -583,7 +587,7 @@ export default function SuperAdminDashboard() {
       value: admins.length,
       description: "Branch administrators",
       accent: "amber",
-      onClick: () => window.location.assign("/settings/users"),
+      onClick: () => navigate("/settings/users"),
     },
   ], [branches, activeUsers, tickets, admins]);
 

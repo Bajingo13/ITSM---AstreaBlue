@@ -620,6 +620,28 @@ export default function Assets() {
     setModalError("");
   };
 
+  const handleSaveAsset = async (payload, id) => {
+    try {
+      setSaving(true);
+      setModalError("");
+      const body = { ...payload, ...buildTicketPayload(user) };
+      const res = await fetch(id ? `${API_BASE}/hardware-assets/${id}` : `${API_BASE}/hardware-assets`, {
+        method: id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Failed to ${id ? "update" : "create"} asset.`);
+      await fetchAssets();
+      closeAssetModal();
+    } catch (err) {
+      console.error(err);
+      setModalError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
 
   const openAction = (asset, mode) => {
     setActionAsset(asset);
@@ -1288,6 +1310,11 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
       size: file.size,
       type: file.type,
     }));
+
+    if (typeof onSave !== "function") {
+      setLocalError("Save handler is not configured. Please contact support.");
+      return;
+    }
 
     onSave(
       {
