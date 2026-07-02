@@ -620,6 +620,35 @@ export default function Assets() {
     setModalError("");
   };
 
+  const handleSaveAsset = async (payload, assetId) => {
+    try {
+      setSaving(true);
+      setModalError("");
+
+      const res = await fetch(
+        assetId ? `${API_BASE}/hardware-assets/${assetId}` : `${API_BASE}/hardware-assets`,
+        {
+          method: assetId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildTicketPayload(user, payload)),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.error || data.message || "Unable to save asset");
+      }
+
+      await fetchAssets();
+      closeAssetModal();
+    } catch (err) {
+      console.error("Save hardware asset failed:", err);
+      setModalError(err.message || "Unable to save asset");
+    } finally {
+      setSaving(false);
+    }
+  };
+
 
   const openAction = (asset, mode) => {
     setActionAsset(asset);
