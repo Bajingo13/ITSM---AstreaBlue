@@ -28,8 +28,8 @@ import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { API_URL } from "../config/api";
 
 const API_BASE = `${API_URL}/api/v1`;
-const ASSET_TYPES = [
-  "All",
+const EMPTY_DETAIL_VALUE = "-";
+const BASE_ASSET_TYPES = [
   "Laptop",
   "Desktop",
   "Monitor",
@@ -37,10 +37,8 @@ const ASSET_TYPES = [
   "Phone",
   "Tablet",
   "Router",
-  "Keyboard",
-  "Mouse",
-  "Other",
 ];
+const ASSET_TYPES = ["All", ...BASE_ASSET_TYPES, "Other"];
 const STATUS_OPTIONS = [
   "All",
   "Available",
@@ -55,12 +53,7 @@ const STATUS_OPTIONS = [
   "Lost/Damaged",
 ];
 const MODAL_ASSET_TYPE_OPTIONS = [
-  { label: "laptop", value: "Laptop" },
-  { label: "desktop", value: "Desktop" },
-  { label: "monitor", value: "Monitor" },
-  { label: "printer", value: "Printer" },
-  { label: "phone", value: "Phone" },
-  { label: "tablet", value: "Tablet" },
+  ...BASE_ASSET_TYPES.map((type) => ({ label: type, value: type })),
   { label: "other", value: "Other" },
 ];
 const MODAL_STATUS_OPTIONS = [
@@ -82,6 +75,24 @@ const ACTION_MODES = {
   retire: { label: "Retire Asset", status: "Retired", icon: AlertTriangle },
   dispose: { label: "Dispose Asset", status: "Disposed", icon: Box },
 };
+const SORT_OPTIONS = [
+  { value: "latest", label: "Latest Hardware Assets" },
+  { value: "oldest", label: "Oldest Hardware Assets" },
+  { value: "updated", label: "Recently Updated" },
+  { value: "alphabetical", label: "Alphabetical (A-Z)" },
+];
+const STATUS_FILTER_OPTIONS = [
+  { value: "Active", label: "Active" },
+  { value: "Borrowed", label: "Borrowed" },
+  { value: "In Repair", label: "Under Repair" },
+  { value: "Retired", label: "Retired" },
+  { value: "Disposed", label: "Disposed" },
+];
+const QUICK_FILTER_OPTIONS = [
+  { value: "inStock", label: "In Stock Only" },
+  { value: "assigned", label: "Assigned Only" },
+  { value: "unassigned", label: "Unassigned Only" },
+];
 const BRANCH_CARD_GAP = 16;
 
 function getBranchCode(branchName) {
@@ -142,10 +153,173 @@ function formatDateInput(value) {
   return String(value).slice(0, 10);
 }
 
+function isMissingAssetValue(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string" && value.trim() === "") return true;
+  if (Array.isArray(value) && value.length === 0) return true;
+  return false;
+}
+
+function formatDetailDate(value) {
+  if (isMissingAssetValue(value)) return EMPTY_DETAIL_VALUE;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString();
+}
+
+function formatDetailDateTime(value) {
+  if (isMissingAssetValue(value)) return EMPTY_DETAIL_VALUE;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function getNestedAssetValue(source, path) {
+  return String(path)
+    .split(".")
+    .reduce((current, key) => {
+      if (current === null || current === undefined) return undefined;
+      return current[key];
+    }, source);
+}
+
+function firstAssetValue(source, paths) {
+  for (const path of paths) {
+    const value = typeof path === "function" ? path(source) : getNestedAssetValue(source, path);
+    if (!isMissingAssetValue(value)) return value;
+  }
+  return null;
+}
+
+function joinAssetValues(values, separator = " / ") {
+  const presentValues = values
+    .filter((value) => !isMissingAssetValue(value))
+    .map((value) => String(value).trim());
+  return presentValues.length ? presentValues.join(separator) : null;
+}
+
+function formatAssetDetailValue(value, formatter) {
+  const nextValue = formatter && !isMissingAssetValue(value) ? formatter(value) : value;
+
+  if (isMissingAssetValue(nextValue)) return EMPTY_DETAIL_VALUE;
+  if (typeof nextValue === "boolean") return nextValue ? "Yes" : "No";
+  if (Array.isArray(nextValue)) {
+    const values = nextValue
+      .map((item) => formatAssetDetailValue(item))
+      .filter((item) => item !== EMPTY_DETAIL_VALUE);
+    return values.length ? values.join(", ") : EMPTY_DETAIL_VALUE;
+  }
+  if (typeof nextValue === "object") {
+    const namedValue = firstAssetValue(nextValue, [
+      "name",
+      "file_name",
+      "full_name",
+      "branch_name",
+      "supplier_name",
+      "label",
+      "title",
+    ]);
+    return isMissingAssetValue(namedValue) ? JSON.stringify(nextValue) : String(namedValue);
+  }
+
+  return String(nextValue);
+}
+
+function assetDetailItem(label, asset, paths, formatter) {
+  return {
+    label,
+    value: formatAssetDetailValue(firstAssetValue(asset, Array.isArray(paths) ? paths : [paths]), formatter),
+  };
+}
+
+function toggleArrayValue(values, value) {
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+}
+
+function getAssignedAssetValue(asset) {
+  return String(asset.assigned_name || asset.borrower_name || "").trim();
+}
+
+function getSortTimestamp(asset, key) {
+  const value = asset[key];
+  const time = value ? new Date(value).getTime() : 0;
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getSortOptionLabel(value) {
+  return SORT_OPTIONS.find((option) => option.value === value)?.label || SORT_OPTIONS[0].label;
+}
+
+function getStatusFilterLabel(value) {
+  return STATUS_FILTER_OPTIONS.find((option) => option.value === value)?.label || value;
+}
+
+function getQuickFilterLabel(value) {
+  return QUICK_FILTER_OPTIONS.find((option) => option.value === value)?.label || value;
+}
+
+function buildFilterSummary({
+  sortMode,
+  sortTouched,
+  statusFilters,
+  quickFilters,
+  conditionFilters,
+  typeFilter,
+  manufacturerFilter,
+  departmentFilter,
+  assignedFilter,
+}) {
+  const chips = [
+    ...statusFilters.map(getStatusFilterLabel),
+    ...quickFilters.map(getQuickFilterLabel),
+    ...conditionFilters,
+  ];
+
+  if (typeFilter !== "All") chips.push(typeFilter);
+  if (manufacturerFilter !== "All") chips.push(manufacturerFilter);
+  if (departmentFilter !== "All") chips.push(departmentFilter);
+  if (assignedFilter !== "All") chips.push(assignedFilter);
+
+  if (chips.length > 0) {
+    return chips.length <= 2 ? chips.join(" + ") : `${chips.slice(0, 2).join(" + ")} +${chips.length - 2}`;
+  }
+
+  return sortTouched ? getSortOptionLabel(sortMode) : "Sort & Filter";
+}
+
+function normalizeAssetType(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function getKnownAssetType(value, knownTypes = ASSET_TYPES) {
+  const normalized = normalizeAssetType(value);
+  return knownTypes.find((type) => type.toLowerCase() === normalized.toLowerCase()) || normalized;
+}
+
+function getModalAssetTypeState(assetType) {
+  const normalized = normalizeAssetType(assetType);
+  if (!normalized) {
+    return { assetType: "Laptop", customAssetType: "" };
+  }
+  if (normalized.toLowerCase() === "other") {
+    return { assetType: "Other", customAssetType: "" };
+  }
+
+  const baseType = getKnownAssetType(normalized, BASE_ASSET_TYPES);
+  if (BASE_ASSET_TYPES.includes(baseType)) {
+    return { assetType: baseType, customAssetType: "" };
+  }
+
+  return { assetType: "Other", customAssetType: normalized };
+}
+
 function getAssetFormInitialState(asset, currentBranchId) {
+  const assetTypeState = getModalAssetTypeState(asset?.asset_type);
+
   return {
     asset_name: asset?.asset_name || "",
-    asset_type: asset?.asset_type || "Laptop",
+    asset_type: assetTypeState.assetType,
+    custom_asset_type: assetTypeState.customAssetType,
     manufacturer: asset?.manufacturer || asset?.brand || "",
     brand: asset?.brand || asset?.manufacturer || "",
     model: asset?.model || "",
@@ -155,7 +329,7 @@ function getAssetFormInitialState(asset, currentBranchId) {
     status: asset?.status || "Active",
     color: asset?.color || "",
     purchase_date: formatDateInput(asset?.purchase_date),
-    purchase_price: asset?.purchase_price || "",
+    purchase_price: asset?.purchase_price ?? "",
     supplier: asset?.supplier || "",
     assigned_name: asset?.assigned_name || asset?.borrower_name || "",
     returned_name: asset?.returned_name || "",
@@ -284,6 +458,226 @@ function SearchableBranchDropdown({ branches = [], value, onChange }) {
     </div>
   );
 }
+
+function FilterPanelSection({ title, children }) {
+  return (
+    <div className="border-b border-slate-100 px-4 py-4 last:border-b-0">
+      <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function FilterChip({ selected, children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-[11px] border px-3 py-2 text-xs font-black transition ${
+        selected
+          ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm shadow-blue-600/10"
+          : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FilterSelect({ label, value, options, onChange }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-[11px] border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-200 hover:bg-blue-50/40 focus:border-blue-500 focus:ring-4 focus:ring-blue-600/10"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function SortFilterDropdown({
+  buttonLabel,
+  sortMode,
+  onSortChange,
+  statusFilters,
+  onStatusToggle,
+  quickFilters,
+  onQuickToggle,
+  conditionFilters,
+  conditionOptions,
+  onConditionToggle,
+  typeFilter,
+  assetTypeOptions,
+  onTypeChange,
+  manufacturerFilter,
+  manufacturerOptions,
+  onManufacturerChange,
+  departmentFilter,
+  departmentOptions,
+  onDepartmentChange,
+  assignedFilter,
+  assignedOptions,
+  onAssignedChange,
+  onClear,
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectOptions = (items) => items.map((item) => ({ label: item, value: item }));
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        className={`inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black shadow-sm transition ${
+          open
+            ? "border-blue-300 bg-blue-50 text-blue-700 ring-4 ring-blue-600/10"
+            : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+        }`}
+      >
+        <Filter size={16} />
+        <span className="max-w-[230px] truncate">{buttonLabel}</span>
+        <ChevronDown size={16} className={`shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      <div
+        className={`absolute right-0 top-full z-40 mt-2 w-[min(92vw,440px)] origin-top-right overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/12 transition-all duration-150 ${
+          open ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0 pointer-events-none"
+        }`}
+      >
+        <FilterPanelSection title="Sorting">
+          <div className="space-y-1">
+            {SORT_OPTIONS.map((option) => {
+              const selected = sortMode === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onSortChange(option.value)}
+                  className={`flex w-full items-center justify-between rounded-[11px] px-3 py-2.5 text-left text-sm font-bold transition ${
+                    selected ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-blue-50/60 hover:text-blue-700"
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {selected && <CheckCircle size={16} className="text-blue-600" />}
+                </button>
+              );
+            })}
+          </div>
+        </FilterPanelSection>
+
+        <FilterPanelSection title="Status Filter">
+          <div className="flex flex-wrap gap-2">
+            {STATUS_FILTER_OPTIONS.map((option) => (
+              <FilterChip
+                key={option.value}
+                selected={statusFilters.includes(option.value)}
+                onClick={() => onStatusToggle(option.value)}
+              >
+                {option.label}
+              </FilterChip>
+            ))}
+          </div>
+        </FilterPanelSection>
+
+        <FilterPanelSection title="Quick Filter Toggles">
+          <div className="flex flex-wrap gap-2">
+            {QUICK_FILTER_OPTIONS.map((option) => (
+              <FilterChip
+                key={option.value}
+                selected={quickFilters.includes(option.value)}
+                onClick={() => onQuickToggle(option.value)}
+              >
+                {option.label}
+              </FilterChip>
+            ))}
+          </div>
+
+          {conditionOptions.filter((item) => item !== "All").length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">Condition</p>
+              <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto pr-1">
+                {conditionOptions.filter((item) => item !== "All").map((condition) => (
+                  <FilterChip
+                    key={condition}
+                    selected={conditionFilters.includes(condition)}
+                    onClick={() => onConditionToggle(condition)}
+                  >
+                    {condition}
+                  </FilterChip>
+                ))}
+              </div>
+            </div>
+          )}
+        </FilterPanelSection>
+
+        <FilterPanelSection title="More Filters">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FilterSelect
+              label="Type"
+              value={typeFilter}
+              options={selectOptions(assetTypeOptions)}
+              onChange={onTypeChange}
+            />
+            <FilterSelect
+              label="Brand"
+              value={manufacturerFilter}
+              options={selectOptions(manufacturerOptions)}
+              onChange={onManufacturerChange}
+            />
+            <FilterSelect
+              label="Department"
+              value={departmentFilter}
+              options={selectOptions(departmentOptions)}
+              onChange={onDepartmentChange}
+            />
+            <FilterSelect
+              label="Assigned"
+              value={assignedFilter}
+              options={selectOptions(assignedOptions)}
+              onChange={onAssignedChange}
+            />
+          </div>
+        </FilterPanelSection>
+
+        <FilterPanelSection title="Reset Action">
+          <button
+            type="button"
+            onClick={() => {
+              onClear();
+              setOpen(false);
+            }}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-[11px] border border-rose-200 bg-white px-4 py-2.5 text-sm font-black text-rose-600 transition hover:border-rose-300 hover:bg-rose-50"
+          >
+            <X size={16} />
+            Clear All Filters
+          </button>
+        </FilterPanelSection>
+      </div>
+    </div>
+  );
+}
 export default function Assets() {
   const { user, role } = useAuth();
   const activeRole = role || user?.role_name || user?.role || "";
@@ -295,12 +689,14 @@ export default function Assets() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilters, setStatusFilters] = useState([]);
   const [manufacturerFilter, setManufacturerFilter] = useState("All");
-  const [conditionFilter, setConditionFilter] = useState("All");
+  const [conditionFilters, setConditionFilters] = useState([]);
   const [departmentFilter, setDepartmentFilter] = useState("All");
   const [assignedFilter, setAssignedFilter] = useState("All");
-  const [sortLatest, setSortLatest] = useState(false);
+  const [quickFilters, setQuickFilters] = useState([]);
+  const [sortMode, setSortMode] = useState("latest");
+  const [sortTouched, setSortTouched] = useState(false);
   const [branchFilter, setBranchFilter] = useState(isSuperAdmin ? "All" : String(currentBranchId || ""));
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [editingAsset, setEditingAsset] = useState(null);
@@ -388,8 +784,8 @@ export default function Assets() {
         if (String(asset.branch_id) !== String(branchFilter)) return false;
       }
       // Status filter
-      if (statusFilter && statusFilter !== "All") {
-        if (asset.status !== statusFilter) return false;
+      if (statusFilters.length > 0) {
+        if (!statusFilters.includes(asset.status)) return false;
       }
       // Type filter
       if (typeFilter && typeFilter !== "All") {
@@ -400,9 +796,9 @@ export default function Assets() {
         if ((asset.brand || "") !== manufacturerFilter) return false;
       }
       // Condition filter
-      if (conditionFilter && conditionFilter !== "All") {
+      if (conditionFilters.length > 0) {
         const cond = asset.condition_after || asset.condition_before || "";
-        if (cond !== conditionFilter) return false;
+        if (!conditionFilters.includes(cond)) return false;
       }
       // Department filter
       if (departmentFilter && departmentFilter !== "All") {
@@ -410,8 +806,17 @@ export default function Assets() {
         if (dept !== departmentFilter) return false;
       }
       if (assignedFilter && assignedFilter !== "All") {
-        const assigned = asset.assigned_name || asset.borrower_name || "";
+        const assigned = getAssignedAssetValue(asset);
         if (assigned !== assignedFilter) return false;
+      }
+      if (quickFilters.includes("inStock") && asset.status !== "In Stock") {
+        return false;
+      }
+      if (quickFilters.includes("assigned") && !getAssignedAssetValue(asset)) {
+        return false;
+      }
+      if (quickFilters.includes("unassigned") && getAssignedAssetValue(asset)) {
+        return false;
       }
       // Search filter
       if (search && search.trim()) {
@@ -433,15 +838,35 @@ export default function Assets() {
       }
       return true;
     });
-    if (sortLatest) {
-      filtered.sort((a, b) => {
-        const da = new Date(a.created_at || 0).getTime();
-        const db = new Date(b.created_at || 0).getTime();
-        return db - da;
-      });
-    }
+    filtered.sort((a, b) => {
+      if (sortMode === "oldest") {
+        return getSortTimestamp(a, "created_at") - getSortTimestamp(b, "created_at");
+      }
+      if (sortMode === "updated") {
+        return getSortTimestamp(b, "updated_at") - getSortTimestamp(a, "updated_at");
+      }
+      if (sortMode === "alphabetical") {
+        const aName = (a.asset_name || `${a.brand || ""} ${a.model || ""}`.trim() || a.asset_tag || "").toLowerCase();
+        const bName = (b.asset_name || `${b.brand || ""} ${b.model || ""}`.trim() || b.asset_tag || "").toLowerCase();
+        return aName.localeCompare(bName);
+      }
+      return getSortTimestamp(b, "created_at") - getSortTimestamp(a, "created_at");
+    });
     return filtered;
-  }, [assets, branchFilter, isSuperAdmin, statusFilter, typeFilter, manufacturerFilter, conditionFilter, departmentFilter, assignedFilter, search, sortLatest]);
+  }, [
+    assets,
+    branchFilter,
+    isSuperAdmin,
+    statusFilters,
+    typeFilter,
+    manufacturerFilter,
+    conditionFilters,
+    departmentFilter,
+    assignedFilter,
+    quickFilters,
+    search,
+    sortMode,
+  ]);
 
   const branchMetrics = useMemo(() => {
     return visibleBranches.map((branch) => {
@@ -595,16 +1020,81 @@ export default function Assets() {
   }, [assets]);
 
   // ── Clear all filters ────────────────────────────────────
+  const assetTypeFilterOptions = useMemo(() => {
+    const customTypes = new Map();
+
+    assets.forEach((asset) => {
+      const normalized = normalizeAssetType(asset.asset_type);
+      if (!normalized) return;
+
+      const knownType = getKnownAssetType(normalized, BASE_ASSET_TYPES);
+      if (BASE_ASSET_TYPES.includes(knownType) || knownType.toLowerCase() === "other") return;
+
+      const key = knownType.toLowerCase();
+      if (!customTypes.has(key)) {
+        customTypes.set(key, knownType);
+      }
+    });
+
+    return [
+      "All",
+      ...BASE_ASSET_TYPES,
+      ...Array.from(customTypes.values()).sort((a, b) => a.localeCompare(b)),
+      "Other",
+    ];
+  }, [assets]);
+
+  const sortFilterButtonLabel = useMemo(
+    () =>
+      buildFilterSummary({
+        sortMode,
+        sortTouched,
+        statusFilters,
+        quickFilters,
+        conditionFilters,
+        typeFilter,
+        manufacturerFilter,
+        departmentFilter,
+        assignedFilter,
+      }),
+    [
+      sortMode,
+      sortTouched,
+      statusFilters,
+      quickFilters,
+      conditionFilters,
+      typeFilter,
+      manufacturerFilter,
+      departmentFilter,
+      assignedFilter,
+    ]
+  );
+
+  const toggleQuickFilter = (value) => {
+    setQuickFilters((prev) => {
+      const next = toggleArrayValue(prev, value);
+      if (value === "assigned" && next.includes("assigned")) {
+        return next.filter((item) => item !== "unassigned");
+      }
+      if (value === "unassigned" && next.includes("unassigned")) {
+        return next.filter((item) => item !== "assigned");
+      }
+      return next;
+    });
+  };
+
   const clearFilters = () => {
     setBranchFilter(isSuperAdmin ? "All" : String(currentBranchId || ""));
-    setStatusFilter("All");
+    setStatusFilters([]);
     setTypeFilter("All");
     setManufacturerFilter("All");
-    setConditionFilter("All");
+    setConditionFilters([]);
     setDepartmentFilter("All");
     setAssignedFilter("All");
+    setQuickFilters([]);
     setSearch("");
-    setSortLatest(false);
+    setSortMode("latest");
+    setSortTouched(false);
   };
 
 
@@ -624,13 +1114,15 @@ export default function Assets() {
     try {
       setSaving(true);
       setModalError("");
+      const assetType = getKnownAssetType(payload.asset_type, assetTypeFilterOptions);
+      const body = buildTicketPayload(user, { ...payload, asset_type: assetType });
 
       const res = await fetch(
         assetId ? `${API_BASE}/hardware-assets/${assetId}` : `${API_BASE}/hardware-assets`,
         {
           method: assetId ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildTicketPayload(user, payload)),
+          body: JSON.stringify(body),
         }
       );
       const data = await res.json().catch(() => ({}));
@@ -849,12 +1341,12 @@ export default function Assets() {
       <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <div className="grid gap-4 md:grid-cols-3">
           {statusMetrics.map((item) => {
-            const isActive = statusFilter === item.status;
+            const isActive = statusFilters.includes(item.status);
             return (
               <button
                 key={item.status}
                 type="button"
-                onClick={() => setStatusFilter(isActive ? "All" : item.status)}
+                onClick={() => setStatusFilters((prev) => toggleArrayValue(prev, item.status))}
                 className={`rounded-3xl border p-5 text-left shadow-sm transition hover:shadow-md ${isActive ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200" : "border-slate-200 bg-white"}`}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -888,94 +1380,34 @@ export default function Assets() {
             className="w-full bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
           />
         </div>
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Type: All</option>
-          {ASSET_TYPES.filter((t) => t !== "All").map((type) => (
-            <option key={type} value={type}>
-              {type}
-            </option>
-          ))}
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Status: All</option>
-          {STATUS_OPTIONS.filter((s) => s !== "All").map((status) => (
-            <option key={status} value={status}>
-              {status}
-            </option>
-          ))}
-        </select>
-        <select
-          value={manufacturerFilter}
-          onChange={(e) => setManufacturerFilter(e.target.value)}
-          className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Brand: All</option>
-          {manufacturers.filter((m) => m !== "All").map((manufacturer) => (
-            <option key={manufacturer} value={manufacturer}>
-              {manufacturer}
-            </option>
-          ))}
-        </select>
-        <select
-          value={conditionFilter}
-          onChange={(e) => setConditionFilter(e.target.value)}
-          className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Condition: All</option>
-          {conditionOptions.filter((c) => c !== "All").map((cond) => (
-            <option key={cond} value={cond}>
-              {cond}
-            </option>
-          ))}
-        </select>
-        <select
-          value={departmentFilter}
-          onChange={(e) => setDepartmentFilter(e.target.value)}
-          className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Department: All</option>
-          {departmentOptions.filter((d) => d !== "All").map((dept) => (
-            <option key={dept} value={dept}>
-              {dept}
-            </option>
-          ))}
-        </select>
-        <select
-          value={assignedFilter}
-          onChange={(e) => setAssignedFilter(e.target.value)}
-          className="min-w-[140px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Assigned: All</option>
-          {assignedOptions.filter((name) => name !== "All").map((name) => <option key={name} value={name}>{name}</option>)}
-        </select>
-        {isSuperAdmin && (
-          <button
-            onClick={() => setSortLatest((prev) => !prev)}
-            className={`flex items-center gap-1 rounded-3xl border px-4 py-3 text-sm font-black transition ${sortLatest ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-200" : "border-slate-300 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
-            title="Sort by newest first"
-          >
-            <svg className={`h-4 w-4 ${sortLatest ? "text-blue-600" : "text-slate-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4" />
-            </svg>
-            Latest
-          </button>
-        )}
-        <button
-          onClick={clearFilters}
-          className="flex items-center gap-1 rounded-3xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-          title="Clear all filters"
-        >
-          <X size={16} />
-          Clear
-        </button>
+        <SortFilterDropdown
+          buttonLabel={sortFilterButtonLabel}
+          sortMode={sortMode}
+          onSortChange={(value) => {
+            setSortMode(value);
+            setSortTouched(true);
+          }}
+          statusFilters={statusFilters}
+          onStatusToggle={(value) => setStatusFilters((prev) => toggleArrayValue(prev, value))}
+          quickFilters={quickFilters}
+          onQuickToggle={toggleQuickFilter}
+          conditionFilters={conditionFilters}
+          conditionOptions={conditionOptions}
+          onConditionToggle={(value) => setConditionFilters((prev) => toggleArrayValue(prev, value))}
+          typeFilter={typeFilter}
+          assetTypeOptions={assetTypeFilterOptions}
+          onTypeChange={setTypeFilter}
+          manufacturerFilter={manufacturerFilter}
+          manufacturerOptions={manufacturers}
+          onManufacturerChange={setManufacturerFilter}
+          departmentFilter={departmentFilter}
+          departmentOptions={departmentOptions}
+          onDepartmentChange={setDepartmentFilter}
+          assignedFilter={assignedFilter}
+          assignedOptions={assignedOptions}
+          onAssignedChange={setAssignedFilter}
+          onClear={clearFilters}
+        />
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1200,6 +1632,143 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
 }
 
 function AssetDetailsModal({ asset, onClose }) {
+  const assetName = formatAssetDetailValue(firstAssetValue(asset, [
+    "asset_name",
+    (item) => joinAssetValues([
+      firstAssetValue(item, ["manufacturer", "brand", "manufacturer.name", "brand.name"]),
+      firstAssetValue(item, ["model", "model_name", "model.name"]),
+    ], " "),
+    "asset_tag",
+  ]));
+  const brandModel = formatAssetDetailValue(joinAssetValues([
+    firstAssetValue(asset, ["brand", "manufacturer", "brand.name", "manufacturer.name"]),
+    firstAssetValue(asset, ["model", "model_name", "model.name"]),
+  ]));
+
+  const detailSections = [
+    {
+      title: "Basic Information",
+      items: [
+        assetDetailItem("Asset Tag", asset, ["asset_tag"]),
+        { label: "Asset Name", value: assetName },
+        assetDetailItem("Serial Number", asset, ["serial_number"]),
+        assetDetailItem("Asset Type", asset, ["asset_type"]),
+        { label: "Brand / Model", value: brandModel },
+        assetDetailItem("Manufacturer", asset, ["manufacturer", "brand", "manufacturer.name", "brand.name"]),
+        assetDetailItem("Branch", asset, ["branch_name", "branch.branch_name", "branch.name"]),
+        assetDetailItem("Location", asset, [
+          "location",
+          "branch_location",
+          "branch.branch_location",
+          "branch.location",
+          "department",
+          "team_department",
+        ]),
+      ],
+    },
+    {
+      title: "Assignment Information",
+      items: [
+        assetDetailItem("Assigned Name", asset, ["assigned_name", "borrower_name"]),
+        assetDetailItem("Borrowed By", asset, ["borrower_name", "assigned_name"]),
+        assetDetailItem("Borrower Email", asset, ["borrower_email"]),
+        assetDetailItem("Employee ID", asset, ["employee_id"]),
+        assetDetailItem("Department", asset, ["borrower_department", "team_department", "department"]),
+        assetDetailItem("Assigned Date", asset, ["assigned_date", "borrow_date"], formatDetailDate),
+        assetDetailItem("Borrow Date", asset, ["borrow_date", "assigned_date"], formatDetailDate),
+        assetDetailItem("Expected Return Date", asset, ["expected_return_date"], formatDetailDate),
+        assetDetailItem("Returned Name", asset, ["returned_name", "returned_name_forms"]),
+        assetDetailItem("Returned Name (Forms)", asset, ["returned_name_forms", "returned_name"]),
+        assetDetailItem("Returned Date", asset, ["returned_date", "actual_return_date"], formatDetailDate),
+        assetDetailItem("Actual Return Date", asset, ["actual_return_date", "returned_date"], formatDetailDate),
+      ],
+    },
+    {
+      title: "Purchase Information",
+      items: [
+        assetDetailItem("Purchase Date", asset, ["purchase_date"], formatDetailDate),
+        assetDetailItem("Purchase Price", asset, ["purchase_price"]),
+        assetDetailItem("Supplier", asset, ["supplier", "supplier.name", "supplier.supplier_name"]),
+        assetDetailItem("Warranty", asset, ["warranty_expiration", "warranty"], formatDetailDate),
+      ],
+    },
+    {
+      title: "Technical Specifications",
+      items: [
+        assetDetailItem("Processor", asset, ["processor"]),
+        assetDetailItem("RAM", asset, ["ram"]),
+        assetDetailItem("Storage", asset, ["storage"]),
+        assetDetailItem("Accessories", asset, ["accessories"]),
+        assetDetailItem("Signature Link", asset, ["signature_link"]),
+        assetDetailItem("Attachments", asset, ["attachments"]),
+      ],
+    },
+    {
+      title: "Status & Condition",
+      items: [
+        assetDetailItem("Status", asset, ["status"]),
+        assetDetailItem("Condition Notes", asset, ["condition_notes", "notes"]),
+        assetDetailItem("Condition Before", asset, ["condition_before"]),
+        assetDetailItem("Condition After", asset, ["condition_after"]),
+        assetDetailItem("Notes", asset, ["notes", "condition_notes"]),
+        assetDetailItem("Created At", asset, ["created_at"], formatDetailDateTime),
+        assetDetailItem("Updated At", asset, ["updated_at"], formatDetailDateTime),
+      ],
+    },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 p-6">
+          <div>
+            <h2 className="text-xl font-black text-slate-900">Asset Details</h2>
+            <p className="mt-1 text-sm font-semibold text-slate-500">{assetName}</p>
+          </div>
+          <button onClick={onClose} className="rounded-full p-2 text-slate-500 hover:bg-slate-100">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="p-6">
+          <div className="mb-6 flex aspect-[16/7] items-center justify-center overflow-hidden rounded-2xl bg-slate-100">
+            {asset.image_url ? (
+              <img
+                src={asset.image_url}
+                alt={assetName === EMPTY_DETAIL_VALUE ? "Asset photo" : assetName}
+                className="h-full w-full object-contain"
+              />
+            ) : (
+              <span className="font-bold text-slate-400">No Image</span>
+            )}
+          </div>
+          <div className="space-y-6">
+            {detailSections.map((section) => (
+              <AssetDetailSection key={section.title} title={section.title} items={section.items} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssetDetailSection({ title, items }) {
+  return (
+    <section>
+      <h3 className="mb-3 text-sm font-black uppercase tracking-[0.16em] text-slate-500">{title}</h3>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-black uppercase tracking-wider text-slate-400">{item.label}</p>
+            <p className="mt-1 whitespace-pre-wrap break-words font-bold text-slate-800">{item.value}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LegacyAssetDetailsModal({ asset, onClose }) {
   const details = [
     ["Asset Tag", asset.asset_tag], ["Type", asset.asset_type], ["Brand / Model", `${asset.brand || "—"} / ${asset.model || "—"}`],
     ["Serial Number", asset.serial_number], ["Status", asset.status], ["Branch", asset.branch_name],
@@ -1255,12 +1824,17 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
 
 
   const updateField = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [key]: value,
+      ...(key === "asset_type" && value !== "Other" ? { custom_asset_type: "" } : {}),
+    }));
     if (localError) setLocalError("");
-    if (fieldErrors[key]) {
+    if (fieldErrors[key] || (key === "asset_type" && fieldErrors.custom_asset_type)) {
       setFieldErrors((prev) => {
         const next = { ...prev };
         delete next[key];
+        if (key === "asset_type") delete next.custom_asset_type;
         return next;
       });
     }
@@ -1303,6 +1877,16 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
       }
       return acc;
     }, {});
+    const effectiveAssetType =
+      form.asset_type === "Other" ? normalizeAssetType(form.custom_asset_type) : normalizeAssetType(form.asset_type);
+
+    if (form.asset_type === "Other") {
+      if (!effectiveAssetType) {
+        nextFieldErrors.custom_asset_type = "Specify Other Asset Type is required.";
+      } else if (effectiveAssetType.toLowerCase() === "other") {
+        nextFieldErrors.custom_asset_type = "Enter the actual asset type.";
+      }
+    }
 
     if (Object.keys(nextFieldErrors).length) {
       setFieldErrors(nextFieldErrors);
@@ -1322,6 +1906,8 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
       {
         ...form,
         asset_name: `${manufacturer} ${model}`.trim() || form.asset_tag,
+        asset_type: effectiveAssetType,
+        custom_asset_type: undefined,
         brand: manufacturer,
         manufacturer,
         model,
@@ -1425,6 +2011,16 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
                   required
                 />
               </AssetField>
+              {form.asset_type === "Other" && (
+                <AssetField label="Specify Other Asset Type" required error={fieldErrors.custom_asset_type}>
+                  <AssetInput
+                    value={form.custom_asset_type}
+                    onChange={(value) => updateField("custom_asset_type", value)}
+                    placeholder="Router"
+                    required
+                  />
+                </AssetField>
+              )}
               <AssetField label="Serial Number" required error={fieldErrors.serial_number}>
                 <AssetInput
                   value={form.serial_number}
