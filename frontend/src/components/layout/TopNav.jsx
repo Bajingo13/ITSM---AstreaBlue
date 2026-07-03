@@ -93,7 +93,7 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
   const fetchNotifications = async () => {
     if (!user?.user_id) return;
     try {
-      const res = await fetch(`${API_URL}/api/v1/notifications?user_id=${user.user_id}`, {
+      const res = await fetch(`${API_URL}/api/v1/notifications`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -118,8 +118,7 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ user_id: user.user_id })
+        }
       });
       if (res.ok) {
         setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
@@ -139,6 +138,15 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
   const handleLogout = () => {
     logout();
     navigate("/login", { replace: true });
+  };
+
+  const handleNotificationClick = async (notification) => {
+    if (!notification.read) await handleMarkAsRead(notification.id);
+    const ticketId = notification.related_ticket_id || notification.metadata?.ticketId;
+    if (ticketId) {
+      setNotifOpen(false);
+      navigate(`/ticket/${ticketId}`);
+    }
   };
 
   const searchItems = [
@@ -278,7 +286,7 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
                   notifications.map((n) => (
                     <div
                       key={n.id}
-                      onClick={() => !n.read && handleMarkAsRead(n.id)}
+                      onClick={() => handleNotificationClick(n)}
                       className={`group flex cursor-pointer items-start gap-4 p-4 transition-all hover:bg-slate-50 border-b border-slate-100 last:border-0 ${
                         !n.read ? "bg-[#f8fafc]" : "opacity-80"
                       }`}

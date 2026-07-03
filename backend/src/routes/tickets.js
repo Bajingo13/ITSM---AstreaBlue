@@ -1,6 +1,6 @@
 const express = require("express");
 const db = require("../../config/db");
-const { addTicketAccessFilter } = require("./_ticketAccess");
+const { addTicketAccessFilter, getRequestContext } = require("./_ticketAccess");
 const {
   sendTicketAssignedEmail,
   sendTicketCancelledEmail,
@@ -9,7 +9,9 @@ const {
   sendTicketResolvedEmail,
   sendTicketStatusEmail,
 } = require("../services/emailService");
-const { calculateSlaDueDate } = require("../services/slaService");
+const { createNotification } = require("../services/notificationService");
+const { applySlaToNewTicket } = require("../services/slaService");
+const { emitSlaUpdated } = require("../services/socketService");
 
 const router = express.Router();
 
@@ -92,19 +94,15 @@ async function sendTicketNotification(ticketId, sendEmail) {
   }
 }
 
-async function createInAppNotification(userId, title, message, type = "info") {
-  if (!userId) return;
+async function createInAppNotification(userId, title, message, type = "info", ticketId = null, metadata = {}) {
   try {
-    await db.query(
-      "INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)",
-      [userId, title, message, type]
-    );
+    await createNotification({ userId, title, message, type, ticketId, metadata });
   } catch (err) {
     console.error("Failed to create in-app notification:", err.message);
   }
 }
 
-async function runTicketCreatedSideEffects({ ticketId, requesterId, branchId }) {
+async function runTicketCreatedSideEffects({ ticketId, ticketNumber, requesterId, branchId }) {
   try {
     let branchName = "Unassigned Branch";
 
@@ -144,6 +142,14 @@ async function runTicketCreatedSideEffects({ ticketId, requesterId, branchId }) 
     } catch (notificationError) {
       console.warn("Ticket creation notification failed:", notificationError.message);
     }
+
+    await createInAppNotification(
+      requesterId,
+      "Ticket Created",
+      `Ticket ${ticketNumber || ticketId} was created successfully.`,
+      "success",
+      ticketId
+    );
   } catch (error) {
     console.error("Ticket post-save processing failed:", error.message);
   }
@@ -170,6 +176,10 @@ router.get("/", async (req, res) => {
         t.impact,
         t.urgency,
         t.sla_due_date,
+        t.response_due_at,
+        t.resolution_due_at,
+        t.response_sla_status,
+        t.resolution_sla_status,
         t.first_response_at,
         t.resolved_at,
         t.closed_at,
@@ -228,6 +238,9 @@ router.get("/", async (req, res) => {
 
 router.get("/:id", async (req, res) => {
   try {
+    if (!getRequestContext(req).authenticated) {
+      return res.status(401).json({ success: false, message: "Session expired. Please sign in again." });
+    }
     const { id } = req.params;
     const params = [id];
     const accessClauses = addTicketAccessFilter(req, params, "t");
@@ -249,6 +262,10 @@ router.get("/:id", async (req, res) => {
         t.impact,
         t.urgency,
         t.sla_due_date,
+        t.response_due_at,
+        t.resolution_due_at,
+        t.response_sla_status,
+        t.resolution_sla_status,
         t.first_response_at,
         t.resolved_at,
         t.closed_at,
@@ -297,9 +314,16 @@ router.get("/:id", async (req, res) => {
     );
 
     if (ticketResult.rows.length === 0) {
+      const exists = await db.query("SELECT 1 FROM tickets WHERE id = $1", [id]);
+      if (exists.rows.length) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to view this ticket.",
+        });
+      }
       return res.status(404).json({
         success: false,
-        error: "Ticket not found",
+        message: "Ticket not found or no longer available.",
       });
     }
 
@@ -443,7 +467,16 @@ router.post("/", async (req, res) => {
       .slice(0, 10)
       .replace(/-/g, "")}-${String(nextNumber).padStart(4, "0")}`;
 
-    const slaDueDate = await calculateSlaDueDate(priority || "P3-Medium");
+    const slaData = await applySlaToNewTicket({ priority: priority || "P3-Medium", category_id });
+
+    // Fallback if no SLA policy matched
+    const slaPolicyId = slaData ? slaData.sla_policy_id : null;
+    const responseDueAt = slaData ? slaData.response_due_at : null;
+    const resolutionDueAt = slaData ? slaData.resolution_due_at : null;
+    const responseStatus = slaData ? slaData.response_sla_status : 'Pending';
+    const resolutionStatus = slaData ? slaData.resolution_sla_status : 'Pending';
+    // Backwards compatibility with sla_due_date
+    const slaDueDate = resolutionDueAt || (new Date(Date.now() + 24 * 60 * 60 * 1000));
 
     const result = await db.query(
       `
@@ -461,10 +494,15 @@ router.post("/", async (req, res) => {
         source,
         impact,
         urgency,
-        sla_due_date
+        sla_due_date,
+        sla_policy_id,
+        response_due_at,
+        resolution_due_at,
+        response_sla_status,
+        resolution_sla_status
       )
       VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       RETURNING
         id,
         ticket_number,
@@ -495,6 +533,11 @@ router.post("/", async (req, res) => {
         impact,
         urgency,
         slaDueDate,
+        slaPolicyId,
+        responseDueAt,
+        resolutionDueAt,
+        responseStatus,
+        resolutionStatus,
       ]
     );
 
@@ -502,6 +545,7 @@ router.post("/", async (req, res) => {
 
     runTicketCreatedSideEffects({
       ticketId: createdTicket.id,
+      ticketNumber: createdTicket.ticket_number,
       requesterId: requester_id,
       branchId: finalBranchId,
     }).catch((sideEffectError) => {
@@ -591,6 +635,28 @@ router.put("/:id", async (req, res) => {
         ? new Date()
         : existing.closed_at;
 
+    // SLA Calculations on Update
+    const isNowResolvedOrClosed = (finalStatus === "Resolved" || finalStatus === "Closed");
+    const now = new Date();
+
+    let resSlaStat = existing.response_sla_status;
+    let resolSlaStat = existing.resolution_sla_status;
+
+    if (finalStatus === "Cancelled") {
+      resSlaStat = "Cancelled";
+      resolSlaStat = "Cancelled";
+    } else {
+      if (firstResponseAt && !existing.first_response_at) {
+        if (existing.response_due_at && firstResponseAt <= existing.response_due_at) resSlaStat = "Met";
+        else resSlaStat = "Breached";
+      }
+      if (isNowResolvedOrClosed && !existing.resolved_at && !existing.closed_at) {
+        const endTime = resolvedAt || closedAt || now;
+        if (existing.resolution_due_at && endTime <= existing.resolution_due_at) resolSlaStat = "Met";
+        else resolSlaStat = "Breached";
+      }
+    }
+
     const result = await db.query(
       `
       UPDATE tickets
@@ -612,7 +678,9 @@ router.put("/:id", async (req, res) => {
         satisfaction_rating = $15,
         resolved_at = $16,
         closed_at = $17,
-        first_response_at = $18
+        first_response_at = $18,
+        response_sla_status = $20,
+        resolution_sla_status = $21
       WHERE id = $19
       RETURNING
         id,
@@ -635,7 +703,11 @@ router.put("/:id", async (req, res) => {
         parts_used,
         satisfaction_rating,
         created_at,
-        updated_at
+        updated_at,
+        response_due_at,
+        resolution_due_at,
+        response_sla_status,
+        resolution_sla_status
       `,
       [
         title ?? existing.title,
@@ -657,24 +729,63 @@ router.put("/:id", async (req, res) => {
         closedAt,
         firstResponseAt,
         id,
+        resSlaStat,
+        resolSlaStat
       ]
     );
 
     let emailWarning = null;
 
-    if (status && status !== existing.status) {
-      try {
-        await db.query(
-          `
-          INSERT INTO ticket_history
-          (ticket_id, changed_by, action, old_value, new_value)
-          VALUES ($1, $2, $3, $4, $5)
-          `,
-          [id, changed_by, "Status Updated", existing.status, status]
-        );
-      } catch(e) { console.warn("History insert failed:", e.message); }
+      if (status && status !== existing.status) {
+        try {
+          await db.query(
+            `
+            INSERT INTO ticket_history
+            (ticket_id, changed_by, action, old_value, new_value)
+            VALUES ($1, $2, $3, $4, $5)
+            `,
+            [id, changed_by, "Status Updated", existing.status, status]
+          );
+        } catch(e) { console.warn("History insert failed:", e.message); }
+      }
 
-      if (finalStatus === "Closed" || finalStatus === "Cancelled") {
+      if (resSlaStat !== existing.response_sla_status) {
+        try {
+          await db.query(
+            `
+            INSERT INTO ticket_history
+            (ticket_id, changed_by, action, old_value, new_value)
+            VALUES ($1, $2, $3, $4, $5)
+            `,
+            [id, changed_by, "Response SLA", existing.response_sla_status || 'Pending', resSlaStat]
+          );
+        } catch(e) {}
+      }
+
+      if (resolSlaStat !== existing.resolution_sla_status) {
+        try {
+          await db.query(
+            `
+            INSERT INTO ticket_history
+            (ticket_id, changed_by, action, old_value, new_value)
+            VALUES ($1, $2, $3, $4, $5)
+            `,
+            [id, changed_by, "Resolution SLA", existing.resolution_sla_status || 'Pending', resolSlaStat]
+          );
+        } catch(e) {}
+      }
+
+      if (resSlaStat !== existing.response_sla_status || resolSlaStat !== existing.resolution_sla_status) {
+        const breached = resSlaStat === "Breached" || resolSlaStat === "Breached";
+        emitSlaUpdated({
+          type: breached ? "breach" : finalStatus === "In Progress" ? "response_met" : "resolution_met",
+          ticket_id: Number(id),
+          ticket_no: existing.ticket_number || `TKT-${id}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      if (status && status !== existing.status && (finalStatus === "Closed" || finalStatus === "Cancelled")) {
         try {
           const statusEmail =
             finalStatus === "Closed"
@@ -684,11 +795,18 @@ router.put("/:id", async (req, res) => {
         } catch(e) { console.warn("Email failed:", e.message); }
       }
       
-      try {
+      if (status && status !== existing.status) try {
         const notifType = finalStatus === "Closed" ? "success" : finalStatus === "Resolved" ? "success" : "info";
-        await createInAppNotification(existing.requester_id, "Ticket Update", `Ticket ${existing.ticket_number} status changed to ${status}.`, notifType);
+        const statusLabel = finalStatus || status;
+        await createInAppNotification(
+          existing.requester_id,
+          statusLabel === "In Progress" ? "Ticket In Progress" : `Ticket ${statusLabel}`,
+          `Ticket ${existing.ticket_number} status changed to ${statusLabel}.`,
+          notifType,
+          id,
+          { event: "status_changed", status: statusLabel }
+        );
       } catch(e) { console.warn("Notification failed:", e.message); }
-    }
 
     res.json({
       success: true,
@@ -892,11 +1010,22 @@ router.patch("/:id/assign", async (req, res) => {
       );
     } catch(e) { console.warn("History insert failed:", e.message); }
 
-    const emailWarning = null;
+    let emailWarning = null;
+    if (assigned_to) {
+      emailWarning = await sendTicketNotification(id, async (ticketDetails) => {
+        const assignedTicket = {
+          ...ticketDetails,
+          requester_email: ticketDetails.assigned_email,
+          requester_company_email: null,
+          requester_personal_email: null,
+        };
+        return sendTicketAssignedEmail(assignedTicket);
+      });
+    }
     
     if (assigned_to) {
       try {
-        await createInAppNotification(assigned_to, "Ticket Assigned", `Ticket ${ticket.ticket_number || id} has been assigned to you.`, "warning");
+        await createInAppNotification(assigned_to, "Ticket Assigned", `Ticket ${ticket.ticket_number || id} has been assigned to you.`, "warning", id, { event: "assigned" });
       } catch(e) { console.warn("Notification failed:", e.message); }
     }
 
@@ -947,6 +1076,24 @@ router.post("/:id/comments", async (req, res) => {
       `,
       [id, user_id, "Comment Added", null, comment_text]
     );
+
+    const ticketPeople = await db.query(
+      "SELECT ticket_number, requester_id, assigned_to FROM tickets WHERE id = $1",
+      [id]
+    );
+    const ticket = ticketPeople.rows[0];
+    const recipients = [...new Set([ticket?.requester_id, ticket?.assigned_to].filter(Boolean))]
+      .filter((recipientId) => String(recipientId) !== String(user_id));
+    for (const recipientId of recipients) {
+      await createInAppNotification(
+        recipientId,
+        "Ticket Comment Added",
+        `A new comment was added to ticket ${ticket.ticket_number || id}.`,
+        "info",
+        id,
+        { event: "comment_added" }
+      );
+    }
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -1045,7 +1192,7 @@ router.patch("/:id/cancel", async (req, res) => {
     } catch(e) { console.warn("Email failed:", e.message); }
     
     try {
-      await createInAppNotification(existing.requester_id, "Ticket Cancelled", `Your ticket ${existing.ticket_number || id} was cancelled.`, "error");
+      await createInAppNotification(existing.requester_id, "Ticket Cancelled", `Your ticket ${existing.ticket_number || id} was cancelled.`, "error", id, { event: "cancelled" });
     } catch(e) { console.warn("Notification failed:", e.message); }
 
     res.json({

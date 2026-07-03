@@ -1,6 +1,9 @@
-import { API_URL } from "../config/api";
+import sys
+
+file_path = "C:/Users/janis/asset-monitoring-backend/frontend/src/views/SLAMonitor.jsx"
+
+new_content = """import { API_URL } from "../config/api";
 import { useCallback, useEffect, useState } from "react";
-import { io } from "socket.io-client";
 import { AlertTriangle, CheckCircle, Clock, Timer, Activity, Zap } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
@@ -8,19 +11,10 @@ import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../u
 import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
-const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
-});
-const formatDateTime = (value) => {
-  if (!value) return "Not set";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Not set" : dateTimeFormatter.format(date);
-};
 
 export default function SLAMonitor() {
   const { user } = useAuth();
   const [tickets, setTickets] = useState([]);
-  const [history, setHistory] = useState([]);
   const [stats, setStats] = useState({
     activeSLA: 0,
     dueSoon: 0,
@@ -31,7 +25,6 @@ export default function SLAMonitor() {
     avgResolutionTimeMins: 0
   });
   const [loading, setLoading] = useState(true);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -49,12 +42,6 @@ export default function SLAMonitor() {
       const allTickets = Array.isArray(data) ? data : [];
       // Filter out completed ones to show what needs attention
       setTickets(allTickets.filter(t => t.status !== 'Closed' && t.status !== 'Cancelled' && t.status !== 'Resolved'));
-
-      // Fetch SLA history
-      const histRes = await fetch(`${API_BASE}/sla/history${buildTicketQuery(user)}`);
-      const histData = await histRes.json();
-      setHistory(histData.history || []);
-      setLastRefreshedAt(new Date());
     } catch (err) {
       console.error("Fetch SLA data failed:", err);
     } finally {
@@ -64,16 +51,6 @@ export default function SLAMonitor() {
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
-
-  useEffect(() => {
-    const socket = io(API_URL, { transports: ["websocket", "polling"], withCredentials: true });
-    const refreshForSlaUpdate = () => { void fetchData(); };
-    socket.on("sla_updated", refreshForSlaUpdate);
-    return () => {
-      socket.off("sla_updated", refreshForSlaUpdate);
-      socket.disconnect();
-    };
   }, [fetchData]);
 
   const getSlaBadgeClass = (status) => {
@@ -89,16 +66,15 @@ export default function SLAMonitor() {
     <div className="mx-auto max-w-7xl p-6">
       <PageHero
         icon={Timer}
-        title="Service Level Management"
+        title="SLA Monitoring"
         subtitle="Track Service Level Agreement compliance, response times, and identify breached or at-risk tickets."
       />
-      <p className="mt-3 text-right text-xs font-bold text-slate-500">Latest refresh: {formatDateTime(lastRefreshedAt)}</p>
 
       <section className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <Card icon={Activity} label="Tracked Tickets" value={stats.activeSLA} color="blue" />
+        <Card icon={Activity} label="Active SLAs" value={stats.activeSLA} color="blue" />
+        <Card icon={CheckCircle} label="Compliance %" value={`${stats.compliancePercent}%`} color="emerald" />
+        <Card icon={AlertTriangle} label="Due Soon" value={stats.dueSoon} color="amber" />
         <Card icon={Clock} label="Breached" value={stats.breached} color="red" />
-        <Card icon={AlertTriangle} label="Due within 4 hours" value={stats.dueSoon} color="amber" />
-        <Card icon={CheckCircle} label="Met SLA" value={stats.met} color="emerald" />
       </section>
 
       <section className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -120,7 +96,7 @@ export default function SLAMonitor() {
 
       <section className="mt-8">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-black text-slate-900">SLA Ticket Queue</h2>
+          <h2 className="text-lg font-black text-slate-900">Active SLA Tickets</h2>
           <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-700">
             {tickets.length} total
           </span>
@@ -130,24 +106,23 @@ export default function SLAMonitor() {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 font-bold uppercase tracking-wider text-slate-500">
               <tr>
-                <th className="px-6 py-4">Ticket No.</th>
-                <th className="px-6 py-4">Title</th>
-                <th className="px-6 py-4">Priority</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">SLA Due</th>
-                <th className="px-6 py-4">SLA State</th>
+                <th className="px-6 py-4">Ticket</th>
+                <th className="px-6 py-4">Priority & Status</th>
+                <th className="px-6 py-4">Response Due</th>
+                <th className="px-6 py-4">Resolution Due</th>
+                <th className="px-6 py-4">SLA Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-slate-400">
+                  <td colSpan="5" className="px-6 py-8 text-center text-slate-400">
                     Loading SLA data...
                   </td>
                 </tr>
               ) : tickets.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-slate-400">
+                  <td colSpan="5" className="px-6 py-8 text-center text-slate-400">
                     No active tickets.
                   </td>
                 </tr>
@@ -158,26 +133,29 @@ export default function SLAMonitor() {
                   const overallSla = (resolSla === 'Breached' || resSla === 'Breached') ? 'Breached' : (resolSla === 'Met' ? 'Met' : 'Active');
                   return (
                     <tr key={ticket.id} className="transition hover:bg-slate-50">
-                      <td className="px-6 py-4 font-bold text-slate-900">
-                        {ticket.ticket_number || `TKT-${ticket.id}`}
-                      </td>
                       <td className="px-6 py-4">
-                        <div className="line-clamp-1 max-w-xs text-xs text-slate-500" title={ticket.title}>
+                        <div className="font-bold text-slate-900">
+                          {ticket.ticket_number || `TKT-${ticket.id}`}
+                        </div>
+                        <div className="mt-1 line-clamp-1 max-w-xs text-xs text-slate-500">
                           {ticket.title}
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={getPriorityBadgeClass(ticket.priority)}>
-                          {formatPriority(ticket.priority)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={getStatusBadgeClass(ticket.status)}>
-                          {ticket.status}
-                        </span>
+                        <div className="flex flex-col gap-2 items-start">
+                          <span className={getPriorityBadgeClass(ticket.priority)}>
+                            {formatPriority(ticket.priority)}
+                          </span>
+                          <span className={getStatusBadgeClass(ticket.status)}>
+                            {ticket.status}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-6 py-4 font-medium text-slate-700">
-                        {formatDateTime(ticket.resolution_due_at || ticket.sla_due_date)}
+                        {ticket.response_due_at ? new Date(ticket.response_due_at).toLocaleString() : '-'}
+                      </td>
+                      <td className="px-6 py-4 font-medium text-slate-700">
+                        {ticket.resolution_due_at ? new Date(ticket.resolution_due_at).toLocaleString() : '-'}
                       </td>
                       <td className="px-6 py-4">
                         <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${getSlaBadgeClass(overallSla)}`}>
@@ -187,75 +165,6 @@ export default function SLAMonitor() {
                     </tr>
                   )
                 })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="mt-8">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-black text-slate-900">Recent SLA Activity</h2>
-          <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-700">
-            {history.length} total
-          </span>
-        </div>
-
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 font-bold uppercase tracking-wider text-slate-500">
-              <tr>
-                <th className="px-6 py-4">Ticket</th>
-                <th className="px-6 py-4">Action</th>
-                <th className="px-6 py-4">Old Status</th>
-                <th className="px-6 py-4">New Status</th>
-                <th className="px-6 py-4">Changed By</th>
-                <th className="px-6 py-4">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-slate-400">
-                    Loading history...
-                  </td>
-                </tr>
-              ) : history.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-slate-400">
-                    No recent activity.
-                  </td>
-                </tr>
-              ) : (
-                history.map((h, i) => (
-                  <tr key={h.id || i} className="transition hover:bg-slate-50">
-                    <td className="px-6 py-4">
-                      <div className="font-bold text-slate-900">
-                        {h.ticket_number}
-                      </div>
-                      <div className="mt-1 line-clamp-1 max-w-xs text-xs text-slate-500">
-                        {h.ticket_title}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide bg-blue-100 text-blue-800 border-blue-200">
-                        {h.action}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 font-medium text-slate-700">
-                      {h.old_status || 'Not set'}
-                    </td>
-                    <td className="px-6 py-4 font-medium text-slate-700">
-                      {h.new_status || 'Not set'}
-                    </td>
-                    <td className="px-6 py-4 font-medium text-slate-700">
-                      {h.changed_by || 'Not set'}
-                    </td>
-                    <td className="px-6 py-4 font-medium text-slate-700">
-                      {formatDateTime(h.created_at)}
-                    </td>
-                  </tr>
-                ))
               )}
             </tbody>
           </table>
@@ -287,3 +196,9 @@ function Card({ icon: Icon, label, value, color }) {
     </div>
   );
 }
+"""
+
+with open(file_path, "w", encoding="utf-8") as f:
+    f.write(new_content)
+
+print("SLAMonitor.jsx overwritten successfully")

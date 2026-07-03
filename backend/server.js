@@ -1,4 +1,5 @@
 const express = require("express");
+const http = require("http");
 const cors = require("cors");
 const crypto = require("crypto");
 const fs = require("fs");
@@ -12,13 +13,16 @@ const db = require("./config/db");
 const { calculateSlaDueDate } = require("./src/services/slaService");
 const { calculateStraightLine } = require("./src/services/assetFinancialService");
 const authRoutes = require("./src/routes/auth");
+require("./src/services/slaCron");
 const dashboardRoutes = require("./src/routes/dashboard");
+const slaRoutes = require("./src/routes/sla");
 const inviteRoutes = require("./src/routes/invites");
 const emailRoutes = require("./src/routes/email");
 const assetManagementRoutes = require("./src/routes/assetManagement");
 const attachmentRoutes = require("./src/routes/attachments");
 const ticketRoutes = require("./src/routes/tickets");
 const notificationRoutes = require("./src/routes/notifications");
+const { setSocketServer } = require("./src/services/socketService");
 
 const app = express();
 
@@ -34,6 +38,22 @@ const allowedOrigins = new Set(
     .filter(Boolean)
     .map((origin) => String(origin).trim().replace(/\/$/, ""))
 );
+
+const httpServer = http.createServer(app);
+let io = null;
+try {
+  const { Server } = require("socket.io");
+  io = new Server(httpServer, {
+    cors: {
+      origin: [...allowedOrigins],
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+  });
+  setSocketServer(io);
+} catch (error) {
+  console.warn("Socket.io initialization failed; HTTP API will continue:", error.message);
+}
 
 const corsOptions = {
   origin(origin, callback) {
@@ -137,7 +157,10 @@ async function ensureTicketWorkflowColumns() {
       ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id),
       ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP,
       ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(user_id),
-      ADD COLUMN IF NOT EXISTS cancellation_reason TEXT
+      ADD COLUMN IF NOT EXISTS cancellation_reason TEXT,
+      ADD COLUMN IF NOT EXISTS sla_due_soon_notified_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS sla_breach_notification_sent_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS sla_breach_email_sent_at TIMESTAMP
     `);
   } catch (err) {
     console.error("Ticket workflow column setup error:", err.message);
@@ -279,6 +302,12 @@ async function ensureAttachmentsAndInvites() {
         read BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    await db.query(`
+      ALTER TABLE notifications
+      ADD COLUMN IF NOT EXISTS related_ticket_id INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb
     `);
   } catch (err) {
     console.error("Attachments/invites setup error:", err.message);
@@ -540,6 +569,7 @@ const hardwareAssetTablesReady = ensureHardwareAssetTables();
 
 app.use("/api/auth", authRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
+app.use("/api/v1/sla", slaRoutes);
 app.use("/api/v1/invites", inviteRoutes);
 app.use("/api/v1/email", emailRoutes);
 app.use("/api/v1/hardware-assets", async (_req, res, next) => {
@@ -4239,7 +4269,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, "0.0.0.0", () => {
+httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`AstreaBlue API active on port ${PORT}`);
   console.log(
     `[AstreaBlue API] health=http://localhost:${PORT}/api/health dashboard=http://localhost:${PORT}/api/v1/dashboard/summary`
@@ -4248,3 +4278,43 @@ app.listen(PORT, "0.0.0.0", () => {
     "[AstreaBlue API] mounted routes: /api/auth, /api/v1/dashboard, /api/v1/tickets, /api/v1/branches, /api/v1/users, /api/v1/roles, /api/v1/technicians, /api/v1/ticket-categories, /api/v1/invites, /api/v1/email, /api/v1/knowledge-base, /api/v1/requests"
   );
 });
+
+app.post("/api/v1/ticket-categories", async (req, res) => {
+  const user = decodeRequestUser(req);
+  if (!user) return res.status(401).json({ success: false, error: "Authentication required." });
+
+  const categoryName = String(req.body?.category_name || "").trim().replace(/\s+/g, " ");
+  if (!categoryName || categoryName.length > 100 || categoryName.toLowerCase() === "other") {
+    return res.status(400).json({ success: false, error: "Specify a valid category up to 100 characters." });
+  }
+
+  try {
+    const existing = await db.query(
+      `SELECT category_id,category_name,description FROM ticket_categories WHERE LOWER(category_name)=LOWER($1) LIMIT 1`,
+      [categoryName]
+    );
+    if (existing.rows.length) {
+      return res.json({ success: true, message: "Category already exists.", category: existing.rows[0], created: false });
+    }
+
+    try {
+      const inserted = await db.query(
+        `INSERT INTO ticket_categories (category_name) VALUES ($1) RETURNING category_id,category_name,description`,
+        [categoryName]
+      );
+      return res.status(201).json({ success: true, message: "Category created.", category: inserted.rows[0], created: true });
+    } catch (insertError) {
+      if (insertError.code !== "23505") throw insertError;
+      const concurrent = await db.query(
+        `SELECT category_id,category_name,description FROM ticket_categories WHERE LOWER(category_name)=LOWER($1) LIMIT 1`,
+        [categoryName]
+      );
+      return res.json({ success: true, message: "Category already exists.", category: concurrent.rows[0], created: false });
+    }
+  } catch (error) {
+    console.error("Create ticket category error:", error.message);
+    return res.status(500).json({ success: false, error: "Failed to save ticket category." });
+  }
+});
+
+module.exports = { app, httpServer, get io() { return io; } };

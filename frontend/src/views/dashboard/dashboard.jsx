@@ -11,10 +11,10 @@ const COLUMNS = [
 ];
 
 const PRIORITY_META = {
-  CRITICAL: { label: "CRITICAL", classes: "bg-red-500/20 text-red-300 ring-1 ring-red-500/40" },
-  HIGH:     { label: "HIGH",     classes: "bg-orange-500/20 text-orange-300 ring-1 ring-orange-500/40" },
-  MEDIUM:   { label: "MEDIUM",   classes: "bg-yellow-500/20 text-yellow-300 ring-1 ring-yellow-500/40" },
-  LOW:      { label: "LOW",      classes: "bg-slate-500/20 text-slate-400 ring-1 ring-slate-500/40" },
+  CRITICAL: { label: "CRITICAL", classes: "bg-red-600 text-white ring-1 ring-red-700" },
+  HIGH:     { label: "HIGH",     classes: "bg-red-100 text-red-800 ring-1 ring-red-200" },
+  MEDIUM:   { label: "MEDIUM",   classes: "bg-yellow-100 text-amber-900 ring-1 ring-yellow-200" },
+  LOW:      { label: "LOW",      classes: "bg-green-100 text-green-800 ring-1 ring-green-200" },
 };
 
 const AVAILABLE_AGENTS = ["James Reyes", "Maria Santos", "Carlo Reyes", "Unassigned"];

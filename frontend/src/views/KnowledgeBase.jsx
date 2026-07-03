@@ -40,6 +40,9 @@ export default function KnowledgeBase() {
   const [category, setCategory] = useState("All");
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [articleForm, setArticleForm] = useState(null);
+  const [deleteCandidate, setDeleteCandidate] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const isSuperAdmin = (role || user?.role_name) === "SuperAdmin";
   const canManage = ["Admin", "Technician"].includes(role || user?.role_name) || isSuperAdmin;
@@ -138,10 +141,15 @@ export default function KnowledgeBase() {
   }, [articles, category, query]);
 
   const deleteArticle = async (article) => {
-    if (!window.confirm(`Delete "${article.title}"?`)) return;
+    setDeleteError("");
+    setDeleteCandidate(article);
+  };
 
+  const confirmDeleteArticle = async () => {
+    if (!deleteCandidate) return;
     try {
-      const res = await fetch(`${API_BASE}/knowledge-base/${article.kb_id}`, {
+      setDeleting(true);
+      const res = await fetch(`${API_BASE}/knowledge-base/${deleteCandidate.kb_id}`, {
         method: "DELETE",
         headers: authHeaders(),
       });
@@ -149,9 +157,12 @@ export default function KnowledgeBase() {
       if (!res.ok) throw new Error("Failed to delete article");
 
       setSelectedArticle(null);
+      setDeleteCandidate(null);
       fetchArticles();
     } catch (err) {
-      console.error(err);
+      setDeleteError(err.message || "Failed to delete article.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -284,23 +295,33 @@ export default function KnowledgeBase() {
           }}
         />
       )}
+      {deleteCandidate && (
+        <div className="astrea-modal-backdrop z-[90]">
+          <div className="astrea-modal-panel max-w-md">
+            <div className="astrea-modal-header"><div><h2 className="text-lg font-black text-slate-900">Delete KB Article</h2><p className="mt-1 text-sm text-slate-500">This action cannot be undone.</p></div></div>
+            <div className="astrea-modal-body"><p className="text-sm text-slate-700">Delete <strong>{deleteCandidate.title}</strong>?</p>{deleteError && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{deleteError}</p>}</div>
+            <div className="astrea-modal-footer"><button type="button" disabled={deleting} onClick={() => setDeleteCandidate(null)} className="astrea-button astrea-button-secondary">Cancel</button><button type="button" disabled={deleting} onClick={confirmDeleteArticle} className="astrea-button astrea-button-danger">{deleting ? "Deleting..." : "Delete Article"}</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function ArticleDrawer({ article, canManage, onClose, onEdit, onDelete }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-        <div className="shrink-0 border-b border-slate-200 bg-white px-7 py-5">
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel flex max-w-4xl flex-col overflow-hidden">
+        <div className="astrea-modal-header shrink-0">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-widest text-blue-600">
+              <p className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-widest text-blue-700">
                 {article.category || "General"}
               </p>
               <h2 className="mt-1 text-2xl font-black text-slate-900">
                 {article.title}
               </h2>
+              <p className="mt-2 text-sm font-semibold text-slate-500">Knowledge Base Article</p>
             </div>
             <button
               onClick={onClose}
@@ -311,7 +332,7 @@ function ArticleDrawer({ article, canManage, onClose, onEdit, onDelete }) {
           </div>
         </div>
 
-        <div className="flex-1 space-y-6 overflow-y-auto p-7">
+        <div className="astrea-modal-body flex-1 space-y-6 overflow-y-auto">
           <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <InfoTile label="Created By" value={article.created_by_name || "Unknown"} />
             <InfoTile
@@ -348,11 +369,11 @@ function ArticleDrawer({ article, canManage, onClose, onEdit, onDelete }) {
           <ArticleSection title="Resolution" text={article.resolution} />
         </div>
 
-        <div className="shrink-0 border-t border-slate-200 bg-white/95 px-7 py-4 backdrop-blur">
+        <div className="astrea-modal-footer shrink-0">
           <div className="flex flex-wrap items-center justify-end gap-3">
             <button
               onClick={onClose}
-              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+              className="astrea-button astrea-button-secondary"
             >
               Close
             </button>
@@ -360,14 +381,14 @@ function ArticleDrawer({ article, canManage, onClose, onEdit, onDelete }) {
               <>
                 <button
                   onClick={onEdit}
-                  className="flex items-center gap-2 rounded-xl border border-blue-200 px-5 py-3 font-bold text-blue-700 hover:bg-blue-50"
+                  className="astrea-button astrea-button-primary"
                 >
                   <Edit3 size={17} />
                   Edit
                 </button>
                 <button
                   onClick={onDelete}
-                  className="flex items-center gap-2 rounded-xl bg-red-600 px-5 py-3 font-bold text-white hover:bg-red-700"
+                  className="astrea-button astrea-button-danger"
                 >
                   <Trash2 size={17} />
                   Delete
@@ -667,8 +688,8 @@ function formatTicketLabel(ticket) {
 
 function ArticleSection({ title, text }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5">
-      <h3 className="mb-3 font-black text-slate-900">{title}</h3>
+    <section className="astrea-card-soft p-5">
+      <h3 className="mb-3 text-base font-black text-slate-900">{title}</h3>
       <p className="whitespace-pre-line text-sm leading-7 text-slate-600">
         {text || `No ${title.toLowerCase()} documented.`}
       </p>
@@ -678,8 +699,8 @@ function ArticleSection({ title, text }) {
 
 function InfoTile({ label, value }) {
   return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+    <div className="astrea-card-soft p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
         {label}
       </p>
       <p className="mt-1 text-sm font-black text-slate-900">{value}</p>

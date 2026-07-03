@@ -1,38 +1,43 @@
 const db = require("../../config/db");
 
-async function calculateSlaDueDate(priorityStr) {
+async function applySlaToNewTicket(ticketPayload) {
   try {
-    // Attempt to match priority format
-    const { rows } = await db.query(
-      `SELECT resolution_time_minutes FROM sla_policies 
-       WHERE is_active = TRUE AND priority = $1`,
-      [priorityStr]
-    );
-
-    let resolutionMinutes = 1440; // Default 24 hours
-    if (rows.length > 0) {
-      resolutionMinutes = rows[0].resolution_time_minutes;
-    } else {
-      // Fallback matching
-      const p = (priorityStr || "").toLowerCase();
-      if (p.includes("p1") || p.includes("critical")) resolutionMinutes = 240;
-      else if (p.includes("p2") || p.includes("high")) resolutionMinutes = 480;
-      else if (p.includes("p3") || p.includes("medium")) resolutionMinutes = 1440;
-      else if (p.includes("p4") || p.includes("low")) resolutionMinutes = 2880;
-    }
-
-    const slaDueDate = new Date();
-    slaDueDate.setMinutes(slaDueDate.getMinutes() + resolutionMinutes);
-    return slaDueDate;
-  } catch (error) {
-    console.error("Error calculating SLA due date:", error);
-    // Fallback
-    const fallbackDate = new Date();
-    fallbackDate.setHours(fallbackDate.getHours() + 24);
-    return fallbackDate;
+    const { priority, category_id } = ticketPayload;
+    
+    // Find matching SLA policy. Try priority + category match first, then fallback to priority only
+    let query = `
+      SELECT * FROM sla_policies 
+      WHERE is_active = true 
+      AND priority = $1 
+      ORDER BY 
+        CASE WHEN category_id = $2::uuid THEN 0 ELSE 1 END,
+        policy_id ASC
+      LIMIT 1
+    `;
+    const res = await db.query(query, [priority, category_id || null]);
+    
+    if (res.rows.length === 0) return null;
+    
+    const policy = res.rows[0];
+    
+    // Calculate due dates (simplified: ignoring business hours for now)
+    const now = new Date();
+    const responseDueAt = new Date(now.getTime() + policy.response_target_mins * 60000);
+    const resolutionDueAt = new Date(now.getTime() + policy.resolution_target_mins * 60000);
+    
+    return {
+      sla_policy_id: policy.policy_id,
+      response_due_at: responseDueAt,
+      resolution_due_at: resolutionDueAt,
+      response_sla_status: 'Pending',
+      resolution_sla_status: 'Pending'
+    };
+  } catch (err) {
+    console.error("Error applying SLA to new ticket:", err);
+    return null;
   }
 }
 
 module.exports = {
-  calculateSlaDueDate,
+  applySlaToNewTicket
 };

@@ -1,15 +1,33 @@
+const jwt = require("jsonwebtoken");
+
 function getRequestContext(req) {
   const body = req.body || {};
+  const authHeader = req.headers.authorization || "";
+  let authenticatedUser = null;
+
+  if (authHeader.startsWith("Bearer ")) {
+    try {
+      authenticatedUser = jwt.verify(
+        authHeader.slice(7),
+        process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod"
+      );
+    } catch {
+      authenticatedUser = null;
+    }
+  }
 
   return {
+    authenticated: Boolean(authenticatedUser?.userId),
     currentUserId:
+      authenticatedUser?.userId ||
       req.query.current_user_id ||
       body.current_user_id ||
       req.query.user_id ||
       body.user_id ||
       null,
-    roleName: req.query.role_name || body.role_name || null,
+    roleName: authenticatedUser?.role || req.query.role_name || body.role_name || null,
     branchId:
+      authenticatedUser?.branchId ||
       req.query.branch_id ||
       body.current_branch_id ||
       body.branch_id ||

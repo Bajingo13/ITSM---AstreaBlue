@@ -270,15 +270,26 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
   const [form, setForm] = useState({
     title: "",
     description: "",
-    category_id: "",
     priority: "P3-Medium",
+    category_id: "",
   });
-  const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [files, setFiles] = useState([]);
+  const [isOtherCategory, setIsOtherCategory] = useState(false);
+  const [customCategory, setCustomCategory] = useState("");
 
-  const updateForm = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const updateForm = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const handleCategoryChange = (value) => {
+    if (value === "__other__") {
+      setIsOtherCategory(true);
+      updateForm("category_id", "");
+    } else {
+      setIsOtherCategory(false);
+      setCustomCategory("");
+      updateForm("category_id", value);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -292,39 +303,33 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
 
     try {
       setSaving(true);
+      
+      let categoryId = form.category_id || null;
+      if (isOtherCategory && customCategory.trim()) {
+        const catRes = await fetch(`${API_BASE}/ticket-categories`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category_name: customCategory.trim() }),
+        });
+        const catData = await catRes.json();
+        if (catRes.ok && catData.category) categoryId = catData.category.category_id;
+      }
 
       const res = await fetch(`${API_BASE}/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildTicketPayload(user, {
-          ...form,
-          impact: "Medium",
-          urgency: "Medium",
-          category_id: form.category_id || null,
-          requester_id: user?.user_id,
-          branch_id: user?.branch_id || null,
-          status: "Open Queue",
-          source: "portal",
-        })),
+        body: JSON.stringify(buildTicketPayload(user, { ...form, category_id: categoryId })),
       });
 
       const data = await res.json();
-
       if (!res.ok) throw new Error(data.error || "Failed to create ticket.");
 
       const createdTicket = data.data || data;
-      setForm({
-        title: "",
-        description: "",
-        category_id: "",
-        priority: "P3-Medium",
-      });
-      setFiles([]);
-
+      
       try {
         await uploadTicketAttachments(createdTicket.id, files, user?.user_id);
-      } catch (attachmentError) {
-        console.warn("Ticket created, but attachment upload failed:", attachmentError.message);
+      } catch(err) {
+        console.warn("Attachment upload issue", err);
       }
 
       onCreated();
@@ -335,155 +340,102 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-slate-200 px-7 py-5">
-          <div>
-            <h2 className="text-xl font-black text-slate-900">Create Ticket</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Submit an incident or service request to the IT team.
-            </p>
-          </div>
+  const priorityList = [
+    { value: "P1-Critical", label: "P1 — Critical", dot: "bg-red-500", bg: "bg-red-600 text-white" },
+    { value: "P2-High", label: "P2 — High", dot: "bg-orange-500", bg: "bg-red-50 text-red-700" },
+    { value: "P3-Medium", label: "P3 — Medium", dot: "bg-amber-500", bg: "bg-yellow-50 text-yellow-800" },
+    { value: "P4-Low", label: "P4 — Low", dot: "bg-green-500", bg: "bg-green-50 text-green-700" },
+  ];
 
-          <button
-            onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-          >
+  const inputClass = "astrea-control text-sm font-medium";
+  const labelClass = "astrea-field-label";
+
+  return (
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel max-w-2xl">
+        <div className="astrea-modal-header bg-gradient-to-r from-blue-50 to-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-600/30">
+              <Plus size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-slate-900">Create New Ticket</h2>
+              <p className="text-xs font-medium text-slate-500">
+                Submit an incident or service request to the IT service desk.
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-xl p-2 text-slate-400 transition hover:bg-white hover:text-slate-700 hover:shadow-sm">
             <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5 px-7 py-6">
+        <form onSubmit={handleSubmit} className="astrea-modal-body space-y-5">
           {error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+              <AlertCircle size={16} className="shrink-0" />
               {error}
             </div>
           )}
 
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-              Title *
-            </label>
-            <input
-              value={form.title}
-              onChange={(e) => updateForm("title", e.target.value)}
-              placeholder="Briefly describe the request or issue"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
-            />
+            <label className={labelClass}>Title <span className="text-red-600">*</span></label>
+            <input value={form.title} onChange={(e) => updateForm("title", e.target.value)} placeholder="Brief description of the issue..." className={inputClass} required />
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-              Description *
-            </label>
-            <textarea
-              value={form.description}
-              onChange={(e) => updateForm("description", e.target.value)}
-              rows={5}
-              placeholder="Include affected device, application, urgency, and helpful details"
-              className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
-            />
+            <label className={labelClass}>Description <span className="text-red-600">*</span></label>
+            <textarea value={form.description} onChange={(e) => updateForm("description", e.target.value)} placeholder="Detailed description..." rows={4} className={`${inputClass} resize-none`} required />
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <SelectField
-              label="Category"
-              value={form.category_id}
-              onChange={(value) => updateForm("category_id", value)}
-              options={[
-                { label: "Select category", value: "" },
-                ...categories.map((cat) => ({
-                  label: cat.category_name,
-                  value: cat.category_id,
-                })),
-              ]}
-            />
             <div>
-              <SelectField
-                label="Priority"
-                value={form.priority}
-                onChange={(value) => updateForm("priority", value)}
-                options={priorityOptions.map((value) => ({ label: value, value }))}
-              />
-              <div className="mt-2">
-                
+              <label className={labelClass}>Category</label>
+              <select value={isOtherCategory ? "__other__" : form.category_id} onChange={(e) => handleCategoryChange(e.target.value)} className={inputClass}>
+                <option value="">Select category</option>
+                {categories.map((cat) => (
+                  <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>
+                ))}
+                <option value="__other__">Other...</option>
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass}>Priority</label>
+              <div className="flex flex-wrap gap-2">
+                {priorityList.map((p) => (
+                  <button key={p.value} type="button" onClick={() => updateForm("priority", p.value)} className={`inline-flex items-center gap-1.5 rounded-xl border-2 px-3.5 py-2 text-xs font-black transition ${form.priority === p.value ? `${p.bg} border-current shadow-sm` : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50"}`}>
+                    <span className={`h-2 w-2 rounded-full ${p.dot}`} />
+                    {p.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
 
+          {isOtherCategory && (
+            <div className="rounded-2xl border-2 border-blue-200 bg-blue-50/50 p-4">
+              <label className={labelClass}>Specify Category *</label>
+              <input value={customCategory} onChange={(e) => setCustomCategory(e.target.value)} placeholder="e.g. CCTV, WiFi..." className={inputClass} autoFocus required />
+            </div>
+          )}
+
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-              Attach Screenshots or PDF
-            </label>
-            <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 px-4 py-5 text-sm font-bold text-blue-700 hover:bg-blue-50">
-              <Paperclip size={18} />
-              <span>{files.length ? `${files.length} file(s) selected` : "Choose PNG, JPG, JPEG, WEBP, or PDF"}</span>
-              <input
-                type="file"
-                multiple
-                accept=".png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf"
-                onChange={(e) => setFiles(Array.from(e.target.files || []))}
-                className="hidden"
-              />
+            <label className={labelClass}>Attachments</label>
+            <label className="astrea-upload-zone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setFiles(Array.from(event.dataTransfer.files || [])); }}>
+              <span className="rounded-full bg-blue-100 p-3 text-blue-700"><Paperclip size={22} /></span>
+              <span className="font-black">{files.length ? `${files.length} file(s) selected` : "Choose PNG, JPG, JPEG, WEBP, or PDF"}</span>
+              <span className="text-xs font-semibold text-slate-600">Upload screenshots, PDF, or supporting files</span>
+              <span className="text-xs text-slate-500">PNG, JPG, JPEG, WEBP or PDF · Maximum 10MB · Drag & Drop supported</span>
+              <input type="file" multiple accept=".png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setFiles(Array.from(e.target.files || []))} className="hidden" />
             </label>
           </div>
 
-          <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800 disabled:opacity-60"
-            >
-              {saving ? "Creating..." : "Create Ticket"}
-            </button>
+          <div className="astrea-modal-footer -mx-6 -mb-6 mt-6">
+            <button type="button" onClick={onClose} className="astrea-button astrea-button-secondary">Cancel</button>
+            <button type="submit" disabled={saving} className="astrea-button astrea-button-primary">{saving ? "Creating..." : "Create Ticket"}</button>
           </div>
         </form>
-      </div>
-    </div>
-  );
-}
-
-async function uploadTicketAttachments(ticketId, files, uploadedBy) {
-  if (!ticketId || !files.length) return;
-
-  const formData = new FormData();
-  files.forEach((file) => formData.append("attachments", file));
-  if (uploadedBy) formData.append("uploaded_by", uploadedBy);
-
-  const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!res.ok) {
-    const data = await readJsonSafely(res);
-    throw new Error(data.error || "Failed to upload attachments");
-  }
-}
-
-async function readJsonSafely(res) {
-  const text = await res.text();
-  try {
-    return text ? JSON.parse(text) : {};
-  } catch {
-    return { error: "Server returned a non-JSON response." };
-  }
-}
-
-function PriorityIndicator({ value }) {
-  return (
-    <div className="flex items-end">
-      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700">
-        <span className={`h-2.5 w-2.5 rounded-full ${priorityDotStyle[value] || "bg-slate-400"}`} />
-        Selected: {value || "Priority"}
       </div>
     </div>
   );

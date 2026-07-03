@@ -22,8 +22,8 @@
   --astrea-card-shadow: 0 12px 30px rgba(20, 60, 120, 0.08);
   --astrea-hero-shadow: 0 24px 60px rgba(15, 74, 160, 0.24);
   --astrea-hero-gradient: linear-gradient(135deg, #071b3a 0%, #0b4fa8 55%, #0ea5e9 100%);
-  --astrea-input-bg: #f5f9ff;
-  --astrea-input-border: #b9cbe3;
+  --astrea-input-bg: linear-gradient(180deg, #fdfefe 0%, #f4f8ff 100%);
+  --astrea-input-border: #c8d8f2;
   --astrea-input-focus: rgba(47, 109, 255, 0.16);
   --astrea-modal-backdrop: rgba(2, 12, 27, 0.64);
   --astrea-primary-gradient: linear-gradient(135deg, #155dfb 0%, #0b7edb 100%);
@@ -248,6 +248,7 @@ thead[class*="bg-slate-50"],
 input:focus,
 select:focus,
 textarea:focus {
+  border-width: 2px !important;
   border-color: var(--astrea-primary) !important;
   box-shadow: 0 0 0 4px var(--astrea-input-focus) !important;
 }
@@ -257,10 +258,21 @@ select,
 textarea {
   border-color: var(--astrea-input-border) !important;
   border-radius: 0.75rem;
-  background-color: var(--astrea-input-bg);
+  background: var(--astrea-input-bg);
   color: #0f172a;
-  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+  transition: border-color 200ms ease, box-shadow 200ms ease, background 200ms ease;
 }
+
+input:hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) {
+  border-color: #6ea8fe !important;
+}
+
+select[data-severity="critical"] { border-color: #b91c1c !important; background: #dc2626 !important; color: #fff !important; }
+select[data-severity="high"] { border-color: #fecdd3 !important; background: #fff1f2 !important; color: #9f1239 !important; }
+select[data-severity="medium"] { border-color: #fde68a !important; background: #fef9c3 !important; color: #854d0e !important; }
+select[data-severity="low"] { border-color: #bbf7d0 !important; background: #dcfce7 !important; color: #166534 !important; }
 
 input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]),
 select {
@@ -272,11 +284,13 @@ textarea {
   width: 100%;
   min-height: 6rem;
   resize: vertical;
+  padding: 0.875rem 1rem;
+  box-shadow: inset 0 1px 3px rgba(39, 74, 125, 0.06);
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: #73859d;
+  color: #6b7b94;
 }
 
 form label {
@@ -342,6 +356,29 @@ form label {
   outline: none;
 }
 
+.astrea-upload-zone {
+  display: flex;
+  min-height: 9rem;
+  cursor: pointer;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 2px dashed #9fc2f4;
+  border-radius: 1rem;
+  background: linear-gradient(180deg, #f8fbff 0%, #edf5ff 100%);
+  padding: 1.25rem;
+  color: var(--astrea-primary);
+  text-align: center;
+  transition: border-color 200ms ease, background 200ms ease, box-shadow 200ms ease;
+}
+
+.astrea-upload-zone:hover {
+  border-color: #5b96ed;
+  background: linear-gradient(180deg, #f4f9ff 0%, #e4f0ff 100%);
+  box-shadow: 0 0 0 4px var(--astrea-input-focus);
+}
+
 .astrea-button {
   display: inline-flex;
   min-height: 2.75rem;
@@ -357,6 +394,7 @@ form label {
 }
 
 .astrea-button:hover:not(:disabled) { transform: translateY(-1px); }
+.astrea-button:active:not(:disabled) { transform: translateY(0); filter: brightness(0.92); }
 .astrea-button:disabled { cursor: not-allowed; opacity: 0.55; }
 
 .astrea-button-primary {
@@ -383,6 +421,13 @@ form label {
   border-radius: 1rem;
   background: var(--astrea-surface-elevated);
   box-shadow: var(--astrea-card-shadow);
+}
+
+.astrea-card-soft {
+  border: 1px solid var(--astrea-input-border);
+  border-radius: 1rem;
+  background: var(--astrea-surface-soft);
+  box-shadow: 0 8px 22px rgba(20, 60, 120, 0.06);
 }
 
 .astrea-alert-warning {
@@ -521,7 +566,7 @@ html[data-theme="dark"] {
   --astrea-card-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
   --astrea-hero-shadow: 0 24px 64px rgba(0, 0, 0, 0.44);
   --astrea-hero-gradient: linear-gradient(135deg, #061426 0%, #0b3569 56%, #087aa5 100%);
-  --astrea-input-bg: #102138;
+  --astrea-input-bg: linear-gradient(180deg, #132740 0%, #102138 100%);
   --astrea-input-border: #355270;
   --astrea-input-focus: rgba(85, 191, 255, 0.2);
   --astrea-modal-backdrop: rgba(1, 8, 18, 0.8);
@@ -552,9 +597,14 @@ html[data-theme="dark"] .astrea-nav-active {
 }
 
 html[data-theme="dark"] .astrea-modal-panel,
-html[data-theme="dark"] .astrea-card {
+html[data-theme="dark"] .astrea-card,
+html[data-theme="dark"] .astrea-card-soft {
   border-color: #2a425e;
   background: #0d1b2e;
+}
+
+html[data-theme="dark"] .astrea-card-soft {
+  background: var(--astrea-surface-soft);
 }
 
 html[data-theme="dark"] .astrea-alert-warning {
@@ -592,9 +642,20 @@ html[data-theme="dark"] [class*="border-[#DCE7F6]"] {
 html[data-theme="dark"] input,
 html[data-theme="dark"] select,
 html[data-theme="dark"] textarea {
-  background-color: #102138 !important;
+  background: var(--astrea-input-bg) !important;
   border-color: #2b4565 !important;
   color: #e7f1ff !important;
+}
+
+html[data-theme="dark"] select[data-severity="critical"] { background: #991b1b !important; color: #fff !important; }
+html[data-theme="dark"] select[data-severity="high"] { background: #3b1f2a !important; color: #fda4af !important; }
+html[data-theme="dark"] select[data-severity="medium"] { background: #382f16 !important; color: #fde68a !important; }
+html[data-theme="dark"] select[data-severity="low"] { background: #163524 !important; color: #86efac !important; }
+
+html[data-theme="dark"] .astrea-upload-zone {
+  border-color: #355b82;
+  background: linear-gradient(180deg, #122943 0%, #0f2035 100%);
+  color: #8dd8ff;
 }
 
 html[data-theme="dark"] .fixed.inset-0 {

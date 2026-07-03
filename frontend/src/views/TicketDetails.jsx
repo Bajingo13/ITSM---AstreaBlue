@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import apiService from "../services/api";
+import { formatPriority, getPriorityBadgeClass } from "../utils/ticketVisuals";
 
 export default function TicketDetails({ id, onClose }) {
   const [ticket, setTicket] = useState(null);
@@ -13,9 +14,9 @@ export default function TicketDetails({ id, onClose }) {
   if (!ticket) return <div>Loading ticket...</div>;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center">
+    <div className="astrea-modal-backdrop">
 
-      <div className="bg-white w-[600px] p-6 rounded">
+      <div className="astrea-modal-panel max-w-xl p-6">
 
         <button onClick={onClose} className="float-right text-red-500">
           X
@@ -27,7 +28,7 @@ export default function TicketDetails({ id, onClose }) {
         <p><b>Description:</b> {ticket.description}</p>
         <p><b>Category:</b> {ticket.category}</p>
         <p><b>Status:</b> {ticket.status}</p>
-        <p><b>Priority:</b> {formatPriority(ticket.priority)}</p>
+        <p className="flex items-center gap-2"><b>Priority:</b> <span className={getPriorityBadgeClass(ticket.priority)}>{formatPriority(ticket.priority)}</span></p>
         <p><b>Branch:</b> {ticket.branch_name}</p>
         <p><b>Requester:</b> {ticket.requester_name}</p>
 

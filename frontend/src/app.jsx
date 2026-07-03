@@ -35,6 +35,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import ModulePlaceholder from "./views/ModulePlaceholder";
 import ForgotPassword from "./ForgotPassword";
 import ResetPassword from "./ResetPassword";
+import NotificationTicketDetails from "./views/NotificationTicketDetails";
 
 const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
 const ADMIN_ROLES = ["SuperAdmin", "Admin"];
@@ -70,6 +71,7 @@ export default function App() {
           </ProtectedRoute>
         }
       >
+        <Route path="/ticket/:ticketId" element={<NotificationTicketDetails />} />
         <Route
           path="/dashboard"
           element={

@@ -95,6 +95,10 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
       setError("Title and description are required.");
       return;
     }
+    if (isOtherCategory && !customCategory.trim()) {
+      setError("Specify Category is required when Other is selected.");
+      return;
+    }
 
     try {
       setSaving(true);
@@ -109,9 +113,10 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
           body: JSON.stringify({ category_name: customCategory.trim() }),
         });
         const catData = await catRes.json();
-        if (catRes.ok && catData.category) {
-          categoryId = catData.category.category_id;
+        if (!catRes.ok || catData.success === false || !catData.category) {
+          throw new Error(catData.message || catData.error || "Failed to save category.");
         }
+        categoryId = catData.category.category_id;
       }
 
       const payload = buildTicketPayload(user, {
@@ -151,14 +156,14 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
   ];
 
   const inputClass =
-    "w-full rounded-xl border-2 border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100";
-  const labelClass = "mb-1.5 block text-sm font-black text-slate-700";
+    "astrea-control text-sm font-medium";
+  const labelClass = "astrea-field-label";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-200 bg-white shadow-2xl">
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel max-w-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-blue-50 to-slate-50 px-7 py-5">
+        <div className="astrea-modal-header bg-gradient-to-r from-blue-50 to-slate-50">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-600/30">
               <Ticket size={20} />
@@ -179,7 +184,7 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
         </div>
 
         {/* Body */}
-        <form onSubmit={handleSubmit} className="space-y-5 px-7 py-6">
+        <form onSubmit={handleSubmit} className="astrea-modal-body space-y-5">
           {error && (
             <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
               <AlertCircle size={16} className="shrink-0" />
@@ -189,7 +194,7 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
 
           {/* Title */}
           <div>
-            <label className={labelClass}>Title *</label>
+            <label className={labelClass}>Title <span className="text-red-600">*</span></label>
             <input
               value={form.title}
               onChange={(e) => updateForm("title", e.target.value)}
@@ -201,7 +206,7 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
 
           {/* Description */}
           <div>
-            <label className={labelClass}>Description *</label>
+            <label className={labelClass}>Description <span className="text-red-600">*</span></label>
             <textarea
               value={form.description}
               onChange={(e) => updateForm("description", e.target.value)}
@@ -278,7 +283,7 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
           {isOtherCategory && (
             <div className="rounded-2xl border-2 border-blue-200 bg-blue-50/50 p-4">
               <label className={labelClass}>
-                Specify Category *
+                Specify Category <span className="text-red-600">*</span>
               </label>
               <input
                 value={customCategory}
@@ -297,13 +302,15 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
           {/* Attachments */}
           <div>
             <label className={labelClass}>Attachments</label>
-            <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/30 px-4 py-5 text-sm font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50/60">
-              <Paperclip size={18} />
-              <span>
+            <label className="astrea-upload-zone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setFiles(Array.from(event.dataTransfer.files || [])); }}>
+              <span className="rounded-full bg-blue-100 p-3 text-blue-700"><Paperclip size={22} /></span>
+              <span className="font-black">
                 {files.length
                   ? `${files.length} file(s) selected`
                   : "Choose PNG, JPG, JPEG, WEBP, or PDF"}
               </span>
+              <span className="text-xs font-semibold text-slate-600">Upload screenshots, PDF, or supporting files</span>
+              <span className="text-xs text-slate-500">PNG, JPG, JPEG, WEBP or PDF · Maximum 10MB · Drag & Drop supported</span>
               <input
                 type="file"
                 multiple
@@ -315,18 +322,18 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
+          <div className="astrea-modal-footer -mx-6 -mb-6 mt-6">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border-2 border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
+              className="astrea-button astrea-button-secondary"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 disabled:opacity-60"
+              className="astrea-button astrea-button-primary"
             >
               {saving ? "Creating..." : "Create Ticket"}
             </button>
@@ -1263,6 +1270,15 @@ function ResolutionDetail({ label, value }) {
   );
 }
 
+function getSlaBadgeClass(status) {
+  switch (status) {
+    case "Met": return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    case "Breached": return "bg-red-100 text-red-800 border-red-200";
+    case "Due Soon": return "bg-amber-100 text-amber-800 border-amber-200";
+    default: return "bg-blue-100 text-blue-800 border-blue-200"; // Pending / Active
+  }
+}
+
 function TicketCard({ ticket, onClick }) {
   return (
     <div
@@ -1270,9 +1286,16 @@ function TicketCard({ ticket, onClick }) {
       className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md"
     >
       <div className="mb-2 flex items-start justify-between gap-3">
-        <p className="text-xs font-black uppercase tracking-wider text-blue-600 truncate">
-          {ticket.ticket_number || `TKT-${ticket.id}`}
-        </p>
+        <div className="flex items-center gap-2 overflow-hidden">
+          <p className="text-xs font-black uppercase tracking-wider text-blue-600 truncate">
+            {ticket.ticket_number || `TKT-${ticket.id}`}
+          </p>
+          {(ticket.resolution_sla_status || ticket.response_sla_status) && (
+            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${getSlaBadgeClass(ticket.resolution_sla_status === 'Breached' || ticket.response_sla_status === 'Breached' ? 'Breached' : ticket.resolution_sla_status === 'Pending' ? (ticket.response_sla_status === 'Met' ? 'Pending' : ticket.response_sla_status) : ticket.resolution_sla_status)}`}>
+              {ticket.resolution_sla_status === 'Breached' || ticket.response_sla_status === 'Breached' ? 'SLA Breach' : ticket.resolution_sla_status === 'Met' ? 'SLA Met' : 'SLA Active'}
+            </span>
+          )}
+        </div>
         <span
           className={`${getPriorityBadgeClass(ticket.priority)} shrink-0 whitespace-nowrap px-2.5 py-0.5 text-[11px]`}
         >
@@ -1575,6 +1598,7 @@ export default function Tickets() {
           onCreated={() => {
             setModalOpen(false);
             fetchTickets();
+            fetchCategories();
           }}
         />
       )}
