@@ -763,7 +763,7 @@ async function uploadTicketAttachments(ticketId, files, uploadedBy) {
   files.forEach((file) => formData.append('attachments', file));
   if (uploadedBy) formData.append('uploaded_by', uploadedBy);
 
-  const res = await fetch(${API_BASE}/tickets//attachments, {
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
     method: 'POST',
     body: formData,
   });
