@@ -330,6 +330,7 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
         await uploadTicketAttachments(createdTicket.id, files, user?.user_id);
       } catch(err) {
         console.warn("Attachment upload issue", err);
+        alert("⚠️ Ticket created successfully, but your attachments failed to upload.\n\nError: " + err.message);
       }
 
       onCreated();

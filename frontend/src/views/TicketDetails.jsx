@@ -8,6 +8,7 @@ const API_BASE = `${API_URL}/api/v1`;
 
 export default function TicketDetails({ id, onClose }) {
   const [ticket, setTicket] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetch(`${API_BASE}/tickets/${id}`, {
@@ -15,13 +16,33 @@ export default function TicketDetails({ id, onClose }) {
         "Authorization": `Bearer ${getAuthToken()}`
       }
     })
-      .then(res => {
-        if (!res.ok) throw new Error("Ticket not found");
-        return res.json();
+      .then(async res => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || data.error || "Ticket not found");
+        return data;
       })
       .then(data => setTicket(data))
-      .catch(err => console.error("Fetch ticket error:", err));
+      .catch(err => {
+        console.error("Fetch ticket error:", err);
+        setError(err.message);
+      });
   }, [id]);
+
+  if (error) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+        <div className="bg-white p-6 rounded-3xl shadow-2xl relative max-w-md w-full border border-slate-200">
+          <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+            <X size={20} />
+          </button>
+          <div className="text-red-500 font-medium text-center py-4">
+            <h3 className="text-lg font-bold mb-2">Could not load ticket</h3>
+            <p className="text-sm text-slate-600">{error}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!ticket) {
     return (
