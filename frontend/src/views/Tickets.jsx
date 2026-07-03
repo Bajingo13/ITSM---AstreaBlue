@@ -1269,22 +1269,20 @@ function TicketCard({ ticket, onClick }) {
       onClick={() => onClick(ticket)}
       className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md"
     >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-black uppercase tracking-wider text-blue-600">
-            {ticket.ticket_number || `TKT-${ticket.id}`}
-          </p>
-          <h3 className="mt-1 line-clamp-2 font-black text-slate-900">
-            {ticket.title}
-          </h3>
-        </div>
-
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <p className="text-xs font-black uppercase tracking-wider text-blue-600 truncate">
+          {ticket.ticket_number || `TKT-${ticket.id}`}
+        </p>
         <span
-          className={`${getPriorityBadgeClass(ticket.priority)} shrink-0 px-2.5 text-[11px]`}
+          className={`${getPriorityBadgeClass(ticket.priority)} shrink-0 whitespace-nowrap px-2.5 py-0.5 text-[11px]`}
         >
           {formatPriority(ticket.priority)}
         </span>
       </div>
+
+      <h3 className="mb-1.5 line-clamp-2 font-black leading-snug text-slate-900">
+        {ticket.title}
+      </h3>
 
       <p className="line-clamp-2 text-sm text-slate-500">
         {ticket.desc || ticket.description}
