@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   Ban,
   Plus,
@@ -27,6 +26,7 @@ import {
 } from "../utils/ticketVisuals";
 import { API_URL } from "../config/api";
 import PageHero from "../components/layout/PageHero";
+import { authHeaders } from "../services/authHeaders";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -293,7 +293,6 @@ async function readJsonSafely(res) {
 }
 
 function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
-  const navigate = useNavigate();
   const { user, role } = useAuth();
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -312,6 +311,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   const [cancelError, setCancelError] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [kbModalOpen, setKbModalOpen] = useState(false);
+  const [kbMessage, setKbMessage] = useState("");
   const activeRole = role || user?.role_name || user?.role;
 
   const fetchDetails = useCallback(async () => {
@@ -399,19 +400,25 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
     try {
       setSavingComment(true);
+      setActionError("");
 
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ comment_text: comment }),
+        body: JSON.stringify({ comment_text: comment.trim(), user_id: user?.user_id || null }),
       });
 
-      if (!res.ok) throw new Error("Failed to add comment");
+      const savedComment = await readJsonSafely(res);
+      if (!res.ok || savedComment.success === false) throw new Error(savedComment.message || savedComment.error || "Failed to add comment");
 
       setComment("");
-      await fetchDetails();
+      setDetails((current) => ({
+        ...(current || ticket),
+        comments: [...(current?.comments || []), { ...savedComment, full_name: user?.full_name || user?.name || "User" }],
+      }));
+      void fetchDetails();
     } catch (err) {
-      console.error(err);
+      setActionError(err.message || "Failed to add comment.");
     } finally {
       setSavingComment(false);
     }
@@ -419,7 +426,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
   const item = details || ticket;
   const hasResolution =
-    item.status === "Resolved" || Boolean(item.resolution_notes);
+    ["Resolved", "Closed"].includes(item.status) || Boolean(item.resolution_notes);
   const canCreateKbArticle = ["SuperAdmin", "Admin", "Technician"].includes(
     activeRole
   );
@@ -508,17 +515,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   };
 
   const createKnowledgeBaseArticle = () => {
-    navigate("/knowledge-base", {
-      state: {
-        kbPrefill: {
-          title: item.title || "",
-          category: item.category || "",
-          symptoms: item.description || item.desc || "",
-          resolution: item.resolution_notes || "",
-          related_ticket_id: item.id,
-        },
-      },
-    });
+    setKbMessage("");
+    setKbModalOpen(true);
   };
 
   const openCancelModal = () => {
@@ -597,8 +595,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
   return (
     <>
-    <div className="fixed inset-0 z-[80] flex justify-end bg-slate-950/70 backdrop-blur-sm">
-      <div className="flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl">
+    <div className="astrea-modal-backdrop z-[80]">
+      <div className="astrea-modal-panel flex w-full max-w-2xl flex-col">
         <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-7 py-5">
           <div className="flex items-start justify-between">
             <div>
@@ -628,9 +626,10 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 {actionError}
               </div>
             )}
+            {kbMessage && <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{kbMessage}</div>}
 
             <section className="grid grid-cols-2 gap-4">
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="astrea-card p-4">
                 <p className="text-xs font-bold text-slate-400">Status</p>
                 <p className="mt-1 flex flex-wrap items-center gap-2 font-black text-slate-900">
                   {selectedStatus}
@@ -647,7 +646,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="astrea-card p-4">
                 <p className="text-xs font-bold text-slate-400">Priority</p>
                 <p className="mt-1">
                   <span className={getPriorityBadgeClass, formatPriority(item.priority)}>
@@ -656,14 +655,14 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="astrea-card p-4">
                 <p className="text-xs font-bold text-slate-400">Category</p>
                 <p className="mt-1 font-black text-slate-900">
                   {item.category || "Uncategorized"}
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="astrea-card p-4">
                 <p className="text-xs font-bold text-slate-400">
                   Assigned To
                 </p>
@@ -824,13 +823,13 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   </div>
                 </div>
 
-                {canCreateKbArticle && item.status === "Resolved" && item.resolution_notes && (
+                {canCreateKbArticle && ["Resolved", "Closed"].includes(item.status) && (
                   <button
                     onClick={createKnowledgeBaseArticle}
                     className="mt-5 flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-black text-white hover:bg-blue-800"
                   >
                     <BookOpen size={17} />
-                    Create KB Article
+                    Create Article from Ticket
                   </button>
                 )}
               </section>
@@ -867,16 +866,17 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               </section>
             )}
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
-              <h3 className="mb-4 font-black text-slate-900">
+            <section className="astrea-card border-2 p-6">
+              <h3 className="mb-1 font-black text-slate-900">
                 Update Status
               </h3>
+              <p className="mb-4 text-sm text-slate-500">Select the next valid workflow state, then save your changes.</p>
               {isCancelled ? (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
                   Cancelled tickets cannot be updated.
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   {columns
                     .filter((col) => col.id !== "Cancelled")
                     .map((col) => (
@@ -885,11 +885,11 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                       type="button"
                       onClick={() => selectStatus(col.id)}
                       disabled={selectedStatus === col.id || assigning || loading}
-                      className={`rounded-xl px-4 py-2 text-sm font-black ${
+                      className={`min-h-11 rounded-xl border-2 px-4 py-2.5 text-sm font-black transition ${
                         selectedStatus === col.id
-                          ? "bg-blue-700 text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700"
-                      } disabled:opacity-60`}
+                          ? "border-blue-700 bg-blue-700 text-white shadow-lg shadow-blue-700/20 ring-2 ring-blue-200"
+                          : "border-slate-300 bg-white text-slate-700 hover:border-blue-500 hover:bg-blue-50 hover:text-blue-800"
+                      } disabled:cursor-not-allowed disabled:opacity-70`}
                     >
                       {col.label}
                     </button>
@@ -898,7 +898,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <section className="astrea-card border-2 p-6">
               <div className="mb-4 flex items-center gap-2">
                 <MessageSquare size={18} className="text-blue-600" />
                 <h3 className="font-black text-slate-900">Comments</h3>
@@ -909,7 +909,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   item.comments.map((c) => (
                     <div
                       key={c.comment_id}
-                      className="rounded-xl bg-slate-50 p-4"
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
                     >
                       <p className="text-sm text-slate-700">
                         {c.comment_text}
@@ -921,25 +921,26 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm font-semibold text-slate-400">
-                    No comments yet.
+                  <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm font-semibold text-slate-500">
+                    No comments yet. Add context or an update for everyone following this ticket.
                   </p>
                 )}
               </div>
 
-              <div className="mt-4 flex gap-2">
+              <div className="mt-5 flex gap-3">
                 <input
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="Write a comment..."
-                  className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-600"
+                  className="astrea-control flex-1 text-sm"
                 />
                 <button
                   onClick={addComment}
-                  disabled={savingComment || hasUnsavedChanges}
-                  className="rounded-xl bg-blue-700 px-4 text-white hover:bg-blue-800 disabled:opacity-60"
+                  disabled={savingComment || hasUnsavedChanges || !comment.trim()}
+                  className="astrea-button astrea-button-primary min-w-28"
                 >
                   <Send size={18} />
+                  {savingComment ? "Sending..." : "Send"}
                 </button>
               </div>
 
@@ -950,7 +951,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <section className="astrea-card p-6">
               <div className="mb-4 flex items-center gap-2">
                 <History size={18} className="text-blue-600" />
                 <h3 className="font-black text-slate-900">
@@ -963,7 +964,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   item.history.map((h) => (
                     <div
                       key={h.history_id}
-                      className="border-l-2 border-blue-200 pl-4"
+                      className="astrea-timeline-item"
                     >
                       <p className="text-sm font-black text-slate-800">
                         {h.action}
@@ -1003,7 +1004,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             <div className="flex items-center justify-end gap-3">
             <button
               onClick={handleCloseDrawer}
-              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+              className="astrea-button astrea-button-secondary"
             >
               Close
             </button>
@@ -1011,7 +1012,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             <button
               onClick={saveChanges}
               disabled={loading || assigning || isCancelled || !hasUnsavedChanges}
-              className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800 disabled:opacity-60"
+              className="astrea-button astrea-button-primary"
             >
               {assigning ? "Saving..." : "Save Changes"}
             </button>
@@ -1093,7 +1094,80 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
           onClose={() => setPreviewAttachment(null)}
         />
       )}
+      {kbModalOpen && (
+        <TicketArticleModal
+          ticket={item}
+          onClose={() => setKbModalOpen(false)}
+          onSaved={() => {
+            setKbModalOpen(false);
+            setKbMessage("Knowledge Base article created successfully.");
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function TicketArticleModal({ ticket, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    title: ticket.title ? `Resolution: ${ticket.title}` : "",
+    category: ticket.category || "",
+    symptoms: ticket.description || ticket.desc || "",
+    resolution: ticket.resolution_notes || ticket.technician_notes || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const saveArticle = async (event) => {
+    event.preventDefault();
+    if (!form.title.trim()) return setError("Article title is required.");
+    try {
+      setSaving(true);
+      setError("");
+      const response = await fetch(`${API_BASE}/knowledge-base`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          title: form.title.trim(),
+          category: form.category.trim() || null,
+          symptoms: form.symptoms.trim() || null,
+          resolution: form.resolution.trim() || null,
+          related_ticket_id: ticket.id,
+          branch_id: ticket.branch_id || null,
+        }),
+      });
+      const data = await readJsonSafely(response);
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to create Knowledge Base article.");
+      }
+      onSaved(data);
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+
+  return (
+    <div className="astrea-modal-backdrop z-[95]">
+      <form onSubmit={saveArticle} className="astrea-modal-panel max-w-2xl p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div><h2 className="text-xl font-black text-slate-900">Create Article from Ticket</h2><p className="mt-1 text-sm text-slate-500">Review the reusable solution before saving it to the Knowledge Base.</p></div>
+          <button type="button" onClick={onClose} disabled={saving} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X size={20}/></button>
+        </div>
+        {error && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</div>}
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label className="astrea-field-label sm:col-span-2">Title *<input value={form.title} onChange={(e) => update("title", e.target.value)} className="astrea-control mt-2" /></label>
+          <label className="astrea-field-label">Category<input value={form.category} onChange={(e) => update("category", e.target.value)} className="astrea-control mt-2" /></label>
+          <label className="astrea-field-label">Related Ticket<input value={ticket.ticket_number || `TKT-${ticket.id}`} disabled className="astrea-control mt-2" /></label>
+          <label className="astrea-field-label sm:col-span-2">Problem / Issue<textarea rows="4" value={form.symptoms} onChange={(e) => update("symptoms", e.target.value)} className="astrea-control mt-2" /></label>
+          <label className="astrea-field-label sm:col-span-2">Resolution<textarea rows="5" value={form.resolution} onChange={(e) => update("resolution", e.target.value)} className="astrea-control mt-2" /></label>
+        </div>
+        <div className="astrea-modal-footer -mx-6 -mb-6 mt-6"><button type="button" onClick={onClose} disabled={saving} className="astrea-button astrea-button-secondary">Cancel</button><button type="submit" disabled={saving} className="astrea-button astrea-button-primary">{saving ? "Creating Article..." : "Create Article"}</button></div>
+      </form>
+    </div>
   );
 }
 

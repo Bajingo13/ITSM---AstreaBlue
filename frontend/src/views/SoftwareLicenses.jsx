@@ -30,7 +30,6 @@ import PageHero from "../components/layout/PageHero";
 const API_BASE = `${API_URL}/api/v1`;
 
 const LICENSE_TYPES = ["Subscription", "Annual", "Perpetual"];
-const LICENSE_STATUSES = ["Active", "Expiring Soon", "Expired", "Available"];
 
 function getRoleName(user) {
   return String(user?.role_name || user?.role || "");
@@ -139,7 +138,7 @@ function SummaryCard({ icon: Icon, label, value, accent = "blue" }) {
    ───────────────────────────────────────────── */
 function UtilizationChart({ used, total }) {
   const pct = total > 0 ? Math.round((used / total) * 100) : 0;
-  const available = total - used;
+  const available = Math.max(total - used, 0);
 
   return (
     <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -178,15 +177,15 @@ function ExpiringSoonBanner({ licenses }) {
   if (!expiring.length) return null;
 
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3.5">
-      <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-600" />
-      <div>
-        <p className="text-sm font-black text-amber-800">
+    <div className="astrea-alert-warning flex items-start gap-4 px-5 py-4">
+      <div className="rounded-xl bg-amber-100 p-2 text-amber-700"><AlertTriangle size={20} /></div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-black">
           {expiring.length} license{expiring.length > 1 ? "s" : ""} expiring soon
         </p>
-        <ul className="mt-1 space-y-0.5">
+        <ul className="mt-3 divide-y divide-amber-200/70">
           {expiring.slice(0, 5).map((l) => (
-            <li key={l.license_id} className="text-xs font-medium text-amber-700">
+            <li key={l.license_id} className="py-2 text-xs font-semibold">
               <strong>{l.license_name}</strong> — expires {formatDate(l.expiry_date)}
               {l.branch_name ? ` (${l.branch_name})` : ""}
             </li>
@@ -208,7 +207,7 @@ function StatusBadge({ status }) {
     Active: "bg-emerald-50 text-emerald-700",
     "Expiring Soon": "bg-amber-50 text-amber-700",
     Expired: "bg-rose-50 text-rose-700",
-    Available: "bg-blue-50 text-blue-700",
+    Overused: "bg-red-100 text-red-800",
   };
 
   return (
@@ -222,12 +221,12 @@ function StatusBadge({ status }) {
    AddLicenseModal
    ───────────────────────────────────────────── */
 const inputClass =
-  "w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500";
+  "astrea-control text-sm disabled:cursor-not-allowed disabled:opacity-60";
 
 function Field({ label, required = false, error = "", children }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-bold text-slate-600">
+      <label className="astrea-field-label">
         {label}{required && <span className="ml-0.5 text-rose-500">*</span>}
       </label>
       {children}
@@ -245,7 +244,6 @@ function AddLicenseModal({ onClose, onSave, loading, error, branches = [], isSup
     used_licenses: "",
     expiry_date: "",
     annual_cost: "",
-    status: "Active",
     branch_id: "",
   });
   const [errors, setErrors] = useState({});
@@ -258,9 +256,6 @@ function AddLicenseModal({ onClose, onSave, loading, error, branches = [], isSup
     if (!form.expiry_date) errs.expiry_date = "Expiry date is required.";
     if (form.total_licenses === "" || isNaN(form.total_licenses)) errs.total_licenses = "Must be a number.";
     if (form.used_licenses === "" || isNaN(form.used_licenses)) errs.used_licenses = "Must be a number.";
-    if (parseInt(form.used_licenses) > parseInt(form.total_licenses)) {
-      errs.used_licenses = "Cannot exceed total licenses.";
-    }
     if (form.annual_cost !== "" && isNaN(form.annual_cost)) errs.annual_cost = "Must be numeric.";
     if (isSuperAdmin && !form.branch_id) errs.branch_id = "Branch is required.";
     setErrors(errs);
@@ -281,9 +276,9 @@ function AddLicenseModal({ onClose, onSave, loading, error, branches = [], isSup
   const update = (field, value) => setForm((f) => ({ ...f, [field]: value }));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="relative w-full max-w-lg rounded-2xl border border-slate-100 bg-white p-6 shadow-2xl">
-        <div className="mb-5 flex items-center justify-between">
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel relative max-w-lg">
+        <div className="astrea-modal-header">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
               <Plus size={18} />
@@ -295,7 +290,7 @@ function AddLicenseModal({ onClose, onSave, loading, error, branches = [], isSup
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3.5">
+        <form onSubmit={handleSubmit} className="astrea-modal-body space-y-4">
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
             <Field label="License Name" required error={errors.license_name}>
               <input value={form.license_name} onChange={(e) => update("license_name", e.target.value)} placeholder="e.g. Microsoft 365" className={inputClass} />
@@ -305,15 +300,10 @@ function AddLicenseModal({ onClose, onSave, loading, error, branches = [], isSup
             </Field>
           </div>
 
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+          <div>
             <Field label="License Type" required error={errors.license_type}>
               <select value={form.license_type} onChange={(e) => update("license_type", e.target.value)} className={inputClass}>
                 {LICENSE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </Field>
-            <Field label="Status">
-              <select value={form.status} onChange={(e) => update("status", e.target.value)} className={inputClass}>
-                {LICENSE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
           </div>
@@ -349,11 +339,11 @@ function AddLicenseModal({ onClose, onSave, loading, error, branches = [], isSup
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">{error}</div>
           )}
 
-          <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
-            <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-xs font-black text-slate-600 transition hover:bg-slate-50">
+          <div className="astrea-modal-footer -mx-6 -mb-6 mt-6">
+            <button type="button" onClick={onClose} className="astrea-button astrea-button-secondary">
               Cancel
             </button>
-            <button type="submit" disabled={loading} className="rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-black text-white transition hover:bg-blue-700 disabled:opacity-50">
+            <button type="submit" disabled={loading} className="astrea-button astrea-button-primary">
               {loading ? "Saving..." : "Add License"}
             </button>
           </div>
@@ -375,7 +365,6 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
     used_licenses: license?.used_licenses?.toString() || "",
     expiry_date: formatDateInput(license?.expiry_date),
     annual_cost: license?.annual_cost?.toString() || "",
-    status: license?.status || "Active",
     branch_id: license?.branch_id?.toString() || "",
   });
   const [errors, setErrors] = useState({});
@@ -388,9 +377,6 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
     if (!form.expiry_date) errs.expiry_date = "Expiry date is required.";
     if (form.total_licenses === "" || isNaN(form.total_licenses)) errs.total_licenses = "Must be a number.";
     if (form.used_licenses === "" || isNaN(form.used_licenses)) errs.used_licenses = "Must be a number.";
-    if (parseInt(form.used_licenses) > parseInt(form.total_licenses)) {
-      errs.used_licenses = "Cannot exceed total licenses.";
-    }
     if (form.annual_cost !== "" && isNaN(form.annual_cost)) errs.annual_cost = "Must be numeric.";
     if (isSuperAdmin && !form.branch_id) errs.branch_id = "Branch is required.";
     setErrors(errs);
@@ -411,9 +397,9 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
   const update = (field, value) => setForm((f) => ({ ...f, [field]: value }));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="relative w-full max-w-lg rounded-2xl border border-slate-100 bg-white p-6 shadow-2xl">
-        <div className="mb-5 flex items-center justify-between">
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel relative max-w-lg">
+        <div className="astrea-modal-header">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
               <Edit3 size={18} />
@@ -425,7 +411,7 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3.5">
+        <form onSubmit={handleSubmit} className="astrea-modal-body space-y-4">
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
             <Field label="License Name" required error={errors.license_name}>
               <input value={form.license_name} onChange={(e) => update("license_name", e.target.value)} className={inputClass} />
@@ -435,15 +421,10 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
             </Field>
           </div>
 
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+          <div>
             <Field label="License Type" required error={errors.license_type}>
               <select value={form.license_type} onChange={(e) => update("license_type", e.target.value)} className={inputClass}>
                 {LICENSE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </Field>
-            <Field label="Status">
-              <select value={form.status} onChange={(e) => update("status", e.target.value)} className={inputClass}>
-                {LICENSE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
           </div>
@@ -479,11 +460,11 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">{error}</div>
           )}
 
-          <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
-            <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-xs font-black text-slate-600 transition hover:bg-slate-50">
+          <div className="astrea-modal-footer -mx-6 -mb-6 mt-6">
+            <button type="button" onClick={onClose} className="astrea-button astrea-button-secondary">
               Cancel
             </button>
-            <button type="submit" disabled={loading} className="rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-black text-white transition hover:bg-blue-700 disabled:opacity-50">
+            <button type="submit" disabled={loading} className="astrea-button astrea-button-primary">
               {loading ? "Saving..." : "Save Changes"}
             </button>
           </div>
@@ -765,7 +746,9 @@ export default function SoftwareLicenses() {
                 <th className="px-5 py-3.5">Vendor</th>
                 {isSuperAdmin && <th className="px-5 py-3.5">Branch</th>}
                 <th className="px-5 py-3.5">Type</th>
-                <th className="px-5 py-3.5">Used / Total</th>
+                <th className="px-5 py-3.5">Total Licenses</th>
+                <th className="px-5 py-3.5">Used Licenses</th>
+                <th className="px-5 py-3.5">Available Licenses</th>
                 <th className="px-5 py-3.5">Utilization</th>
                 <th className="px-5 py-3.5">Expiry</th>
                 <th className="px-5 py-3.5">Annual Cost</th>
@@ -777,14 +760,14 @@ export default function SoftwareLicenses() {
               {loading ? (
                 Array.from({ length: 4 }).map((_, i) => (
                   <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={isSuperAdmin ? 10 : 9} className="px-5 py-4">
+                    <td colSpan={isSuperAdmin ? 12 : 11} className="px-5 py-4">
                       <div className="h-4 w-3/4 animate-pulse rounded bg-slate-100" />
                     </td>
                   </tr>
                 ))
               ) : filteredLicenses.length === 0 ? (
                 <tr>
-                  <td colSpan={isSuperAdmin ? 10 : 9} className="px-5 py-10 text-center text-sm text-slate-400">
+                  <td colSpan={isSuperAdmin ? 12 : 11} className="px-5 py-10 text-center text-sm text-slate-400">
                     {search || branchFilter !== "all" ? "No licenses match your filters." : "No licenses found. Add one to get started."}
                   </td>
                 </tr>
@@ -804,10 +787,9 @@ export default function SoftwareLicenses() {
                       <td className="px-5 py-3.5 text-slate-600">{l.vendor}</td>
                       {isSuperAdmin && <td className="px-5 py-3.5 text-slate-600">{l.branch_name || "—"}</td>}
                       <td className="px-5 py-3.5 text-slate-600">{l.license_type}</td>
-                      <td className="px-5 py-3.5">
-                        <span className="font-bold text-slate-800">{l.used_licenses}</span>
-                        <span className="text-slate-400"> / {l.total_licenses}</span>
-                      </td>
+                      <td className="px-5 py-3.5 font-bold text-slate-800">{l.total_licenses}</td>
+                      <td className="px-5 py-3.5 font-bold text-slate-800">{l.used_licenses}</td>
+                      <td className="px-5 py-3.5 font-bold text-slate-800">{Math.max(Number(l.available_licenses ?? l.total_licenses - l.used_licenses), 0)}</td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2">
                           <div className="h-2 w-16 overflow-hidden rounded-full bg-slate-100 sm:w-20">
@@ -825,6 +807,7 @@ export default function SoftwareLicenses() {
                       <td className="px-5 py-3.5 font-bold text-slate-800">{formatCurrency(l.annual_cost)}</td>
                       <td className="px-5 py-3.5">
                         <StatusBadge status={l.status} />
+                        {l.is_overused && <span className="ml-2 inline-block rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-black text-red-800">Overused</span>}
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">

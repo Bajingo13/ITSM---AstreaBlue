@@ -20,6 +20,14 @@ function calculateStraightLine(asset, asOf = new Date()) {
     monthlyDepreciation * monthsElapsed
   );
   const currentBookValue = Math.max(salvageValue, purchaseCost - accumulatedDepreciation);
+  const remainingUsefulLifeMonths = Math.max(0, usefulLifeMonths - monthsElapsed);
+  const fullyDepreciated = currentBookValue <= salvageValue || remainingUsefulLifeMonths === 0;
+  const ageRatio = usefulLifeMonths > 0 ? monthsElapsed / usefulLifeMonths : 1;
+  const depreciationStatus = fullyDepreciated
+    ? "Fully Depreciated"
+    : remainingUsefulLifeMonths <= 6 || ageRatio >= 0.9
+      ? "Near End of Life"
+      : "Active";
   const endOfLifeDate = purchaseDate
     ? new Date(purchaseDate.getFullYear(), purchaseDate.getMonth() + usefulLifeMonths, purchaseDate.getDate())
     : null;
@@ -31,8 +39,9 @@ function calculateStraightLine(asset, asOf = new Date()) {
     accumulated_depreciation: accumulatedDepreciation,
     current_book_value: currentBookValue,
     months_elapsed: monthsElapsed,
-    remaining_useful_life_months: Math.max(0, usefulLifeMonths - monthsElapsed),
-    fully_depreciated: monthsElapsed >= usefulLifeMonths,
+    remaining_useful_life_months: remainingUsefulLifeMonths,
+    fully_depreciated: fullyDepreciated,
+    depreciation_status: depreciationStatus,
     end_of_life_date: endOfLifeDate?.toISOString() || null,
   };
 }

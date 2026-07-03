@@ -30,6 +30,41 @@ function clean(value) {
   return text || null;
 }
 
+router.get("/types", requireAssetManager, async (_req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT asset_type_id,type_name,created_at FROM asset_types
+       ORDER BY CASE WHEN LOWER(type_name)='other' THEN 1 ELSE 0 END, LOWER(type_name)`
+    );
+    return res.json({ success: true, message: "Asset types loaded.", data: result.rows });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to load asset types.", error: error.message });
+  }
+});
+
+router.post("/types", requireAssetManager, async (req, res) => {
+  const typeName = String(req.body?.type_name || "").trim().replace(/\s+/g, " ");
+  if (!typeName || typeName.length > 100 || typeName.toLowerCase() === "other") {
+    return res.status(400).json({ success: false, message: "Specify a valid asset type up to 100 characters.", error: "Invalid asset type." });
+  }
+  try {
+    const existing = await db.query(`SELECT * FROM asset_types WHERE LOWER(type_name)=LOWER($1) LIMIT 1`, [typeName]);
+    if (existing.rows.length) {
+      return res.json({ success: true, message: "Asset type already exists.", data: existing.rows[0], created: false });
+    }
+    try {
+      const inserted = await db.query(`INSERT INTO asset_types (type_name) VALUES ($1) RETURNING *`, [typeName]);
+      return res.status(201).json({ success: true, message: "Asset type created.", data: inserted.rows[0], created: true });
+    } catch (insertError) {
+      if (insertError.code !== "23505") throw insertError;
+      const concurrent = await db.query(`SELECT * FROM asset_types WHERE LOWER(type_name)=LOWER($1) LIMIT 1`, [typeName]);
+      return res.json({ success: true, message: "Asset type already exists.", data: concurrent.rows[0], created: false });
+    }
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to save asset type.", error: error.message });
+  }
+});
+
 router.patch("/:id/procurement", requireAssetManager, async (req, res) => {
   try {
     const result = await db.query(
@@ -82,7 +117,7 @@ router.get("/financial/summary", requireAssetManager, async (req, res) => {
       accumulated_depreciation: sum("accumulated_depreciation"),
       monthly_depreciation_expense: sum("monthly_depreciation"),
       fully_depreciated_assets: assets.filter((asset) => asset.fully_depreciated).length,
-      assets_near_end_of_life: assets.filter((asset) => asset.remaining_useful_life_months > 0 && asset.remaining_useful_life_months <= 6).length,
+      assets_near_end_of_life: assets.filter((asset) => asset.depreciation_status === "Near End of Life").length,
     } });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to load depreciation summary.", error: error.message });

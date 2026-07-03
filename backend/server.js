@@ -504,6 +504,26 @@ async function ensureHardwareAssetTables() {
         created_by INTEGER REFERENCES users(user_id), updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS asset_types (
+        asset_type_id SERIAL PRIMARY KEY,
+        type_name VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS asset_types_type_name_ci_unique ON asset_types (LOWER(type_name))`);
+    await db.query(`
+      INSERT INTO asset_types (type_name)
+      SELECT seed.type_name FROM (VALUES ('Laptop'),('Desktop'),('Printer'),('Phone'),('Monitor'),('Server'),('Network Device'),('Other')) seed(type_name)
+      WHERE NOT EXISTS (SELECT 1 FROM asset_types existing WHERE LOWER(existing.type_name)=LOWER(seed.type_name))
+    `);
+    await db.query(`
+      INSERT INTO asset_types (type_name)
+      SELECT MIN(TRIM(asset_type)) FROM hardware_assets source
+      WHERE NULLIF(TRIM(asset_type),'') IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM asset_types existing WHERE LOWER(existing.type_name)=LOWER(TRIM(source.asset_type)))
+      GROUP BY LOWER(TRIM(asset_type))
+    `);
     return true;
   } catch (err) {
     console.error("Hardware asset table setup error:", err.message);
@@ -2451,6 +2471,21 @@ app.post("/api/v1/knowledge-base", async (req, res) => {
       return res.status(400).json({ success: false, error: "Branch is required for knowledge base articles." });
     }
 
+    if (related_ticket_id) {
+      const existingArticle = await db.query(
+        `SELECT kb_id,title FROM knowledge_base WHERE related_ticket_id=$1 LIMIT 1`,
+        [Number(related_ticket_id)]
+      );
+      if (existingArticle.rows.length) {
+        return res.status(409).json({
+          success: false,
+          message: "Article already created for this ticket.",
+          error: "Article already created for this ticket.",
+          data: existingArticle.rows[0],
+        });
+      }
+    }
+
     const result = await db.query(
       `
       INSERT INTO knowledge_base
@@ -2690,6 +2725,17 @@ function canManageSoftwareLicense(scope, licenseBranchId) {
   return scope.user.role === "admin" && Number(scope.user.branchId) === Number(licenseBranchId);
 }
 
+function computeSoftwareLicenseStatus(expiryDate) {
+  if (!expiryDate) return "Active";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(`${String(expiryDate).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(expiry.getTime())) return "Active";
+  if (expiry < today) return "Expired";
+  const daysRemaining = Math.ceil((expiry - today) / 86400000);
+  return daysRemaining <= 30 ? "Expiring Soon" : "Active";
+}
+
 // GET /api/v1/software-licenses?branch_id=1
 app.get("/api/v1/software-licenses", async (req, res) => {
   try {
@@ -2707,6 +2753,13 @@ app.get("/api/v1/software-licenses", async (req, res) => {
     const result = await db.query(
       `SELECT
         sl.*,
+        GREATEST(sl.total_licenses - sl.used_licenses, 0) AS available_licenses,
+        (sl.used_licenses > sl.total_licenses) AS is_overused,
+        CASE
+          WHEN sl.expiry_date < CURRENT_DATE THEN 'Expired'
+          WHEN sl.expiry_date <= CURRENT_DATE + INTERVAL '30 days' THEN 'Expiring Soon'
+          ELSE 'Active'
+        END AS status,
         b.branch_name
       FROM software_licenses sl
       LEFT JOIN branches b ON sl.branch_id = b.branch_id
@@ -2738,9 +2791,9 @@ app.get("/api/v1/software-licenses/summary", async (req, res) => {
 
     const result = await db.query(
       `SELECT
-        COUNT(*)::int AS total_licenses,
+        COALESCE(SUM(sl.total_licenses)::int, 0) AS total_licenses,
         COALESCE(SUM(sl.used_licenses)::int, 0) AS total_in_use,
-        COALESCE(SUM(sl.total_licenses - sl.used_licenses)::int, 0) AS total_available,
+        COALESCE(SUM(GREATEST(sl.total_licenses - sl.used_licenses, 0))::int, 0) AS total_available,
         COALESCE(SUM(sl.annual_cost)::numeric, 0) AS total_annual_cost,
         COUNT(*) FILTER (WHERE sl.expiry_date IS NOT NULL AND sl.expiry_date <= CURRENT_DATE + INTERVAL '30 days' AND sl.expiry_date >= CURRENT_DATE)::int AS expiring_soon
       FROM software_licenses sl
@@ -2761,15 +2814,17 @@ app.post("/api/v1/software-licenses", async (req, res) => {
     const scope = requireSoftwareLicenseScope(req, res);
     if (!scope) return;
 
-    const { license_name, vendor, license_type, total_licenses, used_licenses, expiry_date, annual_cost, status, branch_id } = req.body;
+    const { license_name, vendor, license_type, total_licenses, used_licenses, expiry_date, annual_cost, branch_id } = req.body;
     const targetBranchId = scope.user.role === "superadmin" ? parseBranchId(branch_id) : scope.user.branchId;
+    const totalLicenseCount = Number.parseInt(total_licenses, 10);
+    const usedLicenseCount = Number.parseInt(used_licenses, 10);
 
     if (!license_name || !vendor || !license_type) {
       return res.status(400).json({ success: false, error: "License name, vendor, and type are required." });
     }
 
-    if (parseInt(used_licenses) > parseInt(total_licenses)) {
-      return res.status(400).json({ success: false, error: "Used licenses cannot exceed total licenses." });
+    if (!Number.isInteger(totalLicenseCount) || !Number.isInteger(usedLicenseCount) || totalLicenseCount < 0 || usedLicenseCount < 0) {
+      return res.status(400).json({ success: false, error: "License totals must be valid non-negative numbers." });
     }
 
     if (!targetBranchId) {
@@ -2784,7 +2839,7 @@ app.post("/api/v1/software-licenses", async (req, res) => {
       `INSERT INTO software_licenses (license_name, vendor, license_type, total_licenses, used_licenses, expiry_date, annual_cost, status, branch_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *`,
-      [license_name, vendor, license_type, parseInt(total_licenses), parseInt(used_licenses), expiry_date || null, parseFloat(annual_cost) || 0, status || 'Active', targetBranchId]
+      [license_name, vendor, license_type, totalLicenseCount, usedLicenseCount, expiry_date || null, parseFloat(annual_cost) || 0, computeSoftwareLicenseStatus(expiry_date), targetBranchId]
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });
@@ -2801,7 +2856,9 @@ app.put("/api/v1/software-licenses/:id", async (req, res) => {
     if (!scope) return;
 
     const { id } = req.params;
-    const { license_name, vendor, license_type, total_licenses, used_licenses, expiry_date, annual_cost, status, branch_id } = req.body;
+    const { license_name, vendor, license_type, total_licenses, used_licenses, expiry_date, annual_cost, branch_id } = req.body;
+    const totalLicenseCount = Number.parseInt(total_licenses, 10);
+    const usedLicenseCount = Number.parseInt(used_licenses, 10);
     const existing = await db.query(
       `SELECT license_id, branch_id FROM software_licenses WHERE license_id = $1 LIMIT 1`,
       [parseInt(id)]
@@ -2815,8 +2872,8 @@ app.put("/api/v1/software-licenses/:id", async (req, res) => {
       return res.status(403).json({ success: false, error: "Update denied for this license branch." });
     }
 
-    if (parseInt(used_licenses) > parseInt(total_licenses)) {
-      return res.status(400).json({ success: false, error: "Used licenses cannot exceed total licenses." });
+    if (!Number.isInteger(totalLicenseCount) || !Number.isInteger(usedLicenseCount) || totalLicenseCount < 0 || usedLicenseCount < 0) {
+      return res.status(400).json({ success: false, error: "License totals must be valid non-negative numbers." });
     }
 
     const targetBranchId = scope.user.role === "superadmin"
@@ -2836,7 +2893,7 @@ app.put("/api/v1/software-licenses/:id", async (req, res) => {
         updated_at = CURRENT_TIMESTAMP
       WHERE license_id = $10
       RETURNING *`,
-      [license_name, vendor, license_type, parseInt(total_licenses), parseInt(used_licenses), expiry_date || null, parseFloat(annual_cost) || 0, status || 'Active', targetBranchId, parseInt(id)]
+      [license_name, vendor, license_type, totalLicenseCount, usedLicenseCount, expiry_date || null, parseFloat(annual_cost) || 0, computeSoftwareLicenseStatus(expiry_date), targetBranchId, parseInt(id)]
     );
 
     if (result.rows.length === 0) {

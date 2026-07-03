@@ -9,6 +9,7 @@ const migrationFiles = [
   "2026-06-30-hardware-assets-image.sql",
   "2026-07-02-asset-discovery-financial.sql",
   "2026-07-03-asset-finance-discovery-modules.sql",
+  "2026-07-03-asset-types.sql",
 ];
 
 const defaultTicketCategories = [

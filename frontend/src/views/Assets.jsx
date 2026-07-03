@@ -28,8 +28,7 @@ import { API_URL } from "../config/api";
 import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
-const ASSET_TYPES = [
-  "All",
+const DEFAULT_ASSET_TYPES = [
   "Laptop",
   "Desktop",
   "Monitor",
@@ -53,15 +52,6 @@ const STATUS_OPTIONS = [
   "Retired",
   "Disposed",
   "Lost/Damaged",
-];
-const MODAL_ASSET_TYPE_OPTIONS = [
-  { label: "laptop", value: "Laptop" },
-  { label: "desktop", value: "Desktop" },
-  { label: "monitor", value: "Monitor" },
-  { label: "printer", value: "Printer" },
-  { label: "phone", value: "Phone" },
-  { label: "tablet", value: "Tablet" },
-  { label: "other", value: "Other" },
 ];
 const MODAL_STATUS_OPTIONS = [
   { label: "available", value: "Available" },
@@ -294,6 +284,7 @@ export default function Assets() {
 
   const [branches, setBranches] = useState([]);
   const [assets, setAssets] = useState([]);
+  const [assetTypes, setAssetTypes] = useState(DEFAULT_ASSET_TYPES);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
@@ -362,6 +353,19 @@ export default function Assets() {
     }
   }, [user, isSuperAdmin]);
 
+  const fetchAssetTypes = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/hardware-assets/types`);
+      const body = await res.json();
+      if (!res.ok || body.success === false) throw new Error(body.message || body.error || "Unable to load asset types.");
+      const names = (body.data || []).map((item) => item.type_name).filter(Boolean);
+      setAssetTypes(names.length ? names : DEFAULT_ASSET_TYPES);
+    } catch (err) {
+      console.error("Fetch asset types failed:", err);
+      setAssetTypes(DEFAULT_ASSET_TYPES);
+    }
+  }, []);
+
 
   useEffect(() => {
     fetchBranches();
@@ -370,6 +374,10 @@ export default function Assets() {
   useEffect(() => {
     fetchAssets();
   }, [fetchAssets]);
+
+  useEffect(() => {
+    fetchAssetTypes();
+  }, [fetchAssetTypes]);
 
   const visibleBranches = useMemo(() => {
     if (isSuperAdmin) return branches;
@@ -655,6 +663,7 @@ export default function Assets() {
         throw new Error(procurementBody.message || procurementBody.error || "Failed to save procurement details.");
       }
       await fetchAssets();
+      await fetchAssetTypes();
       closeAssetModal();
     } catch (err) {
       console.error(err);
@@ -897,7 +906,7 @@ export default function Assets() {
           className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
         >
           <option value="All">Type: All</option>
-          {ASSET_TYPES.filter((t) => t !== "All").map((type) => (
+          {assetTypes.map((type) => (
             <option key={type} value={type}>
               {type}
             </option>
@@ -1137,6 +1146,7 @@ export default function Assets() {
       {showAssetModal && (
         <AssetFormModal
           asset={editingAsset}
+          assetTypes={assetTypes}
           branches={visibleBranches}
           isSuperAdmin={isSuperAdmin}
           currentBranchId={currentBranchId}
@@ -1236,7 +1246,7 @@ function AssetHistoryModal({ asset, records, loading, onClose }) {
   );
 }
 
-function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, error, branches = [], isSuperAdmin = false, selectedBranch = "All" }) {
+function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranchId, onClose, onSave, loading, error, branches = [], isSuperAdmin = false, selectedBranch = "All" }) {
   const effectiveBranchId = !isSuperAdmin
     ? String(currentBranchId || "")
     : selectedBranch && selectedBranch !== "All"
@@ -1245,6 +1255,16 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
   const [form, setForm] = useState(() => getAssetFormInitialState(asset, effectiveBranchId));
   const [localError, setLocalError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
+  const [specifiedAssetType, setSpecifiedAssetType] = useState("");
+  const [savingAssetType, setSavingAssetType] = useState(false);
+  const assetTypeOptions = useMemo(() => {
+    const names = [...assetTypes];
+    if (form.asset_type && !names.some((name) => name.toLowerCase() === form.asset_type.toLowerCase())) names.push(form.asset_type);
+    const unique = [...new Map(names.map((name) => [name.toLowerCase(), name])).values()];
+    return unique
+      .sort((a, b) => (a.toLowerCase() === "other" ? 1 : b.toLowerCase() === "other" ? -1 : a.localeCompare(b)))
+      .map((name) => ({ label: name, value: name }));
+  }, [assetTypes, form.asset_type]);
 
   useEffect(() => {
     const initBranch = !isSuperAdmin
@@ -1255,6 +1275,7 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
     setForm(getAssetFormInitialState(asset, initBranch));
     setLocalError("");
     setFieldErrors({});
+    setSpecifiedAssetType("");
   }, [asset, currentBranchId, isSuperAdmin, selectedBranch]);
 
 
@@ -1287,7 +1308,7 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
     const requiredFields = [
@@ -1307,6 +1328,9 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
       }
       return acc;
     }, {});
+    if (form.asset_type === "Other" && !specifiedAssetType.trim()) {
+      nextFieldErrors.specified_asset_type = "Specify Asset Type is required.";
+    }
 
     if (Object.keys(nextFieldErrors).length) {
       setFieldErrors(nextFieldErrors);
@@ -1327,9 +1351,26 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
       return;
     }
 
-    onSave(
-      {
+    try {
+      let finalAssetType = form.asset_type;
+      if (form.asset_type === "Other") {
+        setSavingAssetType(true);
+        const typeResponse = await fetch(`${API_BASE}/hardware-assets/types`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type_name: specifiedAssetType.trim() }),
+        });
+        const typeBody = await typeResponse.json();
+        if (!typeResponse.ok || typeBody.success === false) {
+          throw new Error(typeBody.message || typeBody.error || "Failed to save asset type.");
+        }
+        finalAssetType = typeBody.data.type_name;
+      }
+
+      await onSave(
+        {
         ...form,
+        asset_type: finalAssetType,
         asset_name: `${manufacturer} ${model}`.trim() || form.asset_tag,
         brand: manufacturer,
         manufacturer,
@@ -1342,16 +1383,21 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
         notes: form.condition_notes || null,
         attachments,
       },
-      asset?.asset_id
-    );
+        asset?.asset_id
+      );
+    } catch (saveError) {
+      setLocalError(saveError.message || "Unable to save asset.");
+    } finally {
+      setSavingAssetType(false);
+    }
   };
 
   const displayError = localError || error;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
-      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl">
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-7 py-5">
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel flex max-w-5xl flex-col overflow-hidden">
+        <div className="astrea-modal-header shrink-0">
           <div>
             <h2 className="text-xl font-black text-slate-900">{asset ? "Edit Asset" : "Add Asset"}</h2>
             <p className="mt-1 text-sm text-slate-500">
@@ -1430,10 +1476,23 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
                 <AssetSelect
                   value={form.asset_type}
                   onChange={(value) => updateField("asset_type", value)}
-                  options={MODAL_ASSET_TYPE_OPTIONS}
+                  options={assetTypeOptions}
                   required
                 />
               </AssetField>
+              {form.asset_type === "Other" && (
+                <AssetField label="Specify Asset Type" required error={fieldErrors.specified_asset_type}>
+                  <AssetInput
+                    value={specifiedAssetType}
+                    onChange={(value) => {
+                      setSpecifiedAssetType(value);
+                      if (fieldErrors.specified_asset_type) setFieldErrors((current) => ({ ...current, specified_asset_type: "" }));
+                    }}
+                    placeholder="e.g. UPS, Router, Projector, CCTV"
+                    required
+                  />
+                </AssetField>
+              )}
               <AssetField label="Serial Number" required error={fieldErrors.serial_number}>
                 <AssetInput
                   value={form.serial_number}
@@ -1597,21 +1656,21 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
             </div>
           </div>
 
-          <div className="sticky bottom-0 z-10 flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-white px-7 py-4 sm:flex-row sm:justify-end">
+          <div className="astrea-modal-footer sticky bottom-0 z-10 shrink-0 bg-white">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-2xl border border-slate-200 bg-white px-6 py-3 font-black text-slate-600 transition hover:bg-slate-50"
+              className="astrea-button astrea-button-secondary"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={loading}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-8 py-3 font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={loading || savingAssetType}
+              className="astrea-button astrea-button-primary px-8"
             >
               {!loading && !asset && <Plus size={18} />}
-              {loading ? "Saving..." : asset ? "Save Changes" : "Add Asset"}
+              {loading || savingAssetType ? "Saving..." : asset ? "Save Changes" : "Add Asset"}
             </button>
           </div>
         </form>
@@ -1621,12 +1680,12 @@ function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, erro
 }
 
 const assetInputClass =
-  "w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15 disabled:bg-slate-100 disabled:text-slate-500";
+  "astrea-control disabled:cursor-not-allowed disabled:opacity-60";
 
 function AssetField({ label, required = false, className = "", error = "", children }) {
   return (
     <label className={`block space-y-2 ${className}`}>
-      <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+      <span className="astrea-field-label text-xs uppercase tracking-[0.12em]">
         {label}
         {required && <span> *</span>}
       </span>

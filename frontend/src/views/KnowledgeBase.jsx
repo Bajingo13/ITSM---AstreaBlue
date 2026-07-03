@@ -440,9 +440,9 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-slate-200 px-7 py-5">
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel max-w-3xl">
+        <div className="astrea-modal-header items-start">
           <div>
             <h2 className="text-xl font-black text-slate-900">
               {isEditing ? "Edit KB Article" : "Create KB Article"}
@@ -459,7 +459,7 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
           </button>
         </div>
 
-        <form onSubmit={saveArticle} className="space-y-5 px-7 py-6">
+        <form onSubmit={saveArticle} className="astrea-modal-body space-y-5">
           {error && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
               {error}
@@ -467,44 +467,44 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
           )}
 
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
+            <label className="astrea-field-label">
               Title *
             </label>
             <input
               value={form.title}
               onChange={(e) => updateForm("title", e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              className="astrea-control"
             />
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-bold text-slate-700">
+              <label className="astrea-field-label">
                 Category
               </label>
               <input
                 value={form.category}
                 onChange={(e) => updateForm("category", e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                className="astrea-control"
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-bold text-slate-700">
+              <label className="astrea-field-label">
                 Tags
               </label>
               <input
                 value={form.tags || ""}
                 onChange={(e) => updateForm("tags", e.target.value)}
                 placeholder="hardware, vpn, windows"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                className="astrea-control"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-bold text-slate-700">
+              <label className="astrea-field-label">
                 Related Ticket
               </label>
               <TicketSelect
@@ -516,13 +516,13 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
 
             {isSuperAdmin && (
               <div>
-                <label className="mb-2 block text-sm font-bold text-slate-700">
+                <label className="astrea-field-label">
                   Branch
                 </label>
                 <select
                   value={form.branch_id || ""}
                   onChange={(e) => updateForm("branch_id", e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                  className="astrea-control"
                 >
                   <option value="">Select branch</option>
                   {branches.map((branch) => (
@@ -536,41 +536,41 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
+            <label className="astrea-field-label">
               Symptoms
             </label>
             <textarea
               value={form.symptoms}
               onChange={(e) => updateForm("symptoms", e.target.value)}
               rows={5}
-              className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              className="astrea-control"
             />
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
+            <label className="astrea-field-label">
               Resolution
             </label>
             <textarea
               value={form.resolution}
               onChange={(e) => updateForm("resolution", e.target.value)}
               rows={6}
-              className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              className="astrea-control"
             />
           </div>
 
-          <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
+          <div className="astrea-modal-footer -mx-6 -mb-6 mt-6">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+              className="astrea-button astrea-button-secondary"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800 disabled:opacity-60"
+              className="astrea-button astrea-button-primary"
             >
               {saving ? "Saving..." : "Save Article"}
             </button>
@@ -611,7 +611,7 @@ function TicketSelect({ value, tickets, onChange }) {
             setOpen(false);
           }
         }}
-        className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+        className="astrea-control flex items-center justify-between gap-3 text-left"
       >
         <span className="truncate">{selectedLabel}</span>
         <ChevronDown

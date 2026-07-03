@@ -22,7 +22,15 @@
   --astrea-card-shadow: 0 12px 30px rgba(20, 60, 120, 0.08);
   --astrea-hero-shadow: 0 24px 60px rgba(15, 74, 160, 0.24);
   --astrea-hero-gradient: linear-gradient(135deg, #071b3a 0%, #0b4fa8 55%, #0ea5e9 100%);
-  --astrea-input-bg: #ffffff;
+  --astrea-input-bg: #f5f9ff;
+  --astrea-input-border: #b9cbe3;
+  --astrea-input-focus: rgba(47, 109, 255, 0.16);
+  --astrea-modal-backdrop: rgba(2, 12, 27, 0.64);
+  --astrea-primary-gradient: linear-gradient(135deg, #155dfb 0%, #0b7edb 100%);
+  --astrea-secondary-button-bg: #f4f8fd;
+  --astrea-secondary-button-border: #b9cbe3;
+  --astrea-warning-bg: #fff8e8;
+  --astrea-warning-border: #f3c969;
   --astrea-sidebar-bg: #ffffff;
   --astrea-topbar-bg: rgba(255, 255, 255, 0.97);
   --astrea-warning: #f59e0b;
@@ -241,13 +249,13 @@ input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--astrea-primary) !important;
-  box-shadow: 0 0 0 4px rgba(47, 109, 255, 0.12) !important;
+  box-shadow: 0 0 0 4px var(--astrea-input-focus) !important;
 }
 
 input,
 select,
 textarea {
-  border-color: #d8e5f6 !important;
+  border-color: var(--astrea-input-border) !important;
   border-radius: 0.75rem;
   background-color: var(--astrea-input-bg);
   color: #0f172a;
@@ -268,7 +276,141 @@ textarea {
 
 input::placeholder,
 textarea::placeholder {
-  color: #94a3b8;
+  color: #73859d;
+}
+
+form label {
+  color: var(--astrea-text);
+  font-weight: 700;
+}
+
+.astrea-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(1rem, 3vw, 2rem);
+  overflow-y: auto;
+  background: var(--astrea-modal-backdrop);
+  backdrop-filter: blur(7px);
+  animation: astrea-dialog-backdrop-in 160ms ease-out both;
+}
+
+.astrea-modal-panel {
+  width: 100%;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  border: 1px solid var(--astrea-border);
+  border-radius: 1.5rem;
+  background: var(--astrea-surface-elevated);
+  box-shadow: 0 30px 90px rgba(8, 31, 68, 0.3);
+  animation: astrea-dialog-panel-in 190ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.astrea-modal-header,
+.astrea-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-color: var(--astrea-border);
+}
+
+.astrea-modal-header { border-bottom: 1px solid var(--astrea-border); }
+.astrea-modal-footer { justify-content: flex-end; border-top: 1px solid var(--astrea-border); }
+.astrea-modal-body { padding: 1.5rem; }
+
+.astrea-field-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--astrea-text);
+  font-size: 0.875rem;
+  font-weight: 800;
+}
+
+.astrea-control {
+  width: 100%;
+  min-height: 2.875rem;
+  border: 1px solid var(--astrea-input-border) !important;
+  border-radius: 0.75rem;
+  background: var(--astrea-input-bg) !important;
+  padding: 0.7rem 0.9rem;
+  color: var(--astrea-text) !important;
+  outline: none;
+}
+
+.astrea-button {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  padding: 0.7rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 800;
+  line-height: 1;
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, opacity 160ms ease;
+}
+
+.astrea-button:hover:not(:disabled) { transform: translateY(-1px); }
+.astrea-button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.astrea-button-primary {
+  border: 1px solid transparent;
+  background: var(--astrea-primary-gradient) !important;
+  color: #fff !important;
+  box-shadow: 0 10px 24px rgba(47, 109, 255, 0.22);
+}
+
+.astrea-button-secondary {
+  border: 1px solid var(--astrea-secondary-button-border);
+  background: var(--astrea-secondary-button-bg) !important;
+  color: var(--astrea-text) !important;
+}
+
+.astrea-button-danger {
+  border: 1px solid #dc6b74;
+  background: #b93643 !important;
+  color: #fff !important;
+}
+
+.astrea-card {
+  border: 1px solid var(--astrea-border);
+  border-radius: 1rem;
+  background: var(--astrea-surface-elevated);
+  box-shadow: var(--astrea-card-shadow);
+}
+
+.astrea-alert-warning {
+  border: 1px solid var(--astrea-warning-border);
+  border-radius: 1rem;
+  background: var(--astrea-warning-bg);
+  box-shadow: 0 12px 30px rgba(146, 90, 8, 0.08);
+  color: #71470a;
+}
+
+.astrea-timeline-item {
+  position: relative;
+  margin-left: 0.55rem;
+  border-left: 2px solid #a9c7f5;
+  padding: 0 0 1.25rem 1.35rem;
+}
+
+.astrea-timeline-item::before {
+  content: "";
+  position: absolute;
+  left: -0.43rem;
+  top: 0.15rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 3px solid var(--astrea-surface-elevated);
+  border-radius: 999px;
+  background: var(--astrea-primary);
+  box-shadow: 0 0 0 1px #8eb7f2;
 }
 
 /* Shared dialog foundation: every full-screen popup uses the Manual Discovery language. */
@@ -276,7 +418,7 @@ textarea::placeholder {
   align-items: center !important;
   justify-content: center !important;
   padding: clamp(1rem, 3vw, 2rem) !important;
-  background-color: rgba(2, 12, 27, 0.62) !important;
+  background-color: var(--astrea-modal-backdrop) !important;
   backdrop-filter: blur(6px);
   overflow-y: auto;
   animation: astrea-dialog-backdrop-in 160ms ease-out both;
@@ -380,6 +522,14 @@ html[data-theme="dark"] {
   --astrea-hero-shadow: 0 24px 64px rgba(0, 0, 0, 0.44);
   --astrea-hero-gradient: linear-gradient(135deg, #061426 0%, #0b3569 56%, #087aa5 100%);
   --astrea-input-bg: #102138;
+  --astrea-input-border: #355270;
+  --astrea-input-focus: rgba(85, 191, 255, 0.2);
+  --astrea-modal-backdrop: rgba(1, 8, 18, 0.8);
+  --astrea-primary-gradient: linear-gradient(135deg, #2563a8 0%, #0f6f9b 100%);
+  --astrea-secondary-button-bg: #13263e;
+  --astrea-secondary-button-border: #355270;
+  --astrea-warning-bg: #2b2516;
+  --astrea-warning-border: #806a31;
   --astrea-sidebar-bg: #0a182a;
   --astrea-topbar-bg: rgba(10, 24, 42, 0.97);
 }
@@ -394,6 +544,21 @@ html[data-theme="dark"] .astrea-topnav,
 html[data-theme="dark"] .astrea-sidebar {
   background: rgba(10, 24, 42, 0.97) !important;
   border-color: #233852 !important;
+}
+
+html[data-theme="dark"] .astrea-nav-active {
+  background: linear-gradient(135deg, #173f70 0%, #146080 100%);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
+}
+
+html[data-theme="dark"] .astrea-modal-panel,
+html[data-theme="dark"] .astrea-card {
+  border-color: #2a425e;
+  background: #0d1b2e;
+}
+
+html[data-theme="dark"] .astrea-alert-warning {
+  color: #f2d58d;
 }
 
 html[data-theme="dark"] [class*="bg-white"] {
