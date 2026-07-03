@@ -755,3 +755,21 @@ function Card({ icon: Icon, label, value, color }) {
   );
 }
 
+
+async function uploadTicketAttachments(ticketId, files, uploadedBy) {
+  if (!ticketId || !files.length) return;
+
+  const formData = new FormData();
+  files.forEach((file) => formData.append('attachments', file));
+  if (uploadedBy) formData.append('uploaded_by', uploadedBy);
+
+  const res = await fetch(${API_BASE}/tickets//attachments, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(()=>({}));
+    throw new Error(data.error || 'Failed to upload attachments');
+  }
+}
