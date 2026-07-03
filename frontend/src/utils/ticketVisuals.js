@@ -6,16 +6,16 @@ const badgeBaseClass =
 
 const severityStyles = {
   critical: {
-    badge: "border-red-200 bg-red-100 text-red-800",
+    badge: "border-red-700 bg-red-600 text-white",
     select:
-      "border-red-200 bg-red-50 text-red-800 hover:bg-red-100 focus:border-red-500 focus:ring-red-100",
-    option: { backgroundColor: "#fee2e2", color: "#991b1b" },
+      "border-red-700 bg-red-600 text-white hover:bg-red-700 focus:border-red-800 focus:ring-red-200",
+    option: { backgroundColor: "#dc2626", color: "#ffffff" },
   },
   high: {
-    badge: "border-pink-200 bg-pink-50 text-pink-700",
+    badge: "border-red-200 bg-red-50 text-red-700",
     select:
-      "border-pink-200 bg-pink-50 text-pink-700 hover:bg-pink-100 focus:border-pink-500 focus:ring-pink-100",
-    option: { backgroundColor: "#fce7f3", color: "#9d174d" },
+      "border-red-200 bg-red-50 text-red-700 hover:bg-red-100 focus:border-red-500 focus:ring-red-100",
+    option: { backgroundColor: "#fef2f2", color: "#b91c1c" },
   },
   medium: {
     badge: "border-yellow-200 bg-yellow-50 text-yellow-800",

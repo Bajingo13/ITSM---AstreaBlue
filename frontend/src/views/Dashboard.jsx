@@ -308,7 +308,7 @@ const { user } = useAuth();
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                  <span className={getPriorityBadgeClass(ticket.priority)}>
                     {formatPriority(ticket.priority)}
                   </span>
                   <span className={getStatusBadgeClass(ticket.status)}>

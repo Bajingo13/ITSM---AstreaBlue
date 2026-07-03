@@ -41,10 +41,10 @@ const columns = [
 const nonCancellableStatuses = ["Cancelled", "Resolved", "Closed"];
 
 const priorityStyle = {
-  "P1-Critical": "bg-red-50 text-red-700 border-red-200",
-  "P2-High": "bg-orange-50 text-orange-700 border-orange-200",
-  "P3-Medium": "bg-amber-50 text-amber-700 border-amber-200",
-  "P4-Low": "bg-blue-50 text-blue-700 border-blue-200",
+  "P1-Critical": "bg-red-600 text-white border-red-700",
+  "P2-High": "bg-red-50 text-red-700 border-red-200",
+  "P3-Medium": "bg-yellow-50 text-yellow-800 border-yellow-200",
+  "P4-Low": "bg-green-50 text-green-700 border-green-200",
 };
 
 const priorityDotStyle = {
@@ -69,9 +69,22 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [files, setFiles] = useState([]);
+  const [isOtherCategory, setIsOtherCategory] = useState(false);
+  const [customCategory, setCustomCategory] = useState("");
 
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleCategoryChange = (value) => {
+    if (value === "__other__") {
+      setIsOtherCategory(true);
+      updateForm("category_id", "");
+    } else {
+      setIsOtherCategory(false);
+      setCustomCategory("");
+      updateForm("category_id", value);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -86,11 +99,26 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
     try {
       setSaving(true);
 
+      let categoryId = form.category_id || null;
+
+      // Handle "Other" category - create or find it
+      if (isOtherCategory && customCategory.trim()) {
+        const catRes = await fetch(`${API_BASE}/ticket-categories`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category_name: customCategory.trim() }),
+        });
+        const catData = await catRes.json();
+        if (catRes.ok && catData.category) {
+          categoryId = catData.category.category_id;
+        }
+      }
+
       const payload = buildTicketPayload(user, {
         ...form,
         impact: "Medium",
         urgency: "Medium",
-        category_id: form.category_id || null,
+        category_id: categoryId,
         requester_id: user?.user_id || null,
         branch_id: isSuperAdmin ? form.branch_id || null : user?.branch_id || null,
       });
@@ -115,108 +143,161 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-7 py-5">
-          <div>
-            <h2 className="text-xl font-black text-slate-900">
-              Create New Ticket
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Submit an incident or service request to the IT service desk.
-            </p>
-          </div>
+  const priorityList = [
+    { value: "P1-Critical", label: "P1 \u2014 Critical", dot: "bg-red-500", bg: "bg-red-600 text-white" },
+    { value: "P2-High", label: "P2 \u2014 High", dot: "bg-orange-500", bg: "bg-red-50 text-red-700" },
+    { value: "P3-Medium", label: "P3 \u2014 Medium", dot: "bg-amber-500", bg: "bg-yellow-50 text-yellow-800" },
+    { value: "P4-Low", label: "P4 \u2014 Low", dot: "bg-green-500", bg: "bg-green-50 text-green-700" },
+  ];
 
+  const inputClass =
+    "w-full rounded-xl border-2 border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100";
+  const labelClass = "mb-1.5 block text-sm font-black text-slate-700";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-200 bg-white shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-blue-50 to-slate-50 px-7 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-600/30">
+              <Ticket size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-slate-900">Create New Ticket</h2>
+              <p className="text-xs font-medium text-slate-500">
+                Submit an incident or service request to the IT service desk.
+              </p>
+            </div>
+          </div>
           <button
             onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-xl p-2 text-slate-400 transition hover:bg-white hover:text-slate-700 hover:shadow-sm"
           >
             <X size={20} />
           </button>
         </div>
 
+        {/* Body */}
         <form onSubmit={handleSubmit} className="space-y-5 px-7 py-6">
           {error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+              <AlertCircle size={16} className="shrink-0" />
               {error}
             </div>
           )}
 
+          {/* Title */}
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-              Title *
-            </label>
+            <label className={labelClass}>Title *</label>
             <input
               value={form.title}
               onChange={(e) => updateForm("title", e.target.value)}
               placeholder="Brief description of the issue..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              className={inputClass}
+              required
             />
           </div>
 
+          {/* Description */}
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-              Description *
-            </label>
+            <label className={labelClass}>Description *</label>
             <textarea
               value={form.description}
               onChange={(e) => updateForm("description", e.target.value)}
               placeholder="Detailed description, affected user/device, steps to reproduce..."
-              rows={5}
-              className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              rows={4}
+              className={`${inputClass} resize-none`}
+              required
             />
           </div>
 
+          {/* Two-column grid */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* Branch (SuperAdmin only) */}
             {isSuperAdmin && (
+              <div>
+                <label className={labelClass}>Branch</label>
+                <select
+                  value={form.branch_id}
+                  onChange={(e) => updateForm("branch_id", e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">Select branch</option>
+                  {branches.map((branch) => (
+                    <option key={branch.branch_id} value={branch.branch_id}>
+                      {branch.branch_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Category with Other support */}
+            <div>
+              <label className={labelClass}>Category</label>
               <select
-                value={form.branch_id}
-                onChange={(e) => updateForm("branch_id", e.target.value)}
-                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
+                value={isOtherCategory ? "__other__" : form.category_id}
+                onChange={(e) => handleCategoryChange(e.target.value)}
+                className={inputClass}
               >
-                <option value="">Select branch</option>
-                {branches.map((branch) => (
-                  <option key={branch.branch_id} value={branch.branch_id}>
-                    {branch.branch_name}
+                <option value="">Select category</option>
+                {categories.map((cat) => (
+                  <option key={cat.category_id} value={cat.category_id}>
+                    {cat.category_name}
                   </option>
                 ))}
+                <option value="__other__">Other...</option>
               </select>
-            )}
-            <select
-              value={form.category_id}
-              onChange={(e) => updateForm("category_id", e.target.value)}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
-            >
-              <option value="">Select category</option>
-              {categories.map((cat) => (
-                <option key={cat.category_id} value={cat.category_id}>
-                  {cat.category_name}
-                </option>
-              ))}
-            </select>
-
-            <div>
-              <select
-                value={form.priority}
-                onChange={(e) => updateForm("priority", e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
-              >
-                <option value="P1-Critical">P1 - Critical</option>
-                <option value="P2-High">P2 - High</option>
-                <option value="P3-Medium">P3 - Medium</option>
-                <option value="P4-Low">P4 - Low</option>
-              </select>
-              <PriorityIndicator value={form.priority} />
             </div>
 
+            {/* Priority */}
+            <div>
+              <label className={labelClass}>Priority</label>
+              <div className="flex flex-wrap gap-2">
+                {priorityList.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => updateForm("priority", p.value)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border-2 px-3.5 py-2 text-xs font-black transition ${
+                      form.priority === p.value
+                        ? `${p.bg} border-current shadow-sm`
+                        : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className={`h-2 w-2 rounded-full ${p.dot}`} />
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
+          {/* Custom category input */}
+          {isOtherCategory && (
+            <div className="rounded-2xl border-2 border-blue-200 bg-blue-50/50 p-4">
+              <label className={labelClass}>
+                Specify Category *
+              </label>
+              <input
+                value={customCategory}
+                onChange={(e) => setCustomCategory(e.target.value)}
+                placeholder="e.g. CCTV, WiFi, Biometrics, Projector"
+                className={inputClass}
+                autoFocus
+                required
+              />
+              <p className="mt-1.5 text-xs text-slate-500">
+                This category will be saved and available for future tickets.
+              </p>
+            </div>
+          )}
+
+          {/* Attachments */}
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-              Attach Screenshots or PDF
-            </label>
-            <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 px-4 py-5 text-sm font-bold text-blue-700 hover:bg-blue-50">
+            <label className={labelClass}>Attachments</label>
+            <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/30 px-4 py-5 text-sm font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50/60">
               <Paperclip size={18} />
               <span>
                 {files.length
@@ -233,19 +314,19 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
             </label>
           </div>
 
+          {/* Footer */}
           <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+              className="rounded-xl border-2 border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
             >
               Cancel
             </button>
-
             <button
               type="submit"
               disabled={saving}
-              className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/25 hover:bg-blue-800 disabled:opacity-60"
+              className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 disabled:opacity-60"
             >
               {saving ? "Creating..." : "Create Ticket"}
             </button>
@@ -649,7 +730,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               <div className="astrea-card p-4">
                 <p className="text-xs font-bold text-slate-400">Priority</p>
                 <p className="mt-1">
-                  <span className={getPriorityBadgeClass, formatPriority(item.priority)}>
+                  <span className={getPriorityBadgeClass(item.priority)}>
                     {formatPriority(item.priority)}
                   </span>
                 </p>
@@ -1199,7 +1280,7 @@ function TicketCard({ ticket, onClick }) {
         </div>
 
         <span
-          className={`${getPriorityBadgeClass, formatPriority(ticket.priority)} shrink-0 px-2.5 text-[11px]`}
+          className={`${getPriorityBadgeClass(ticket.priority)} shrink-0 px-2.5 text-[11px]`}
         >
           {formatPriority(ticket.priority)}
         </span>

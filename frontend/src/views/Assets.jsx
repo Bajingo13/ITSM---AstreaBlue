@@ -147,7 +147,6 @@ function getAssetFormInitialState(asset, currentBranchId) {
     purchase_date: formatDateInput(asset?.purchase_date),
     purchase_price: asset?.purchase_price || "",
     supplier: asset?.supplier || "",
-    vendor: asset?.vendor || asset?.supplier || "",
     invoice_number: asset?.invoice_number || "",
     assigned_name: asset?.assigned_name || asset?.borrower_name || "",
     returned_name: asset?.returned_name || "",
@@ -654,7 +653,7 @@ export default function Assets() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          vendor: payload.vendor || payload.supplier || null,
+          vendor: payload.supplier || null,
           invoice_number: payload.invoice_number || null,
         }),
       });
@@ -1200,7 +1199,7 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
         </div>
         <div className="mt-4 space-y-2 text-sm text-slate-600">
           <p><span className="font-bold text-slate-800">Location:</span> {location}</p>
-          <p><span className="font-bold text-slate-800">Assigned:</span> {assignedTo}</p>
+          <p><span className="font-bold text-slate-800">Assigned User:</span> {assignedTo}</p>
         </div>
         <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
           <button onClick={onView} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"><Eye size={14} /> View</button>
@@ -1216,7 +1215,7 @@ function AssetDetailsModal({ asset, onClose }) {
   const details = [
     ["Asset Tag", asset.asset_tag], ["Type", asset.asset_type], ["Brand / Model", `${asset.brand || "—"} / ${asset.model || "—"}`],
     ["Serial Number", asset.serial_number], ["Status", asset.status], ["Branch", asset.branch_name],
-    ["Location", asset.location || asset.department || asset.team_department], ["Assigned To", asset.assigned_name || asset.borrower_name],
+    ["Location", asset.location || asset.department || asset.team_department], ["Assigned User", asset.assigned_name || asset.borrower_name],
     ["Purchase Date", formatDate(asset.purchase_date)], ["Warranty", formatDate(asset.warranty_expiration || asset.warranty)],
     ["Vendor", asset.vendor || asset.supplier], ["Invoice Number", asset.invoice_number],
   ];
@@ -1545,13 +1544,6 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
                   placeholder="Supplier name..."
                 />
               </AssetField>
-              <AssetField label="Vendor">
-                <AssetInput
-                  value={form.vendor}
-                  onChange={(value) => updateField("vendor", value)}
-                  placeholder="Vendor name..."
-                />
-              </AssetField>
               <AssetField label="Invoice Number">
                 <AssetInput
                   value={form.invoice_number}
@@ -1559,12 +1551,13 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
                   placeholder="Invoice reference..."
                 />
               </AssetField>
-              <AssetField label="Assigned Name">
+              <AssetField label="Assigned User (Optional)">
                 <AssetInput
                   value={form.assigned_name}
                   onChange={(value) => updateField("assigned_name", value)}
-                  placeholder="Enter a name or email"
+                  placeholder="Enter name or email"
                 />
+                <p className="mt-1 text-xs text-slate-400">Leave blank for shared branch assets such as WiFi, printers, routers, or switches.</p>
               </AssetField>
               <AssetField label="Returned Name">
                 <AssetInput

@@ -84,7 +84,7 @@ export default function ResolvedTickets() {
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                      <span className={getPriorityBadgeClass(ticket.priority)}>
                         {formatPriority(ticket.priority)}
                       </span>
                     </td>

@@ -110,7 +110,7 @@ export default function SLAMonitor() {
                     </td>
                     <td className="px-4 py-4 font-bold text-slate-900">{ticket.title}</td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                      <span className={getPriorityBadgeClass(ticket.priority)}>
                         {formatPriority(ticket.priority)}
                       </span>
                     </td>
