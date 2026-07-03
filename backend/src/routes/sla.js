@@ -165,6 +165,34 @@ router.get('/migrate', async (req, res) => {
     // 3. Fix SLA Policies category_id type (using raw text UUID cast if needed)
     await db.query(`ALTER TABLE sla_policies ALTER COLUMN category_id TYPE UUID USING category_id::text::uuid;`).catch(e => console.log('SLA Policies category cast skipped:', e.message));
 
+    // 4. Robust Attachments Migration
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ticket_attachments (
+        attachment_id SERIAL PRIMARY KEY,
+        ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+        file_name VARCHAR(255),
+        file_path TEXT,
+        file_size INTEGER,
+        mime_type VARCHAR(100),
+        uploaded_by INTEGER REFERENCES users(user_id),
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `).catch(e => console.log('Attachments create skipped:', e.message));
+
+    await db.query(`
+      ALTER TABLE ticket_attachments
+      ADD COLUMN IF NOT EXISTS file_path TEXT,
+      ADD COLUMN IF NOT EXISTS mime_type VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS uploaded_by INTEGER REFERENCES users(user_id),
+      ADD COLUMN IF NOT EXISTS file_size INTEGER,
+      ADD COLUMN IF NOT EXISTS file_name VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    `).catch(e => console.log('Attachments columns skipped:', e.message));
+
+    await db.query(`
+      ALTER TABLE ticket_attachments ALTER COLUMN file_data DROP NOT NULL
+    `).catch(e => console.log('Attachments drop not null skipped:', e.message));
+
     res.json({ success: true, message: "Database Migrations completed successfully on production!" });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

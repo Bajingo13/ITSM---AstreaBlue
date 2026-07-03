@@ -1,15 +1,26 @@
 import { useEffect, useState } from "react";
-import apiService from "../services/api";
 import { formatPriority, getPriorityBadgeClass } from "../utils/ticketVisuals";
 import { X, Calendar, User, Building, Paperclip, Info } from "lucide-react";
+import { API_URL } from "../config/api";
+import { getAuthToken } from "../services/authHeaders";
+
+const API_BASE = `${API_URL}/api/v1`;
 
 export default function TicketDetails({ id, onClose }) {
   const [ticket, setTicket] = useState(null);
 
   useEffect(() => {
-    apiService.fetchRequestById(id).then((res) => {
-      setTicket(res.data);
-    });
+    fetch(`${API_BASE}/tickets/${id}`, {
+      headers: {
+        "Authorization": `Bearer ${getAuthToken()}`
+      }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("Ticket not found");
+        return res.json();
+      })
+      .then(data => setTicket(data))
+      .catch(err => console.error("Fetch ticket error:", err));
   }, [id]);
 
   if (!ticket) {

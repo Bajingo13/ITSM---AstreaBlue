@@ -132,7 +132,7 @@ router.post("/:id/attachments", (req, res) => {
     res.status(201).json({ success: true, attachments: savedAttachments });
   } catch (err) {
     console.error("Upload attachment error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to upload attachment" });
+    res.status(500).json({ success: false, error: "Upload error: " + err.message });
   }
   });
 });
