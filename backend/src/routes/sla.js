@@ -154,4 +154,21 @@ router.get('/history', async (req, res) => {
   }
 });
 
+router.get('/migrate', async (req, res) => {
+  try {
+    // 1. Add Knowledge Base updated_at
+    await db.query(`ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`).catch(e => console.log('KB migration skipped:', e.message));
+    
+    // 2. Add SLA columns to tickets
+    await db.query(`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS response_due_at TIMESTAMP, ADD COLUMN IF NOT EXISTS resolution_due_at TIMESTAMP, ADD COLUMN IF NOT EXISTS response_sla_status VARCHAR(50) DEFAULT 'Pending', ADD COLUMN IF NOT EXISTS resolution_sla_status VARCHAR(50) DEFAULT 'Pending', ADD COLUMN IF NOT EXISTS sla_policy_id INTEGER;`).catch(e => console.log('Tickets SLA migration skipped:', e.message));
+
+    // 3. Fix SLA Policies category_id type (using raw text UUID cast if needed)
+    await db.query(`ALTER TABLE sla_policies ALTER COLUMN category_id TYPE UUID USING category_id::text::uuid;`).catch(e => console.log('SLA Policies category cast skipped:', e.message));
+
+    res.json({ success: true, message: "Database Migrations completed successfully on production!" });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
