@@ -318,7 +318,7 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
       const res = await fetch(`${API_BASE}/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildTicketPayload(user, { ...form, category_id: categoryId })),
+        body: JSON.stringify(buildTicketPayload(user, { ...form, category_id: categoryId, requester_id: user?.user_id })),
       });
 
       const data = await res.json();

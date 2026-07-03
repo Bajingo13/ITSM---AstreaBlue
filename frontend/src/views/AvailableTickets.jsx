@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority } from "../utils/ticketVisuals";
 import PageHero from "../components/layout/PageHero";
+import TicketDetails from "./TicketDetails";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -13,6 +14,7 @@ export default function AvailableTickets() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [acceptingId, setAcceptingId] = useState(null);
+  const [selectedTicket, setSelectedTicket] = useState(null);
 
   const technicianId = user?.user_id || 3;
 
@@ -107,17 +109,33 @@ export default function AvailableTickets() {
               {ticket.created_at ? new Date(ticket.created_at).toLocaleString() : "Not recorded"}
             </td>
             <td className="px-4 py-4">
-              <button
-                onClick={() => acceptTicket(ticket.id)}
-                disabled={acceptingId === ticket.id}
-                className="rounded-xl bg-blue-700 px-3 py-2 text-xs font-black text-white hover:bg-blue-800 disabled:opacity-60"
-              >
-                {acceptingId === ticket.id ? "Accepting..." : "Accept"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedTicket(ticket)}
+                  className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-200"
+                >
+                  View
+                </button>
+                <button
+                  onClick={() => acceptTicket(ticket.id)}
+                  disabled={acceptingId === ticket.id}
+                  className="rounded-xl bg-blue-700 px-3 py-2 text-xs font-black text-white hover:bg-blue-800 disabled:opacity-60"
+                >
+                  {acceptingId === ticket.id ? "Accepting..." : "Accept"}
+                </button>
+              </div>
             </td>
           </tr>
         )}
       />
+
+      {selectedTicket && (
+        <TicketDetails
+          id={selectedTicket.id}
+          onClose={() => setSelectedTicket(null)}
+          onUpdate={fetchTickets}
+        />
+      )}
     </div>
   );
 }
