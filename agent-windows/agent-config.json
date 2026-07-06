@@ -1,0 +1,8 @@
+{
+  "backendUrl": "http://localhost:5000",
+  "agentToken": "dev-monitoring-token",
+  "deviceName": "Janis-Laptop",
+  "screenshotEnabled": false,
+  "activityIntervalSeconds": 60,
+  "heartbeatIntervalSeconds": 60
+}

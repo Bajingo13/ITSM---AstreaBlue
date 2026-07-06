@@ -19,6 +19,7 @@ const slaRoutes = require("./src/routes/sla");
 const inviteRoutes = require("./src/routes/invites");
 const emailRoutes = require("./src/routes/email");
 const assetManagementRoutes = require("./src/routes/assetManagement");
+const laptopMonitoringRoutes = require("./src/routes/laptopMonitoring");
 const attachmentRoutes = require("./src/routes/attachments");
 const ticketRoutes = require("./src/routes/tickets");
 const notificationRoutes = require("./src/routes/notifications");
@@ -591,6 +592,7 @@ app.use("/api/v1/hardware-assets", async (_req, res, next) => {
   if (await hardwareAssetTablesReady) return next();
   return res.status(503).json({ success: false, message: "Hardware asset storage is unavailable." });
 }, assetManagementRoutes);
+app.use("/api/v1/laptop-monitoring", laptopMonitoringRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
 app.use("/api/v1/notifications", notificationRoutes);

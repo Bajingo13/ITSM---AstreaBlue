@@ -1,0 +1,13 @@
+{
+  "name": "astreablue-monitoring-agent-windows",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Consent-aware AstreaBlue Windows endpoint monitoring MVP",
+  "scripts": {
+    "start": "node agent.js",
+    "check": "node --check agent.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
