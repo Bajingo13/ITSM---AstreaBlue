@@ -11,6 +11,7 @@ const migrationFiles = [
   "2026-07-03-asset-finance-discovery-modules.sql",
   "2026-07-03-asset-types.sql",
   "2026-07-03-ticket-notifications.sql",
+  "2026-07-03-ticket-history-comments-sla.sql",
 ];
 
 const defaultTicketCategories = [

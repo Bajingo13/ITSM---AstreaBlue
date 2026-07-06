@@ -652,11 +652,12 @@ function UserFormModal({
           )}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Full Name" value={form.full_name} onChange={(value) => updateForm("full_name", value)} />
+            <Field label="Full Name" required value={form.full_name} onChange={(value) => updateForm("full_name", value)} />
             {isInvite ? (
               <>
                 <Field
                   label="Personal Email"
+                  required
                   value={form.personal_email}
                   onChange={(value) => updateForm("personal_email", value)}
                 />
@@ -667,11 +668,12 @@ function UserFormModal({
                 />
               </>
             ) : (
-              <Field label="Email" value={form.email} onChange={(value) => updateForm("email", value)} />
+              <Field label="Email" required value={form.email} onChange={(value) => updateForm("email", value)} />
             )}
             {!isEditing && !isInvite && (
               <Field
                 label="Temporary Password"
+                required
                 value={form.password}
                 onChange={(value) => updateForm("password", value)}
               />
@@ -685,6 +687,7 @@ function UserFormModal({
             )}
             <SelectField
               label="Role"
+              required
               value={form.role_id}
               onChange={(value) => updateForm("role_id", value)}
               options={roleOptions.map((item) => ({
@@ -702,6 +705,7 @@ function UserFormModal({
             ) : (
               <SelectField
                 label="Branch"
+                required={isInvite || isSuperAdmin}
                 value={isSuperAdmin ? form.branch_id || "" : currentBranchId || ""}
                 onChange={(value) => updateForm("branch_id", value)}
                 disabled={!isSuperAdmin || (isInvite && activeBranches.length === 0)}
@@ -807,7 +811,7 @@ function ResetPasswordModal({ user, onClose, onSaved }) {
               {error}
             </div>
           )}
-          <Field label="New Temporary Password" value={password} onChange={setPassword} />
+          <Field label="New Temporary Password" required value={password} onChange={setPassword} />
           <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
             <button
               type="button"
@@ -830,11 +834,12 @@ function ResetPasswordModal({ user, onClose, onSaved }) {
   );
 }
 
-function Field({ label, value, onChange }) {
+function Field({ label, value, onChange, required = false }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-bold text-slate-700">{label}</label>
+      <label className="mb-2 block text-sm font-bold text-slate-700">{label}{required && <span className="astrea-required"> *</span>}</label>
       <input
+        required={required}
         value={value || ""}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
@@ -861,11 +866,13 @@ function SelectField({
   options,
   placeholder,
   disabled = false,
+  required = false,
 }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-bold text-slate-700">{label}</label>
+      <label className="mb-2 block text-sm font-bold text-slate-700">{label}{required && <span className="astrea-required"> *</span>}</label>
       <select
+        required={required}
         value={value || ""}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}

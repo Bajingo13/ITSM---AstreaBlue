@@ -327,70 +327,79 @@ router.get("/:id", async (req, res) => {
       });
     }
 
-    const commentsResult = await db.query(
-      `
-      SELECT
-        tc.comment_id,
-        tc.comment_text,
-        tc.is_internal,
-        tc.created_at,
-        u.user_id,
-        u.full_name,
-        u.email
-      FROM ticket_comments tc
-      LEFT JOIN users u
-        ON tc.user_id = u.user_id
-      WHERE tc.ticket_id = $1
-      ORDER BY tc.created_at ASC
-      `,
-      [id]
-    );
+    let commentsResult = { rows: [] };
+    try {
+      commentsResult = await db.query(
+        `
+        SELECT
+          tc.comment_id,
+          tc.comment_text,
+          tc.is_internal,
+          tc.created_at,
+          u.user_id,
+          u.full_name,
+          u.email
+        FROM ticket_comments tc
+        LEFT JOIN users u
+          ON tc.user_id = u.user_id
+        WHERE tc.ticket_id = $1
+        ORDER BY tc.created_at ASC
+        `,
+        [id]
+      );
+    } catch (err) { console.warn("Comments skipped:", err.message); }
 
-    const historyResult = await db.query(
-      `
-      SELECT
-        th.history_id,
-        th.action,
-        th.old_value,
-        th.new_value,
-        th.created_at,
-        COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
-        u.user_id,
-        u.full_name,
-        u.email
-      FROM ticket_history th
-      LEFT JOIN tickets ht
-        ON th.ticket_id = ht.id
-      LEFT JOIN branches b
-        ON ht.branch_id = b.branch_id
-      LEFT JOIN users u
-        ON th.changed_by = u.user_id
-      WHERE th.ticket_id = $1
-      ORDER BY th.created_at ASC
-      `,
-      [id]
-    );
+    let historyResult = { rows: [] };
+    try {
+      historyResult = await db.query(
+        `
+        SELECT
+          th.history_id,
+          th.action,
+          th.old_value,
+          th.new_value,
+          th.created_at,
+          COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
+          u.user_id,
+          u.full_name,
+          u.email
+        FROM ticket_history th
+        LEFT JOIN tickets ht
+          ON th.ticket_id = ht.id
+        LEFT JOIN branches b
+          ON ht.branch_id = b.branch_id
+        LEFT JOIN users u
+          ON th.changed_by = u.user_id
+        WHERE th.ticket_id = $1
+        ORDER BY th.created_at ASC
+        `,
+        [id]
+      );
+    } catch (err) { console.warn("History skipped:", err.message); }
 
-    const attachmentsResult = await db.query(
-      `
-      SELECT
-        ta.attachment_id,
-        ta.ticket_id,
-        ta.uploaded_by,
-        ta.file_name,
-        ta.file_path,
-        ta.mime_type,
-        ta.file_size,
-        ta.uploaded_at,
-        u.full_name AS uploaded_by_name
-      FROM ticket_attachments ta
-      LEFT JOIN users u
-        ON ta.uploaded_by = u.user_id
-      WHERE ta.ticket_id = $1
-      ORDER BY ta.uploaded_at ASC
-      `,
-      [id]
-    );
+    let attachmentsResult = { rows: [] };
+    try {
+      attachmentsResult = await db.query(
+        `
+        SELECT
+          ta.attachment_id,
+          ta.ticket_id,
+          ta.uploaded_by,
+          ta.file_name,
+          ta.file_path,
+          ta.mime_type,
+          ta.file_size,
+          ta.uploaded_at,
+          u.full_name AS uploaded_by_name
+        FROM ticket_attachments ta
+        LEFT JOIN users u
+          ON ta.uploaded_by = u.user_id
+        WHERE ta.ticket_id = $1
+        ORDER BY ta.uploaded_at ASC
+        `,
+        [id]
+      );
+    } catch (err) { console.warn("Attachments skipped:", err.message); }
 
     res.json({
       ...ticketResult.rows[0],

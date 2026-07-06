@@ -345,6 +345,19 @@ form label {
   font-weight: 800;
 }
 
+label:has(> input[required]):not(:has(> span))::before,
+label:has(> select[required]):not(:has(> span))::before,
+label:has(> textarea[required]):not(:has(> span))::before {
+  content: "* ";
+  color: #e11d48;
+  font-weight: 900;
+}
+
+.astrea-required {
+  color: #e11d48;
+  font-weight: 900;
+}
+
 .astrea-control {
   width: 100%;
   min-height: 2.875rem;

@@ -303,6 +303,7 @@ function BranchFormModal({ branch, adminUsers, onClose, onSaved }) {
 
           <Field
             label="Branch Name"
+            required
             value={form.branch_name}
             onChange={(value) => updateForm("branch_name", value)}
           />
@@ -376,11 +377,12 @@ function BranchFormModal({ branch, adminUsers, onClose, onSaved }) {
   );
 }
 
-function Field({ label, value, onChange }) {
+function Field({ label, value, onChange, required = false }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-bold text-slate-700">{label}</label>
+      <label className="mb-2 block text-sm font-bold text-slate-700">{label}{required && <span className="astrea-required"> *</span>}</label>
       <input
+        required={required}
         value={value || ""}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"

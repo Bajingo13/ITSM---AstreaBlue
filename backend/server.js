@@ -405,6 +405,7 @@ async function ensureHardwareAssetTables() {
       ADD COLUMN IF NOT EXISTS notes TEXT,
       ADD COLUMN IF NOT EXISTS vendor VARCHAR(150),
       ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(150),
+      ADD COLUMN IF NOT EXISTS useful_life_months INTEGER,
       ADD COLUMN IF NOT EXISTS useful_life_years NUMERIC(6,2) DEFAULT 5,
       ADD COLUMN IF NOT EXISTS salvage_value NUMERIC(12,2) DEFAULT 0,
       ADD COLUMN IF NOT EXISTS depreciation_method VARCHAR(50) DEFAULT 'Straight-Line',
@@ -502,7 +503,8 @@ async function ensureHardwareAssetTables() {
       CREATE TABLE IF NOT EXISTS asset_financials (
         financial_id BIGSERIAL PRIMARY KEY,
         asset_id INTEGER NOT NULL UNIQUE REFERENCES hardware_assets(asset_id) ON DELETE CASCADE,
-        useful_life_years NUMERIC(6,2) NOT NULL DEFAULT 5 CHECK (useful_life_years > 0),
+        useful_life_months INTEGER DEFAULT 36,
+        useful_life_years NUMERIC(6,2) NOT NULL DEFAULT 3 CHECK (useful_life_years > 0),
         salvage_value NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (salvage_value >= 0),
         depreciation_method VARCHAR(50) NOT NULL DEFAULT 'Straight-Line',
         depreciation_start_date DATE,
@@ -512,9 +514,22 @@ async function ensureHardwareAssetTables() {
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await db.query(`ALTER TABLE asset_financials ADD COLUMN IF NOT EXISTS useful_life_months INTEGER`);
     await db.query(`
-      INSERT INTO asset_financials (asset_id,useful_life_years,salvage_value,depreciation_method,depreciation_start_date)
-      SELECT asset_id,COALESCE(useful_life_years,5),COALESCE(salvage_value,0),COALESCE(depreciation_method,'Straight-Line'),purchase_date
+      UPDATE asset_financials SET useful_life_months = GREATEST(1, ROUND(useful_life_years * 12)::INTEGER)
+      WHERE useful_life_months IS NULL OR useful_life_months <= 0
+    `);
+    await db.query(`
+      UPDATE hardware_assets SET useful_life_months = CASE
+        WHEN useful_life_years IS NOT NULL AND useful_life_years > 0 THEN GREATEST(1, ROUND(useful_life_years * 12)::INTEGER)
+        ELSE 36 END
+      WHERE useful_life_months IS NULL OR useful_life_months <= 0
+    `);
+    await db.query(`ALTER TABLE asset_financials ALTER COLUMN useful_life_months SET DEFAULT 36`);
+    await db.query(`ALTER TABLE hardware_assets ALTER COLUMN useful_life_months SET DEFAULT 36`);
+    await db.query(`
+      INSERT INTO asset_financials (asset_id,useful_life_months,useful_life_years,salvage_value,depreciation_method,depreciation_start_date)
+      SELECT asset_id,COALESCE(useful_life_months,ROUND(useful_life_years * 12)::INTEGER,36),COALESCE(useful_life_years,3),COALESCE(salvage_value,0),COALESCE(depreciation_method,'Straight-Line'),purchase_date
       FROM hardware_assets ON CONFLICT (asset_id) DO NOTHING
     `);
     await db.query(`
@@ -1267,7 +1282,8 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
         a.notes,
         a.vendor,
         a.invoice_number,
-        COALESCE(f.useful_life_years, a.useful_life_years, 5) AS useful_life_years,
+        COALESCE(f.useful_life_months, a.useful_life_months, ROUND(f.useful_life_years * 12), ROUND(a.useful_life_years * 12), 36) AS useful_life_months,
+        COALESCE(f.useful_life_years, a.useful_life_years, 3) AS useful_life_years,
         COALESCE(f.salvage_value, a.salvage_value, 0) AS salvage_value,
         COALESCE(f.depreciation_method, a.depreciation_method, 'Straight-Line') AS depreciation_method,
         COALESCE(f.depreciation_start_date, a.purchase_date) AS depreciation_start_date,

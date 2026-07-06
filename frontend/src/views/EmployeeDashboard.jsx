@@ -394,7 +394,7 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
               <label className={labelClass}>Category</label>
               <select value={isOtherCategory ? "__other__" : form.category_id} onChange={(e) => handleCategoryChange(e.target.value)} className={inputClass}>
                 <option value="">Select category</option>
-                {categories.map((cat) => (
+                {categories.filter(c => c.category_name && c.category_name.toLowerCase() !== "other").map((cat) => (
                   <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>
                 ))}
                 <option value="__other__">Other...</option>
@@ -416,7 +416,7 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
 
           {isOtherCategory && (
             <div className="rounded-2xl border-2 border-blue-200 bg-blue-50/50 p-4">
-              <label className={labelClass}>Specify Category *</label>
+              <label className={labelClass}>Specify Category <span className="text-red-600">*</span></label>
               <input value={customCategory} onChange={(e) => setCustomCategory(e.target.value)} placeholder="e.g. CCTV, WiFi..." className={inputClass} autoFocus required />
             </div>
           )}

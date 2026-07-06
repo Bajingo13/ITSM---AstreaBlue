@@ -123,6 +123,21 @@ router.get('/policies', async (req, res) => {
 
 router.get('/history', async (req, res) => {
   try {
+    // Ensure ticket_history table exists (safe for Railway cold-start)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ticket_history (
+        history_id SERIAL PRIMARY KEY,
+        ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+        changed_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+        action VARCHAR(255) NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `).catch((tableErr) => {
+      console.warn('[SLA /history] ticket_history table check skipped:', tableErr.message);
+    });
+
     const params = [];
     const accessClauses = addTicketAccessFilter(req, params, "t");
     const accessSql = accessClauses.length ? `AND ${accessClauses.join(" AND ")}` : "";
@@ -131,26 +146,35 @@ router.get('/history', async (req, res) => {
       SELECT 
         th.history_id,
         th.ticket_id,
-        t.ticket_number,
-        t.title as ticket_title,
+        COALESCE(t.ticket_number, 'TKT-' || th.ticket_id::text) AS ticket_number,
+        t.title AS ticket_title,
         th.action,
-        th.old_value,
-        th.new_value,
+        th.old_value  AS old_status,
+        th.new_value  AS new_status,
         th.created_at,
-        u.full_name as changed_by_name
+        u.full_name   AS changed_by
       FROM ticket_history th
-      JOIN tickets t ON th.ticket_id = t.id
-      LEFT JOIN users u ON th.changed_by = u.user_id
+      LEFT JOIN tickets t ON th.ticket_id = t.id
+      LEFT JOIN users   u ON th.changed_by = u.user_id
       WHERE (th.action = 'Response SLA' OR th.action = 'Resolution SLA')
       ${accessSql}
       ORDER BY th.created_at DESC
-      LIMIT 20
+      LIMIT 50
     `;
+
     const { rows } = await db.query(query, params);
-    res.json({ success: true, history: rows });
+    return res.json({ success: true, data: rows, history: rows });
   } catch (err) {
-    console.error("SLA History error:", err);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[SLA /history] Unexpected error:', {
+      route: 'GET /api/v1/sla/history',
+      message: err.message,
+      code: err.code,
+    });
+    // Never expose raw stack to frontend
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to load SLA history. Please try again.',
+    });
   }
 });
 

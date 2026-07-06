@@ -489,9 +489,10 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
 
           <div>
             <label className="astrea-field-label">
-              Title *
+              Title <span className="astrea-required">*</span>
             </label>
             <input
+              required
               value={form.title}
               onChange={(e) => updateForm("title", e.target.value)}
               className="astrea-control"

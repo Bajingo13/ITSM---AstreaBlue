@@ -118,6 +118,17 @@ function getStatusClasses(status) {
   }
 }
 
+function getLifespanClasses(status) {
+  if (status === "End of Life") return "bg-slate-200 text-slate-800";
+  if (status === "Critical") return "bg-rose-100 text-rose-800";
+  if (status === "Near End of Life") return "bg-amber-100 text-amber-800";
+  return "bg-emerald-100 text-emerald-800";
+}
+
+function LifespanBadge({ asset }) {
+  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${getLifespanClasses(asset.lifespan_status)}`}>{asset.lifespan_status || "Healthy"}</span>;
+}
+
 function formatDate(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -1033,6 +1044,7 @@ export default function Assets() {
               <th className="px-4 py-3">Location</th>
               <th className="px-4 py-3">Purchase Date</th>
               <th className="px-4 py-3">Warranty</th>
+              <th className="px-4 py-3">Lifespan</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Borrowed By</th>
               <th className="px-4 py-3">Department</th>
@@ -1045,7 +1057,7 @@ export default function Assets() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="16" className="px-4 py-12 text-center text-slate-400">
+                <td colSpan="17" className="px-4 py-12 text-center text-slate-400">
                   <div className="inline-flex items-center gap-2 text-sm font-semibold">
                     <Loader2 className="h-4 w-4 animate-spin" /> Loading assets...
                   </div>
@@ -1053,7 +1065,7 @@ export default function Assets() {
               </tr>
             ) : visibleAssets.length === 0 ? (
               <tr>
-                <td colSpan="16" className="px-4 py-12 text-center text-slate-400">
+                <td colSpan="17" className="px-4 py-12 text-center text-slate-400">
                   No hardware assets found.
                 </td>
               </tr>
@@ -1069,6 +1081,7 @@ export default function Assets() {
                   <td className="px-4 py-4 text-sm text-slate-600">{asset.location || asset.department || asset.team_department || "—"}</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{formatDate(asset.purchase_date)}</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{formatDate(asset.warranty_expiration || asset.warranty)}</td>
+                  <td className="px-4 py-4"><LifespanBadge asset={asset} /></td>
                   <td className="px-4 py-4">
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${getStatusClasses(asset.status)}`}>
                       {asset.status}
@@ -1200,6 +1213,7 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
         <div className="mt-4 space-y-2 text-sm text-slate-600">
           <p><span className="font-bold text-slate-800">Location:</span> {location}</p>
           <p><span className="font-bold text-slate-800">Assigned User:</span> {assignedTo}</p>
+          <p className="flex items-center gap-2"><span className="font-bold text-slate-800">Lifespan:</span> <LifespanBadge asset={asset} /></p>
         </div>
         <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
           <button onClick={onView} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"><Eye size={14} /> View</button>
@@ -1217,6 +1231,8 @@ function AssetDetailsModal({ asset, onClose }) {
     ["Serial Number", asset.serial_number], ["Status", asset.status], ["Branch", asset.branch_name],
     ["Location", asset.location || asset.department || asset.team_department], ["Assigned User", asset.assigned_name || asset.borrower_name],
     ["Purchase Date", formatDate(asset.purchase_date)], ["Warranty", formatDate(asset.warranty_expiration || asset.warranty)],
+    ["Useful Life", `${asset.useful_life_months || 36} months`], ["Expected End of Life", formatDate(asset.end_of_life_date)],
+    ["Remaining Useful Life", `${asset.remaining_life_months ?? asset.remaining_useful_life_months ?? 0} months`], ["Lifespan Status", asset.lifespan_status || "Healthy"],
     ["Vendor", asset.vendor || asset.supplier], ["Invoice Number", asset.invoice_number],
   ];
 
@@ -1680,7 +1696,7 @@ function AssetField({ label, required = false, className = "", error = "", child
     <label className={`block space-y-2 ${className}`}>
       <span className="astrea-field-label text-xs uppercase tracking-[0.12em]">
         {label}
-        {required && <span> *</span>}
+        {required && <span className="astrea-required"> *</span>}
       </span>
       {children}
       {error && <span className="block text-xs font-bold text-rose-600">{error}</span>}

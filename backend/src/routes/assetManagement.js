@@ -84,7 +84,8 @@ async function getFinancialAssets(user) {
   const result = await db.query(
     `SELECT a.asset_id,a.asset_tag,a.asset_name,a.serial_number,a.purchase_date,a.purchase_price,
             a.vendor,a.supplier,a.branch_id,b.branch_name,
-            COALESCE(f.useful_life_years,5) useful_life_years,
+            COALESCE(f.useful_life_months, ROUND(f.useful_life_years * 12), 36) useful_life_months,
+            COALESCE(f.useful_life_years,3) useful_life_years,
             COALESCE(f.salvage_value,0) salvage_value,
             COALESCE(f.depreciation_method,'Straight-Line') depreciation_method,
             COALESCE(f.depreciation_start_date,a.purchase_date) depreciation_start_date,
@@ -110,14 +111,16 @@ router.get("/financial/assets", requireAssetManager, async (req, res) => {
 router.get("/financial/summary", requireAssetManager, async (req, res) => {
   try {
     const assets = await getFinancialAssets(req.assetUser);
-    const sum = (field) => assets.reduce((total, asset) => total + Number(asset[field] || 0), 0);
+    const depreciableAssets = assets.filter((asset) => asset.is_depreciable);
+    const sum = (field) => depreciableAssets.reduce((total, asset) => total + Number(asset[field] || 0), 0);
     return res.json({ success: true, message: "Depreciation summary loaded.", data: {
       total_asset_value: sum("purchase_cost"),
       current_book_value: sum("current_book_value"),
       accumulated_depreciation: sum("accumulated_depreciation"),
       monthly_depreciation_expense: sum("monthly_depreciation"),
-      fully_depreciated_assets: assets.filter((asset) => asset.fully_depreciated).length,
-      assets_near_end_of_life: assets.filter((asset) => asset.depreciation_status === "Near End of Life").length,
+      fully_depreciated_assets: depreciableAssets.filter((asset) => asset.fully_depreciated).length,
+      assets_near_end_of_life: depreciableAssets.filter((asset) => ["Near End of Life", "Critical", "End of Life"].includes(asset.lifespan_status)).length,
+      expense_items: assets.filter((asset) => !asset.is_depreciable).length,
     } });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to load depreciation summary.", error: error.message });
@@ -125,8 +128,11 @@ router.get("/financial/summary", requireAssetManager, async (req, res) => {
 });
 
 router.patch("/:id/financial", requireAssetManager, async (req, res) => {
-  const { useful_life_years, salvage_value, depreciation_method, depreciation_start_date, disposal_value, notes } = req.body || {};
-  if (!Number.isFinite(Number(useful_life_years)) || Number(useful_life_years) <= 0) {
+  const { useful_life_months, useful_life_years, salvage_value, depreciation_method, depreciation_start_date, disposal_value, notes } = req.body || {};
+  const normalizedUsefulLifeMonths = Number(useful_life_months) > 0
+    ? Math.round(Number(useful_life_months))
+    : Math.round(Number(useful_life_years) * 12);
+  if (!Number.isFinite(normalizedUsefulLifeMonths) || normalizedUsefulLifeMonths <= 0) {
     return res.status(400).json({ success: false, message: "Useful life must be greater than zero.", error: "Invalid useful life." });
   }
   if (!Number.isFinite(Number(salvage_value)) || Number(salvage_value) < 0) {
@@ -143,13 +149,14 @@ router.patch("/:id/financial", requireAssetManager, async (req, res) => {
     if (!asset.rows.length) return res.status(404).json({ success: false, message: "Asset not found.", error: "Asset not found." });
     await db.query(
       `INSERT INTO asset_financials
-       (asset_id,useful_life_years,salvage_value,depreciation_method,depreciation_start_date,disposal_value,notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (asset_id) DO UPDATE SET useful_life_years=EXCLUDED.useful_life_years,
+       (asset_id,useful_life_months,useful_life_years,salvage_value,depreciation_method,depreciation_start_date,disposal_value,notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (asset_id) DO UPDATE SET useful_life_months=EXCLUDED.useful_life_months,
+       useful_life_years=EXCLUDED.useful_life_years,
        salvage_value=EXCLUDED.salvage_value,depreciation_method=EXCLUDED.depreciation_method,
        depreciation_start_date=EXCLUDED.depreciation_start_date,disposal_value=EXCLUDED.disposal_value,
        notes=EXCLUDED.notes,updated_at=CURRENT_TIMESTAMP`,
-      [req.params.id, Number(useful_life_years) || 5, Number(salvage_value) || 0,
+      [req.params.id, normalizedUsefulLifeMonths, normalizedUsefulLifeMonths / 12, Number(salvage_value) || 0,
         depreciation_method || "Straight-Line", depreciation_start_date || null,
         disposal_value === "" || disposal_value == null ? null : Number(disposal_value), notes || null]
     );

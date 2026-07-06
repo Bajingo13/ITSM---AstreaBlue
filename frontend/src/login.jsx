@@ -109,7 +109,7 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Email Address
+                Email Address <span className="astrea-required">*</span>
               </label>
               <input
                 type="email"
@@ -124,7 +124,7 @@ export default function Login() {
 
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Password
+                Password <span className="astrea-required">*</span>
               </label>
 
               <div className="relative">
