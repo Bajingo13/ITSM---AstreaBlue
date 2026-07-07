@@ -13,6 +13,20 @@ const { createNotification } = require("../services/notificationService");
 const { applySlaToNewTicket } = require("../services/slaService");
 const { emitSlaUpdated } = require("../services/socketService");
 
+// Initialize DB changes for integration
+const setupTickets = async () => {
+  try {
+    await db.query(`
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS related_device_uuid UUID;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS related_asset_id INTEGER;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS alert_id BIGINT;
+    `);
+  } catch (err) {
+    console.error("Failed to alter tickets table:", err.message);
+  }
+};
+setupTickets();
+
 const router = express.Router();
 
 async function ensureTicketBranchColumn() {

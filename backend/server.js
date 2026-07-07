@@ -24,6 +24,7 @@ const attachmentRoutes = require("./src/routes/attachments");
 const ticketRoutes = require("./src/routes/tickets");
 const notificationRoutes = require("./src/routes/notifications");
 const ra10173ComplianceRoutes = require("./src/routes/ra10173Compliance");
+const consentRoutes = require("./src/routes/consent");
 const { setSocketServer } = require("./src/services/socketService");
 
 const app = express();
@@ -658,6 +659,7 @@ app.use("/api/v1/ra-10173-compliance", ra10173ComplianceRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
+app.use("/api/v1/consent", consentRoutes);
 
 /* ==========================
    HEALTH CHECK
@@ -930,6 +932,18 @@ app.get("/api/v1/roles", async (req, res) => {
 
 app.get("/api/v1/branches", async (req, res) => {
   try {
+    const auth = getAuthFromRequest(req);
+    let whereClause = "";
+    const params = [];
+
+    if (auth) {
+      const role = String(auth.role || "").toLowerCase();
+      if ((role === "admin" || role === "technician") && auth.branchId) {
+        whereClause = "WHERE b.branch_id = $1";
+        params.push(auth.branchId);
+      }
+    }
+
     const result = await db.query(`
       SELECT
         b.branch_id,
@@ -953,8 +967,9 @@ app.get("/api/v1/branches", async (req, res) => {
         ORDER BY u.user_id ASC
         LIMIT 1
       ) admin ON TRUE
+      ${whereClause}
       ORDER BY b.branch_name ASC
-    `);
+    `, params);
 
     res.json(result.rows);
   } catch (err) {
@@ -1162,8 +1177,11 @@ function getAuthFromRequest(req) {
 }
 
 function getHardwareAssetAccessFilter(req) {
-  const role = String(req.query.role_name || "").toLowerCase();
-  const branchId = req.query.current_branch_id || req.query.branch_id;
+  const auth = getAuthFromRequest(req);
+  if (!auth) return { whereSql: "WHERE 1=0", params: [] };
+
+  const role = String(auth.role || "").toLowerCase().replace(/[\s_-]/g, "");
+  const branchId = auth.branchId;
   const filterBranch = req.query.filter_branch_id;
 
   if (role === "superadmin") {
@@ -1172,11 +1190,18 @@ function getHardwareAssetAccessFilter(req) {
       : { whereSql: "", params: [] };
   }
 
-  if ((role === "admin" || role === "technician") && branchId) {
+  if (role === "admin" || role === "technician") {
+    if (!branchId) return { whereSql: "WHERE 1=0", params: [] };
     return { whereSql: "WHERE a.branch_id = $1", params: [branchId] };
   }
 
-  return { whereSql: "", params: [] };
+  if (role === "employee") {
+    if (!auth.userId) return { whereSql: "WHERE 1=0", params: [] };
+    // Employees can only see assets assigned to them
+    return { whereSql: "WHERE a.employee_id = $1", params: [auth.userId] };
+  }
+
+  return { whereSql: "WHERE 1=0", params: [] };
 }
 
 function logHardwareAssetError(operation, err) {
@@ -1363,10 +1388,17 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
         a.branch_id,
         COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
         a.created_at,
-        a.updated_at
+        a.updated_at,
+        md.device_id as monitoring_device_id,
+        md.device_uuid as monitoring_device_uuid,
+        md.hostname as monitoring_hostname,
+        md.status as monitoring_status,
+        md.last_seen_at as monitoring_last_seen,
+        md.logged_in_user as monitoring_logged_in_user
       FROM hardware_assets a
       LEFT JOIN branches b ON a.branch_id = b.branch_id
       LEFT JOIN asset_financials f ON f.asset_id = a.asset_id
+      LEFT JOIN monitored_devices md ON md.asset_id = a.asset_id
       ${whereSql}
       ORDER BY a.created_at DESC
       `,
@@ -1816,12 +1848,72 @@ app.put("/api/v1/hardware-assets/:id", async (req, res) => {
       updatedAsset = imageResult.rows[0];
     }
 
+    // Sync assignment to monitored device if linked
+    if (employee_id || assigned_name || borrower_name) {
+      await db.query(
+        `UPDATE monitored_devices 
+         SET assigned_user_id=$1, department=$2, branch_id=$3, updated_at=CURRENT_TIMESTAMP
+         WHERE asset_id=$4`,
+        [
+          employee_id || null, 
+          department || team_department || borrower_department || null, 
+          branchId || null, 
+          id
+        ]
+      );
+    }
+
     await insertAssetHistory(updatedAsset.asset_id, "Asset Updated", { status: status || existing.rows[0].status }, branchId, null);
 
     res.json(updatedAsset);
   } catch (err) {
     console.error("Update hardware asset error:", err.message);
     res.status(500).json({ success: false, error: "Failed to update hardware asset" });
+  }
+});
+
+app.put("/api/v1/hardware-assets/:id/link-device", async (req, res) => {
+  try {
+    const auth = getAuthFromRequest(req);
+    if (!auth || (auth.role !== "SuperAdmin" && auth.role !== "Admin")) {
+      return res.status(403).json({ success: false, error: "Unauthorized" });
+    }
+
+    const { id } = req.params;
+    if (auth.role === "Admin" && auth.branchId) {
+      const assetCheck = await db.query(`SELECT branch_id FROM hardware_assets WHERE asset_id = $1`, [id]);
+      if (assetCheck.rows.length === 0 || assetCheck.rows[0].branch_id !== auth.branchId) {
+        return res.status(403).json({ success: false, error: "Cannot link/unlink assets from another branch." });
+      }
+    }
+
+    const { device_id } = req.body;
+    
+    if (device_id === null || device_id === "") {
+      await db.query(`UPDATE monitored_devices SET asset_id = NULL WHERE asset_id = $1`, [id]);
+      return res.json({ success: true, message: "Asset unlinked successfully." });
+    }
+
+    // Check if the device is already linked to another asset
+    const checkLink = await db.query(`SELECT asset_id, device_uuid, hostname FROM monitored_devices WHERE device_id = $1`, [device_id]);
+    if (!checkLink.rows.length) {
+      return res.status(404).json({ success: false, error: "Monitored device not found." });
+    }
+    const existingAssetId = checkLink.rows[0].asset_id;
+    if (existingAssetId && String(existingAssetId) !== String(id)) {
+      const otherAsset = await db.query(`SELECT asset_tag FROM hardware_assets WHERE asset_id = $1`, [existingAssetId]);
+      const otherTag = otherAsset.rows.length ? otherAsset.rows[0].asset_tag : "another asset";
+      return res.status(409).json({ success: false, error: `This monitoring device is already linked to Asset ${otherTag}.` });
+    }
+
+    // First unlink any device currently linked to this asset, then link the new device
+    await db.query(`UPDATE monitored_devices SET asset_id = NULL WHERE asset_id = $1`, [id]);
+    const result = await db.query(`UPDATE monitored_devices SET asset_id = $1 WHERE device_id = $2 RETURNING *`, [id, device_id]);
+    
+    return res.json({ success: true, message: "Asset linked successfully.", data: result.rows[0] });
+  } catch (err) {
+    console.error("Link device error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to link monitored device." });
   }
 });
 
@@ -1949,6 +2041,18 @@ app.patch("/api/v1/hardware-assets/:id/status", async (req, res) => {
 
 app.get("/api/v1/users", async (req, res) => {
   try {
+    const auth = getAuthFromRequest(req);
+    let whereClause = "";
+    const params = [];
+    
+    if (auth) {
+      const role = String(auth.role || "").toLowerCase();
+      if ((role === "admin" || role === "technician") && auth.branchId) {
+        whereClause = "WHERE u.branch_id = $1";
+        params.push(auth.branchId);
+      }
+    }
+
     const result = await db.query(`
       SELECT
         u.user_id,
@@ -1971,8 +2075,9 @@ app.get("/api/v1/users", async (req, res) => {
         ON u.role_id = sr.role_id
       LEFT JOIN branches b
         ON u.branch_id = b.branch_id
+      ${whereClause}
       ORDER BY u.created_at DESC, u.user_id DESC
-    `);
+    `, params);
 
     res.json(result.rows);
   } catch (err) {

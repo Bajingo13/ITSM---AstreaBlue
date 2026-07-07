@@ -3,10 +3,23 @@ const db = require("../../config/db");
 
 const router = express.Router();
 
+const jwt = require("jsonwebtoken");
+const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
+
 function getAccessFilter(req) {
-  const role = String(req.query.role_name || "").toLowerCase();
-  const branchId = req.query.current_branch_id || req.query.branch_id;
-  const userId = req.query.current_user_id || req.query.user_id;
+  let auth = null;
+  try {
+    const authHeader = req.headers.authorization || "";
+    if (authHeader.startsWith("Bearer ")) {
+      auth = jwt.verify(authHeader.split(" ")[1], JWT_SECRET);
+    }
+  } catch (e) {}
+
+  if (!auth) return { whereSql: "WHERE 1=0", params: [] };
+
+  const role = String(auth.role || "").toLowerCase().replace(/[\s_-]/g, "");
+  const branchId = auth.branchId;
+  const userId = auth.userId;
 
   const params = [];
 
@@ -30,7 +43,7 @@ function getAccessFilter(req) {
     };
   }
 
-  return { whereSql: "", params };
+  return { whereSql: "WHERE 1=0", params };
 }
 
 router.get("/summary", async (req, res) => {

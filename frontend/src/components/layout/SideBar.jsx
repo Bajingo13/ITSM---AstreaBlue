@@ -95,6 +95,7 @@ const coreModuleItems = [
       { label: "Productivity Analytics", icon: BarChart3, path: "/productivity-analytics" },
       { label: "Alert & Escalation Engine", icon: AlertTriangle, path: "/alert-escalation-engine" },
       { label: "RA 10173 Compliance", icon: Shield, path: "/ra-10173-compliance" },
+      { label: "Consent Management", icon: FileText, path: "/consent-management" },
     ],
   },
   {
@@ -152,6 +153,7 @@ const employeeNavItems = [
     icon: Monitor,
     children: [
       { label: "RA 10173 Compliance", icon: Shield, path: "/ra-10173-compliance" },
+      { label: "RA 10173 Consent", icon: Shield, path: "/employee/consent" },
     ],
   },
 ];

@@ -37,6 +37,9 @@ import ModulePlaceholder from "./views/ModulePlaceholder";
 import ForgotPassword from "./ForgotPassword";
 import ResetPassword from "./ResetPassword";
 import NotificationTicketDetails from "./views/NotificationTicketDetails";
+import ConsentPage from "./views/ConsentPage";
+import ConsentManagement from "./views/ConsentManagement";
+import ScreenshotCapture from "./views/ScreenshotCapture";
 
 const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
 const ADMIN_ROLES = ["SuperAdmin", "Admin"];
@@ -395,7 +398,7 @@ export default function App() {
           path="/screenshot-capture"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <ModulePlaceholder title="Screenshot Capture" />
+              <ScreenshotCapture />
             </ProtectedRoute>
           }
         />
@@ -444,6 +447,14 @@ export default function App() {
           element={
             <ProtectedRoute allowedRoles={ALL_ROLES}>
               <RA10173Compliance />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/consent-management"
+          element={
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+              <ConsentManagement />
             </ProtectedRoute>
           }
         />

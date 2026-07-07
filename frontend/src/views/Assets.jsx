@@ -22,9 +22,11 @@ import {
   User,
   X,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { API_URL } from "../config/api";
+import { authHeaders } from "../services/authHeaders";
 import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
@@ -1046,6 +1048,7 @@ export default function Assets() {
               <th className="px-4 py-3">Warranty</th>
               <th className="px-4 py-3">Lifespan</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Monitoring</th>
               <th className="px-4 py-3">Borrowed By</th>
               <th className="px-4 py-3">Department</th>
               <th className="px-4 py-3">Borrow Date</th>
@@ -1086,6 +1089,19 @@ export default function Assets() {
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${getStatusClasses(asset.status)}`}>
                       {asset.status}
                     </span>
+                  </td>
+                  <td className="px-4 py-4">
+                    {asset.monitoring_device_uuid ? (
+                      <div className="flex flex-col gap-1 text-xs">
+                        <span className="inline-flex w-fit items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 font-black text-blue-700">
+                          <ShieldCheck size={12} /> Linked
+                        </span>
+                        {asset.monitoring_status === 'online' && <span className="text-green-600 font-bold">Online</span>}
+                        {asset.monitoring_status === 'offline' && <span className="text-slate-400 font-bold">Offline</span>}
+                      </div>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-black text-slate-500">Not Linked</span>
+                    )}
                   </td>
                   <td className="px-4 py-4 text-sm text-slate-600">{asset.borrower_name || "—"}</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{asset.borrower_department || "—"}</td>
@@ -1180,7 +1196,7 @@ export default function Assets() {
           error={modalError}
         />
       )}
-      {viewingAsset && <AssetDetailsModal asset={viewingAsset} onClose={() => setViewingAsset(null)} />}
+      {viewingAsset && <AssetDetailsModal asset={viewingAsset} onClose={() => setViewingAsset(null)} onUpdate={() => { loadAssets(); setViewingAsset(null); }} />}
       {historyAsset && (
         <AssetHistoryModal asset={historyAsset} records={historyRecords} loading={historyLoading} onClose={() => setHistoryAsset(null)} />
       )}
@@ -1214,6 +1230,17 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
           <p><span className="font-bold text-slate-800">Location:</span> {location}</p>
           <p><span className="font-bold text-slate-800">Assigned User:</span> {assignedTo}</p>
           <p className="flex items-center gap-2"><span className="font-bold text-slate-800">Lifespan:</span> <LifespanBadge asset={asset} /></p>
+          <p className="flex items-center gap-2 pt-1 border-t border-slate-50"><span className="font-bold text-slate-800">Monitoring:</span> 
+            {asset.monitoring_device_uuid ? (
+              <span className="flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-black text-blue-700">
+                <ShieldCheck size={12} /> Linked {asset.monitoring_status === 'online' ? '(Online)' : ''}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">
+                Not Linked
+              </span>
+            )}
+          </p>
         </div>
         <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
           <button onClick={onView} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"><Eye size={14} /> View</button>
@@ -1225,7 +1252,29 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
   );
 }
 
-function AssetDetailsModal({ asset, onClose }) {
+function AssetDetailsModal({ asset, onClose, onUpdate }) {
+  const navigate = useNavigate();
+  const [loadingLink, setLoadingLink] = useState(false);
+
+  const handleUnlinkDevice = async () => {
+    if (!window.confirm("This will disconnect the monitoring agent from this hardware asset.\nThe monitoring device will continue reporting activity, but it will become an Unlinked Device until linked again.")) return;
+    setLoadingLink(true);
+    try {
+      const res = await fetch(`${API_BASE}/hardware-assets/${asset.asset_id}/link-device`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ device_id: null })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to unlink device");
+      if (onUpdate) onUpdate();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setLoadingLink(false);
+    }
+  };
+  const isLinked = !!asset.monitoring_device_uuid;
   const details = [
     ["Asset Tag", asset.asset_tag], ["Type", asset.asset_type], ["Brand / Model", `${asset.brand || "—"} / ${asset.model || "—"}`],
     ["Serial Number", asset.serial_number], ["Status", asset.status], ["Branch", asset.branch_name],
@@ -1236,6 +1285,17 @@ function AssetDetailsModal({ asset, onClose }) {
     ["Vendor", asset.vendor || asset.supplier], ["Invoice Number", asset.invoice_number],
   ];
 
+  const monitoringDetails = asset.monitoring_device_uuid ? [
+    ["Monitoring Status", "Linked"], 
+    ["Device UUID", asset.monitoring_device_uuid || "—"],
+    ["Hostname", asset.monitoring_hostname || "—"], 
+    ["Online / Offline", asset.monitoring_status || "—"],
+    ["Last Seen", formatDate(asset.monitoring_last_seen)], 
+    ["Logged-in User", asset.monitoring_logged_in_user || "—"]
+  ] : [
+    ["Monitoring Status", "Not Linked"]
+  ];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
@@ -1243,7 +1303,32 @@ function AssetDetailsModal({ asset, onClose }) {
         <div className="p-6">
           <div className="mb-6 flex aspect-[16/7] items-center justify-center overflow-hidden rounded-2xl bg-slate-100">{asset.image_url ? <img src={asset.image_url} alt={asset.asset_name} className="h-full w-full object-contain" /> : <span className="font-bold text-slate-400">No Image</span>}</div>
           <h3 className="text-2xl font-black text-slate-900">{asset.asset_name}</h3>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">{details.map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 font-bold text-slate-800">{value || "—"}</p></div>)}</div>
+          
+          <h4 className="mt-6 mb-2 font-black text-slate-900">Hardware Information</h4>
+          <div className="grid gap-4 sm:grid-cols-2">{details.map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 font-bold text-slate-800">{value || "—"}</p></div>)}</div>
+
+          <div className="mt-6 flex items-center justify-between">
+            <h4 className="font-black text-slate-900">Endpoint Monitoring</h4>
+          </div>
+
+          {isLinked ? (
+            <>
+              <div className="mt-2 grid gap-4 sm:grid-cols-2">{monitoringDetails.map(([label, value]) => <div key={label} className="rounded-2xl bg-blue-50/50 p-4 border border-blue-100"><p className="text-xs font-black uppercase tracking-wider text-blue-400">{label}</p><p className="mt-1 font-bold text-blue-900">{value || "—"}</p></div>)}</div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button onClick={() => navigate(`/dashboard/laptop-monitoring?tab=devices&device_uuid=${asset.monitoring_device_uuid}`)} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 hover:bg-blue-100">View Monitoring Details</button>
+                <button onClick={() => navigate(`/dashboard/laptop-monitoring?tab=activity&device_uuid=${asset.monitoring_device_uuid}`)} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 hover:bg-blue-100">View Activity Timeline</button>
+                <button onClick={() => navigate(`/dashboard/laptop-monitoring?tab=screenshots&device_uuid=${asset.monitoring_device_uuid}`)} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 hover:bg-blue-100">View Screenshots</button>
+                <button onClick={handleUnlinkDevice} disabled={loadingLink} className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-50">{loadingLink ? "Unlinking..." : "Unlink Device"}</button>
+              </div>
+            </>
+          ) : (
+            <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
+              <ShieldCheck className="mx-auto text-slate-400 mb-2" size={32} />
+              <h5 className="font-bold text-slate-900">Not Linked</h5>
+              <p className="text-sm text-slate-500 mt-1 mb-4">This hardware asset is not yet connected to a monitoring agent.</p>
+              <button onClick={() => navigate('/dashboard/laptop-monitoring?tab=devices')} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Go to Laptop Monitoring to Link</button>
+            </div>
+          )}
         </div>
       </div>
     </div>
