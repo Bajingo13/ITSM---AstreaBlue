@@ -909,14 +909,25 @@ function EmployeeView({ user }) {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
 
+  // Wizard state (only used when no consent exists)
+  const [step, setStep] = useState(0);
+  const [preferences, setPreferences] = useState({
+    application_monitoring: false,
+    web_monitoring: false,
+    location_tracking: false,
+    device_telemetry: true,
+    email_header_monitoring: false,
+  });
+  const [signatureData, setSignatureData] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [wizardDone, setWizardDone] = useState(false);
+
   const fetchConsent = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch(`${API_BASE}/my-record`, { headers: authHeaders() });
       const data = await res.json();
-      if (data.success) {
-        setConsent(data.data);
-      }
+      if (data.success) setConsent(data.data);
     } catch (err) {
       console.error("Fetch consent error:", err);
     } finally {
@@ -926,12 +937,43 @@ function EmployeeView({ user }) {
 
   useEffect(() => { fetchConsent(); }, [fetchConsent]);
 
+  const togglePreference = (key) => {
+    setPreferences((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleSubmitConsent = async () => {
+    try {
+      setSubmitting(true);
+      const res = await fetch(API_BASE, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...preferences,
+          device_telemetry: true,
+          signature_image: signatureData,
+          consent_status: "Consented",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setConsent(data.data);
+        setWizardDone(true);
+        setStep(4);
+      } else {
+        alert(data.error || "Failed to submit consent.");
+      }
+    } catch (err) {
+      console.error("Submit consent error:", err);
+      alert("Failed to submit consent. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleDownloadPdf = async () => {
     try {
       setDownloading(true);
-      const res = await fetch(`${API_BASE}/pdf-download`, {
-        headers: authHeaders(),
-      });
+      const res = await fetch(`${API_BASE}/pdf-download`, { headers: authHeaders() });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         alert(err.error || "Failed to generate PDF.");
@@ -954,7 +996,7 @@ function EmployeeView({ user }) {
     }
   };
 
-  // Show loading
+  // Loading
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -963,33 +1005,56 @@ function EmployeeView({ user }) {
     );
   }
 
-  // No consent yet
-  if (!consent) {
+  // ─── NEW EMPLOYEE: Show 5-step consent wizard ─────────────────
+  if (!consent && !wizardDone) {
     return (
-      <div className="space-y-6">
-        <button
-          onClick={() => window.history.back()}
-          className="flex items-center gap-1.5 text-sm font-semibold text-[#2563EB] transition hover:text-[#1D4ED8]"
-        >
-          <ArrowLeft size={16} />
-          Back
-        </button>
+      <div className="mx-auto max-w-4xl space-y-6">
         <PageHero
           eyebrow="Employee Portal"
           title="RA 10173 Compliance"
-          subtitle="Your consent and monitoring preferences"
+          subtitle="Complete the consent and monitoring preferences wizard"
         />
-        <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-          <p className="text-slate-500">No consent record found. Please complete the onboarding wizard to provide your consent.</p>
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <StepIndicator currentStep={step} />
+          {step === 0 && <StepIntro onContinue={() => setStep(1)} />}
+          {step === 1 && (
+            <StepPreferences
+              preferences={preferences}
+              onToggle={togglePreference}
+              onContinue={() => setStep(2)}
+            />
+          )}
+          {step === 2 && (
+            <StepSignature
+              signatureData={signatureData}
+              onSignatureChange={setSignatureData}
+              onContinue={() => setStep(3)}
+            />
+          )}
+          {step === 3 && (
+            <StepConfirmation
+              preferences={preferences}
+              signatureData={signatureData}
+              onSubmit={handleSubmitConsent}
+              submitting={submitting}
+            />
+          )}
+          {step === 4 && (
+            <StepSuccess
+              submittedData={{ ...(consent || {}), preferences }}
+              onReturnDashboard={() => { setWizardDone(false); fetchConsent(); }}
+              onUpdatePrefs={() => setStep(1)}
+            />
+          )}
         </div>
       </div>
     );
   }
 
-  // Consent exists — view-only mode
+  // ─── CONSENT SUMMARY (for returning employees / after wizard) ──
+  const record = consent || {};
   return (
     <div className="space-y-6">
-      {/* Back Button */}
       <button
         onClick={() => window.history.back()}
         className="flex items-center gap-1.5 text-sm font-semibold text-[#2563EB] transition hover:text-[#1D4ED8]"
@@ -1005,33 +1070,29 @@ function EmployeeView({ user }) {
       />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_2fr]">
-        {/* Left Column: Status, Date, Signature */}
         <div className="space-y-4">
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wider text-slate-500">Status</p>
-            <span className={`mt-2 inline-block rounded-full border px-3 py-1 text-xs font-bold ${STATUS_BADGE[consent.consent_status] || STATUS_BADGE.Pending}`}>
-              {consent.consent_status}
+            <span className={`mt-2 inline-block rounded-full border px-3 py-1 text-xs font-bold ${STATUS_BADGE[record.consent_status] || STATUS_BADGE.Pending}`}>
+              {record.consent_status}
             </span>
           </div>
-
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wider text-slate-500">Submitted Date</p>
             <p className="mt-2 text-sm font-semibold text-slate-700">
-              {consent.submitted_at ? formatDate(consent.submitted_at) : "Not yet submitted"}
+              {record.submitted_at ? formatDate(record.submitted_at) : "Not yet submitted"}
             </p>
           </div>
-
-          {consent.signature_image && (
+          {record.signature_image && (
             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="text-xs font-black uppercase tracking-wider text-slate-500">Signature</p>
               <img
-                src={consent.signature_image.startsWith("data:") ? consent.signature_image : `${API_URL}${consent.signature_image}`}
+                src={record.signature_image.startsWith("data:") ? record.signature_image : `${API_URL}${record.signature_image}`}
                 alt="Signed signature"
                 className="mt-2 h-16 w-auto max-w-full rounded-lg object-contain"
               />
             </div>
           )}
-
           <button
             onClick={handleDownloadPdf}
             disabled={downloading}
@@ -1044,26 +1105,23 @@ function EmployeeView({ user }) {
           </button>
         </div>
 
-        {/* Right Column: Monitoring Preferences */}
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="text-xs font-black uppercase tracking-wider text-slate-500">Monitoring Preferences</h3>
           <div className="mt-4 space-y-3">
             {MONITORING_CATEGORIES.map((cat) => (
               <div key={cat.key} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${consent[cat.key] ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-400"}`}>
-                    {consent[cat.key] ? <CheckCircle size={15} /> : <X size={15} />}
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${record[cat.key] ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-400"}`}>
+                    {record[cat.key] ? <CheckCircle size={15} /> : <X size={15} />}
                   </div>
                   <span className="font-semibold text-slate-700">{cat.label}</span>
                 </div>
                 <span
                   className={`rounded-full px-3 py-1 text-xs font-bold ${
-                    consent[cat.key]
-                      ? "bg-emerald-100 text-emerald-700"
-                      : "bg-slate-200 text-slate-500"
+                    record[cat.key] ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"
                   }`}
                 >
-                  {consent[cat.key] ? "Enabled" : "Disabled"}
+                  {record[cat.key] ? "Enabled" : "Disabled"}
                 </span>
               </div>
             ))}
