@@ -22,6 +22,7 @@
     "multer": "^2.2.0",
     "node-cron": "^4.6.0",
     "nodemailer": "^6.9.4",
+    "pdfkit": "^0.19.1",
     "pg": "^8.21.0",
     "resend": "^6.16.0",
     "socket.io": "^4.8.3"

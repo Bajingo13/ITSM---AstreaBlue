@@ -451,6 +451,7 @@ async function sendPasswordResetEmail(to, resetLink) {
 
 module.exports = {
   getMissingSmtpConfig,
+  sendMail,
   sendTestEmail,
   sendInvitationEmail,
   sendWelcomeEmail,
