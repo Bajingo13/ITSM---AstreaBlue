@@ -23,6 +23,7 @@ const laptopMonitoringRoutes = require("./src/routes/laptopMonitoring");
 const attachmentRoutes = require("./src/routes/attachments");
 const ticketRoutes = require("./src/routes/tickets");
 const notificationRoutes = require("./src/routes/notifications");
+const ra10173ComplianceRoutes = require("./src/routes/ra10173Compliance");
 const { setSocketServer } = require("./src/services/socketService");
 
 const app = express();
@@ -579,6 +580,66 @@ async function ensureHardwareAssetTables() {
 ensureAttachmentsAndInvites();
 const hardwareAssetTablesReady = ensureHardwareAssetTables();
 
+async function ensureRa10173Tables() {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS laptop_activity_monitoring (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        branch_id INTEGER REFERENCES branches(branch_id),
+        application_monitoring BOOLEAN NOT NULL DEFAULT FALSE,
+        web_monitoring BOOLEAN NOT NULL DEFAULT FALSE,
+        location_tracking BOOLEAN NOT NULL DEFAULT FALSE,
+        device_telemetry BOOLEAN NOT NULL DEFAULT TRUE,
+        email_header_monitoring BOOLEAN NOT NULL DEFAULT FALSE,
+        signature_image TEXT,
+        consent_status VARCHAR(30) NOT NULL DEFAULT 'Pending',
+        submitted_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS laptop_monitoring_user_id_idx ON laptop_activity_monitoring (user_id)
+    `);
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS laptop_monitoring_branch_id_idx ON laptop_activity_monitoring (branch_id)
+    `);
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS laptop_monitoring_consent_status_idx ON laptop_activity_monitoring (consent_status)
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS consent_audit_logs (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        action VARCHAR(50) NOT NULL,
+        details JSONB,
+        ip_address VARCHAR(45),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS consent_audit_user_idx ON consent_audit_logs (user_id)
+    `);
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS consent_audit_action_idx ON consent_audit_logs (action)
+    `);
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS consent_audit_created_idx ON consent_audit_logs (created_at DESC)
+    `);
+
+    return true;
+  } catch (err) {
+    console.error("RA 10173 table setup error:", err.message);
+    return false;
+  }
+}
+
+ensureRa10173Tables();
+
 /* ==========================
    AUTH ROUTES
 ========================== */
@@ -593,6 +654,7 @@ app.use("/api/v1/hardware-assets", async (_req, res, next) => {
   return res.status(503).json({ success: false, message: "Hardware asset storage is unavailable." });
 }, assetManagementRoutes);
 app.use("/api/v1/laptop-monitoring", laptopMonitoringRoutes);
+app.use("/api/v1/ra-10173-compliance", ra10173ComplianceRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
@@ -4293,7 +4355,7 @@ httpServer.listen(PORT, "0.0.0.0", () => {
     `[AstreaBlue API] health=http://localhost:${PORT}/api/health dashboard=http://localhost:${PORT}/api/v1/dashboard/summary`
   );
   console.log(
-    "[AstreaBlue API] mounted routes: /api/auth, /api/v1/dashboard, /api/v1/tickets, /api/v1/branches, /api/v1/users, /api/v1/roles, /api/v1/technicians, /api/v1/ticket-categories, /api/v1/invites, /api/v1/email, /api/v1/knowledge-base, /api/v1/requests"
+    "[AstreaBlue API] mounted routes: /api/auth, /api/v1/dashboard, /api/v1/tickets, /api/v1/branches, /api/v1/users, /api/v1/roles, /api/v1/technicians, /api/v1/ticket-categories, /api/v1/invites, /api/v1/email, /api/v1/knowledge-base, /api/v1/requests, /api/v1/ra-10173-compliance"
   );
 });
 

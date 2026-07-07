@@ -20,7 +20,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.2",
     "multer": "^2.2.0",
-    "node-cron": "^4.5.0",
+    "node-cron": "^4.6.0",
     "nodemailer": "^6.9.4",
     "pg": "^8.21.0",
     "resend": "^6.16.0",
