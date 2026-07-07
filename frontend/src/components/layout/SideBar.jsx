@@ -147,6 +147,13 @@ const employeeNavItems = [
       { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
     ],
   },
+  {
+    label: "Laptop Activity Monitoring",
+    icon: Monitor,
+    children: [
+      { label: "RA 10173 Compliance", icon: Shield, path: "/ra-10173-compliance" },
+    ],
+  },
 ];
 
 function getDashboardPath(role) {

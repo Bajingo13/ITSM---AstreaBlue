@@ -31,6 +31,7 @@ import Settings from "./views/Settings";
 import UserManagement from "./views/UserManagement";
 import BranchManagement from "./views/BranchManagement";
 import InviteRegistration from "./views/InviteRegistration";
+import RA10173Compliance from "./views/RA10173Compliance";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import ModulePlaceholder from "./views/ModulePlaceholder";
 import ForgotPassword from "./ForgotPassword";
@@ -441,8 +442,8 @@ export default function App() {
         <Route
           path="/ra-10173-compliance"
           element={
-            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <EndpointMonitoring />
+            <ProtectedRoute allowedRoles={ALL_ROLES}>
+              <RA10173Compliance />
             </ProtectedRoute>
           }
         />
