@@ -6,6 +6,7 @@ import { authHeaders } from "../services/authHeaders";
 
 const API_BASE = `${API_URL}/api/v1/laptop-monitoring`;
 const formatDate = (value) => value ? new Date(value).toLocaleString() : "Never";
+const secondsSince = (value) => value ? Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000)) : null;
 const formatDuration = (seconds) => {
   const value = Math.max(0, Number(seconds) || 0);
   if (value < 60) return `${Math.round(value)} sec`;
@@ -27,6 +28,7 @@ export default function EndpointMonitoring() {
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [debugInfo, setDebugInfo] = useState(null);
 
   const loadOverview = useCallback(async () => {
     try {
@@ -35,6 +37,7 @@ export default function EndpointMonitoring() {
       setDevices(deviceData || []);
       setSummary(summaryData || null);
       setSelectedId((current) => current || deviceData?.[0]?.device_id || null);
+      monitoringRequest("/debug").then(setDebugInfo).catch(() => setDebugInfo(null));
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -72,10 +75,11 @@ export default function EndpointMonitoring() {
   return <div className="space-y-6">
     <PageHero eyebrow="System Administration" title="Laptop Activity Monitoring" subtitle="Consent-aware endpoint visibility for IT and security operations—without keystroke, microphone, camera, or password collection." />
     {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 font-semibold text-rose-700">{error}</div>}
+    {debugInfo && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950"><h2 className="font-black">SuperAdmin Monitoring Debug</h2><div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3"><p><span className="font-bold">Backend URL:</span> {API_URL}</p><p><span className="font-bold">Database source:</span> {debugInfo.backend_source}</p><p><span className="font-bold">Total devices returned:</span> {devices.length}</p><p><span className="font-bold">Device UUID:</span> {selectedDevice?.device_uuid || "Select a device"}</p><p><span className="font-bold">Hostname:</span> {selectedDevice?.hostname || "Select a device"}</p><p><span className="font-bold">Last heartbeat:</span> {formatDate(selectedDevice?.last_seen_at)}</p><p><span className="font-bold">Seconds since heartbeat:</span> {secondsSince(selectedDevice?.last_seen_at) ?? "No heartbeat"}</p><p><span className="font-bold">Online threshold:</span> {debugInfo.online_threshold_seconds} seconds</p><p><span className="font-bold">Current status:</span> {selectedDevice?.status || "Unknown"}</p></div></section>}
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{cards.map(([label, value, Icon]) => <div key={label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><p className="text-xs font-black uppercase tracking-wider text-slate-500">{label}</p><Icon size={18} className="text-blue-600" /></div><p className="mt-3 text-2xl font-black text-slate-900">{value}</p></div>)}</section>
 
     <section className="grid gap-6 xl:grid-cols-[minmax(300px,0.8fr)_minmax(0,2fr)]">
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black text-slate-900">Monitored Devices</h2><div className="mt-4 space-y-3">{loading ? <p className="text-sm text-slate-500">Loading devices...</p> : devices.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No agent has checked in yet.</p> : devices.map((device) => <button key={device.device_id} onClick={() => setSelectedId(device.device_id)} className={`w-full rounded-2xl border p-4 text-left transition ${String(selectedId) === String(device.device_id) ? "border-blue-400 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}><div className="flex items-center justify-between gap-3"><p className="font-black text-slate-900">{device.hostname}</p><StatusBadge status={device.status} /></div><p className="mt-2 text-sm text-slate-600">{device.assigned_user || "Unassigned / shared device"}</p><p className="text-xs text-slate-500">{device.branch_name || "No branch"} · Last seen {formatDate(device.last_seen_at)}</p><p className="mt-2 text-xs font-bold text-slate-600">Consent: {device.consent_status || "Pending"}</p></button>)}</div></div>
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black text-slate-900">Monitored Devices</h2><div className="mt-4 space-y-3">{loading ? <p className="text-sm text-slate-500">Loading devices...</p> : devices.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No agent has checked in yet.</p> : devices.map((device) => <button key={device.device_id} onClick={() => setSelectedId(device.device_id)} className={`w-full rounded-2xl border p-4 text-left transition ${String(selectedId) === String(device.device_id) ? "border-blue-400 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}><div className="flex items-center justify-between gap-3"><div><p className="font-black text-slate-900">{device.device_name || device.hostname}</p><p className="text-xs text-slate-500">{device.hostname}</p></div><StatusBadge status={device.status} /></div><p className="mt-2 text-sm text-slate-600">{device.assigned_user || "Unassigned / shared device"}</p><p className="text-xs text-slate-500">{device.branch_name || "No branch"} · Last seen {formatDate(device.last_seen_at)}</p><p className="mt-1 truncate font-mono text-[10px] text-slate-400" title={device.device_uuid}>{device.device_uuid || "Legacy device awaiting UUID"}</p><p className="mt-2 text-xs font-bold text-slate-600">Consent: {device.consent_status || "Pending"}</p></button>)}</div></div>
 
       <div className="space-y-6">
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="text-xl font-black text-slate-900">{selectedDevice?.hostname || "Device Activity"}</h2><p className="mt-1 text-sm text-slate-500">{selectedDevice ? `${selectedDevice.assigned_user || "Unassigned"} · ${selectedDevice.branch_name || "No branch"} · Agent ${selectedDevice.agent_version || "Unknown"}` : "Select a monitored device."}</p></div>{selectedDevice && <div className="flex items-center gap-2"><StatusBadge status={selectedDevice.status} /><ConsentBadge status={selectedDevice.consent_status} /></div>}</div>

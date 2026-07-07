@@ -9,7 +9,7 @@ const db = require("../../config/db");
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 const screenshotDirectory = String(process.env.MONITORING_SCREENSHOT_DIR || "").trim();
-const offlineSeconds = Math.max(60, Number(process.env.MONITORING_OFFLINE_SECONDS) || 180);
+const ONLINE_THRESHOLD_SECONDS = 120;
 const excessiveIdleSeconds = Math.max(60, Number(process.env.MONITORING_IDLE_ALERT_SECONDS) || 3600);
 
 const normalizeList = (value) => String(value || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
@@ -37,6 +37,7 @@ const tablesReady = (async () => {
     await db.query(`
       CREATE TABLE IF NOT EXISTS monitored_devices (
         device_id BIGSERIAL PRIMARY KEY, hostname VARCHAR(255) NOT NULL UNIQUE,
+        device_uuid UUID, device_name VARCHAR(255), logged_in_user VARCHAR(255),
         assigned_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
         branch_id INTEGER REFERENCES branches(branch_id) ON DELETE SET NULL,
         agent_version VARCHAR(50), last_seen_at TIMESTAMPTZ,
@@ -65,6 +66,14 @@ const tablesReady = (async () => {
         consent_status VARCHAR(30) NOT NULL DEFAULT 'Pending', consented_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(device_id,user_id,consent_type)
       )
+    `);
+    await db.query(`
+      ALTER TABLE monitored_devices ADD COLUMN IF NOT EXISTS device_uuid UUID;
+      ALTER TABLE monitored_devices ADD COLUMN IF NOT EXISTS device_name VARCHAR(255);
+      ALTER TABLE monitored_devices ADD COLUMN IF NOT EXISTS logged_in_user VARCHAR(255);
+      ALTER TABLE monitored_devices DROP CONSTRAINT IF EXISTS monitored_devices_hostname_key;
+      CREATE UNIQUE INDEX IF NOT EXISTS monitored_devices_device_uuid_uidx ON monitored_devices(device_uuid) WHERE device_uuid IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS monitored_devices_hostname_idx ON monitored_devices(LOWER(hostname));
     `);
     return true;
   } catch (error) {
@@ -100,6 +109,7 @@ function requireAdmin(req, res, next) {
     const role = String(user.role || "").toLowerCase().replace(/[\s_-]/g, "");
     if (!["superadmin", "admin"].includes(role)) return res.status(403).json({ success: false, message: "Monitoring administrator access required." });
     req.monitoringUser = user;
+    req.monitoringIsSuperAdmin = role === "superadmin";
     req.monitoringBranchId = role === "admin" ? user.branchId : null;
     return next();
   } catch (_error) {
@@ -108,29 +118,50 @@ function requireAdmin(req, res, next) {
 }
 
 async function findDevice(body) {
-  const deviceId = Number(body.device_id);
-  const hostname = String(body.hostname || body.device_name || "").trim();
-  if (!deviceId && !hostname) return null;
+  const deviceUuid = String(body.device_uuid || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) return null;
   const result = await db.query(
-    `SELECT * FROM monitored_devices WHERE ($1::bigint IS NOT NULL AND device_id=$1) OR ($2::text IS NOT NULL AND LOWER(hostname)=LOWER($2)) LIMIT 1`,
-    [deviceId || null, hostname || null]
+    `SELECT * FROM monitored_devices WHERE device_uuid=$1::uuid LIMIT 1`,
+    [deviceUuid]
   );
   return result.rows[0] || null;
 }
 
 router.post("/heartbeat", requireAgent, async (req, res) => {
+  const deviceUuid = String(req.body?.device_uuid || "").trim().toLowerCase();
   const hostname = String(req.body?.hostname || req.body?.device_name || "").trim();
+  const deviceName = String(req.body?.device_name || hostname).trim().slice(0, 255);
+  const loggedInUser = String(req.body?.logged_in_user || "").trim().slice(0, 255) || null;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) {
+    return res.status(400).json({ success: false, message: "A valid device_uuid is required." });
+  }
   if (!hostname) return res.status(400).json({ success: false, message: "Hostname is required." });
   try {
-    const result = await db.query(
-      `INSERT INTO monitored_devices (hostname,assigned_user_id,branch_id,agent_version,last_seen_at,status)
-       VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP,'Online')
-       ON CONFLICT (hostname) DO UPDATE SET agent_version=EXCLUDED.agent_version,last_seen_at=CURRENT_TIMESTAMP,
-       status='Online',assigned_user_id=COALESCE(monitored_devices.assigned_user_id,EXCLUDED.assigned_user_id),
-       branch_id=COALESCE(monitored_devices.branch_id,EXCLUDED.branch_id),updated_at=CURRENT_TIMESTAMP RETURNING *`,
-      [hostname, req.body?.assigned_user_id || null, req.body?.branch_id || null, String(req.body?.agent_version || "MVP-1.0").slice(0, 50)]
+    // One-time adoption preserves activity history for pre-UUID installations.
+    await db.query(
+      `UPDATE monitored_devices SET device_uuid=$1,device_name=$2,logged_in_user=$3,updated_at=CURRENT_TIMESTAMP
+       WHERE device_id=(SELECT device_id FROM monitored_devices WHERE device_uuid IS NULL AND LOWER(hostname)=LOWER($4) ORDER BY last_seen_at DESC NULLS LAST LIMIT 1)
+       AND NOT EXISTS (SELECT 1 FROM monitored_devices WHERE device_uuid=$1)`,
+      [deviceUuid, deviceName, loggedInUser, hostname]
     );
-    return res.json({ success: true, message: "Heartbeat received.", data: result.rows[0] });
+    const result = await db.query(
+      `INSERT INTO monitored_devices (device_uuid,hostname,device_name,logged_in_user,assigned_user_id,branch_id,agent_version,last_seen_at,status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,CURRENT_TIMESTAMP,'Online')
+       ON CONFLICT (device_uuid) WHERE device_uuid IS NOT NULL DO UPDATE SET
+       hostname=EXCLUDED.hostname,device_name=EXCLUDED.device_name,logged_in_user=EXCLUDED.logged_in_user,
+       agent_version=EXCLUDED.agent_version,last_seen_at=CURRENT_TIMESTAMP,status='Online',
+       assigned_user_id=COALESCE(monitored_devices.assigned_user_id,EXCLUDED.assigned_user_id),
+       branch_id=COALESCE(monitored_devices.branch_id,EXCLUDED.branch_id),updated_at=CURRENT_TIMESTAMP RETURNING *`,
+      [deviceUuid, hostname, deviceName, loggedInUser, req.body?.assigned_user_id || null, req.body?.branch_id || null, String(req.body?.agent_version || "MVP-1.0").slice(0, 50)]
+    );
+    const device = result.rows[0];
+    console.info("[laptop-monitoring:heartbeat]", {
+      hostname: device.hostname,
+      device_id: device.device_id,
+      last_seen_at: device.last_seen_at instanceof Date ? device.last_seen_at.toISOString() : device.last_seen_at,
+      status: device.status,
+    });
+    return res.json({ success: true, message: "Heartbeat received.", data: device });
   } catch (error) {
     console.error("[laptop-monitoring:heartbeat]", error.message);
     return res.status(500).json({ success: false, message: "Failed to record heartbeat." });
@@ -212,13 +243,19 @@ router.post("/screenshot", requireAgent, (req, res) => {
   });
 });
 
-async function markOffline() {
-  await db.query(`UPDATE monitored_devices SET status='Offline',updated_at=CURRENT_TIMESTAMP WHERE status <> 'Offline' AND (last_seen_at IS NULL OR last_seen_at < CURRENT_TIMESTAMP - ($1 * INTERVAL '1 second'))`, [offlineSeconds]);
+async function refreshDeviceStatuses() {
+  await db.query(
+    `UPDATE monitored_devices
+     SET status=CASE WHEN last_seen_at IS NOT NULL AND last_seen_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 second') THEN 'Online' ELSE 'Offline' END,
+     updated_at=CURRENT_TIMESTAMP
+     WHERE status IS DISTINCT FROM CASE WHEN last_seen_at IS NOT NULL AND last_seen_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 second') THEN 'Online' ELSE 'Offline' END`,
+    [ONLINE_THRESHOLD_SECONDS]
+  );
 }
 
 router.get("/devices", requireAdmin, async (req, res) => {
   try {
-    await markOffline();
+    await refreshDeviceStatuses();
     const result = await db.query(
       `SELECT d.*,u.full_name assigned_user,b.branch_name,
        COALESCE((SELECT mc.consent_status FROM monitoring_consents mc WHERE mc.device_id=d.device_id ORDER BY mc.consented_at DESC NULLS LAST,mc.created_at DESC LIMIT 1),d.consent_status) consent_status
@@ -229,6 +266,25 @@ router.get("/devices", requireAdmin, async (req, res) => {
   } catch (error) {
     console.error("[laptop-monitoring:devices]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load monitored devices." });
+  }
+});
+
+router.get("/debug", requireAdmin, async (req, res) => {
+  if (!req.monitoringIsSuperAdmin) return res.status(403).json({ success: false, message: "SuperAdmin access required." });
+  try {
+    await refreshDeviceStatuses();
+    const result = await db.query(
+      `SELECT COUNT(*)::int total_devices, MAX(last_seen_at) latest_last_seen_at,
+       CASE WHEN MAX(last_seen_at) IS NULL THEN NULL ELSE GREATEST(0, EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - MAX(last_seen_at)))::int) END seconds_since_heartbeat
+       FROM monitored_devices`
+    );
+    const forwardedHost = String(req.headers["x-forwarded-host"] || "").split(",")[0].trim();
+    const requestHost = forwardedHost || req.get("host") || "";
+    const source = /localhost|127\.0\.0\.1|\[::1\]/i.test(requestHost) ? "local" : "production";
+    return res.json({ success: true, data: { ...result.rows[0], online_threshold_seconds: ONLINE_THRESHOLD_SECONDS, backend_source: source } });
+  } catch (error) {
+    console.error("[laptop-monitoring:debug]", error.message);
+    return res.status(500).json({ success: false, message: "Failed to load monitoring debug information." });
   }
 });
 
@@ -251,7 +307,7 @@ router.get("/devices/:id/activity", requireAdmin, async (req, res) => {
 
 router.get("/summary", requireAdmin, async (req, res) => {
   try {
-    await markOffline();
+    await refreshDeviceStatuses();
     const result = await db.query(
       `SELECT COUNT(*)::int total_monitored_devices,
        COUNT(*) FILTER (WHERE status='Online')::int online_devices,

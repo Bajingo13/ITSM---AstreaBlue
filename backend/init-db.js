@@ -14,6 +14,7 @@ const migrationFiles = [
   "2026-07-03-ticket-history-comments-sla.sql",
   "2026-07-06-useful-life-months-capitalization.sql",
   "2026-07-06-laptop-monitoring-mvp.sql",
+  "2026-07-06-laptop-monitoring-device-uuid.sql",
 ];
 
 const defaultTicketCategories = [
