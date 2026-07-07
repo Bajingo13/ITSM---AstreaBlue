@@ -1389,7 +1389,8 @@ export default function Tickets() {
       const res = await fetch(
         `${API_BASE}/tickets${buildTicketQuery(user, {
           filter_branch_id: branchFilter,
-        })}`
+        })}`,
+        { headers: authHeaders() }
       );
       const data = await res.json();
       if (!res.ok || data.success === false) {
@@ -1408,7 +1409,7 @@ export default function Tickets() {
 
   const fetchCategories = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/ticket-categories`);
+      const res = await fetch(`${API_BASE}/ticket-categories`, { headers: authHeaders() });
       const data = await res.json();
       setCategories(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -1418,7 +1419,7 @@ export default function Tickets() {
 
   const fetchBranches = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/branches`);
+      const res = await fetch(`${API_BASE}/branches`, { headers: authHeaders() });
       const data = await res.json();
       setBranches(Array.isArray(data) ? data : []);
     } catch (err) {
