@@ -5,9 +5,11 @@ import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload } from "../utils/ticketAccess";
 import {
   getSeverityOptionStyle,
+  getSeverityLevel,
   getSeveritySelectClass,
   priorityOptions,
 } from "../utils/ticketVisuals";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 const priorityDotStyle = {
@@ -24,6 +26,8 @@ export default function CreateTicket() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [isOtherCategory, setIsOtherCategory] = useState(false);
+  const [customCategory, setCustomCategory] = useState("");
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -57,6 +61,8 @@ export default function CreateTicket() {
       priority: "P3-Medium",
     });
     setFiles([]);
+    setIsOtherCategory(false);
+    setCustomCategory("");
   };
 
   const handleSubmit = async (e) => {
@@ -68,9 +74,26 @@ export default function CreateTicket() {
       setError("Title and description are required.");
       return;
     }
+    if (isOtherCategory && !customCategory.trim()) {
+      setError("Specify Category is required when Other is selected.");
+      return;
+    }
 
     try {
       setSaving(true);
+      let categoryId = form.category_id || null;
+      if (isOtherCategory) {
+        const categoryResponse = await fetch(`${API_BASE}/ticket-categories`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category_name: customCategory.trim() }),
+        });
+        const categoryBody = await categoryResponse.json();
+        if (!categoryResponse.ok || categoryBody.success === false || !categoryBody.category) {
+          throw new Error(categoryBody.message || categoryBody.error || "Failed to save category.");
+        }
+        categoryId = categoryBody.category.category_id;
+      }
       const res = await fetch(`${API_BASE}/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -78,7 +101,7 @@ export default function CreateTicket() {
           ...form,
           impact: "Medium",
           urgency: "Medium",
-          category_id: form.category_id || null,
+          category_id: categoryId,
           requester_id: user?.user_id,
           branch_id: user?.branch_id || null,
           status: "Open Queue",
@@ -92,6 +115,7 @@ export default function CreateTicket() {
       await uploadTicketAttachments(createdTicket.id, files, user?.user_id);
       resetForm();
       setSuccess(`Ticket ${createdTicket.ticket_number || ""} created successfully.`);
+      await fetchCategories();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -101,17 +125,7 @@ export default function CreateTicket() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
-        <div className="flex items-center gap-3">
-          <FileText />
-          <div>
-            <h1 className="text-3xl font-black">Create Ticket</h1>
-            <p className="mt-2 text-blue-100">
-              File a new incident or service request to the IT team.
-            </p>
-          </div>
-        </div>
-      </section>
+      <PageHero eyebrow="Employee Service Hub" title="Create Ticket" subtitle="Submit an incident or service request with the details needed for a fast response." compact />
 
       <form onSubmit={handleSubmit} className="space-y-5 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
         {error && (
@@ -126,13 +140,15 @@ export default function CreateTicket() {
         )}
 
         <Field
-          label="Title *"
+          label="Title"
+          required
           value={form.title}
           onChange={(value) => updateForm("title", value)}
           placeholder="Briefly describe the request or issue"
         />
         <Field
-          label="Description *"
+          label="Description"
+          required
           value={form.description}
           onChange={(value) => updateForm("description", value)}
           placeholder="Include affected device, application, urgency, and helpful details"
@@ -142,14 +158,21 @@ export default function CreateTicket() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <SelectField
             label="Category"
-            value={form.category_id}
-            onChange={(value) => updateForm("category_id", value)}
+            value={isOtherCategory ? "__other__" : form.category_id}
+            onChange={(value) => {
+              setIsOtherCategory(value === "__other__");
+              if (value !== "__other__") {
+                setCustomCategory("");
+                updateForm("category_id", value);
+              } else updateForm("category_id", "");
+            }}
             options={[
               { label: "Select category", value: "" },
               ...categories.map((cat) => ({
                 label: cat.category_name,
                 value: cat.category_id,
               })),
+              { label: "Other...", value: "__other__" },
             ]}
           />
           <SelectField
@@ -161,15 +184,27 @@ export default function CreateTicket() {
           
         </div>
 
+        {isOtherCategory && (
+          <Field
+            label="Specify Category"
+            required
+            value={customCategory}
+            onChange={setCustomCategory}
+            placeholder="e.g. CCTV, WiFi, Biometrics, Projector"
+          />
+        )}
+
         <div>
-          <label className="mb-2 block text-sm font-bold text-slate-700">
+          <label className="astrea-field-label">
             Attach Screenshots or PDF
           </label>
-          <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 px-4 py-5 text-sm font-bold text-blue-700 hover:bg-blue-50">
-            <Paperclip size={18} />
-            <span>
+          <label className="astrea-upload-zone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setFiles(Array.from(event.dataTransfer.files || [])); }}>
+            <span className="rounded-full bg-blue-100 p-3 text-blue-700"><Paperclip size={22} /></span>
+            <span className="font-black">
               {files.length ? `${files.length} file(s) selected` : "Choose PNG, JPG, JPEG, WEBP, or PDF"}
             </span>
+            <span className="text-xs font-semibold text-slate-600">Upload screenshots, PDF, or supporting files</span>
+            <span className="text-xs text-slate-500">PNG, JPG, JPEG, WEBP or PDF · Maximum 10MB · Drag & Drop supported</span>
             <input
               type="file"
               multiple
@@ -184,7 +219,7 @@ export default function CreateTicket() {
           <button
             type="submit"
             disabled={saving}
-            className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800 disabled:opacity-60"
+            className="astrea-button astrea-button-primary"
           >
             {saving ? "Creating..." : "Create Ticket"}
           </button>
@@ -221,24 +256,24 @@ async function readJsonSafely(res) {
   }
 }
 
-function Field({ label, value, onChange, placeholder, textarea = false }) {
+function Field({ label, value, onChange, placeholder, textarea = false, required = false }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-bold text-slate-700">{label}</label>
+      <label className="astrea-field-label">{label}{required && <span className="ml-1 text-red-600">*</span>}</label>
       {textarea ? (
         <textarea
           value={value}
           rows={5}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+          className="astrea-control resize-none"
         />
       ) : (
         <input
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+          className="astrea-control"
         />
       )}
     </div>
@@ -261,11 +296,12 @@ function SelectField({ label, value, onChange, options }) {
 
   return (
     <div>
-      <label className="mb-2 block text-sm font-bold text-slate-700">{label}</label>
+      <label className="astrea-field-label">{label}</label>
       <select
         value={value}
+        data-severity={shouldColorBySeverity ? getSeverityLevel(value) : undefined}
         onChange={(e) => onChange(e.target.value)}
-        className={`w-full rounded-xl border px-4 py-3 outline-none transition-colors focus:ring-4 ${
+        className={`astrea-control transition-colors ${
           shouldColorBySeverity
             ? getSeveritySelectClass(value)
             : "border-slate-200 bg-slate-50 text-slate-900 hover:bg-white focus:border-blue-600 focus:bg-white focus:ring-blue-100"

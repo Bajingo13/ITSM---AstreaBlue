@@ -1,0 +1,19 @@
+{
+  "name": "astreablue-monitoring-agent-windows",
+  "version": "1.2.0",
+  "private": true,
+  "description": "Consent-aware AstreaBlue Windows endpoint monitoring agent — production-ready with Windows Service support",
+  "main": "agent.js",
+  "scripts": {
+    "start":            "node agent.js",
+    "check":            "node --check agent.js && node --check svc.js && node --check service-wrapper.js",
+    "service:install":  "node svc.js install",
+    "service:uninstall":"node svc.js uninstall"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "node-windows": "^1.0.0-beta.8"
+  }
+}

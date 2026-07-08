@@ -1,4 +1,5 @@
 const express = require("express");
+const http = require("http");
 const cors = require("cors");
 const crypto = require("crypto");
 const fs = require("fs");
@@ -10,13 +11,21 @@ require("dotenv").config();
 const db = require("./config/db");
 
 const { calculateSlaDueDate } = require("./src/services/slaService");
+const { calculateStraightLine } = require("./src/services/assetFinancialService");
 const authRoutes = require("./src/routes/auth");
+require("./src/services/slaCron");
 const dashboardRoutes = require("./src/routes/dashboard");
+const slaRoutes = require("./src/routes/sla");
 const inviteRoutes = require("./src/routes/invites");
 const emailRoutes = require("./src/routes/email");
+const assetManagementRoutes = require("./src/routes/assetManagement");
+const laptopMonitoringRoutes = require("./src/routes/laptopMonitoring");
 const attachmentRoutes = require("./src/routes/attachments");
 const ticketRoutes = require("./src/routes/tickets");
 const notificationRoutes = require("./src/routes/notifications");
+const ra10173ComplianceRoutes = require("./src/routes/ra10173Compliance");
+const consentRoutes = require("./src/routes/consent");
+const { setSocketServer } = require("./src/services/socketService");
 
 const app = express();
 
@@ -32,6 +41,22 @@ const allowedOrigins = new Set(
     .filter(Boolean)
     .map((origin) => String(origin).trim().replace(/\/$/, ""))
 );
+
+const httpServer = http.createServer(app);
+let io = null;
+try {
+  const { Server } = require("socket.io");
+  io = new Server(httpServer, {
+    cors: {
+      origin: [...allowedOrigins],
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+  });
+  setSocketServer(io);
+} catch (error) {
+  console.warn("Socket.io initialization failed; HTTP API will continue:", error.message);
+}
 
 const corsOptions = {
   origin(origin, callback) {
@@ -135,7 +160,10 @@ async function ensureTicketWorkflowColumns() {
       ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id),
       ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP,
       ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(user_id),
-      ADD COLUMN IF NOT EXISTS cancellation_reason TEXT
+      ADD COLUMN IF NOT EXISTS cancellation_reason TEXT,
+      ADD COLUMN IF NOT EXISTS sla_due_soon_notified_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS sla_breach_notification_sent_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS sla_breach_email_sent_at TIMESTAMP
     `);
   } catch (err) {
     console.error("Ticket workflow column setup error:", err.message);
@@ -278,6 +306,12 @@ async function ensureAttachmentsAndInvites() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    await db.query(`
+      ALTER TABLE notifications
+      ADD COLUMN IF NOT EXISTS related_ticket_id INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+    `);
   } catch (err) {
     console.error("Attachments/invites setup error:", err.message);
   }
@@ -372,6 +406,21 @@ async function ensureHardwareAssetTables() {
       ADD COLUMN IF NOT EXISTS condition_before TEXT,
       ADD COLUMN IF NOT EXISTS condition_after TEXT,
       ADD COLUMN IF NOT EXISTS notes TEXT,
+      ADD COLUMN IF NOT EXISTS vendor VARCHAR(150),
+      ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(150),
+      ADD COLUMN IF NOT EXISTS useful_life_months INTEGER,
+      ADD COLUMN IF NOT EXISTS useful_life_years NUMERIC(6,2) DEFAULT 5,
+      ADD COLUMN IF NOT EXISTS salvage_value NUMERIC(12,2) DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS depreciation_method VARCHAR(50) DEFAULT 'Straight-Line',
+      ADD COLUMN IF NOT EXISTS hostname VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS ip_address VARCHAR(64),
+      ADD COLUMN IF NOT EXISTS mac_address VARCHAR(32),
+      ADD COLUMN IF NOT EXISTS operating_system VARCHAR(150),
+      ADD COLUMN IF NOT EXISTS device_type VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS discovery_status VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS discovery_source VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS discovered_at TIMESTAMP,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     `);
@@ -437,6 +486,91 @@ async function ensureHardwareAssetTables() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS asset_discovery_scans (
+        scan_id BIGSERIAL PRIMARY KEY,
+        started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP,
+        duration_ms INTEGER,
+        devices_found INTEGER NOT NULL DEFAULT 0,
+        new_assets INTEGER NOT NULL DEFAULT 0,
+        updated_assets INTEGER NOT NULL DEFAULT 0,
+        status VARCHAR(30) NOT NULL DEFAULT 'Running',
+        branch_id INTEGER REFERENCES branches(branch_id),
+        initiated_by INTEGER REFERENCES users(user_id),
+        error_message TEXT
+      )
+    `);
+    await db.query(`ALTER TABLE asset_discovery_scans ADD COLUMN IF NOT EXISTS source VARCHAR(100) DEFAULT 'Manual Import'`);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS asset_financials (
+        financial_id BIGSERIAL PRIMARY KEY,
+        asset_id INTEGER NOT NULL UNIQUE REFERENCES hardware_assets(asset_id) ON DELETE CASCADE,
+        useful_life_months INTEGER DEFAULT 36,
+        useful_life_years NUMERIC(6,2) NOT NULL DEFAULT 3 CHECK (useful_life_years > 0),
+        salvage_value NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (salvage_value >= 0),
+        depreciation_method VARCHAR(50) NOT NULL DEFAULT 'Straight-Line',
+        depreciation_start_date DATE,
+        disposal_value NUMERIC(12,2),
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await db.query(`ALTER TABLE asset_financials ADD COLUMN IF NOT EXISTS useful_life_months INTEGER`);
+    await db.query(`
+      UPDATE asset_financials SET useful_life_months = GREATEST(1, ROUND(useful_life_years * 12)::INTEGER)
+      WHERE useful_life_months IS NULL OR useful_life_months <= 0
+    `);
+    await db.query(`
+      UPDATE hardware_assets SET useful_life_months = CASE
+        WHEN useful_life_years IS NOT NULL AND useful_life_years > 0 THEN GREATEST(1, ROUND(useful_life_years * 12)::INTEGER)
+        ELSE 36 END
+      WHERE useful_life_months IS NULL OR useful_life_months <= 0
+    `);
+    await db.query(`ALTER TABLE asset_financials ALTER COLUMN useful_life_months SET DEFAULT 36`);
+    await db.query(`ALTER TABLE hardware_assets ALTER COLUMN useful_life_months SET DEFAULT 36`);
+    await db.query(`
+      INSERT INTO asset_financials (asset_id,useful_life_months,useful_life_years,salvage_value,depreciation_method,depreciation_start_date)
+      SELECT asset_id,COALESCE(useful_life_months,ROUND(useful_life_years * 12)::INTEGER,36),COALESCE(useful_life_years,3),COALESCE(salvage_value,0),COALESCE(depreciation_method,'Straight-Line'),purchase_date
+      FROM hardware_assets ON CONFLICT (asset_id) DO NOTHING
+    `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS asset_discoveries (
+        discovery_id BIGSERIAL PRIMARY KEY,
+        hostname VARCHAR(255) NOT NULL,
+        ip_address VARCHAR(64), mac_address VARCHAR(32), serial_number VARCHAR(150), asset_tag VARCHAR(150),
+        os_name VARCHAR(150), manufacturer VARCHAR(150), device_type VARCHAR(100),
+        source VARCHAR(100) NOT NULL DEFAULT 'Manual',
+        first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        status VARCHAR(30) NOT NULL DEFAULT 'Online',
+        reconciliation_status VARCHAR(30) NOT NULL DEFAULT 'Unmanaged',
+        matched_asset_id INTEGER REFERENCES hardware_assets(asset_id) ON DELETE SET NULL,
+        branch_id INTEGER REFERENCES branches(branch_id), raw_data JSONB,
+        created_by INTEGER REFERENCES users(user_id), updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS asset_types (
+        asset_type_id SERIAL PRIMARY KEY,
+        type_name VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS asset_types_type_name_ci_unique ON asset_types (LOWER(type_name))`);
+    await db.query(`
+      INSERT INTO asset_types (type_name)
+      SELECT seed.type_name FROM (VALUES ('Laptop'),('Desktop'),('Printer'),('Phone'),('Monitor'),('Server'),('Network Device'),('Other')) seed(type_name)
+      WHERE NOT EXISTS (SELECT 1 FROM asset_types existing WHERE LOWER(existing.type_name)=LOWER(seed.type_name))
+    `);
+    await db.query(`
+      INSERT INTO asset_types (type_name)
+      SELECT MIN(TRIM(asset_type)) FROM hardware_assets source
+      WHERE NULLIF(TRIM(asset_type),'') IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM asset_types existing WHERE LOWER(existing.type_name)=LOWER(TRIM(source.asset_type)))
+      GROUP BY LOWER(TRIM(asset_type))
+    `);
     return true;
   } catch (err) {
     console.error("Hardware asset table setup error:", err.message);
@@ -447,17 +581,85 @@ async function ensureHardwareAssetTables() {
 ensureAttachmentsAndInvites();
 const hardwareAssetTablesReady = ensureHardwareAssetTables();
 
+async function ensureRa10173Tables() {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS laptop_activity_monitoring (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        branch_id INTEGER REFERENCES branches(branch_id),
+        application_monitoring BOOLEAN NOT NULL DEFAULT FALSE,
+        web_monitoring BOOLEAN NOT NULL DEFAULT FALSE,
+        location_tracking BOOLEAN NOT NULL DEFAULT FALSE,
+        device_telemetry BOOLEAN NOT NULL DEFAULT TRUE,
+        email_header_monitoring BOOLEAN NOT NULL DEFAULT FALSE,
+        signature_image TEXT,
+        consent_status VARCHAR(30) NOT NULL DEFAULT 'Pending',
+        submitted_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS laptop_monitoring_user_id_idx ON laptop_activity_monitoring (user_id)
+    `);
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS laptop_monitoring_branch_id_idx ON laptop_activity_monitoring (branch_id)
+    `);
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS laptop_monitoring_consent_status_idx ON laptop_activity_monitoring (consent_status)
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS consent_audit_logs (
+        log_id BIGSERIAL PRIMARY KEY,
+        employee_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        action VARCHAR(50) NOT NULL,
+        details JSONB,
+        ip_address VARCHAR(45),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS consent_audit_employee_idx ON consent_audit_logs (employee_id)
+    `);
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS consent_audit_action_idx ON consent_audit_logs (action)
+    `);
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS consent_audit_created_idx ON consent_audit_logs (created_at DESC)
+    `);
+
+    return true;
+  } catch (err) {
+    console.error("RA 10173 table setup error:", err.message);
+    return false;
+  }
+}
+
+ensureRa10173Tables();
+
 /* ==========================
    AUTH ROUTES
 ========================== */
 
 app.use("/api/auth", authRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
+app.use("/api/v1/sla", slaRoutes);
 app.use("/api/v1/invites", inviteRoutes);
 app.use("/api/v1/email", emailRoutes);
+app.use("/api/v1/hardware-assets", async (_req, res, next) => {
+  if (await hardwareAssetTablesReady) return next();
+  return res.status(503).json({ success: false, message: "Hardware asset storage is unavailable." });
+}, assetManagementRoutes);
+app.use("/api/v1/laptop-monitoring", laptopMonitoringRoutes);
+app.use("/api/v1/ra-10173-compliance", ra10173ComplianceRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
+app.use("/api/v1/consent", consentRoutes);
 
 /* ==========================
    HEALTH CHECK
@@ -730,6 +932,18 @@ app.get("/api/v1/roles", async (req, res) => {
 
 app.get("/api/v1/branches", async (req, res) => {
   try {
+    const auth = getAuthFromRequest(req);
+    let whereClause = "";
+    const params = [];
+
+    if (auth) {
+      const role = String(auth.role || "").toLowerCase();
+      if ((role === "admin" || role === "technician") && auth.branchId) {
+        whereClause = "WHERE b.branch_id = $1";
+        params.push(auth.branchId);
+      }
+    }
+
     const result = await db.query(`
       SELECT
         b.branch_id,
@@ -753,8 +967,9 @@ app.get("/api/v1/branches", async (req, res) => {
         ORDER BY u.user_id ASC
         LIMIT 1
       ) admin ON TRUE
+      ${whereClause}
       ORDER BY b.branch_name ASC
-    `);
+    `, params);
 
     res.json(result.rows);
   } catch (err) {
@@ -962,8 +1177,11 @@ function getAuthFromRequest(req) {
 }
 
 function getHardwareAssetAccessFilter(req) {
-  const role = String(req.query.role_name || "").toLowerCase();
-  const branchId = req.query.current_branch_id || req.query.branch_id;
+  const auth = getAuthFromRequest(req);
+  if (!auth) return { whereSql: "WHERE 1=0", params: [] };
+
+  const role = String(auth.role || "").toLowerCase().replace(/[\s_-]/g, "");
+  const branchId = auth.branchId;
   const filterBranch = req.query.filter_branch_id;
 
   if (role === "superadmin") {
@@ -972,11 +1190,18 @@ function getHardwareAssetAccessFilter(req) {
       : { whereSql: "", params: [] };
   }
 
-  if ((role === "admin" || role === "technician") && branchId) {
+  if (role === "admin" || role === "technician") {
+    if (!branchId) return { whereSql: "WHERE 1=0", params: [] };
     return { whereSql: "WHERE a.branch_id = $1", params: [branchId] };
   }
 
-  return { whereSql: "", params: [] };
+  if (role === "employee") {
+    if (!auth.userId) return { whereSql: "WHERE 1=0", params: [] };
+    // Employees can only see assets assigned to them
+    return { whereSql: "WHERE a.employee_id = $1", params: [auth.userId] };
+  }
+
+  return { whereSql: "WHERE 1=0", params: [] };
 }
 
 function logHardwareAssetError(operation, err) {
@@ -1144,19 +1369,43 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
         a.condition_before,
         a.condition_after,
         a.notes,
+        a.vendor,
+        a.invoice_number,
+        COALESCE(f.useful_life_months, a.useful_life_months, ROUND(f.useful_life_years * 12), ROUND(a.useful_life_years * 12), 36) AS useful_life_months,
+        COALESCE(f.useful_life_years, a.useful_life_years, 3) AS useful_life_years,
+        COALESCE(f.salvage_value, a.salvage_value, 0) AS salvage_value,
+        COALESCE(f.depreciation_method, a.depreciation_method, 'Straight-Line') AS depreciation_method,
+        COALESCE(f.depreciation_start_date, a.purchase_date) AS depreciation_start_date,
+        a.hostname,
+        a.ip_address,
+        a.mac_address,
+        a.operating_system,
+        a.device_type,
+        a.last_seen,
+        a.discovery_status,
+        a.discovery_source,
+        a.discovered_at,
         a.branch_id,
         COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
         a.created_at,
-        a.updated_at
+        a.updated_at,
+        md.device_id as monitoring_device_id,
+        md.device_uuid as monitoring_device_uuid,
+        md.hostname as monitoring_hostname,
+        md.status as monitoring_status,
+        md.last_seen_at as monitoring_last_seen,
+        md.logged_in_user as monitoring_logged_in_user
       FROM hardware_assets a
       LEFT JOIN branches b ON a.branch_id = b.branch_id
+      LEFT JOIN asset_financials f ON f.asset_id = a.asset_id
+      LEFT JOIN monitored_devices md ON md.asset_id = a.asset_id
       ${whereSql}
       ORDER BY a.created_at DESC
       `,
       params
     );
 
-    res.json(result.rows);
+    res.json(result.rows.map((asset) => ({ ...asset, ...calculateStraightLine(asset) })));
   } catch (err) {
     logHardwareAssetError("GET", err);
     return res.status(500).json({
@@ -1599,12 +1848,72 @@ app.put("/api/v1/hardware-assets/:id", async (req, res) => {
       updatedAsset = imageResult.rows[0];
     }
 
+    // Sync assignment to monitored device if linked
+    if (employee_id || assigned_name || borrower_name) {
+      await db.query(
+        `UPDATE monitored_devices 
+         SET assigned_user_id=$1, department=$2, branch_id=$3, updated_at=CURRENT_TIMESTAMP
+         WHERE asset_id=$4`,
+        [
+          employee_id || null, 
+          department || team_department || borrower_department || null, 
+          branchId || null, 
+          id
+        ]
+      );
+    }
+
     await insertAssetHistory(updatedAsset.asset_id, "Asset Updated", { status: status || existing.rows[0].status }, branchId, null);
 
     res.json(updatedAsset);
   } catch (err) {
     console.error("Update hardware asset error:", err.message);
     res.status(500).json({ success: false, error: "Failed to update hardware asset" });
+  }
+});
+
+app.put("/api/v1/hardware-assets/:id/link-device", async (req, res) => {
+  try {
+    const auth = getAuthFromRequest(req);
+    if (!auth || (auth.role !== "SuperAdmin" && auth.role !== "Admin")) {
+      return res.status(403).json({ success: false, error: "Unauthorized" });
+    }
+
+    const { id } = req.params;
+    if (auth.role === "Admin" && auth.branchId) {
+      const assetCheck = await db.query(`SELECT branch_id FROM hardware_assets WHERE asset_id = $1`, [id]);
+      if (assetCheck.rows.length === 0 || assetCheck.rows[0].branch_id !== auth.branchId) {
+        return res.status(403).json({ success: false, error: "Cannot link/unlink assets from another branch." });
+      }
+    }
+
+    const { device_id } = req.body;
+    
+    if (device_id === null || device_id === "") {
+      await db.query(`UPDATE monitored_devices SET asset_id = NULL WHERE asset_id = $1`, [id]);
+      return res.json({ success: true, message: "Asset unlinked successfully." });
+    }
+
+    // Check if the device is already linked to another asset
+    const checkLink = await db.query(`SELECT asset_id, device_uuid, hostname FROM monitored_devices WHERE device_id = $1`, [device_id]);
+    if (!checkLink.rows.length) {
+      return res.status(404).json({ success: false, error: "Monitored device not found." });
+    }
+    const existingAssetId = checkLink.rows[0].asset_id;
+    if (existingAssetId && String(existingAssetId) !== String(id)) {
+      const otherAsset = await db.query(`SELECT asset_tag FROM hardware_assets WHERE asset_id = $1`, [existingAssetId]);
+      const otherTag = otherAsset.rows.length ? otherAsset.rows[0].asset_tag : "another asset";
+      return res.status(409).json({ success: false, error: `This monitoring device is already linked to Asset ${otherTag}.` });
+    }
+
+    // First unlink any device currently linked to this asset, then link the new device
+    await db.query(`UPDATE monitored_devices SET asset_id = NULL WHERE asset_id = $1`, [id]);
+    const result = await db.query(`UPDATE monitored_devices SET asset_id = $1 WHERE device_id = $2 RETURNING *`, [id, device_id]);
+    
+    return res.json({ success: true, message: "Asset linked successfully.", data: result.rows[0] });
+  } catch (err) {
+    console.error("Link device error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to link monitored device." });
   }
 });
 
@@ -1732,6 +2041,18 @@ app.patch("/api/v1/hardware-assets/:id/status", async (req, res) => {
 
 app.get("/api/v1/users", async (req, res) => {
   try {
+    const auth = getAuthFromRequest(req);
+    let whereClause = "";
+    const params = [];
+    
+    if (auth) {
+      const role = String(auth.role || "").toLowerCase();
+      if ((role === "admin" || role === "technician") && auth.branchId) {
+        whereClause = "WHERE u.branch_id = $1";
+        params.push(auth.branchId);
+      }
+    }
+
     const result = await db.query(`
       SELECT
         u.user_id,
@@ -1754,8 +2075,9 @@ app.get("/api/v1/users", async (req, res) => {
         ON u.role_id = sr.role_id
       LEFT JOIN branches b
         ON u.branch_id = b.branch_id
+      ${whereClause}
       ORDER BY u.created_at DESC, u.user_id DESC
-    `);
+    `, params);
 
     res.json(result.rows);
   } catch (err) {
@@ -2364,6 +2686,21 @@ app.post("/api/v1/knowledge-base", async (req, res) => {
       return res.status(400).json({ success: false, error: "Branch is required for knowledge base articles." });
     }
 
+    if (related_ticket_id) {
+      const existingArticle = await db.query(
+        `SELECT kb_id,title FROM knowledge_base WHERE related_ticket_id=$1 LIMIT 1`,
+        [Number(related_ticket_id)]
+      );
+      if (existingArticle.rows.length) {
+        return res.status(409).json({
+          success: false,
+          message: "Article already created for this ticket.",
+          error: "Article already created for this ticket.",
+          data: existingArticle.rows[0],
+        });
+      }
+    }
+
     const result = await db.query(
       `
       INSERT INTO knowledge_base
@@ -2603,6 +2940,17 @@ function canManageSoftwareLicense(scope, licenseBranchId) {
   return scope.user.role === "admin" && Number(scope.user.branchId) === Number(licenseBranchId);
 }
 
+function computeSoftwareLicenseStatus(expiryDate) {
+  if (!expiryDate) return "Active";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(`${String(expiryDate).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(expiry.getTime())) return "Active";
+  if (expiry < today) return "Expired";
+  const daysRemaining = Math.ceil((expiry - today) / 86400000);
+  return daysRemaining <= 30 ? "Expiring Soon" : "Active";
+}
+
 // GET /api/v1/software-licenses?branch_id=1
 app.get("/api/v1/software-licenses", async (req, res) => {
   try {
@@ -2620,6 +2968,13 @@ app.get("/api/v1/software-licenses", async (req, res) => {
     const result = await db.query(
       `SELECT
         sl.*,
+        GREATEST(sl.total_licenses - sl.used_licenses, 0) AS available_licenses,
+        (sl.used_licenses > sl.total_licenses) AS is_overused,
+        CASE
+          WHEN sl.expiry_date < CURRENT_DATE THEN 'Expired'
+          WHEN sl.expiry_date <= CURRENT_DATE + INTERVAL '30 days' THEN 'Expiring Soon'
+          ELSE 'Active'
+        END AS status,
         b.branch_name
       FROM software_licenses sl
       LEFT JOIN branches b ON sl.branch_id = b.branch_id
@@ -2651,9 +3006,9 @@ app.get("/api/v1/software-licenses/summary", async (req, res) => {
 
     const result = await db.query(
       `SELECT
-        COUNT(*)::int AS total_licenses,
+        COALESCE(SUM(sl.total_licenses)::int, 0) AS total_licenses,
         COALESCE(SUM(sl.used_licenses)::int, 0) AS total_in_use,
-        COALESCE(SUM(sl.total_licenses - sl.used_licenses)::int, 0) AS total_available,
+        COALESCE(SUM(GREATEST(sl.total_licenses - sl.used_licenses, 0))::int, 0) AS total_available,
         COALESCE(SUM(sl.annual_cost)::numeric, 0) AS total_annual_cost,
         COUNT(*) FILTER (WHERE sl.expiry_date IS NOT NULL AND sl.expiry_date <= CURRENT_DATE + INTERVAL '30 days' AND sl.expiry_date >= CURRENT_DATE)::int AS expiring_soon
       FROM software_licenses sl
@@ -2674,15 +3029,17 @@ app.post("/api/v1/software-licenses", async (req, res) => {
     const scope = requireSoftwareLicenseScope(req, res);
     if (!scope) return;
 
-    const { license_name, vendor, license_type, total_licenses, used_licenses, expiry_date, annual_cost, status, branch_id } = req.body;
+    const { license_name, vendor, license_type, total_licenses, used_licenses, expiry_date, annual_cost, branch_id } = req.body;
     const targetBranchId = scope.user.role === "superadmin" ? parseBranchId(branch_id) : scope.user.branchId;
+    const totalLicenseCount = Number.parseInt(total_licenses, 10);
+    const usedLicenseCount = Number.parseInt(used_licenses, 10);
 
     if (!license_name || !vendor || !license_type) {
       return res.status(400).json({ success: false, error: "License name, vendor, and type are required." });
     }
 
-    if (parseInt(used_licenses) > parseInt(total_licenses)) {
-      return res.status(400).json({ success: false, error: "Used licenses cannot exceed total licenses." });
+    if (!Number.isInteger(totalLicenseCount) || !Number.isInteger(usedLicenseCount) || totalLicenseCount < 0 || usedLicenseCount < 0) {
+      return res.status(400).json({ success: false, error: "License totals must be valid non-negative numbers." });
     }
 
     if (!targetBranchId) {
@@ -2697,7 +3054,7 @@ app.post("/api/v1/software-licenses", async (req, res) => {
       `INSERT INTO software_licenses (license_name, vendor, license_type, total_licenses, used_licenses, expiry_date, annual_cost, status, branch_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *`,
-      [license_name, vendor, license_type, parseInt(total_licenses), parseInt(used_licenses), expiry_date || null, parseFloat(annual_cost) || 0, status || 'Active', targetBranchId]
+      [license_name, vendor, license_type, totalLicenseCount, usedLicenseCount, expiry_date || null, parseFloat(annual_cost) || 0, computeSoftwareLicenseStatus(expiry_date), targetBranchId]
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });
@@ -2714,7 +3071,9 @@ app.put("/api/v1/software-licenses/:id", async (req, res) => {
     if (!scope) return;
 
     const { id } = req.params;
-    const { license_name, vendor, license_type, total_licenses, used_licenses, expiry_date, annual_cost, status, branch_id } = req.body;
+    const { license_name, vendor, license_type, total_licenses, used_licenses, expiry_date, annual_cost, branch_id } = req.body;
+    const totalLicenseCount = Number.parseInt(total_licenses, 10);
+    const usedLicenseCount = Number.parseInt(used_licenses, 10);
     const existing = await db.query(
       `SELECT license_id, branch_id FROM software_licenses WHERE license_id = $1 LIMIT 1`,
       [parseInt(id)]
@@ -2728,8 +3087,8 @@ app.put("/api/v1/software-licenses/:id", async (req, res) => {
       return res.status(403).json({ success: false, error: "Update denied for this license branch." });
     }
 
-    if (parseInt(used_licenses) > parseInt(total_licenses)) {
-      return res.status(400).json({ success: false, error: "Used licenses cannot exceed total licenses." });
+    if (!Number.isInteger(totalLicenseCount) || !Number.isInteger(usedLicenseCount) || totalLicenseCount < 0 || usedLicenseCount < 0) {
+      return res.status(400).json({ success: false, error: "License totals must be valid non-negative numbers." });
     }
 
     const targetBranchId = scope.user.role === "superadmin"
@@ -2749,7 +3108,7 @@ app.put("/api/v1/software-licenses/:id", async (req, res) => {
         updated_at = CURRENT_TIMESTAMP
       WHERE license_id = $10
       RETURNING *`,
-      [license_name, vendor, license_type, parseInt(total_licenses), parseInt(used_licenses), expiry_date || null, parseFloat(annual_cost) || 0, status || 'Active', targetBranchId, parseInt(id)]
+      [license_name, vendor, license_type, totalLicenseCount, usedLicenseCount, expiry_date || null, parseFloat(annual_cost) || 0, computeSoftwareLicenseStatus(expiry_date), targetBranchId, parseInt(id)]
     );
 
     if (result.rows.length === 0) {
@@ -4095,12 +4454,52 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, "0.0.0.0", () => {
+httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`AstreaBlue API active on port ${PORT}`);
   console.log(
     `[AstreaBlue API] health=http://localhost:${PORT}/api/health dashboard=http://localhost:${PORT}/api/v1/dashboard/summary`
   );
   console.log(
-    "[AstreaBlue API] mounted routes: /api/auth, /api/v1/dashboard, /api/v1/tickets, /api/v1/branches, /api/v1/users, /api/v1/roles, /api/v1/technicians, /api/v1/ticket-categories, /api/v1/invites, /api/v1/email, /api/v1/knowledge-base, /api/v1/requests"
+    "[AstreaBlue API] mounted routes: /api/auth, /api/v1/dashboard, /api/v1/tickets, /api/v1/branches, /api/v1/users, /api/v1/roles, /api/v1/technicians, /api/v1/ticket-categories, /api/v1/invites, /api/v1/email, /api/v1/knowledge-base, /api/v1/requests, /api/v1/ra-10173-compliance"
   );
 });
+
+app.post("/api/v1/ticket-categories", async (req, res) => {
+  const user = decodeRequestUser(req);
+  if (!user) return res.status(401).json({ success: false, error: "Authentication required." });
+
+  const categoryName = String(req.body?.category_name || "").trim().replace(/\s+/g, " ");
+  if (!categoryName || categoryName.length > 100 || categoryName.toLowerCase() === "other") {
+    return res.status(400).json({ success: false, error: "Specify a valid category up to 100 characters." });
+  }
+
+  try {
+    const existing = await db.query(
+      `SELECT category_id,category_name,description FROM ticket_categories WHERE LOWER(category_name)=LOWER($1) LIMIT 1`,
+      [categoryName]
+    );
+    if (existing.rows.length) {
+      return res.json({ success: true, message: "Category already exists.", category: existing.rows[0], created: false });
+    }
+
+    try {
+      const inserted = await db.query(
+        `INSERT INTO ticket_categories (category_name) VALUES ($1) RETURNING category_id,category_name,description`,
+        [categoryName]
+      );
+      return res.status(201).json({ success: true, message: "Category created.", category: inserted.rows[0], created: true });
+    } catch (insertError) {
+      if (insertError.code !== "23505") throw insertError;
+      const concurrent = await db.query(
+        `SELECT category_id,category_name,description FROM ticket_categories WHERE LOWER(category_name)=LOWER($1) LIMIT 1`,
+        [categoryName]
+      );
+      return res.json({ success: true, message: "Category already exists.", category: concurrent.rows[0], created: false });
+    }
+  } catch (error) {
+    console.error("Create ticket category error:", error.message);
+    return res.status(500).json({ success: false, error: "Failed to save ticket category." });
+  }
+});
+
+module.exports = { app, httpServer, get io() { return io; } };

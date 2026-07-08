@@ -117,14 +117,18 @@ router.post("/:id/attachments", (req, res) => {
         ]
       );
 
-      await db.query(
-        `
-        INSERT INTO ticket_history
-        (ticket_id, changed_by, action, old_value, new_value)
-        VALUES ($1, $2, 'Attachment Added', NULL, $3)
-        `,
-        [id, uploadedBy || null, file.originalname]
-      );
+      try {
+        await db.query(
+          `
+          INSERT INTO ticket_history
+          (ticket_id, changed_by, action, old_value, new_value)
+          VALUES ($1, $2, 'Attachment Added', NULL, $3)
+          `,
+          [id, uploadedBy || null, file.originalname]
+        );
+      } catch (historyErr) {
+        console.warn("Failed to insert into ticket_history during attachment upload:", historyErr.message);
+      }
 
       savedAttachments.push(result.rows[0]);
     }
@@ -132,7 +136,7 @@ router.post("/:id/attachments", (req, res) => {
     res.status(201).json({ success: true, attachments: savedAttachments });
   } catch (err) {
     console.error("Upload attachment error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to upload attachment" });
+    res.status(500).json({ success: false, error: "Upload error: " + err.message });
   }
   });
 });

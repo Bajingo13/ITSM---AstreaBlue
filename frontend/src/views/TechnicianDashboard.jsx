@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
+import DashboardHero from "../components/DashboardHero";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass, getSeverityLevel } from "../utils/ticketVisuals";
 
 const API_BASE = `${API_URL}/api/v1`;
@@ -39,6 +40,12 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
 
   useEffect(() => {
     fetchTickets();
+  }, [fetchTickets]);
+
+  useEffect(() => {
+    const refresh = () => fetchTickets();
+    window.addEventListener("astreablue:refresh-dashboard", refresh);
+    return () => window.removeEventListener("astreablue:refresh-dashboard", refresh);
   }, [fetchTickets]);
 
   const myTickets = useMemo(() => {
@@ -142,12 +149,12 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
+      {showOverview ? <DashboardHero title="Technician Operations Workspace" subtitle="Review assigned work, priority incidents, and service progress from one operational view." /> : <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
         <h1 className="text-3xl font-black">Technician Workspace</h1>
         <p className="mt-2 text-blue-100">
           View assigned tickets, start work, and resolve service desk tasks.
         </p>
-      </section>
+      </section>}
 
       {showOverview && (
       <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -218,7 +225,7 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                      <span className={getPriorityBadgeClass(ticket.priority)}>
                         {formatPriority(ticket.priority)}
                       </span>
                     </td>
@@ -304,7 +311,7 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                      <span className={getPriorityBadgeClass(ticket.priority)}>
                         {formatPriority(ticket.priority)}
                       </span>
                     </td>
@@ -389,7 +396,7 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                      <span className={getPriorityBadgeClass(ticket.priority)}>
                         {formatPriority(ticket.priority)}
                       </span>
                     </td>

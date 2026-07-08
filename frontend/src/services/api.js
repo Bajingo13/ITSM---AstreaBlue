@@ -19,7 +19,7 @@ async function handleResponse(res) {
   } catch {
     payload = {};
   }
-  if (!res.ok) {
+  if (!res.ok || payload?.success === false) {
     throw new Error(payload?.message || payload?.error || `HTTP ${res.status}`);
   }
   return payload;

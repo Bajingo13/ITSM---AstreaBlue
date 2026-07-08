@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
+import DashboardHero from "../components/DashboardHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -58,37 +59,14 @@ function StatCard({ icon: Icon, label, value, description, accent = "blue", onCl
    HeroBanner — compact gradient banner with decorative shapes
    ───────────────────────────────────────────── */
 function HeroBanner() {
-  return (
-    <section className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 text-white shadow-md">
-      {/* Small decorative circles - positioned absolutely to not affect height */}
-      <div className="pointer-events-none absolute -right-4 top-2 h-8 w-8 rounded-full bg-white/[0.08]" />
-      <div className="pointer-events-none absolute -bottom-2 right-12 hidden h-5 w-5 rounded-full bg-white/[0.06] sm:block" />
-
-      {/* Mini globe rings - subtle, hidden on mobile */}
-      <div className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 lg:block">
-        <div className="relative flex h-8 w-8 items-center justify-center">
-          <div className="absolute inset-0 rounded-full border border-white/8" />
-          <div className="absolute inset-1 rounded-full border border-white/5" />
-        </div>
-      </div>
-
-      {/* Content with compact heights */}
-      <div className="relative z-10 flex flex-col justify-center px-6 py-7 sm:py-8 md:py-9 lg:py-10 lg:px-8">
-        <h1 className="text-2xl font-black tracking-tight sm:text-[26px] md:text-[28px] lg:text-[30px]">
-          SuperAdmin Dashboard
-        </h1>
-        <p className="mt-1.5 max-w-3xl text-sm font-medium text-blue-100 sm:text-[15px] md:text-base">
-          Global visibility across branches, users, technicians, employees, and tickets.
-        </p>
-      </div>
-    </section>
-  );
+  return <DashboardHero title="Operations Command Center" subtitle="Monitor service activity, asset movement, user access, and branch performance in one place." />;
 }
 
 /* ─────────────────────────────────────────────
    TicketsPerBranchCard — branch ticket distribution
    ───────────────────────────────────────────── */
 function TicketsPerBranchCard({ branches, tickets, loading }) {
+  const navigate = useNavigate();
   const data = useMemo(() => {
     if (!branches.length) return [];
     const ticketCounts = {};
@@ -116,7 +94,7 @@ function TicketsPerBranchCard({ branches, tickets, loading }) {
             <GitBranch size={20} />
           </div>
           <div>
-            <h3 className="text-base font-black text-slate-900">Tickets Per Branch</h3>
+            <h3 className="text-base font-black text-slate-900">Branch Service Volume</h3>
             <p className="text-xs text-slate-400">Ticket distribution across branches</p>
           </div>
         </div>
@@ -159,7 +137,7 @@ function TicketsPerBranchCard({ branches, tickets, loading }) {
         </p>
         <button
           type="button"
-          onClick={() => window.location.assign("/tickets")}
+          onClick={() => navigate("/tickets")}
           className="rounded-xl bg-blue-50 px-4 py-2 text-xs font-black text-blue-700 transition hover:bg-blue-100"
         >
           View Report
@@ -225,6 +203,7 @@ function DonutChart({ segments, size = 140, strokeWidth = 28 }) {
    RoleDistributionCard — donut chart + role list
    ───────────────────────────────────────────── */
 function RoleDistributionCard({ users, loading }) {
+  const navigate = useNavigate();
   const roleCounts = useMemo(() => {
     if (!users.length) return { admins: 0, technicians: 0, employees: 0, total: 0 };
     const admins = users.filter((u) => u.role_name === "Admin").length;
@@ -273,7 +252,7 @@ function RoleDistributionCard({ users, loading }) {
           <BarChart3 size={20} />
         </div>
         <div>
-          <h3 className="text-base font-black text-slate-900">Role Distribution</h3>
+          <h3 className="text-base font-black text-slate-900">Access &amp; Role Overview</h3>
           <p className="text-xs text-slate-400">User role breakdown</p>
         </div>
       </div>
@@ -321,7 +300,7 @@ function RoleDistributionCard({ users, loading }) {
       <div className="mt-4 flex justify-end border-t border-slate-100 pt-4">
         <button
           type="button"
-          onClick={() => window.location.assign("/settings/users")}
+          onClick={() => navigate("/settings/users")}
           className="rounded-xl bg-blue-50 px-4 py-2 text-xs font-black text-blue-700 transition hover:bg-blue-100"
         >
           View Report
@@ -387,6 +366,7 @@ function QuickActions() {
    UserListCard — role-filtered user list
    ───────────────────────────────────────────── */
 function UserListCard({ title, icon: Icon, users, accent = "blue", loading, emptyMessage }) {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const MAX_VISIBLE = 5;
 
@@ -431,7 +411,7 @@ function UserListCard({ title, icon: Icon, users, accent = "blue", loading, empt
         </div>
         <button
           type="button"
-          onClick={() => window.location.assign("/settings/users")}
+          onClick={() => navigate("/settings/users")}
           className="text-xs font-bold text-blue-600 hover:text-blue-800"
         >
           View All
@@ -491,7 +471,7 @@ function UserListCard({ title, icon: Icon, users, accent = "blue", loading, empt
         <div className="border-t border-slate-100 px-5 py-3 text-center">
           <button
             type="button"
-            onClick={() => window.location.assign("/settings/users")}
+            onClick={() => navigate("/settings/users")}
             className="text-xs font-bold text-blue-600 hover:text-blue-800"
           >
             +{filtered.length - MAX_VISIBLE} more
@@ -507,33 +487,41 @@ function UserListCard({ title, icon: Icon, users, accent = "blue", loading, empt
    ───────────────────────────────────────────── */
 export default function SuperAdminDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [branches, setBranches] = useState([]);
   const [users, setUsers] = useState([]);
   const [tickets, setTickets] = useState([]);
+  const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const fetchData = useCallback(async () => {
     try {
+      setLoading(true);
+      setError("");
       const ticketQuery = buildTicketQuery(user);
 
-      const [branchesRes, usersRes, ticketsRes] = await Promise.all([
+      const [branchesRes, usersRes, ticketsRes, assetsRes] = await Promise.all([
         fetch(`${API_BASE}/branches`),
         fetch(`${API_BASE}/users`),
         fetch(`${API_BASE}/tickets${ticketQuery}`),
+        fetch(`${API_BASE}/hardware-assets${ticketQuery}`),
       ]);
 
       if (!branchesRes.ok) throw new Error("Failed to fetch branches");
       if (!usersRes.ok) throw new Error("Failed to fetch users");
       if (!ticketsRes.ok) throw new Error("Failed to fetch tickets");
+      if (!assetsRes.ok) throw new Error("Failed to fetch assets");
 
       const branchesData = await branchesRes.json();
       const usersData = await usersRes.json();
       const ticketsData = await ticketsRes.json();
+      const assetsData = await assetsRes.json();
 
       setBranches(Array.isArray(branchesData) ? branchesData : []);
       setUsers(Array.isArray(usersData) ? usersData : []);
       setTickets(Array.isArray(ticketsData) ? ticketsData : []);
+      setAssets(Array.isArray(assetsData) ? assetsData : []);
     } catch (err) {
       console.error("SuperAdminDashboard fetch error:", err.message);
       setError(err.message || "Failed to load dashboard data.");
@@ -544,6 +532,12 @@ export default function SuperAdminDashboard() {
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    const refresh = () => fetchData();
+    window.addEventListener("astreablue:refresh-dashboard", refresh);
+    return () => window.removeEventListener("astreablue:refresh-dashboard", refresh);
   }, [fetchData]);
 
   const activeUsers = useMemo(() => users.filter((u) => u.is_active !== false), [users]);
@@ -559,23 +553,23 @@ export default function SuperAdminDashboard() {
       value: branches.length,
       description: "Active branch locations",
       accent: "blue",
-      onClick: () => window.location.assign("/settings/branches"),
+      onClick: () => navigate("/settings/branches"),
     },
     {
       icon: Users,
-      label: "Total Users",
+      label: "Active Users",
       value: activeUsers.length,
       description: "System-wide registered users",
       accent: "purple",
-      onClick: () => window.location.assign("/settings/users"),
+      onClick: () => navigate("/settings/users"),
     },
     {
       icon: Ticket,
-      label: "Total Tickets",
+      label: "Open Service Load",
       value: tickets.length,
       description: "All-time support tickets",
       accent: "emerald",
-      onClick: () => window.location.assign("/tickets"),
+      onClick: () => navigate("/tickets"),
     },
     {
       icon: UserCog,
@@ -583,9 +577,17 @@ export default function SuperAdminDashboard() {
       value: admins.length,
       description: "Branch administrators",
       accent: "amber",
-      onClick: () => window.location.assign("/settings/users"),
+      onClick: () => navigate("/settings/users"),
     },
-  ], [branches, activeUsers, tickets, admins]);
+    {
+      icon: HardDrive,
+      label: "Asset Inventory",
+      value: assets.length,
+      description: "Tracked hardware assets",
+      accent: "blue",
+      onClick: () => navigate("/assets"),
+    },
+  ], [branches, activeUsers, tickets, admins, assets]);
 
   return (
     <div className="space-y-4">
@@ -608,9 +610,9 @@ export default function SuperAdminDashboard() {
       )}
 
       {/* KPI Cards */}
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {loading
-          ? Array.from({ length: 4 }).map((_, i) => (
+          ? Array.from({ length: 5 }).map((_, i) => (
               <div
                 key={i}
                 className="animate-pulse rounded-2xl border border-slate-100 bg-white p-5 shadow-sm"

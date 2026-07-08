@@ -4,8 +4,6 @@ import {
   CheckCircle,
   AlertCircle,
   Activity,
-  RefreshCw,
-  Calendar,
   BarChart3,
   Clock,
   XCircle,
@@ -14,6 +12,7 @@ import { API_URL } from "../config/api";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
+import DashboardHero from "../components/DashboardHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -64,6 +63,7 @@ const { user } = useAuth();
     totalTickets: 0,
   });
   const [recentTickets, setRecentTickets] = useState([]);
+  const [assetCount, setAssetCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -72,7 +72,11 @@ const { user } = useAuth();
       setLoading(true);
       setError("");
 
-      const res = await fetch(`${API_BASE}/dashboard/summary${buildTicketQuery(user)}`);
+      const query = buildTicketQuery(user);
+      const [res, assetsRes] = await Promise.all([
+        fetch(`${API_BASE}/dashboard/summary${query}`),
+        fetch(`${API_BASE}/hardware-assets${query}`),
+      ]);
       const data = await res.json();
 
       if (!res.ok) {
@@ -87,6 +91,10 @@ const { user } = useAuth();
           ? data.recent_tickets
           : []
       );
+      if (assetsRes.ok) {
+        const assetData = await assetsRes.json();
+        setAssetCount(Array.isArray(assetData) ? assetData.length : 0);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -96,6 +104,12 @@ const { user } = useAuth();
 
   useEffect(() => {
     fetchSummary();
+  }, [fetchSummary]);
+
+  useEffect(() => {
+    const refresh = () => fetchSummary();
+    window.addEventListener("astreablue:refresh-dashboard", refresh);
+    return () => window.removeEventListener("astreablue:refresh-dashboard", refresh);
   }, [fetchSummary]);
 
   const stats = useMemo(
@@ -156,7 +170,7 @@ const { user } = useAuth();
         color: "#E11D48",
       },
       {
-        title: "Total Tickets",
+        title: "Open Service Load",
         value: summary.totalTickets || 0,
         subtitle: "All visible tickets",
         icon: Activity,
@@ -164,8 +178,17 @@ const { user } = useAuth();
         bg: "#F5F3FF",
         color: "#7C3AED",
       },
+      {
+        title: "Asset Inventory",
+        value: assetCount,
+        subtitle: "Tracked hardware assets",
+        icon: Activity,
+        accent: "#06B6D4",
+        bg: "#ECFEFF",
+        color: "#0891B2",
+      },
     ],
-    [summary]
+    [assetCount, summary]
   );
 
   const chartValues = [
@@ -180,33 +203,7 @@ const { user } = useAuth();
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-8 text-white shadow-xl">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h1 className="text-3xl font-black">
-              IT Service Management Dashboard
-            </h1>
-            <div className="mt-2 flex items-center gap-2 text-blue-100">
-              <Calendar size={16} />
-              <span>Operations overview for AstreaBlue Enterprise ITSM</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={fetchSummary}
-              disabled={loading}
-              className="flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-white/20 disabled:opacity-60"
-            >
-              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-              Refresh
-            </button>
-            <span className="rounded-full border border-emerald-300/40 bg-emerald-400/10 px-4 py-2 text-sm font-bold text-emerald-200">
-              LIVE
-            </span>
-          </div>
-        </div>
-      </section>
+      <DashboardHero title="Service Operations Overview" />
 
       {error && (
         <section className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">
@@ -310,8 +307,8 @@ const { user } = useAuth();
                   </p>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <span className={getPriorityBadgeClass, formatPriority(ticket.priority)}>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <span className={getPriorityBadgeClass(ticket.priority)}>
                     {formatPriority(ticket.priority)}
                   </span>
                   <span className={getStatusBadgeClass(ticket.status)}>

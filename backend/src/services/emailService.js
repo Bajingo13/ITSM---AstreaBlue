@@ -242,7 +242,7 @@ function ticketRecipient(ticket) {
 function ticketLink(ticket) {
   if (!process.env.FRONTEND_URL) return null;
   const origin = process.env.FRONTEND_URL.replace(/\/$/, "");
-  return `${origin}/tickets`;
+  return `${origin}/ticket/${ticket?.id || ""}`;
 }
 
 function ticketFields(ticket) {
@@ -368,6 +368,49 @@ async function sendTicketCancelledEmail(ticket) {
   });
 }
 
+async function sendSlaBreachEmail(ticket) {
+  const to = ticket?.assigned_email;
+  if (!to) {
+    return { success: false, warning: "SLA breach email skipped because the assigned technician has no email address." };
+  }
+
+  const fields = ticketFields(ticket);
+  const dueAt = ticket.resolution_due_at || ticket.response_due_at || ticket.sla_due_date;
+  const dueLabel = dueAt ? new Date(dueAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "Not set";
+  const link = ticketLink(ticket);
+  const rows = [
+    ["Ticket Number", fields.number],
+    ["Title", fields.title],
+    ["Priority", fields.priority],
+    ["Current Status", fields.status],
+    ["Branch", fields.branch],
+    ["SLA Due Date/Time", dueLabel],
+    ["Assigned Technician", fields.technician],
+  ];
+  const rowsHtml = rows
+    .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`)
+    .join("");
+
+  try {
+    return await sendMail({
+      from: fromAddress(),
+      to,
+      subject: `SLA Breached: ${fields.number}`,
+      text: [
+        `SLA breached for ticket ${fields.number}: ${fields.title}`,
+        ...rows.map(([label, value]) => `${label}: ${value}`),
+        ...(link ? [`View Ticket: ${link}`] : []),
+      ].join("\n"),
+      html: generateEmailHtml(
+        `SLA Breached: ${escapeHtml(fields.number)}`,
+        `<p>This assigned ticket has breached its SLA.</p><table class="data-table">${rowsHtml}</table>${link ? `<a href="${escapeHtml(link)}" class="button">View Ticket</a>` : ""}`
+      ),
+    });
+  } catch (error) {
+    return { success: false, error: exactEmailError(error) };
+  }
+}
+
 async function sendPasswordResetEmail(to, resetLink) {
   try {
     const bodyContent = `
@@ -408,6 +451,7 @@ async function sendPasswordResetEmail(to, resetLink) {
 
 module.exports = {
   getMissingSmtpConfig,
+  sendMail,
   sendTestEmail,
   sendInvitationEmail,
   sendWelcomeEmail,
@@ -417,5 +461,6 @@ module.exports = {
   sendTicketResolvedEmail,
   sendTicketClosedEmail,
   sendTicketCancelledEmail,
+  sendSlaBreachEmail,
   sendPasswordResetEmail,
 };

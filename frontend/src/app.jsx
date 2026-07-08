@@ -20,6 +20,8 @@ import ServiceCatalog from "./views/ServiceCatalog";
 import KnowledgeBase from "./views/KnowledgeBase";
 import SLAMonitor from "./views/SLAMonitor";
 import Assets from "./views/Assets";
+import AssetDiscovery from "./views/AssetDiscovery";
+import AssetFinancials from "./views/AssetFinancials";
 import CMDB from "./views/CMDB";
 import ChangeManagement from "./views/ChangeManagement";
 import ProblemManagement from "./views/ProblemManagement";
@@ -29,10 +31,15 @@ import Settings from "./views/Settings";
 import UserManagement from "./views/UserManagement";
 import BranchManagement from "./views/BranchManagement";
 import InviteRegistration from "./views/InviteRegistration";
+import RA10173Compliance from "./views/RA10173Compliance";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import ModulePlaceholder from "./views/ModulePlaceholder";
 import ForgotPassword from "./ForgotPassword";
 import ResetPassword from "./ResetPassword";
+import NotificationTicketDetails from "./views/NotificationTicketDetails";
+import ConsentPage from "./views/ConsentPage";
+import ConsentManagement from "./views/ConsentManagement";
+import ScreenshotCapture from "./views/ScreenshotCapture";
 
 const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
 const ADMIN_ROLES = ["SuperAdmin", "Admin"];
@@ -68,6 +75,7 @@ export default function App() {
           </ProtectedRoute>
         }
       >
+        <Route path="/ticket/:ticketId" element={<NotificationTicketDetails />} />
         <Route
           path="/dashboard"
           element={
@@ -209,7 +217,7 @@ export default function App() {
           path="/asset-discovery"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <Assets />
+              <AssetDiscovery />
             </ProtectedRoute>
           }
         />
@@ -217,7 +225,7 @@ export default function App() {
           path="/financial-tracking"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <Assets />
+              <AssetFinancials />
             </ProtectedRoute>
           }
         />
@@ -390,7 +398,7 @@ export default function App() {
           path="/screenshot-capture"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <ModulePlaceholder title="Screenshot Capture" />
+              <ScreenshotCapture />
             </ProtectedRoute>
           }
         />
@@ -437,8 +445,16 @@ export default function App() {
         <Route
           path="/ra-10173-compliance"
           element={
+            <ProtectedRoute allowedRoles={ALL_ROLES}>
+              <RA10173Compliance />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/consent-management"
+          element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <EndpointMonitoring />
+              <ConsentManagement />
             </ProtectedRoute>
           }
         />

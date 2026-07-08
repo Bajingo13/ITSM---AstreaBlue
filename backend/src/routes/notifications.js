@@ -1,14 +1,30 @@
 const express = require("express");
+const jwt = require("jsonwebtoken");
 const router = express.Router();
 const db = require("../../config/db");
 
+function requireUser(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ success: false, message: "Authentication required" });
+  }
+
+  try {
+    req.authUser = jwt.verify(
+      authHeader.slice(7),
+      process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod"
+    );
+    return next();
+  } catch {
+    return res.status(401).json({ success: false, message: "Session expired. Please sign in again." });
+  }
+}
+
+router.use(requireUser);
+
 // Fetch all notifications for the current user
 router.get("/", async (req, res) => {
-  const userId = req.query.user_id || req.headers["x-user-id"];
-  
-  if (!userId) {
-    return res.status(400).json({ success: false, message: "User ID is required" });
-  }
+  const userId = req.authUser.userId;
 
   try {
     const result = await db.query(
@@ -29,11 +45,7 @@ router.get("/", async (req, res) => {
 // Mark a notification as read
 router.patch("/:id/read", async (req, res) => {
   const { id } = req.params;
-  const userId = req.body.user_id || req.headers["x-user-id"];
-
-  if (!userId) {
-    return res.status(400).json({ success: false, message: "User ID is required" });
-  }
+  const userId = req.authUser.userId;
 
   try {
     const result = await db.query(

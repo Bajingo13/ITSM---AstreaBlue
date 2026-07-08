@@ -20,9 +20,13 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.2",
     "multer": "^2.2.0",
+    "node-cron": "^4.6.0",
     "nodemailer": "^6.9.4",
+    "pdfkit": "^0.19.1",
     "pg": "^8.21.0",
-    "resend": "^6.16.0"
+    "resend": "^6.16.0",
+    "sharp": "^0.35.3",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

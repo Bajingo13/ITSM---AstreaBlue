@@ -126,9 +126,10 @@ export default function InviteRegistration() {
 
             <div>
               <label className="mb-2 block text-sm font-bold text-slate-700">
-                Set Password
+                Set Password <span className="astrea-required">*</span>
               </label>
               <input
+                required
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -138,9 +139,10 @@ export default function InviteRegistration() {
 
             <div>
               <label className="mb-2 block text-sm font-bold text-slate-700">
-                Confirm Password
+                Confirm Password <span className="astrea-required">*</span>
               </label>
               <input
+                required
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}

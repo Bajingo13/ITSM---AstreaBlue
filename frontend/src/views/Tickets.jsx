@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   Ban,
   Plus,
@@ -15,6 +14,7 @@ import {
   Send,
   BookOpen,
   Paperclip,
+  RefreshCw,
   XCircle,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -25,6 +25,8 @@ import {
   getSeverityLevel,
 } from "../utils/ticketVisuals";
 import { API_URL } from "../config/api";
+import PageHero from "../components/layout/PageHero";
+import { authHeaders } from "../services/authHeaders";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -39,10 +41,10 @@ const columns = [
 const nonCancellableStatuses = ["Cancelled", "Resolved", "Closed"];
 
 const priorityStyle = {
-  "P1-Critical": "bg-red-50 text-red-700 border-red-200",
-  "P2-High": "bg-orange-50 text-orange-700 border-orange-200",
-  "P3-Medium": "bg-amber-50 text-amber-700 border-amber-200",
-  "P4-Low": "bg-blue-50 text-blue-700 border-blue-200",
+  "P1-Critical": "bg-red-600 text-white border-red-700",
+  "P2-High": "bg-red-50 text-red-700 border-red-200",
+  "P3-Medium": "bg-yellow-50 text-yellow-800 border-yellow-200",
+  "P4-Low": "bg-green-50 text-green-700 border-green-200",
 };
 
 const priorityDotStyle = {
@@ -67,9 +69,22 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [files, setFiles] = useState([]);
+  const [isOtherCategory, setIsOtherCategory] = useState(false);
+  const [customCategory, setCustomCategory] = useState("");
 
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleCategoryChange = (value) => {
+    if (value === "__other__") {
+      setIsOtherCategory(true);
+      updateForm("category_id", "");
+    } else {
+      setIsOtherCategory(false);
+      setCustomCategory("");
+      updateForm("category_id", value);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -80,15 +95,35 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
       setError("Title and description are required.");
       return;
     }
+    if (isOtherCategory && !customCategory.trim()) {
+      setError("Specify Category is required when Other is selected.");
+      return;
+    }
 
     try {
       setSaving(true);
+
+      let categoryId = form.category_id || null;
+
+      // Handle "Other" category - create or find it
+      if (isOtherCategory && customCategory.trim()) {
+        const catRes = await fetch(`${API_BASE}/ticket-categories`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category_name: customCategory.trim() }),
+        });
+        const catData = await catRes.json();
+        if (!catRes.ok || catData.success === false || !catData.category) {
+          throw new Error(catData.message || catData.error || "Failed to save category.");
+        }
+        categoryId = catData.category.category_id;
+      }
 
       const payload = buildTicketPayload(user, {
         ...form,
         impact: "Medium",
         urgency: "Medium",
-        category_id: form.category_id || null,
+        category_id: categoryId,
         requester_id: user?.user_id || null,
         branch_id: isSuperAdmin ? form.branch_id || null : user?.branch_id || null,
       });
@@ -113,114 +148,169 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-7 py-5">
-          <div>
-            <h2 className="text-xl font-black text-slate-900">
-              Create New Ticket
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Submit an incident or service request to the IT service desk.
-            </p>
-          </div>
+  const priorityList = [
+    { value: "P1-Critical", label: "P1 \u2014 Critical", dot: "bg-red-500", bg: "bg-red-600 text-white" },
+    { value: "P2-High", label: "P2 \u2014 High", dot: "bg-orange-500", bg: "bg-red-50 text-red-700" },
+    { value: "P3-Medium", label: "P3 \u2014 Medium", dot: "bg-amber-500", bg: "bg-yellow-50 text-yellow-800" },
+    { value: "P4-Low", label: "P4 \u2014 Low", dot: "bg-green-500", bg: "bg-green-50 text-green-700" },
+  ];
 
+  const inputClass =
+    "astrea-control text-sm font-medium";
+  const labelClass = "astrea-field-label";
+
+  return (
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel max-w-2xl">
+        {/* Header */}
+        <div className="astrea-modal-header bg-gradient-to-r from-blue-50 to-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-600/30">
+              <Ticket size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-slate-900">Create New Ticket</h2>
+              <p className="text-xs font-medium text-slate-500">
+                Submit an incident or service request to the IT service desk.
+              </p>
+            </div>
+          </div>
           <button
             onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-xl p-2 text-slate-400 transition hover:bg-white hover:text-slate-700 hover:shadow-sm"
           >
             <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5 px-7 py-6">
+        {/* Body */}
+        <form onSubmit={handleSubmit} className="astrea-modal-body space-y-5">
           {error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+              <AlertCircle size={16} className="shrink-0" />
               {error}
             </div>
           )}
 
+          {/* Title */}
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-              Title *
-            </label>
+            <label className={labelClass}>Title <span className="text-red-600">*</span></label>
             <input
               value={form.title}
               onChange={(e) => updateForm("title", e.target.value)}
               placeholder="Brief description of the issue..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              className={inputClass}
+              required
             />
           </div>
 
+          {/* Description */}
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-              Description *
-            </label>
+            <label className={labelClass}>Description <span className="text-red-600">*</span></label>
             <textarea
               value={form.description}
               onChange={(e) => updateForm("description", e.target.value)}
               placeholder="Detailed description, affected user/device, steps to reproduce..."
-              rows={5}
-              className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              rows={4}
+              className={`${inputClass} resize-none`}
+              required
             />
           </div>
 
+          {/* Two-column grid */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* Branch (SuperAdmin only) */}
             {isSuperAdmin && (
+              <div>
+                <label className={labelClass}>Branch</label>
+                <select
+                  value={form.branch_id}
+                  onChange={(e) => updateForm("branch_id", e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">Select branch</option>
+                  {branches.map((branch) => (
+                    <option key={branch.branch_id} value={branch.branch_id}>
+                      {branch.branch_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Category with Other support */}
+            <div>
+              <label className={labelClass}>Category</label>
               <select
-                value={form.branch_id}
-                onChange={(e) => updateForm("branch_id", e.target.value)}
-                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
+                value={isOtherCategory ? "__other__" : form.category_id}
+                onChange={(e) => handleCategoryChange(e.target.value)}
+                className={inputClass}
               >
-                <option value="">Select branch</option>
-                {branches.map((branch) => (
-                  <option key={branch.branch_id} value={branch.branch_id}>
-                    {branch.branch_name}
+                <option value="">Select category</option>
+                {categories.map((cat) => (
+                  <option key={cat.category_id} value={cat.category_id}>
+                    {cat.category_name}
                   </option>
                 ))}
+                <option value="__other__">Other...</option>
               </select>
-            )}
-            <select
-              value={form.category_id}
-              onChange={(e) => updateForm("category_id", e.target.value)}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
-            >
-              <option value="">Select category</option>
-              {categories.map((cat) => (
-                <option key={cat.category_id} value={cat.category_id}>
-                  {cat.category_name}
-                </option>
-              ))}
-            </select>
-
-            <div>
-              <select
-                value={form.priority}
-                onChange={(e) => updateForm("priority", e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
-              >
-                <option value="P1-Critical">P1 - Critical</option>
-                <option value="P2-High">P2 - High</option>
-                <option value="P3-Medium">P3 - Medium</option>
-                <option value="P4-Low">P4 - Low</option>
-              </select>
-              <PriorityIndicator value={form.priority} />
             </div>
 
+            {/* Priority */}
+            <div>
+              <label className={labelClass}>Priority</label>
+              <div className="flex flex-wrap gap-2">
+                {priorityList.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => updateForm("priority", p.value)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border-2 px-3.5 py-2 text-xs font-black transition ${
+                      form.priority === p.value
+                        ? `${p.bg} border-current shadow-sm`
+                        : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className={`h-2 w-2 rounded-full ${p.dot}`} />
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
+          {/* Custom category input */}
+          {isOtherCategory && (
+            <div className="rounded-2xl border-2 border-blue-200 bg-blue-50/50 p-4">
+              <label className={labelClass}>
+                Specify Category <span className="text-red-600">*</span>
+              </label>
+              <input
+                value={customCategory}
+                onChange={(e) => setCustomCategory(e.target.value)}
+                placeholder="e.g. CCTV, WiFi, Biometrics, Projector"
+                className={inputClass}
+                autoFocus
+                required
+              />
+              <p className="mt-1.5 text-xs text-slate-500">
+                This category will be saved and available for future tickets.
+              </p>
+            </div>
+          )}
+
+          {/* Attachments */}
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-              Attach Screenshots or PDF
-            </label>
-            <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 px-4 py-5 text-sm font-bold text-blue-700 hover:bg-blue-50">
-              <Paperclip size={18} />
-              <span>
+            <label className={labelClass}>Attachments</label>
+            <label className="astrea-upload-zone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setFiles(Array.from(event.dataTransfer.files || [])); }}>
+              <span className="rounded-full bg-blue-100 p-3 text-blue-700"><Paperclip size={22} /></span>
+              <span className="font-black">
                 {files.length
                   ? `${files.length} file(s) selected`
                   : "Choose PNG, JPG, JPEG, WEBP, or PDF"}
               </span>
+              <span className="text-xs font-semibold text-slate-600">Upload screenshots, PDF, or supporting files</span>
+              <span className="text-xs text-slate-500">PNG, JPG, JPEG, WEBP or PDF · Maximum 10MB · Drag & Drop supported</span>
               <input
                 type="file"
                 multiple
@@ -231,19 +321,19 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
             </label>
           </div>
 
-          <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
+          {/* Footer */}
+          <div className="astrea-modal-footer -mx-6 -mb-6 mt-6">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+              className="astrea-button astrea-button-secondary"
             >
               Cancel
             </button>
-
             <button
               type="submit"
               disabled={saving}
-              className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/25 hover:bg-blue-800 disabled:opacity-60"
+              className="astrea-button astrea-button-primary"
             >
               {saving ? "Creating..." : "Create Ticket"}
             </button>
@@ -291,7 +381,6 @@ async function readJsonSafely(res) {
 }
 
 function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
-  const navigate = useNavigate();
   const { user, role } = useAuth();
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -310,6 +399,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   const [cancelError, setCancelError] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [kbModalOpen, setKbModalOpen] = useState(false);
+  const [kbMessage, setKbMessage] = useState("");
   const activeRole = role || user?.role_name || user?.role;
 
   const fetchDetails = useCallback(async () => {
@@ -317,7 +408,15 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
       setLoading(true);
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}${buildTicketQuery(user)}`);
       const data = await res.json();
-      setDetails(data);
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to load ticket details.");
+      }
+      const detail = data.data || data;
+      setDetails({
+        ...detail,
+        description: detail.description || detail.desc || ticket.description || ticket.desc || "",
+        desc: detail.desc || detail.description || ticket.desc || ticket.description || "",
+      });
     } catch (err) {
       console.error("Fetch ticket details failed:", err);
     } finally {
@@ -389,19 +488,25 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
     try {
       setSavingComment(true);
+      setActionError("");
 
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ comment_text: comment }),
+        body: JSON.stringify({ comment_text: comment.trim(), user_id: user?.user_id || null }),
       });
 
-      if (!res.ok) throw new Error("Failed to add comment");
+      const savedComment = await readJsonSafely(res);
+      if (!res.ok || savedComment.success === false) throw new Error(savedComment.message || savedComment.error || "Failed to add comment");
 
       setComment("");
-      await fetchDetails();
+      setDetails((current) => ({
+        ...(current || ticket),
+        comments: [...(current?.comments || []), { ...savedComment, full_name: user?.full_name || user?.name || "User" }],
+      }));
+      void fetchDetails();
     } catch (err) {
-      console.error(err);
+      setActionError(err.message || "Failed to add comment.");
     } finally {
       setSavingComment(false);
     }
@@ -409,7 +514,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
   const item = details || ticket;
   const hasResolution =
-    item.status === "Resolved" || Boolean(item.resolution_notes);
+    ["Resolved", "Closed"].includes(item.status) || Boolean(item.resolution_notes);
   const canCreateKbArticle = ["SuperAdmin", "Admin", "Technician"].includes(
     activeRole
   );
@@ -432,6 +537,12 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
       (activeRole === "Admin" && isOwnBranchTicket)) &&
     !nonCancellableStatuses.includes(currentStatus);
 
+  const selectStatus = (newStatus) => {
+    if (isCancelled) return;
+    setActionError("");
+    setSelectedStatus(newStatus);
+  };
+
   const saveChanges = async () => {
     if (isCancelled) return;
 
@@ -451,7 +562,10 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
           body: JSON.stringify(buildTicketPayload(user, { status: selectedStatus })),
         });
 
-        if (!statusRes.ok) throw new Error("Failed to update status");
+        const statusData = await readJsonSafely(statusRes);
+        if (!statusRes.ok || statusData.success === false) {
+          throw new Error(statusData.message || statusData.error || "Failed to update status");
+        }
       }
 
       if (hasAssignmentChange) {
@@ -471,14 +585,15 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
         const assignData = await readJsonSafely(assignRes);
 
-        if (!assignRes.ok) {
-          throw new Error(assignData.error || "Failed to assign technician");
+        if (!assignRes.ok || assignData.success === false) {
+          throw new Error(assignData.message || assignData.error || "Failed to assign technician");
         }
       }
 
-      await fetchDetails();
-      await onRefresh();
-      onClose();
+      onClose("Ticket changes saved successfully.");
+      void Promise.resolve(onRefresh()).catch((refreshError) => {
+        if (import.meta.env.DEV) console.error("Ticket refresh failed:", refreshError);
+      });
     } catch (err) {
       console.error(err);
       setActionError(err.message);
@@ -488,17 +603,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   };
 
   const createKnowledgeBaseArticle = () => {
-    navigate("/knowledge-base", {
-      state: {
-        kbPrefill: {
-          title: item.title || "",
-          category: item.category || "",
-          symptoms: item.description || item.desc || "",
-          resolution: item.resolution_notes || "",
-          related_ticket_id: item.id,
-        },
-      },
-    });
+    setKbMessage("");
+    setKbModalOpen(true);
   };
 
   const openCancelModal = () => {
@@ -548,14 +654,16 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
       const data = await readJsonSafely(res);
 
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to cancel ticket.");
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to cancel ticket.");
       }
 
       setCancelModalOpen(false);
       setCancellationReason("");
-      await onRefresh();
       onClose(data.message || "Ticket cancelled successfully.");
+      void Promise.resolve(onRefresh()).catch((refreshError) => {
+        if (import.meta.env.DEV) console.error("Ticket refresh failed:", refreshError);
+      });
     } catch (err) {
       setCancelError(err.message);
     } finally {
@@ -575,8 +683,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
   return (
     <>
-    <div className="fixed inset-0 z-[80] flex justify-end bg-slate-950/70 backdrop-blur-sm">
-      <div className="flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl">
+    <div className="astrea-modal-backdrop z-[80]">
+      <div className="astrea-modal-panel flex w-full max-w-2xl flex-col">
         <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-7 py-5">
           <div className="flex items-start justify-between">
             <div>
@@ -606,9 +714,10 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 {actionError}
               </div>
             )}
+            {kbMessage && <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{kbMessage}</div>}
 
             <section className="grid grid-cols-2 gap-4">
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="astrea-card p-4">
                 <p className="text-xs font-bold text-slate-400">Status</p>
                 <p className="mt-1 flex flex-wrap items-center gap-2 font-black text-slate-900">
                   {selectedStatus}
@@ -625,23 +734,23 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="astrea-card p-4">
                 <p className="text-xs font-bold text-slate-400">Priority</p>
                 <p className="mt-1">
-                  <span className={getPriorityBadgeClass, formatPriority(item.priority)}>
+                  <span className={getPriorityBadgeClass(item.priority)}>
                     {formatPriority(item.priority)}
                   </span>
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="astrea-card p-4">
                 <p className="text-xs font-bold text-slate-400">Category</p>
                 <p className="mt-1 font-black text-slate-900">
                   {item.category || "Uncategorized"}
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="astrea-card p-4">
                 <p className="text-xs font-bold text-slate-400">
                   Assigned To
                 </p>
@@ -802,13 +911,13 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   </div>
                 </div>
 
-                {canCreateKbArticle && item.status === "Resolved" && item.resolution_notes && (
+                {canCreateKbArticle && ["Resolved", "Closed"].includes(item.status) && (
                   <button
                     onClick={createKnowledgeBaseArticle}
                     className="mt-5 flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-black text-white hover:bg-blue-800"
                   >
                     <BookOpen size={17} />
-                    Create KB Article
+                    Create Article from Ticket
                   </button>
                 )}
               </section>
@@ -845,28 +954,30 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               </section>
             )}
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
-              <h3 className="mb-4 font-black text-slate-900">
+            <section className="astrea-card border-2 p-6">
+              <h3 className="mb-1 font-black text-slate-900">
                 Update Status
               </h3>
+              <p className="mb-4 text-sm text-slate-500">Select the next valid workflow state, then save your changes.</p>
               {isCancelled ? (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
                   Cancelled tickets cannot be updated.
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   {columns
                     .filter((col) => col.id !== "Cancelled")
                     .map((col) => (
                     <button
                       key={col.id}
-                      onClick={() => setSelectedStatus(col.id)}
-                      disabled={selectedStatus === col.id}
-                      className={`rounded-xl px-4 py-2 text-sm font-black ${
+                      type="button"
+                      onClick={() => selectStatus(col.id)}
+                      disabled={selectedStatus === col.id || assigning || loading}
+                      className={`min-h-11 rounded-xl border-2 px-4 py-2.5 text-sm font-black transition ${
                         selectedStatus === col.id
-                          ? "bg-blue-700 text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700"
-                      } disabled:opacity-60`}
+                          ? "border-blue-700 bg-blue-700 text-white shadow-lg shadow-blue-700/20 ring-2 ring-blue-200"
+                          : "border-slate-300 bg-white text-slate-700 hover:border-blue-500 hover:bg-blue-50 hover:text-blue-800"
+                      } disabled:cursor-not-allowed disabled:opacity-70`}
                     >
                       {col.label}
                     </button>
@@ -875,7 +986,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <section className="astrea-card border-2 p-6">
               <div className="mb-4 flex items-center gap-2">
                 <MessageSquare size={18} className="text-blue-600" />
                 <h3 className="font-black text-slate-900">Comments</h3>
@@ -886,7 +997,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   item.comments.map((c) => (
                     <div
                       key={c.comment_id}
-                      className="rounded-xl bg-slate-50 p-4"
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
                     >
                       <p className="text-sm text-slate-700">
                         {c.comment_text}
@@ -898,25 +1009,26 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm font-semibold text-slate-400">
-                    No comments yet.
+                  <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm font-semibold text-slate-500">
+                    No comments yet. Add context or an update for everyone following this ticket.
                   </p>
                 )}
               </div>
 
-              <div className="mt-4 flex gap-2">
+              <div className="mt-5 flex gap-3">
                 <input
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="Write a comment..."
-                  className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-600"
+                  className="astrea-control flex-1 text-sm"
                 />
                 <button
                   onClick={addComment}
-                  disabled={savingComment || hasUnsavedChanges}
-                  className="rounded-xl bg-blue-700 px-4 text-white hover:bg-blue-800 disabled:opacity-60"
+                  disabled={savingComment || hasUnsavedChanges || !comment.trim()}
+                  className="astrea-button astrea-button-primary min-w-28"
                 >
                   <Send size={18} />
+                  {savingComment ? "Sending..." : "Send"}
                 </button>
               </div>
 
@@ -927,7 +1039,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <section className="astrea-card p-6">
               <div className="mb-4 flex items-center gap-2">
                 <History size={18} className="text-blue-600" />
                 <h3 className="font-black text-slate-900">
@@ -940,7 +1052,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   item.history.map((h) => (
                     <div
                       key={h.history_id}
-                      className="border-l-2 border-blue-200 pl-4"
+                      className="astrea-timeline-item"
                     >
                       <p className="text-sm font-black text-slate-800">
                         {h.action}
@@ -980,7 +1092,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             <div className="flex items-center justify-end gap-3">
             <button
               onClick={handleCloseDrawer}
-              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+              className="astrea-button astrea-button-secondary"
             >
               Close
             </button>
@@ -988,7 +1100,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             <button
               onClick={saveChanges}
               disabled={loading || assigning || isCancelled || !hasUnsavedChanges}
-              className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800 disabled:opacity-60"
+              className="astrea-button astrea-button-primary"
             >
               {assigning ? "Saving..." : "Save Changes"}
             </button>
@@ -1070,7 +1182,80 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
           onClose={() => setPreviewAttachment(null)}
         />
       )}
+      {kbModalOpen && (
+        <TicketArticleModal
+          ticket={item}
+          onClose={() => setKbModalOpen(false)}
+          onSaved={() => {
+            setKbModalOpen(false);
+            setKbMessage("Knowledge Base article created successfully.");
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function TicketArticleModal({ ticket, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    title: ticket.title ? `Resolution: ${ticket.title}` : "",
+    category: ticket.category || "",
+    symptoms: ticket.description || ticket.desc || "",
+    resolution: ticket.resolution_notes || ticket.technician_notes || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const saveArticle = async (event) => {
+    event.preventDefault();
+    if (!form.title.trim()) return setError("Article title is required.");
+    try {
+      setSaving(true);
+      setError("");
+      const response = await fetch(`${API_BASE}/knowledge-base`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          title: form.title.trim(),
+          category: form.category.trim() || null,
+          symptoms: form.symptoms.trim() || null,
+          resolution: form.resolution.trim() || null,
+          related_ticket_id: ticket.id,
+          branch_id: ticket.branch_id || null,
+        }),
+      });
+      const data = await readJsonSafely(response);
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to create Knowledge Base article.");
+      }
+      onSaved(data);
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+
+  return (
+    <div className="astrea-modal-backdrop z-[95]">
+      <form onSubmit={saveArticle} className="astrea-modal-panel max-w-2xl p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div><h2 className="text-xl font-black text-slate-900">Create Article from Ticket</h2><p className="mt-1 text-sm text-slate-500">Review the reusable solution before saving it to the Knowledge Base.</p></div>
+          <button type="button" onClick={onClose} disabled={saving} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X size={20}/></button>
+        </div>
+        {error && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</div>}
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label className="astrea-field-label sm:col-span-2">Title *<input value={form.title} onChange={(e) => update("title", e.target.value)} className="astrea-control mt-2" /></label>
+          <label className="astrea-field-label">Category<input value={form.category} onChange={(e) => update("category", e.target.value)} className="astrea-control mt-2" /></label>
+          <label className="astrea-field-label">Related Ticket<input value={ticket.ticket_number || `TKT-${ticket.id}`} disabled className="astrea-control mt-2" /></label>
+          <label className="astrea-field-label sm:col-span-2">Problem / Issue<textarea rows="4" value={form.symptoms} onChange={(e) => update("symptoms", e.target.value)} className="astrea-control mt-2" /></label>
+          <label className="astrea-field-label sm:col-span-2">Resolution<textarea rows="5" value={form.resolution} onChange={(e) => update("resolution", e.target.value)} className="astrea-control mt-2" /></label>
+        </div>
+        <div className="astrea-modal-footer -mx-6 -mb-6 mt-6"><button type="button" onClick={onClose} disabled={saving} className="astrea-button astrea-button-secondary">Cancel</button><button type="submit" disabled={saving} className="astrea-button astrea-button-primary">{saving ? "Creating Article..." : "Create Article"}</button></div>
+      </form>
+    </div>
   );
 }
 
@@ -1085,28 +1270,42 @@ function ResolutionDetail({ label, value }) {
   );
 }
 
+function getSlaBadgeClass(status) {
+  switch (status) {
+    case "Met": return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    case "Breached": return "bg-red-100 text-red-800 border-red-200";
+    case "Due Soon": return "bg-amber-100 text-amber-800 border-amber-200";
+    default: return "bg-blue-100 text-blue-800 border-blue-200"; // Pending / Active
+  }
+}
+
 function TicketCard({ ticket, onClick }) {
   return (
     <div
       onClick={() => onClick(ticket)}
       className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md"
     >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-black uppercase tracking-wider text-blue-600">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2 overflow-hidden">
+          <p className="text-xs font-black uppercase tracking-wider text-blue-600 truncate">
             {ticket.ticket_number || `TKT-${ticket.id}`}
           </p>
-          <h3 className="mt-1 line-clamp-2 font-black text-slate-900">
-            {ticket.title}
-          </h3>
+          {(ticket.resolution_sla_status || ticket.response_sla_status) && (
+            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${getSlaBadgeClass(ticket.resolution_sla_status === 'Breached' || ticket.response_sla_status === 'Breached' ? 'Breached' : ticket.resolution_sla_status === 'Pending' ? (ticket.response_sla_status === 'Met' ? 'Pending' : ticket.response_sla_status) : ticket.resolution_sla_status)}`}>
+              {ticket.resolution_sla_status === 'Breached' || ticket.response_sla_status === 'Breached' ? 'SLA Breach' : ticket.resolution_sla_status === 'Met' ? 'SLA Met' : 'SLA Active'}
+            </span>
+          )}
         </div>
-
         <span
-          className={`${getPriorityBadgeClass, formatPriority(ticket.priority)} shrink-0 px-2.5 text-[11px]`}
+          className={`${getPriorityBadgeClass(ticket.priority)} shrink-0 whitespace-nowrap px-2.5 py-0.5 text-[11px]`}
         >
           {formatPriority(ticket.priority)}
         </span>
       </div>
+
+      <h3 className="mb-1.5 line-clamp-2 font-black leading-snug text-slate-900">
+        {ticket.title}
+      </h3>
 
       <p className="line-clamp-2 text-sm text-slate-500">
         {ticket.desc || ticket.description}
@@ -1181,19 +1380,28 @@ export default function Tickets() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [pageMessage, setPageMessage] = useState("");
+  const [pageError, setPageError] = useState("");
 
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
+      setPageError("");
       const res = await fetch(
         `${API_BASE}/tickets${buildTicketQuery(user, {
           filter_branch_id: branchFilter,
-        })}`
+        })}`,
+        { headers: authHeaders() }
       );
       const data = await res.json();
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to refresh tickets.");
+      }
       setTickets(Array.isArray(data) ? data : []);
+      return data;
     } catch (err) {
       console.error("Fetch tickets failed:", err);
+      setPageError(err.message || "Failed to refresh tickets.");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -1201,7 +1409,7 @@ export default function Tickets() {
 
   const fetchCategories = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/ticket-categories`);
+      const res = await fetch(`${API_BASE}/ticket-categories`, { headers: authHeaders() });
       const data = await res.json();
       setCategories(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -1211,7 +1419,7 @@ export default function Tickets() {
 
   const fetchBranches = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/branches`);
+      const res = await fetch(`${API_BASE}/branches`, { headers: authHeaders() });
       const data = await res.json();
       setBranches(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -1256,26 +1464,32 @@ export default function Tickets() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center">
-        <div>
-          <h1 className="text-3xl font-black">Ticket Management</h1>
-          <p className="mt-2 text-blue-100">
-            Track, prioritize, and resolve IT incidents and service requests.
-          </p>
-        </div>
-
-        <button
-          onClick={() => setModalOpen(true)}
-          className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
-        >
-          <Plus size={18} />
-          New Ticket
-        </button>
-      </section>
+      <PageHero eyebrow="Service Desk" title="Ticket Management" subtitle="Track, prioritize, and resolve incidents and service requests across your branches." actions={<>
+          <button
+            onClick={() => fetchTickets().catch(() => {})}
+            disabled={loading}
+            className="flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 font-black text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+          >
+            <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
+          >
+            <Plus size={18} />
+            New Ticket
+          </button>
+        </>} />
 
       {pageMessage && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-700 shadow-sm">
           {pageMessage}
+        </div>
+      )}
+      {pageError && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-bold text-rose-700 shadow-sm">
+          {pageError}
         </div>
       )}
 
@@ -1385,6 +1599,7 @@ export default function Tickets() {
           onCreated={() => {
             setModalOpen(false);
             fetchTickets();
+            fetchCategories();
           }}
         />
       )}

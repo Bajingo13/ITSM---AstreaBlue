@@ -14,6 +14,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { authHeaders } from "../services/authHeaders";
 import { buildTicketQuery } from "../utils/ticketAccess";
+import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -39,6 +40,9 @@ export default function KnowledgeBase() {
   const [category, setCategory] = useState("All");
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [articleForm, setArticleForm] = useState(null);
+  const [deleteCandidate, setDeleteCandidate] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const isSuperAdmin = (role || user?.role_name) === "SuperAdmin";
   const canManage = ["Admin", "Technician"].includes(role || user?.role_name) || isSuperAdmin;
@@ -137,10 +141,15 @@ export default function KnowledgeBase() {
   }, [articles, category, query]);
 
   const deleteArticle = async (article) => {
-    if (!window.confirm(`Delete "${article.title}"?`)) return;
+    setDeleteError("");
+    setDeleteCandidate(article);
+  };
 
+  const confirmDeleteArticle = async () => {
+    if (!deleteCandidate) return;
     try {
-      const res = await fetch(`${API_BASE}/knowledge-base/${article.kb_id}`, {
+      setDeleting(true);
+      const res = await fetch(`${API_BASE}/knowledge-base/${deleteCandidate.kb_id}`, {
         method: "DELETE",
         headers: authHeaders(),
       });
@@ -148,23 +157,18 @@ export default function KnowledgeBase() {
       if (!res.ok) throw new Error("Failed to delete article");
 
       setSelectedArticle(null);
+      setDeleteCandidate(null);
       fetchArticles();
     } catch (err) {
-      console.error(err);
+      setDeleteError(err.message || "Failed to delete article.");
+    } finally {
+      setDeleting(false);
     }
   };
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center">
-        <div>
-          <h1 className="text-3xl font-black">Knowledge Base</h1>
-          <p className="mt-2 text-blue-100">
-            Search known issues, fixes, root causes, and reusable resolutions.
-          </p>
-        </div>
-
-        {canManage && (
+      <PageHero eyebrow="Knowledge Management" title="Knowledge Base" subtitle="Search proven fixes, known issues, root causes, and reusable service resolutions." actions={canManage && (
           <button
             onClick={() => setArticleForm({ ...emptyArticle })}
             className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
@@ -172,8 +176,7 @@ export default function KnowledgeBase() {
             <Plus size={18} />
             Create Article
           </button>
-        )}
-      </section>
+        )} />
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_240px]">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -292,23 +295,33 @@ export default function KnowledgeBase() {
           }}
         />
       )}
+      {deleteCandidate && (
+        <div className="astrea-modal-backdrop z-[90]">
+          <div className="astrea-modal-panel max-w-md">
+            <div className="astrea-modal-header"><div><h2 className="text-lg font-black text-slate-900">Delete KB Article</h2><p className="mt-1 text-sm text-slate-500">This action cannot be undone.</p></div></div>
+            <div className="astrea-modal-body"><p className="text-sm text-slate-700">Delete <strong>{deleteCandidate.title}</strong>?</p>{deleteError && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{deleteError}</p>}</div>
+            <div className="astrea-modal-footer"><button type="button" disabled={deleting} onClick={() => setDeleteCandidate(null)} className="astrea-button astrea-button-secondary">Cancel</button><button type="button" disabled={deleting} onClick={confirmDeleteArticle} className="astrea-button astrea-button-danger">{deleting ? "Deleting..." : "Delete Article"}</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function ArticleDrawer({ article, canManage, onClose, onEdit, onDelete }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-        <div className="shrink-0 border-b border-slate-200 bg-white px-7 py-5">
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel flex max-w-4xl flex-col overflow-hidden">
+        <div className="astrea-modal-header shrink-0">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-widest text-blue-600">
+              <p className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-widest text-blue-700">
                 {article.category || "General"}
               </p>
               <h2 className="mt-1 text-2xl font-black text-slate-900">
                 {article.title}
               </h2>
+              <p className="mt-2 text-sm font-semibold text-slate-500">Knowledge Base Article</p>
             </div>
             <button
               onClick={onClose}
@@ -319,7 +332,7 @@ function ArticleDrawer({ article, canManage, onClose, onEdit, onDelete }) {
           </div>
         </div>
 
-        <div className="flex-1 space-y-6 overflow-y-auto p-7">
+        <div className="astrea-modal-body flex-1 space-y-6 overflow-y-auto">
           <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <InfoTile label="Created By" value={article.created_by_name || "Unknown"} />
             <InfoTile
@@ -356,11 +369,11 @@ function ArticleDrawer({ article, canManage, onClose, onEdit, onDelete }) {
           <ArticleSection title="Resolution" text={article.resolution} />
         </div>
 
-        <div className="shrink-0 border-t border-slate-200 bg-white/95 px-7 py-4 backdrop-blur">
+        <div className="astrea-modal-footer shrink-0">
           <div className="flex flex-wrap items-center justify-end gap-3">
             <button
               onClick={onClose}
-              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+              className="astrea-button astrea-button-secondary"
             >
               Close
             </button>
@@ -368,14 +381,14 @@ function ArticleDrawer({ article, canManage, onClose, onEdit, onDelete }) {
               <>
                 <button
                   onClick={onEdit}
-                  className="flex items-center gap-2 rounded-xl border border-blue-200 px-5 py-3 font-bold text-blue-700 hover:bg-blue-50"
+                  className="astrea-button astrea-button-primary"
                 >
                   <Edit3 size={17} />
                   Edit
                 </button>
                 <button
                   onClick={onDelete}
-                  className="flex items-center gap-2 rounded-xl bg-red-600 px-5 py-3 font-bold text-white hover:bg-red-700"
+                  className="astrea-button astrea-button-danger"
                 >
                   <Trash2 size={17} />
                   Delete
@@ -448,9 +461,9 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-slate-200 px-7 py-5">
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel max-w-3xl">
+        <div className="astrea-modal-header items-start">
           <div>
             <h2 className="text-xl font-black text-slate-900">
               {isEditing ? "Edit KB Article" : "Create KB Article"}
@@ -467,7 +480,7 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
           </button>
         </div>
 
-        <form onSubmit={saveArticle} className="space-y-5 px-7 py-6">
+        <form onSubmit={saveArticle} className="astrea-modal-body space-y-5">
           {error && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
               {error}
@@ -475,44 +488,45 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
           )}
 
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-              Title *
+            <label className="astrea-field-label">
+              Title <span className="astrea-required">*</span>
             </label>
             <input
+              required
               value={form.title}
               onChange={(e) => updateForm("title", e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              className="astrea-control"
             />
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-bold text-slate-700">
+              <label className="astrea-field-label">
                 Category
               </label>
               <input
                 value={form.category}
                 onChange={(e) => updateForm("category", e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                className="astrea-control"
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-bold text-slate-700">
+              <label className="astrea-field-label">
                 Tags
               </label>
               <input
                 value={form.tags || ""}
                 onChange={(e) => updateForm("tags", e.target.value)}
                 placeholder="hardware, vpn, windows"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                className="astrea-control"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-bold text-slate-700">
+              <label className="astrea-field-label">
                 Related Ticket
               </label>
               <TicketSelect
@@ -524,13 +538,13 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
 
             {isSuperAdmin && (
               <div>
-                <label className="mb-2 block text-sm font-bold text-slate-700">
+                <label className="astrea-field-label">
                   Branch
                 </label>
                 <select
                   value={form.branch_id || ""}
                   onChange={(e) => updateForm("branch_id", e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                  className="astrea-control"
                 >
                   <option value="">Select branch</option>
                   {branches.map((branch) => (
@@ -544,41 +558,41 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
+            <label className="astrea-field-label">
               Symptoms
             </label>
             <textarea
               value={form.symptoms}
               onChange={(e) => updateForm("symptoms", e.target.value)}
               rows={5}
-              className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              className="astrea-control"
             />
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
+            <label className="astrea-field-label">
               Resolution
             </label>
             <textarea
               value={form.resolution}
               onChange={(e) => updateForm("resolution", e.target.value)}
               rows={6}
-              className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              className="astrea-control"
             />
           </div>
 
-          <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
+          <div className="astrea-modal-footer -mx-6 -mb-6 mt-6">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50"
+              className="astrea-button astrea-button-secondary"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800 disabled:opacity-60"
+              className="astrea-button astrea-button-primary"
             >
               {saving ? "Saving..." : "Save Article"}
             </button>
@@ -619,7 +633,7 @@ function TicketSelect({ value, tickets, onChange }) {
             setOpen(false);
           }
         }}
-        className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
+        className="astrea-control flex items-center justify-between gap-3 text-left"
       >
         <span className="truncate">{selectedLabel}</span>
         <ChevronDown
@@ -675,8 +689,8 @@ function formatTicketLabel(ticket) {
 
 function ArticleSection({ title, text }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5">
-      <h3 className="mb-3 font-black text-slate-900">{title}</h3>
+    <section className="astrea-card-soft p-5">
+      <h3 className="mb-3 text-base font-black text-slate-900">{title}</h3>
       <p className="whitespace-pre-line text-sm leading-7 text-slate-600">
         {text || `No ${title.toLowerCase()} documented.`}
       </p>
@@ -686,8 +700,8 @@ function ArticleSection({ title, text }) {
 
 function InfoTile({ label, value }) {
   return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+    <div className="astrea-card-soft p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
         {label}
       </p>
       <p className="mt-1 text-sm font-black text-slate-900">{value}</p>

@@ -1,20 +1,27 @@
+const jwt = require("jsonwebtoken");
+
 function getRequestContext(req) {
   const body = req.body || {};
+  const authHeader = req.headers.authorization || "";
+  let authenticatedUser = null;
+
+  if (authHeader.startsWith("Bearer ")) {
+    try {
+      authenticatedUser = jwt.verify(
+        authHeader.slice(7),
+        process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod"
+      );
+    } catch {
+      authenticatedUser = null;
+    }
+  }
 
   return {
-    currentUserId:
-      req.query.current_user_id ||
-      body.current_user_id ||
-      req.query.user_id ||
-      body.user_id ||
-      null,
-    roleName: req.query.role_name || body.role_name || null,
-    branchId:
-      req.query.branch_id ||
-      body.current_branch_id ||
-      body.branch_id ||
-      null,
-    filterBranchId: req.query.filter_branch_id || body.filter_branch_id || null,
+    authenticated: Boolean(authenticatedUser?.userId),
+    currentUserId: authenticatedUser?.userId || null,
+    roleName: authenticatedUser?.role || null,
+    branchId: authenticatedUser?.branchId || null,
+    filterBranchId: req.query.filter_branch_id || body.filter_branch_id || null, // Validated against role below
   };
 }
 
@@ -27,7 +34,7 @@ function addTicketAccessFilter(req, params, alias = "t") {
   if (normalizedRole === "superadmin") {
     if (filterBranchId) {
       params.push(filterBranchId);
-      clauses.push(`${alias}.branch_id = $${params.length}`);
+      clauses.push(`${branchExpression} = $${params.length}`);
     }
     return clauses;
   }
@@ -56,11 +63,10 @@ function addTicketAccessFilter(req, params, alias = "t") {
     } else {
       clauses.push(`(${alias}.assigned_to = $${technicianParam} OR ${alias}.assigned_to IS NULL)`);
     }
+    return clauses;
   }
 
-  if (normalizedRole && clauses.length === 0) return ["1 = 0"];
-
-  return clauses.length ? clauses : ["1 = 0"];
+  return ["1 = 0"];
 }
 
 module.exports = {

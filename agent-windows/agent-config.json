@@ -1,0 +1,8 @@
+{
+  "backendUrl": "http://localhost:5000",
+  "agentToken": "dev-monitoring-token",
+  "deviceName": "",
+  "heartbeatIntervalSeconds": 30,
+  "activityIntervalSeconds": 30,
+  "screenshotEnabled": false
+}
