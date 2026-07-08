@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Download,
   Eye,
+  Filter,
   FolderOpen,
   Grid3X3,
   History,
@@ -22,15 +23,13 @@ import {
   User,
   X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { API_URL } from "../config/api";
-import { authHeaders } from "../services/authHeaders";
-import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
-const DEFAULT_ASSET_TYPES = [
+const EMPTY_DETAIL_VALUE = "-";
+const BASE_ASSET_TYPES = [
   "Laptop",
   "Desktop",
   "Monitor",
@@ -38,10 +37,8 @@ const DEFAULT_ASSET_TYPES = [
   "Phone",
   "Tablet",
   "Router",
-  "Keyboard",
-  "Mouse",
-  "Other",
 ];
+const ASSET_TYPES = ["All", ...BASE_ASSET_TYPES, "Other"];
 const STATUS_OPTIONS = [
   "All",
   "Available",
@@ -54,6 +51,10 @@ const STATUS_OPTIONS = [
   "Retired",
   "Disposed",
   "Lost/Damaged",
+];
+const MODAL_ASSET_TYPE_OPTIONS = [
+  ...BASE_ASSET_TYPES.map((type) => ({ label: type, value: type })),
+  { label: "other", value: "Other" },
 ];
 const MODAL_STATUS_OPTIONS = [
   { label: "available", value: "Available" },
@@ -74,6 +75,24 @@ const ACTION_MODES = {
   retire: { label: "Retire Asset", status: "Retired", icon: AlertTriangle },
   dispose: { label: "Dispose Asset", status: "Disposed", icon: Box },
 };
+const SORT_OPTIONS = [
+  { value: "latest", label: "Latest Hardware Assets" },
+  { value: "oldest", label: "Oldest Hardware Assets" },
+  { value: "updated", label: "Recently Updated" },
+  { value: "alphabetical", label: "Alphabetical (A-Z)" },
+];
+const STATUS_FILTER_OPTIONS = [
+  { value: "Active", label: "Active" },
+  { value: "Borrowed", label: "Borrowed" },
+  { value: "In Repair", label: "Under Repair" },
+  { value: "Retired", label: "Retired" },
+  { value: "Disposed", label: "Disposed" },
+];
+const QUICK_FILTER_OPTIONS = [
+  { value: "inStock", label: "In Stock Only" },
+  { value: "assigned", label: "Assigned Only" },
+  { value: "unassigned", label: "Unassigned Only" },
+];
 const BRANCH_CARD_GAP = 16;
 
 function getBranchCode(branchName) {
@@ -120,17 +139,6 @@ function getStatusClasses(status) {
   }
 }
 
-function getLifespanClasses(status) {
-  if (status === "End of Life") return "bg-slate-200 text-slate-800";
-  if (status === "Critical") return "bg-rose-100 text-rose-800";
-  if (status === "Near End of Life") return "bg-amber-100 text-amber-800";
-  return "bg-emerald-100 text-emerald-800";
-}
-
-function LifespanBadge({ asset }) {
-  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${getLifespanClasses(asset.lifespan_status)}`}>{asset.lifespan_status || "Healthy"}</span>;
-}
-
 function formatDate(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -145,10 +153,173 @@ function formatDateInput(value) {
   return String(value).slice(0, 10);
 }
 
+function isMissingAssetValue(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string" && value.trim() === "") return true;
+  if (Array.isArray(value) && value.length === 0) return true;
+  return false;
+}
+
+function formatDetailDate(value) {
+  if (isMissingAssetValue(value)) return EMPTY_DETAIL_VALUE;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString();
+}
+
+function formatDetailDateTime(value) {
+  if (isMissingAssetValue(value)) return EMPTY_DETAIL_VALUE;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function getNestedAssetValue(source, path) {
+  return String(path)
+    .split(".")
+    .reduce((current, key) => {
+      if (current === null || current === undefined) return undefined;
+      return current[key];
+    }, source);
+}
+
+function firstAssetValue(source, paths) {
+  for (const path of paths) {
+    const value = typeof path === "function" ? path(source) : getNestedAssetValue(source, path);
+    if (!isMissingAssetValue(value)) return value;
+  }
+  return null;
+}
+
+function joinAssetValues(values, separator = " / ") {
+  const presentValues = values
+    .filter((value) => !isMissingAssetValue(value))
+    .map((value) => String(value).trim());
+  return presentValues.length ? presentValues.join(separator) : null;
+}
+
+function formatAssetDetailValue(value, formatter) {
+  const nextValue = formatter && !isMissingAssetValue(value) ? formatter(value) : value;
+
+  if (isMissingAssetValue(nextValue)) return EMPTY_DETAIL_VALUE;
+  if (typeof nextValue === "boolean") return nextValue ? "Yes" : "No";
+  if (Array.isArray(nextValue)) {
+    const values = nextValue
+      .map((item) => formatAssetDetailValue(item))
+      .filter((item) => item !== EMPTY_DETAIL_VALUE);
+    return values.length ? values.join(", ") : EMPTY_DETAIL_VALUE;
+  }
+  if (typeof nextValue === "object") {
+    const namedValue = firstAssetValue(nextValue, [
+      "name",
+      "file_name",
+      "full_name",
+      "branch_name",
+      "supplier_name",
+      "label",
+      "title",
+    ]);
+    return isMissingAssetValue(namedValue) ? JSON.stringify(nextValue) : String(namedValue);
+  }
+
+  return String(nextValue);
+}
+
+function assetDetailItem(label, asset, paths, formatter) {
+  return {
+    label,
+    value: formatAssetDetailValue(firstAssetValue(asset, Array.isArray(paths) ? paths : [paths]), formatter),
+  };
+}
+
+function toggleArrayValue(values, value) {
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+}
+
+function getAssignedAssetValue(asset) {
+  return String(asset.assigned_name || asset.borrower_name || "").trim();
+}
+
+function getSortTimestamp(asset, key) {
+  const value = asset[key];
+  const time = value ? new Date(value).getTime() : 0;
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getSortOptionLabel(value) {
+  return SORT_OPTIONS.find((option) => option.value === value)?.label || SORT_OPTIONS[0].label;
+}
+
+function getStatusFilterLabel(value) {
+  return STATUS_FILTER_OPTIONS.find((option) => option.value === value)?.label || value;
+}
+
+function getQuickFilterLabel(value) {
+  return QUICK_FILTER_OPTIONS.find((option) => option.value === value)?.label || value;
+}
+
+function buildFilterSummary({
+  sortMode,
+  sortTouched,
+  statusFilters,
+  quickFilters,
+  conditionFilters,
+  typeFilter,
+  manufacturerFilter,
+  departmentFilter,
+  assignedFilter,
+}) {
+  const chips = [
+    ...statusFilters.map(getStatusFilterLabel),
+    ...quickFilters.map(getQuickFilterLabel),
+    ...conditionFilters,
+  ];
+
+  if (typeFilter !== "All") chips.push(typeFilter);
+  if (manufacturerFilter !== "All") chips.push(manufacturerFilter);
+  if (departmentFilter !== "All") chips.push(departmentFilter);
+  if (assignedFilter !== "All") chips.push(assignedFilter);
+
+  if (chips.length > 0) {
+    return chips.length <= 2 ? chips.join(" + ") : `${chips.slice(0, 2).join(" + ")} +${chips.length - 2}`;
+  }
+
+  return sortTouched ? getSortOptionLabel(sortMode) : "Sort & Filter";
+}
+
+function normalizeAssetType(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function getKnownAssetType(value, knownTypes = ASSET_TYPES) {
+  const normalized = normalizeAssetType(value);
+  return knownTypes.find((type) => type.toLowerCase() === normalized.toLowerCase()) || normalized;
+}
+
+function getModalAssetTypeState(assetType) {
+  const normalized = normalizeAssetType(assetType);
+  if (!normalized) {
+    return { assetType: "Laptop", customAssetType: "" };
+  }
+  if (normalized.toLowerCase() === "other") {
+    return { assetType: "Other", customAssetType: "" };
+  }
+
+  const baseType = getKnownAssetType(normalized, BASE_ASSET_TYPES);
+  if (BASE_ASSET_TYPES.includes(baseType)) {
+    return { assetType: baseType, customAssetType: "" };
+  }
+
+  return { assetType: "Other", customAssetType: normalized };
+}
+
 function getAssetFormInitialState(asset, currentBranchId) {
+  const assetTypeState = getModalAssetTypeState(asset?.asset_type);
+
   return {
     asset_name: asset?.asset_name || "",
-    asset_type: asset?.asset_type || "Laptop",
+    asset_type: assetTypeState.assetType,
+    custom_asset_type: assetTypeState.customAssetType,
     manufacturer: asset?.manufacturer || asset?.brand || "",
     brand: asset?.brand || asset?.manufacturer || "",
     model: asset?.model || "",
@@ -158,9 +329,8 @@ function getAssetFormInitialState(asset, currentBranchId) {
     status: asset?.status || "Active",
     color: asset?.color || "",
     purchase_date: formatDateInput(asset?.purchase_date),
-    purchase_price: asset?.purchase_price || "",
+    purchase_price: asset?.purchase_price ?? "",
     supplier: asset?.supplier || "",
-    invoice_number: asset?.invoice_number || "",
     assigned_name: asset?.assigned_name || asset?.borrower_name || "",
     returned_name: asset?.returned_name || "",
     warranty: formatDateInput(asset?.warranty_expiration || asset?.warranty),
@@ -288,6 +458,226 @@ function SearchableBranchDropdown({ branches = [], value, onChange }) {
     </div>
   );
 }
+
+function FilterPanelSection({ title, children }) {
+  return (
+    <div className="border-b border-slate-100 px-4 py-4 last:border-b-0">
+      <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function FilterChip({ selected, children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-[11px] border px-3 py-2 text-xs font-black transition ${
+        selected
+          ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm shadow-blue-600/10"
+          : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FilterSelect({ label, value, options, onChange }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-[11px] border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-200 hover:bg-blue-50/40 focus:border-blue-500 focus:ring-4 focus:ring-blue-600/10"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function SortFilterDropdown({
+  buttonLabel,
+  sortMode,
+  onSortChange,
+  statusFilters,
+  onStatusToggle,
+  quickFilters,
+  onQuickToggle,
+  conditionFilters,
+  conditionOptions,
+  onConditionToggle,
+  typeFilter,
+  assetTypeOptions,
+  onTypeChange,
+  manufacturerFilter,
+  manufacturerOptions,
+  onManufacturerChange,
+  departmentFilter,
+  departmentOptions,
+  onDepartmentChange,
+  assignedFilter,
+  assignedOptions,
+  onAssignedChange,
+  onClear,
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectOptions = (items) => items.map((item) => ({ label: item, value: item }));
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        className={`inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black shadow-sm transition ${
+          open
+            ? "border-blue-300 bg-blue-50 text-blue-700 ring-4 ring-blue-600/10"
+            : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+        }`}
+      >
+        <Filter size={16} />
+        <span className="max-w-[230px] truncate">{buttonLabel}</span>
+        <ChevronDown size={16} className={`shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      <div
+        className={`absolute right-0 top-full z-40 mt-2 w-[min(92vw,440px)] origin-top-right overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/12 transition-all duration-150 ${
+          open ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0 pointer-events-none"
+        }`}
+      >
+        <FilterPanelSection title="Sorting">
+          <div className="space-y-1">
+            {SORT_OPTIONS.map((option) => {
+              const selected = sortMode === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onSortChange(option.value)}
+                  className={`flex w-full items-center justify-between rounded-[11px] px-3 py-2.5 text-left text-sm font-bold transition ${
+                    selected ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-blue-50/60 hover:text-blue-700"
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {selected && <CheckCircle size={16} className="text-blue-600" />}
+                </button>
+              );
+            })}
+          </div>
+        </FilterPanelSection>
+
+        <FilterPanelSection title="Status Filter">
+          <div className="flex flex-wrap gap-2">
+            {STATUS_FILTER_OPTIONS.map((option) => (
+              <FilterChip
+                key={option.value}
+                selected={statusFilters.includes(option.value)}
+                onClick={() => onStatusToggle(option.value)}
+              >
+                {option.label}
+              </FilterChip>
+            ))}
+          </div>
+        </FilterPanelSection>
+
+        <FilterPanelSection title="Quick Filter Toggles">
+          <div className="flex flex-wrap gap-2">
+            {QUICK_FILTER_OPTIONS.map((option) => (
+              <FilterChip
+                key={option.value}
+                selected={quickFilters.includes(option.value)}
+                onClick={() => onQuickToggle(option.value)}
+              >
+                {option.label}
+              </FilterChip>
+            ))}
+          </div>
+
+          {conditionOptions.filter((item) => item !== "All").length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">Condition</p>
+              <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto pr-1">
+                {conditionOptions.filter((item) => item !== "All").map((condition) => (
+                  <FilterChip
+                    key={condition}
+                    selected={conditionFilters.includes(condition)}
+                    onClick={() => onConditionToggle(condition)}
+                  >
+                    {condition}
+                  </FilterChip>
+                ))}
+              </div>
+            </div>
+          )}
+        </FilterPanelSection>
+
+        <FilterPanelSection title="More Filters">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FilterSelect
+              label="Type"
+              value={typeFilter}
+              options={selectOptions(assetTypeOptions)}
+              onChange={onTypeChange}
+            />
+            <FilterSelect
+              label="Brand"
+              value={manufacturerFilter}
+              options={selectOptions(manufacturerOptions)}
+              onChange={onManufacturerChange}
+            />
+            <FilterSelect
+              label="Department"
+              value={departmentFilter}
+              options={selectOptions(departmentOptions)}
+              onChange={onDepartmentChange}
+            />
+            <FilterSelect
+              label="Assigned"
+              value={assignedFilter}
+              options={selectOptions(assignedOptions)}
+              onChange={onAssignedChange}
+            />
+          </div>
+        </FilterPanelSection>
+
+        <FilterPanelSection title="Reset Action">
+          <button
+            type="button"
+            onClick={() => {
+              onClear();
+              setOpen(false);
+            }}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-[11px] border border-rose-200 bg-white px-4 py-2.5 text-sm font-black text-rose-600 transition hover:border-rose-300 hover:bg-rose-50"
+          >
+            <X size={16} />
+            Clear All Filters
+          </button>
+        </FilterPanelSection>
+      </div>
+    </div>
+  );
+}
 export default function Assets() {
   const { user, role } = useAuth();
   const activeRole = role || user?.role_name || user?.role || "";
@@ -296,16 +686,17 @@ export default function Assets() {
 
   const [branches, setBranches] = useState([]);
   const [assets, setAssets] = useState([]);
-  const [assetTypes, setAssetTypes] = useState(DEFAULT_ASSET_TYPES);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilters, setStatusFilters] = useState([]);
   const [manufacturerFilter, setManufacturerFilter] = useState("All");
-  const [conditionFilter, setConditionFilter] = useState("All");
+  const [conditionFilters, setConditionFilters] = useState([]);
   const [departmentFilter, setDepartmentFilter] = useState("All");
   const [assignedFilter, setAssignedFilter] = useState("All");
-  const [sortLatest, setSortLatest] = useState(false);
+  const [quickFilters, setQuickFilters] = useState([]);
+  const [sortMode, setSortMode] = useState("latest");
+  const [sortTouched, setSortTouched] = useState(false);
   const [branchFilter, setBranchFilter] = useState(isSuperAdmin ? "All" : String(currentBranchId || ""));
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [editingAsset, setEditingAsset] = useState(null);
@@ -365,18 +756,6 @@ export default function Assets() {
     }
   }, [user, isSuperAdmin]);
 
-  const fetchAssetTypes = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/hardware-assets/types`);
-      const body = await res.json();
-      if (!res.ok || body.success === false) throw new Error(body.message || body.error || "Unable to load asset types.");
-      const names = (body.data || []).map((item) => item.type_name).filter(Boolean);
-      setAssetTypes(names.length ? names : DEFAULT_ASSET_TYPES);
-    } catch (err) {
-      console.error("Fetch asset types failed:", err);
-      setAssetTypes(DEFAULT_ASSET_TYPES);
-    }
-  }, []);
 
 
   useEffect(() => {
@@ -386,10 +765,6 @@ export default function Assets() {
   useEffect(() => {
     fetchAssets();
   }, [fetchAssets]);
-
-  useEffect(() => {
-    fetchAssetTypes();
-  }, [fetchAssetTypes]);
 
   const visibleBranches = useMemo(() => {
     if (isSuperAdmin) return branches;
@@ -409,8 +784,8 @@ export default function Assets() {
         if (String(asset.branch_id) !== String(branchFilter)) return false;
       }
       // Status filter
-      if (statusFilter && statusFilter !== "All") {
-        if (asset.status !== statusFilter) return false;
+      if (statusFilters.length > 0) {
+        if (!statusFilters.includes(asset.status)) return false;
       }
       // Type filter
       if (typeFilter && typeFilter !== "All") {
@@ -421,9 +796,9 @@ export default function Assets() {
         if ((asset.brand || "") !== manufacturerFilter) return false;
       }
       // Condition filter
-      if (conditionFilter && conditionFilter !== "All") {
+      if (conditionFilters.length > 0) {
         const cond = asset.condition_after || asset.condition_before || "";
-        if (cond !== conditionFilter) return false;
+        if (!conditionFilters.includes(cond)) return false;
       }
       // Department filter
       if (departmentFilter && departmentFilter !== "All") {
@@ -431,8 +806,17 @@ export default function Assets() {
         if (dept !== departmentFilter) return false;
       }
       if (assignedFilter && assignedFilter !== "All") {
-        const assigned = asset.assigned_name || asset.borrower_name || "";
+        const assigned = getAssignedAssetValue(asset);
         if (assigned !== assignedFilter) return false;
+      }
+      if (quickFilters.includes("inStock") && asset.status !== "In Stock") {
+        return false;
+      }
+      if (quickFilters.includes("assigned") && !getAssignedAssetValue(asset)) {
+        return false;
+      }
+      if (quickFilters.includes("unassigned") && getAssignedAssetValue(asset)) {
+        return false;
       }
       // Search filter
       if (search && search.trim()) {
@@ -454,15 +838,35 @@ export default function Assets() {
       }
       return true;
     });
-    if (sortLatest) {
-      filtered.sort((a, b) => {
-        const da = new Date(a.created_at || 0).getTime();
-        const db = new Date(b.created_at || 0).getTime();
-        return db - da;
-      });
-    }
+    filtered.sort((a, b) => {
+      if (sortMode === "oldest") {
+        return getSortTimestamp(a, "created_at") - getSortTimestamp(b, "created_at");
+      }
+      if (sortMode === "updated") {
+        return getSortTimestamp(b, "updated_at") - getSortTimestamp(a, "updated_at");
+      }
+      if (sortMode === "alphabetical") {
+        const aName = (a.asset_name || `${a.brand || ""} ${a.model || ""}`.trim() || a.asset_tag || "").toLowerCase();
+        const bName = (b.asset_name || `${b.brand || ""} ${b.model || ""}`.trim() || b.asset_tag || "").toLowerCase();
+        return aName.localeCompare(bName);
+      }
+      return getSortTimestamp(b, "created_at") - getSortTimestamp(a, "created_at");
+    });
     return filtered;
-  }, [assets, branchFilter, isSuperAdmin, statusFilter, typeFilter, manufacturerFilter, conditionFilter, departmentFilter, assignedFilter, search, sortLatest]);
+  }, [
+    assets,
+    branchFilter,
+    isSuperAdmin,
+    statusFilters,
+    typeFilter,
+    manufacturerFilter,
+    conditionFilters,
+    departmentFilter,
+    assignedFilter,
+    quickFilters,
+    search,
+    sortMode,
+  ]);
 
   const branchMetrics = useMemo(() => {
     return visibleBranches.map((branch) => {
@@ -482,6 +886,7 @@ export default function Assets() {
   const totalAssets = visibleAssets.length;
   const totalActive = visibleAssets.filter((asset) => asset.status === "Active").length;
   const totalBorrowed = visibleAssets.filter((asset) => asset.status === "Borrowed").length;
+
 
   /* Branch carousel scroll state */
   const carouselRef = useRef(null);
@@ -571,21 +976,12 @@ export default function Assets() {
   };
 
   const statusMetrics = useMemo(
-    () => {
-      const countableAssets = assets.filter((asset) => {
-        if (isSuperAdmin && branchFilter && branchFilter !== "All" && String(asset.branch_id) !== String(branchFilter)) return false;
-        if (typeFilter !== "All" && asset.asset_type !== typeFilter) return false;
-        if (manufacturerFilter !== "All" && (asset.brand || "") !== manufacturerFilter) return false;
-        return true;
-      });
-      return (
+    () =>
       STATUS_OPTIONS.filter((item) => item !== "All").map((status) => ({
         status,
-        count: countableAssets.filter((asset) => asset.status === status).length,
-      }))
-      );
-    },
-    [assets, branchFilter, isSuperAdmin, manufacturerFilter, typeFilter]
+        count: visibleAssets.filter((asset) => asset.status === status).length,
+      })),
+    [visibleAssets]
   );
 
   const manufacturers = useMemo(() => {
@@ -624,16 +1020,81 @@ export default function Assets() {
   }, [assets]);
 
   // ── Clear all filters ────────────────────────────────────
+  const assetTypeFilterOptions = useMemo(() => {
+    const customTypes = new Map();
+
+    assets.forEach((asset) => {
+      const normalized = normalizeAssetType(asset.asset_type);
+      if (!normalized) return;
+
+      const knownType = getKnownAssetType(normalized, BASE_ASSET_TYPES);
+      if (BASE_ASSET_TYPES.includes(knownType) || knownType.toLowerCase() === "other") return;
+
+      const key = knownType.toLowerCase();
+      if (!customTypes.has(key)) {
+        customTypes.set(key, knownType);
+      }
+    });
+
+    return [
+      "All",
+      ...BASE_ASSET_TYPES,
+      ...Array.from(customTypes.values()).sort((a, b) => a.localeCompare(b)),
+      "Other",
+    ];
+  }, [assets]);
+
+  const sortFilterButtonLabel = useMemo(
+    () =>
+      buildFilterSummary({
+        sortMode,
+        sortTouched,
+        statusFilters,
+        quickFilters,
+        conditionFilters,
+        typeFilter,
+        manufacturerFilter,
+        departmentFilter,
+        assignedFilter,
+      }),
+    [
+      sortMode,
+      sortTouched,
+      statusFilters,
+      quickFilters,
+      conditionFilters,
+      typeFilter,
+      manufacturerFilter,
+      departmentFilter,
+      assignedFilter,
+    ]
+  );
+
+  const toggleQuickFilter = (value) => {
+    setQuickFilters((prev) => {
+      const next = toggleArrayValue(prev, value);
+      if (value === "assigned" && next.includes("assigned")) {
+        return next.filter((item) => item !== "unassigned");
+      }
+      if (value === "unassigned" && next.includes("unassigned")) {
+        return next.filter((item) => item !== "assigned");
+      }
+      return next;
+    });
+  };
+
   const clearFilters = () => {
     setBranchFilter(isSuperAdmin ? "All" : String(currentBranchId || ""));
-    setStatusFilter("All");
+    setStatusFilters([]);
     setTypeFilter("All");
     setManufacturerFilter("All");
-    setConditionFilter("All");
+    setConditionFilters([]);
     setDepartmentFilter("All");
     setAssignedFilter("All");
+    setQuickFilters([]);
     setSearch("");
-    setSortLatest(false);
+    setSortMode("latest");
+    setSortTouched(false);
   };
 
 
@@ -649,37 +1110,32 @@ export default function Assets() {
     setModalError("");
   };
 
-  const handleSaveAsset = async (payload, id) => {
+  const handleSaveAsset = async (payload, assetId) => {
     try {
       setSaving(true);
       setModalError("");
-      const body = { ...payload, ...buildTicketPayload(user) };
-      const res = await fetch(id ? `${API_BASE}/hardware-assets/${id}` : `${API_BASE}/hardware-assets`, {
-        method: id ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Failed to ${id ? "update" : "create"} asset.`);
-      const savedAsset = data.data || data;
-      const procurementRes = await fetch(`${API_BASE}/hardware-assets/${savedAsset.asset_id || id}/procurement`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vendor: payload.supplier || null,
-          invoice_number: payload.invoice_number || null,
-        }),
-      });
-      const procurementBody = await procurementRes.json();
-      if (!procurementRes.ok || procurementBody.success === false) {
-        throw new Error(procurementBody.message || procurementBody.error || "Failed to save procurement details.");
+      const assetType = getKnownAssetType(payload.asset_type, assetTypeFilterOptions);
+      const body = buildTicketPayload(user, { ...payload, asset_type: assetType });
+
+      const res = await fetch(
+        assetId ? `${API_BASE}/hardware-assets/${assetId}` : `${API_BASE}/hardware-assets`,
+        {
+          method: assetId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.error || data.message || "Unable to save asset");
       }
+
       await fetchAssets();
-      await fetchAssetTypes();
       closeAssetModal();
     } catch (err) {
-      console.error(err);
-      setModalError(err.message);
+      console.error("Save hardware asset failed:", err);
+      setModalError(err.message || "Unable to save asset");
     } finally {
       setSaving(false);
     }
@@ -722,20 +1178,20 @@ export default function Assets() {
     }
   };
 
-  const exportAssets = () => {
-    const headers = ["Asset Tag", "Serial Number", "Asset Name", "Type", "Brand", "Model", "Branch", "Department", "Assigned User", "Status", "Purchase Date", "Purchase Cost", "Vendor", "Warranty End"];
-    const rows = visibleAssets.map((asset) => [asset.asset_tag, asset.serial_number, asset.asset_name, asset.asset_type, asset.brand, asset.model, asset.branch_name, asset.department || asset.team_department, asset.assigned_name || asset.borrower_name, asset.status, asset.purchase_date, asset.purchase_price, asset.vendor || asset.supplier, asset.warranty_expiration]);
-    const csv = [headers, ...rows].map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    const link = document.createElement("a"); link.href = url; link.download = `hardware-assets-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="space-y-6">
-      <PageHero eyebrow="Asset Management" title="Hardware Assets" subtitle="Track company laptops, desktops, printers, phones, and lifecycle activity by branch." actions={<>
-          <span className="rounded-xl bg-white/10 px-4 py-3 text-sm font-bold">
+      <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 className="text-3xl font-black">Hardware Assets</h1>
+          <p className="mt-2 max-w-2xl text-slate-200">
+            Track company laptops, desktops, printers, phones and hardware by branch with status monitoring, borrower history, and lifecycle controls.
+          </p>
+          <p className="mt-4 text-sm text-blue-100">
             {totalAssets} total assets · {totalActive} active · {totalBorrowed} borrowed
-          </span>
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={openAddAsset}
             className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
@@ -743,11 +1199,12 @@ export default function Assets() {
             <Plus size={18} />
             Add Asset
           </button>
-          <button onClick={exportAssets} className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
+          <button className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
             <Download size={18} />
             Export
           </button>
-        </>} />
+        </div>
+      </section>
 
       {/* Branch Filter — compact searchable dropdown */}
       {isSuperAdmin && (
@@ -881,14 +1338,15 @@ export default function Assets() {
           </div>
         )}
       </section>
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        <div className="grid gap-4 md:grid-cols-3">
           {statusMetrics.map((item) => {
-            const isActive = statusFilter === item.status;
+            const isActive = statusFilters.includes(item.status);
             return (
               <button
                 key={item.status}
                 type="button"
-                onClick={() => setStatusFilter(isActive ? "All" : item.status)}
+                onClick={() => setStatusFilters((prev) => toggleArrayValue(prev, item.status))}
                 className={`rounded-3xl border p-5 text-left shadow-sm transition hover:shadow-md ${isActive ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200" : "border-slate-200 bg-white"}`}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -900,6 +1358,16 @@ export default function Assets() {
               </button>
             );
           })}
+        </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <Filter size={20} className="text-slate-500" />
+            <div>
+              <p className="text-sm font-black text-slate-900">Branch Status Summary</p>
+              <p className="text-sm text-slate-500">Review current hardware status for each branch at a glance.</p>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="flex flex-wrap items-center gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -912,94 +1380,34 @@ export default function Assets() {
             className="w-full bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
           />
         </div>
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Type: All</option>
-          {assetTypes.map((type) => (
-            <option key={type} value={type}>
-              {type}
-            </option>
-          ))}
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Status: All</option>
-          {STATUS_OPTIONS.filter((s) => s !== "All").map((status) => (
-            <option key={status} value={status}>
-              {status}
-            </option>
-          ))}
-        </select>
-        <select
-          value={manufacturerFilter}
-          onChange={(e) => setManufacturerFilter(e.target.value)}
-          className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Brand: All</option>
-          {manufacturers.filter((m) => m !== "All").map((manufacturer) => (
-            <option key={manufacturer} value={manufacturer}>
-              {manufacturer}
-            </option>
-          ))}
-        </select>
-        <select
-          value={conditionFilter}
-          onChange={(e) => setConditionFilter(e.target.value)}
-          className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Condition: All</option>
-          {conditionOptions.filter((c) => c !== "All").map((cond) => (
-            <option key={cond} value={cond}>
-              {cond}
-            </option>
-          ))}
-        </select>
-        <select
-          value={departmentFilter}
-          onChange={(e) => setDepartmentFilter(e.target.value)}
-          className="min-w-[120px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Department: All</option>
-          {departmentOptions.filter((d) => d !== "All").map((dept) => (
-            <option key={dept} value={dept}>
-              {dept}
-            </option>
-          ))}
-        </select>
-        <select
-          value={assignedFilter}
-          onChange={(e) => setAssignedFilter(e.target.value)}
-          className="min-w-[140px] flex-1 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 outline-none"
-        >
-          <option value="All">Assigned: All</option>
-          {assignedOptions.filter((name) => name !== "All").map((name) => <option key={name} value={name}>{name}</option>)}
-        </select>
-        {isSuperAdmin && (
-          <button
-            onClick={() => setSortLatest((prev) => !prev)}
-            className={`flex items-center gap-1 rounded-3xl border px-4 py-3 text-sm font-black transition ${sortLatest ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-200" : "border-slate-300 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
-            title="Sort by newest first"
-          >
-            <svg className={`h-4 w-4 ${sortLatest ? "text-blue-600" : "text-slate-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4" />
-            </svg>
-            Latest
-          </button>
-        )}
-        <button
-          onClick={clearFilters}
-          className="flex items-center gap-1 rounded-3xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-          title="Clear all filters"
-        >
-          <X size={16} />
-          Clear
-        </button>
+        <SortFilterDropdown
+          buttonLabel={sortFilterButtonLabel}
+          sortMode={sortMode}
+          onSortChange={(value) => {
+            setSortMode(value);
+            setSortTouched(true);
+          }}
+          statusFilters={statusFilters}
+          onStatusToggle={(value) => setStatusFilters((prev) => toggleArrayValue(prev, value))}
+          quickFilters={quickFilters}
+          onQuickToggle={toggleQuickFilter}
+          conditionFilters={conditionFilters}
+          conditionOptions={conditionOptions}
+          onConditionToggle={(value) => setConditionFilters((prev) => toggleArrayValue(prev, value))}
+          typeFilter={typeFilter}
+          assetTypeOptions={assetTypeFilterOptions}
+          onTypeChange={setTypeFilter}
+          manufacturerFilter={manufacturerFilter}
+          manufacturerOptions={manufacturers}
+          onManufacturerChange={setManufacturerFilter}
+          departmentFilter={departmentFilter}
+          departmentOptions={departmentOptions}
+          onDepartmentChange={setDepartmentFilter}
+          assignedFilter={assignedFilter}
+          assignedOptions={assignedOptions}
+          onAssignedChange={setAssignedFilter}
+          onClear={clearFilters}
+        />
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1046,9 +1454,7 @@ export default function Assets() {
               <th className="px-4 py-3">Location</th>
               <th className="px-4 py-3">Purchase Date</th>
               <th className="px-4 py-3">Warranty</th>
-              <th className="px-4 py-3">Lifespan</th>
               <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Monitoring</th>
               <th className="px-4 py-3">Borrowed By</th>
               <th className="px-4 py-3">Department</th>
               <th className="px-4 py-3">Borrow Date</th>
@@ -1060,7 +1466,7 @@ export default function Assets() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="17" className="px-4 py-12 text-center text-slate-400">
+                <td colSpan="16" className="px-4 py-12 text-center text-slate-400">
                   <div className="inline-flex items-center gap-2 text-sm font-semibold">
                     <Loader2 className="h-4 w-4 animate-spin" /> Loading assets...
                   </div>
@@ -1068,7 +1474,7 @@ export default function Assets() {
               </tr>
             ) : visibleAssets.length === 0 ? (
               <tr>
-                <td colSpan="17" className="px-4 py-12 text-center text-slate-400">
+                <td colSpan="16" className="px-4 py-12 text-center text-slate-400">
                   No hardware assets found.
                 </td>
               </tr>
@@ -1084,24 +1490,10 @@ export default function Assets() {
                   <td className="px-4 py-4 text-sm text-slate-600">{asset.location || asset.department || asset.team_department || "—"}</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{formatDate(asset.purchase_date)}</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{formatDate(asset.warranty_expiration || asset.warranty)}</td>
-                  <td className="px-4 py-4"><LifespanBadge asset={asset} /></td>
                   <td className="px-4 py-4">
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${getStatusClasses(asset.status)}`}>
                       {asset.status}
                     </span>
-                  </td>
-                  <td className="px-4 py-4">
-                    {asset.monitoring_device_uuid ? (
-                      <div className="flex flex-col gap-1 text-xs">
-                        <span className="inline-flex w-fit items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 font-black text-blue-700">
-                          <ShieldCheck size={12} /> Linked
-                        </span>
-                        {asset.monitoring_status === 'online' && <span className="text-green-600 font-bold">Online</span>}
-                        {asset.monitoring_status === 'offline' && <span className="text-slate-400 font-bold">Offline</span>}
-                      </div>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-black text-slate-500">Not Linked</span>
-                    )}
                   </td>
                   <td className="px-4 py-4 text-sm text-slate-600">{asset.borrower_name || "—"}</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{asset.borrower_department || "—"}</td>
@@ -1174,7 +1566,6 @@ export default function Assets() {
       {showAssetModal && (
         <AssetFormModal
           asset={editingAsset}
-          assetTypes={assetTypes}
           branches={visibleBranches}
           isSuperAdmin={isSuperAdmin}
           currentBranchId={currentBranchId}
@@ -1196,7 +1587,7 @@ export default function Assets() {
           error={modalError}
         />
       )}
-      {viewingAsset && <AssetDetailsModal asset={viewingAsset} onClose={() => setViewingAsset(null)} onUpdate={() => { loadAssets(); setViewingAsset(null); }} />}
+      {viewingAsset && <AssetDetailsModal asset={viewingAsset} onClose={() => setViewingAsset(null)} />}
       {historyAsset && (
         <AssetHistoryModal asset={historyAsset} records={historyRecords} loading={historyLoading} onClose={() => setHistoryAsset(null)} />
       )}
@@ -1228,19 +1619,7 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
         </div>
         <div className="mt-4 space-y-2 text-sm text-slate-600">
           <p><span className="font-bold text-slate-800">Location:</span> {location}</p>
-          <p><span className="font-bold text-slate-800">Assigned User:</span> {assignedTo}</p>
-          <p className="flex items-center gap-2"><span className="font-bold text-slate-800">Lifespan:</span> <LifespanBadge asset={asset} /></p>
-          <p className="flex items-center gap-2 pt-1 border-t border-slate-50"><span className="font-bold text-slate-800">Monitoring:</span> 
-            {asset.monitoring_device_uuid ? (
-              <span className="flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-black text-blue-700">
-                <ShieldCheck size={12} /> Linked {asset.monitoring_status === 'online' ? '(Online)' : ''}
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">
-                Not Linked
-              </span>
-            )}
-          </p>
+          <p><span className="font-bold text-slate-800">Assigned:</span> {assignedTo}</p>
         </div>
         <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
           <button onClick={onView} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"><Eye size={14} /> View</button>
@@ -1252,48 +1631,149 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
   );
 }
 
-function AssetDetailsModal({ asset, onClose, onUpdate }) {
-  const navigate = useNavigate();
-  const [loadingLink, setLoadingLink] = useState(false);
+function AssetDetailsModal({ asset, onClose }) {
+  const assetName = formatAssetDetailValue(firstAssetValue(asset, [
+    "asset_name",
+    (item) => joinAssetValues([
+      firstAssetValue(item, ["manufacturer", "brand", "manufacturer.name", "brand.name"]),
+      firstAssetValue(item, ["model", "model_name", "model.name"]),
+    ], " "),
+    "asset_tag",
+  ]));
+  const brandModel = formatAssetDetailValue(joinAssetValues([
+    firstAssetValue(asset, ["brand", "manufacturer", "brand.name", "manufacturer.name"]),
+    firstAssetValue(asset, ["model", "model_name", "model.name"]),
+  ]));
 
-  const handleUnlinkDevice = async () => {
-    if (!window.confirm("This will disconnect the monitoring agent from this hardware asset.\nThe monitoring device will continue reporting activity, but it will become an Unlinked Device until linked again.")) return;
-    setLoadingLink(true);
-    try {
-      const res = await fetch(`${API_BASE}/hardware-assets/${asset.asset_id}/link-device`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ device_id: null })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to unlink device");
-      if (onUpdate) onUpdate();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setLoadingLink(false);
-    }
-  };
-  const isLinked = !!asset.monitoring_device_uuid;
+  const detailSections = [
+    {
+      title: "Basic Information",
+      items: [
+        assetDetailItem("Asset Tag", asset, ["asset_tag"]),
+        { label: "Asset Name", value: assetName },
+        assetDetailItem("Serial Number", asset, ["serial_number"]),
+        assetDetailItem("Asset Type", asset, ["asset_type"]),
+        { label: "Brand / Model", value: brandModel },
+        assetDetailItem("Manufacturer", asset, ["manufacturer", "brand", "manufacturer.name", "brand.name"]),
+        assetDetailItem("Branch", asset, ["branch_name", "branch.branch_name", "branch.name"]),
+        assetDetailItem("Location", asset, [
+          "location",
+          "branch_location",
+          "branch.branch_location",
+          "branch.location",
+          "department",
+          "team_department",
+        ]),
+      ],
+    },
+    {
+      title: "Assignment Information",
+      items: [
+        assetDetailItem("Assigned Name", asset, ["assigned_name", "borrower_name"]),
+        assetDetailItem("Borrowed By", asset, ["borrower_name", "assigned_name"]),
+        assetDetailItem("Borrower Email", asset, ["borrower_email"]),
+        assetDetailItem("Employee ID", asset, ["employee_id"]),
+        assetDetailItem("Department", asset, ["borrower_department", "team_department", "department"]),
+        assetDetailItem("Assigned Date", asset, ["assigned_date", "borrow_date"], formatDetailDate),
+        assetDetailItem("Borrow Date", asset, ["borrow_date", "assigned_date"], formatDetailDate),
+        assetDetailItem("Expected Return Date", asset, ["expected_return_date"], formatDetailDate),
+        assetDetailItem("Returned Name", asset, ["returned_name", "returned_name_forms"]),
+        assetDetailItem("Returned Name (Forms)", asset, ["returned_name_forms", "returned_name"]),
+        assetDetailItem("Returned Date", asset, ["returned_date", "actual_return_date"], formatDetailDate),
+        assetDetailItem("Actual Return Date", asset, ["actual_return_date", "returned_date"], formatDetailDate),
+      ],
+    },
+    {
+      title: "Purchase Information",
+      items: [
+        assetDetailItem("Purchase Date", asset, ["purchase_date"], formatDetailDate),
+        assetDetailItem("Purchase Price", asset, ["purchase_price"]),
+        assetDetailItem("Supplier", asset, ["supplier", "supplier.name", "supplier.supplier_name"]),
+        assetDetailItem("Warranty", asset, ["warranty_expiration", "warranty"], formatDetailDate),
+      ],
+    },
+    {
+      title: "Technical Specifications",
+      items: [
+        assetDetailItem("Processor", asset, ["processor"]),
+        assetDetailItem("RAM", asset, ["ram"]),
+        assetDetailItem("Storage", asset, ["storage"]),
+        assetDetailItem("Accessories", asset, ["accessories"]),
+        assetDetailItem("Signature Link", asset, ["signature_link"]),
+        assetDetailItem("Attachments", asset, ["attachments"]),
+      ],
+    },
+    {
+      title: "Status & Condition",
+      items: [
+        assetDetailItem("Status", asset, ["status"]),
+        assetDetailItem("Condition Notes", asset, ["condition_notes", "notes"]),
+        assetDetailItem("Condition Before", asset, ["condition_before"]),
+        assetDetailItem("Condition After", asset, ["condition_after"]),
+        assetDetailItem("Notes", asset, ["notes", "condition_notes"]),
+        assetDetailItem("Created At", asset, ["created_at"], formatDetailDateTime),
+        assetDetailItem("Updated At", asset, ["updated_at"], formatDetailDateTime),
+      ],
+    },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 p-6">
+          <div>
+            <h2 className="text-xl font-black text-slate-900">Asset Details</h2>
+            <p className="mt-1 text-sm font-semibold text-slate-500">{assetName}</p>
+          </div>
+          <button onClick={onClose} className="rounded-full p-2 text-slate-500 hover:bg-slate-100">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="p-6">
+          <div className="mb-6 flex aspect-[16/7] items-center justify-center overflow-hidden rounded-2xl bg-slate-100">
+            {asset.image_url ? (
+              <img
+                src={asset.image_url}
+                alt={assetName === EMPTY_DETAIL_VALUE ? "Asset photo" : assetName}
+                className="h-full w-full object-contain"
+              />
+            ) : (
+              <span className="font-bold text-slate-400">No Image</span>
+            )}
+          </div>
+          <div className="space-y-6">
+            {detailSections.map((section) => (
+              <AssetDetailSection key={section.title} title={section.title} items={section.items} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssetDetailSection({ title, items }) {
+  return (
+    <section>
+      <h3 className="mb-3 text-sm font-black uppercase tracking-[0.16em] text-slate-500">{title}</h3>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-black uppercase tracking-wider text-slate-400">{item.label}</p>
+            <p className="mt-1 whitespace-pre-wrap break-words font-bold text-slate-800">{item.value}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LegacyAssetDetailsModal({ asset, onClose }) {
   const details = [
     ["Asset Tag", asset.asset_tag], ["Type", asset.asset_type], ["Brand / Model", `${asset.brand || "—"} / ${asset.model || "—"}`],
     ["Serial Number", asset.serial_number], ["Status", asset.status], ["Branch", asset.branch_name],
-    ["Location", asset.location || asset.department || asset.team_department], ["Assigned User", asset.assigned_name || asset.borrower_name],
+    ["Location", asset.location || asset.department || asset.team_department], ["Assigned To", asset.assigned_name || asset.borrower_name],
     ["Purchase Date", formatDate(asset.purchase_date)], ["Warranty", formatDate(asset.warranty_expiration || asset.warranty)],
-    ["Useful Life", `${asset.useful_life_months || 36} months`], ["Expected End of Life", formatDate(asset.end_of_life_date)],
-    ["Remaining Useful Life", `${asset.remaining_life_months ?? asset.remaining_useful_life_months ?? 0} months`], ["Lifespan Status", asset.lifespan_status || "Healthy"],
-    ["Vendor", asset.vendor || asset.supplier], ["Invoice Number", asset.invoice_number],
-  ];
-
-  const monitoringDetails = asset.monitoring_device_uuid ? [
-    ["Monitoring Status", "Linked"], 
-    ["Device UUID", asset.monitoring_device_uuid || "—"],
-    ["Hostname", asset.monitoring_hostname || "—"], 
-    ["Online / Offline", asset.monitoring_status || "—"],
-    ["Last Seen", formatDate(asset.monitoring_last_seen)], 
-    ["Logged-in User", asset.monitoring_logged_in_user || "—"]
-  ] : [
-    ["Monitoring Status", "Not Linked"]
   ];
 
   return (
@@ -1303,32 +1783,7 @@ function AssetDetailsModal({ asset, onClose, onUpdate }) {
         <div className="p-6">
           <div className="mb-6 flex aspect-[16/7] items-center justify-center overflow-hidden rounded-2xl bg-slate-100">{asset.image_url ? <img src={asset.image_url} alt={asset.asset_name} className="h-full w-full object-contain" /> : <span className="font-bold text-slate-400">No Image</span>}</div>
           <h3 className="text-2xl font-black text-slate-900">{asset.asset_name}</h3>
-          
-          <h4 className="mt-6 mb-2 font-black text-slate-900">Hardware Information</h4>
-          <div className="grid gap-4 sm:grid-cols-2">{details.map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 font-bold text-slate-800">{value || "—"}</p></div>)}</div>
-
-          <div className="mt-6 flex items-center justify-between">
-            <h4 className="font-black text-slate-900">Endpoint Monitoring</h4>
-          </div>
-
-          {isLinked ? (
-            <>
-              <div className="mt-2 grid gap-4 sm:grid-cols-2">{monitoringDetails.map(([label, value]) => <div key={label} className="rounded-2xl bg-blue-50/50 p-4 border border-blue-100"><p className="text-xs font-black uppercase tracking-wider text-blue-400">{label}</p><p className="mt-1 font-bold text-blue-900">{value || "—"}</p></div>)}</div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button onClick={() => navigate(`/dashboard/laptop-monitoring?tab=devices&device_uuid=${asset.monitoring_device_uuid}`)} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 hover:bg-blue-100">View Monitoring Details</button>
-                <button onClick={() => navigate(`/dashboard/laptop-monitoring?tab=activity&device_uuid=${asset.monitoring_device_uuid}`)} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 hover:bg-blue-100">View Activity Timeline</button>
-                <button onClick={() => navigate(`/dashboard/laptop-monitoring?tab=screenshots&device_uuid=${asset.monitoring_device_uuid}`)} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 hover:bg-blue-100">View Screenshots</button>
-                <button onClick={handleUnlinkDevice} disabled={loadingLink} className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-50">{loadingLink ? "Unlinking..." : "Unlink Device"}</button>
-              </div>
-            </>
-          ) : (
-            <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
-              <ShieldCheck className="mx-auto text-slate-400 mb-2" size={32} />
-              <h5 className="font-bold text-slate-900">Not Linked</h5>
-              <p className="text-sm text-slate-500 mt-1 mb-4">This hardware asset is not yet connected to a monitoring agent.</p>
-              <button onClick={() => navigate('/dashboard/laptop-monitoring?tab=devices')} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Go to Laptop Monitoring to Link</button>
-            </div>
-          )}
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">{details.map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 font-bold text-slate-800">{value || "—"}</p></div>)}</div>
         </div>
       </div>
     </div>
@@ -1346,7 +1801,7 @@ function AssetHistoryModal({ asset, records, loading, onClose }) {
   );
 }
 
-function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranchId, onClose, onSave, loading, error, branches = [], isSuperAdmin = false, selectedBranch = "All" }) {
+function AssetFormModal({ asset, currentBranchId, onClose, onSave, loading, error, branches = [], isSuperAdmin = false, selectedBranch = "All" }) {
   const effectiveBranchId = !isSuperAdmin
     ? String(currentBranchId || "")
     : selectedBranch && selectedBranch !== "All"
@@ -1355,16 +1810,6 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
   const [form, setForm] = useState(() => getAssetFormInitialState(asset, effectiveBranchId));
   const [localError, setLocalError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
-  const [specifiedAssetType, setSpecifiedAssetType] = useState("");
-  const [savingAssetType, setSavingAssetType] = useState(false);
-  const assetTypeOptions = useMemo(() => {
-    const names = [...assetTypes];
-    if (form.asset_type && !names.some((name) => name.toLowerCase() === form.asset_type.toLowerCase())) names.push(form.asset_type);
-    const unique = [...new Map(names.map((name) => [name.toLowerCase(), name])).values()];
-    return unique
-      .sort((a, b) => (a.toLowerCase() === "other" ? 1 : b.toLowerCase() === "other" ? -1 : a.localeCompare(b)))
-      .map((name) => ({ label: name, value: name }));
-  }, [assetTypes, form.asset_type]);
 
   useEffect(() => {
     const initBranch = !isSuperAdmin
@@ -1375,17 +1820,21 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
     setForm(getAssetFormInitialState(asset, initBranch));
     setLocalError("");
     setFieldErrors({});
-    setSpecifiedAssetType("");
   }, [asset, currentBranchId, isSuperAdmin, selectedBranch]);
 
 
   const updateField = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [key]: value,
+      ...(key === "asset_type" && value !== "Other" ? { custom_asset_type: "" } : {}),
+    }));
     if (localError) setLocalError("");
-    if (fieldErrors[key]) {
+    if (fieldErrors[key] || (key === "asset_type" && fieldErrors.custom_asset_type)) {
       setFieldErrors((prev) => {
         const next = { ...prev };
         delete next[key];
+        if (key === "asset_type") delete next.custom_asset_type;
         return next;
       });
     }
@@ -1408,7 +1857,7 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = async (event) => {
+  const handleSubmit = (event) => {
     event.preventDefault();
 
     const requiredFields = [
@@ -1428,8 +1877,15 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
       }
       return acc;
     }, {});
-    if (form.asset_type === "Other" && !specifiedAssetType.trim()) {
-      nextFieldErrors.specified_asset_type = "Specify Asset Type is required.";
+    const effectiveAssetType =
+      form.asset_type === "Other" ? normalizeAssetType(form.custom_asset_type) : normalizeAssetType(form.asset_type);
+
+    if (form.asset_type === "Other") {
+      if (!effectiveAssetType) {
+        nextFieldErrors.custom_asset_type = "Specify Other Asset Type is required.";
+      } else if (effectiveAssetType.toLowerCase() === "other") {
+        nextFieldErrors.custom_asset_type = "Enter the actual asset type.";
+      }
     }
 
     if (Object.keys(nextFieldErrors).length) {
@@ -1446,32 +1902,12 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
       type: file.type,
     }));
 
-    if (typeof onSave !== "function") {
-      setLocalError("Save handler is not configured. Please contact support.");
-      return;
-    }
-
-    try {
-      let finalAssetType = form.asset_type;
-      if (form.asset_type === "Other") {
-        setSavingAssetType(true);
-        const typeResponse = await fetch(`${API_BASE}/hardware-assets/types`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type_name: specifiedAssetType.trim() }),
-        });
-        const typeBody = await typeResponse.json();
-        if (!typeResponse.ok || typeBody.success === false) {
-          throw new Error(typeBody.message || typeBody.error || "Failed to save asset type.");
-        }
-        finalAssetType = typeBody.data.type_name;
-      }
-
-      await onSave(
-        {
+    onSave(
+      {
         ...form,
-        asset_type: finalAssetType,
         asset_name: `${manufacturer} ${model}`.trim() || form.asset_tag,
+        asset_type: effectiveAssetType,
+        custom_asset_type: undefined,
         brand: manufacturer,
         manufacturer,
         model,
@@ -1483,21 +1919,16 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
         notes: form.condition_notes || null,
         attachments,
       },
-        asset?.asset_id
-      );
-    } catch (saveError) {
-      setLocalError(saveError.message || "Unable to save asset.");
-    } finally {
-      setSavingAssetType(false);
-    }
+      asset?.asset_id
+    );
   };
 
   const displayError = localError || error;
 
   return (
-    <div className="astrea-modal-backdrop">
-      <div className="astrea-modal-panel flex max-w-5xl flex-col overflow-hidden">
-        <div className="astrea-modal-header shrink-0">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-7 py-5">
           <div>
             <h2 className="text-xl font-black text-slate-900">{asset ? "Edit Asset" : "Add Asset"}</h2>
             <p className="mt-1 text-sm text-slate-500">
@@ -1576,19 +2007,16 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
                 <AssetSelect
                   value={form.asset_type}
                   onChange={(value) => updateField("asset_type", value)}
-                  options={assetTypeOptions}
+                  options={MODAL_ASSET_TYPE_OPTIONS}
                   required
                 />
               </AssetField>
               {form.asset_type === "Other" && (
-                <AssetField label="Specify Asset Type" required error={fieldErrors.specified_asset_type}>
+                <AssetField label="Specify Other Asset Type" required error={fieldErrors.custom_asset_type}>
                   <AssetInput
-                    value={specifiedAssetType}
-                    onChange={(value) => {
-                      setSpecifiedAssetType(value);
-                      if (fieldErrors.specified_asset_type) setFieldErrors((current) => ({ ...current, specified_asset_type: "" }));
-                    }}
-                    placeholder="e.g. UPS, Router, Projector, CCTV"
+                    value={form.custom_asset_type}
+                    onChange={(value) => updateField("custom_asset_type", value)}
+                    placeholder="Router"
                     required
                   />
                 </AssetField>
@@ -1645,20 +2073,12 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
                   placeholder="Supplier name..."
                 />
               </AssetField>
-              <AssetField label="Invoice Number">
-                <AssetInput
-                  value={form.invoice_number}
-                  onChange={(value) => updateField("invoice_number", value)}
-                  placeholder="Invoice reference..."
-                />
-              </AssetField>
-              <AssetField label="Assigned User (Optional)">
+              <AssetField label="Assigned Name">
                 <AssetInput
                   value={form.assigned_name}
                   onChange={(value) => updateField("assigned_name", value)}
-                  placeholder="Enter name or email"
+                  placeholder="Enter a name or email"
                 />
-                <p className="mt-1 text-xs text-slate-400">Leave blank for shared branch assets such as WiFi, printers, routers, or switches.</p>
               </AssetField>
               <AssetField label="Returned Name">
                 <AssetInput
@@ -1750,21 +2170,21 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
             </div>
           </div>
 
-          <div className="astrea-modal-footer sticky bottom-0 z-10 shrink-0 bg-white">
+          <div className="sticky bottom-0 z-10 flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-white px-7 py-4 sm:flex-row sm:justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="astrea-button astrea-button-secondary"
+              className="rounded-2xl border border-slate-200 bg-white px-6 py-3 font-black text-slate-600 transition hover:bg-slate-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={loading || savingAssetType}
-              className="astrea-button astrea-button-primary px-8"
+              disabled={loading}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-8 py-3 font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {!loading && !asset && <Plus size={18} />}
-              {loading || savingAssetType ? "Saving..." : asset ? "Save Changes" : "Add Asset"}
+              {loading ? "Saving..." : asset ? "Save Changes" : "Add Asset"}
             </button>
           </div>
         </form>
@@ -1774,14 +2194,14 @@ function AssetFormModal({ asset, assetTypes = DEFAULT_ASSET_TYPES, currentBranch
 }
 
 const assetInputClass =
-  "astrea-control disabled:cursor-not-allowed disabled:opacity-60";
+  "w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15 disabled:bg-slate-100 disabled:text-slate-500";
 
 function AssetField({ label, required = false, className = "", error = "", children }) {
   return (
     <label className={`block space-y-2 ${className}`}>
-      <span className="astrea-field-label text-xs uppercase tracking-[0.12em]">
+      <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">
         {label}
-        {required && <span className="astrea-required"> *</span>}
+        {required && <span> *</span>}
       </span>
       {children}
       {error && <span className="block text-xs font-bold text-rose-600">{error}</span>}
