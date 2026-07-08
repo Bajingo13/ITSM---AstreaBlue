@@ -613,8 +613,8 @@ async function ensureRa10173Tables() {
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS consent_audit_logs (
-        id BIGSERIAL PRIMARY KEY,
-        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        log_id BIGSERIAL PRIMARY KEY,
+        employee_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
         action VARCHAR(50) NOT NULL,
         details JSONB,
         ip_address VARCHAR(45),
@@ -623,7 +623,7 @@ async function ensureRa10173Tables() {
     `);
 
     await db.query(`
-      CREATE INDEX IF NOT EXISTS consent_audit_user_idx ON consent_audit_logs (user_id)
+      CREATE INDEX IF NOT EXISTS consent_audit_employee_idx ON consent_audit_logs (employee_id)
     `);
     await db.query(`
       CREATE INDEX IF NOT EXISTS consent_audit_action_idx ON consent_audit_logs (action)

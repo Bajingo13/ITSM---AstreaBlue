@@ -379,7 +379,7 @@ router.get("/all", requireAuth, async (req, res) => {
       whereClause = "";
     } else if (role === "admin") {
       whereClause = "WHERE cd.branch_id = $1";
-      queryArgs.push(actor.branch_id);
+      queryArgs.push(actor.branchId || actor.branch_id);
     } else {
       whereClause = "WHERE cd.employee_id = $1";
       queryArgs.push(actor.userId || actor.user_id);
