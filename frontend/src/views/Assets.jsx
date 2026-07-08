@@ -1180,29 +1180,33 @@ export default function Assets() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-black">Hardware Assets</h1>
-          <p className="mt-2 max-w-2xl text-slate-200">
-            Track company laptops, desktops, printers, phones and hardware by branch with status monitoring, borrower history, and lifecycle controls.
-          </p>
-          <p className="mt-4 text-sm text-blue-100">
-            {totalAssets} total assets · {totalActive} active · {totalBorrowed} borrowed
-          </p>
-        </div>
+      <section className="astrea-page-hero relative overflow-hidden rounded-[28px] border border-white/15 px-7 py-8 text-white shadow-[var(--astrea-hero-shadow)] lg:px-10 lg:py-10">
+        <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full border-[34px] border-cyan-200/10" />
+        <div className="pointer-events-none absolute bottom-[-110px] right-24 h-56 w-56 rounded-full bg-cyan-300/10 blur-2xl" />
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl">
+            <h1 className="text-3xl font-black sm:text-4xl">Hardware Assets</h1>
+            <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-blue-100 sm:text-base">
+              Track company laptops, desktops, printers, phones and hardware by branch with status monitoring, borrower history, and lifecycle controls.
+            </p>
+            <p className="mt-4 text-sm text-cyan-100">
+              {totalAssets} total assets · {totalActive} active · {totalBorrowed} borrowed
+            </p>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={openAddAsset}
-            className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
-          >
-            <Plus size={18} />
-            Add Asset
-          </button>
-          <button className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
-            <Download size={18} />
-            Export
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={openAddAsset}
+              className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
+            >
+              <Plus size={18} />
+              Add Asset
+            </button>
+            <button className="inline-flex items-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-black text-white shadow-sm backdrop-blur-sm transition hover:bg-white/20">
+              <Download size={18} />
+              Export
+            </button>
+          </div>
         </div>
       </section>
 

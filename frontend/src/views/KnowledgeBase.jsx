@@ -311,91 +311,112 @@ export default function KnowledgeBase() {
 function ArticleDrawer({ article, canManage, onClose, onEdit, onDelete }) {
   return (
     <div className="astrea-modal-backdrop">
-      <div className="astrea-modal-panel flex max-w-4xl flex-col overflow-hidden">
-        <div className="astrea-modal-header shrink-0">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-widest text-blue-700">
-                {article.category || "General"}
-              </p>
-              <h2 className="mt-1 text-2xl font-black text-slate-900">
-                {article.title}
-              </h2>
-              <p className="mt-2 text-sm font-semibold text-slate-500">Knowledge Base Article</p>
-            </div>
-            <button
-              onClick={onClose}
-              className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            >
-              <X size={22} />
-            </button>
-          </div>
+      <div className="astrea-modal-panel flex max-w-4xl flex-col overflow-hidden shadow-2xl">
+        {/* ── Header ── */}
+        <div className="relative shrink-0 border-b border-slate-200 px-8 py-6">
+          <button
+            onClick={onClose}
+            className="absolute right-5 top-5 rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          >
+            <X size={22} />
+          </button>
+          <p className="inline-flex rounded-full bg-blue-50 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-widest text-blue-700">
+            {article.category || "General"}
+          </p>
+          <h2 className="mt-3 pr-12 text-2xl font-black leading-tight text-slate-900">
+            {article.title}
+          </h2>
+          <p className="mt-1.5 text-sm font-medium text-slate-500">Knowledge Base Article</p>
         </div>
 
-        <div className="astrea-modal-body flex-1 space-y-6 overflow-y-auto">
-          <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <InfoTile label="Created By" value={article.created_by_name || "Unknown"} />
-            <InfoTile
-              label="Created At"
-              value={
-                article.created_at
-                  ? new Date(article.created_at).toLocaleString()
-                  : "Not recorded"
-              }
-            />
-            <InfoTile
-              label="Related Ticket"
-              value={article.related_ticket_number || "None linked"}
-            />
-            <InfoTile
-              label="Branch"
-              value={article.branch_name || "Global"}
-            />
-            <InfoTile
-              label="Tags"
-              value={article.tags || "None"}
-            />
-            <InfoTile
-              label="Updated At"
-              value={
-                article.updated_at
-                  ? new Date(article.updated_at).toLocaleString()
-                  : "Not recorded"
-              }
-            />
+        {/* ── Body ── */}
+        <div className="flex-1 space-y-8 overflow-y-auto px-8 py-6">
+
+          {/* Info Cards Grid */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">Created By</p>
+              <p className="mt-1.5 text-sm font-bold text-slate-900">{article.created_by_name || "Unknown"}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">Created At</p>
+              <p className="mt-1.5 text-sm font-bold text-slate-900">
+                {article.created_at ? new Date(article.created_at).toLocaleString() : "Not recorded"}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">Related Ticket</p>
+              <p className="mt-1.5 text-sm font-bold text-slate-900">{article.related_ticket_number || "None linked"}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">Branch</p>
+              <p className="mt-1.5 text-sm font-bold text-slate-900">{article.branch_name || "Global"}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">Tags</p>
+              <p className="mt-1.5 text-sm font-bold text-slate-900">{article.tags || "None"}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">Updated At</p>
+              <p className="mt-1.5 text-sm font-bold text-slate-900">
+                {article.updated_at ? new Date(article.updated_at).toLocaleString() : "Not recorded"}
+              </p>
+            </div>
+          </div>
+
+          {/* Symptoms */}
+          <section>
+            <h3 className="mb-3 flex items-center gap-2 text-base font-black text-slate-900">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+              Symptoms
+            </h3>
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="whitespace-pre-line text-sm leading-7 text-slate-600">
+                {article.symptoms || "No symptoms documented."}
+              </p>
+            </div>
           </section>
 
-          <ArticleSection title="Symptoms" text={article.symptoms} />
-          <ArticleSection title="Resolution" text={article.resolution} />
+          {/* Resolution */}
+          <section>
+            <h3 className="mb-3 flex items-center gap-2 text-base font-black text-slate-900">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Resolution
+            </h3>
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="whitespace-pre-line text-sm leading-7 text-slate-600">
+                {article.resolution || "No resolution documented."}
+              </p>
+            </div>
+          </section>
         </div>
 
-        <div className="astrea-modal-footer shrink-0">
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <button
-              onClick={onClose}
-              className="astrea-button astrea-button-secondary"
-            >
-              Close
-            </button>
-            {canManage && (
-              <>
-                <button
-                  onClick={onEdit}
-                  className="astrea-button astrea-button-primary"
-                >
-                  <Edit3 size={17} />
-                  Edit
-                </button>
-                <button
-                  onClick={onDelete}
-                  className="astrea-button astrea-button-danger"
-                >
-                  <Trash2 size={17} />
-                  Delete
-                </button>
-              </>
-            )}
-          </div>
+        {/* ── Footer ── */}
+        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-slate-200 px-8 py-4">
+          <button
+            onClick={onClose}
+            className="rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+          >
+            Close
+          </button>
+          {canManage && (
+            <>
+              <button
+                onClick={onEdit}
+                className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700"
+              >
+                <Edit3 size={16} />
+                Edit
+              </button>
+              <button
+                onClick={onDelete}
+                className="inline-flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-5 py-2.5 text-sm font-bold text-red-700 shadow-sm transition hover:bg-red-100"
+              >
+                <Trash2 size={16} />
+                Delete
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
