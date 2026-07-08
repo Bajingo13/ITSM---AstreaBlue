@@ -1202,10 +1202,13 @@ export default function Assets() {
       }
 
       const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : "hardware-assets-export.xlsx";
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "hardware-assets-export.xlsx";
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

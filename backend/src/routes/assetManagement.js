@@ -356,13 +356,13 @@ router.get("/export", requireAssetManager, async (req, res) => {
     }
 
     if (start_date) {
-      conditions.push(`(a.created_at >= $${idx} OR a.purchase_date >= $${idx} OR a.updated_at >= $${idx})`);
+      conditions.push(`(a.created_at::date >= $${idx} OR a.purchase_date >= $${idx} OR a.updated_at::date >= $${idx})`);
       params.push(start_date);
       idx++;
     }
 
     if (end_date) {
-      conditions.push(`(a.created_at <= $${idx} OR a.purchase_date <= $${idx} OR a.updated_at <= $${idx})`);
+      conditions.push(`(a.created_at::date <= $${idx} OR a.purchase_date <= $${idx} OR a.updated_at::date <= $${idx})`);
       params.push(end_date);
       idx++;
     }
@@ -397,6 +397,8 @@ router.get("/export", requireAssetManager, async (req, res) => {
       branchMap[bn].push(row);
     }
 
+    const branchNames = Object.keys(branchMap);
+
     const ExcelJS = require("exceljs");
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "AstreaBlue ITSM";
@@ -408,6 +410,7 @@ router.get("/export", requireAssetManager, async (req, res) => {
       "Model", "Branch", "Assigned User", "Status",
       "Purchase Date", "Warranty Date", "Created Date", "Last Updated",
     ];
+    const colKeys = ["asset_id", "asset_name", "asset_type", "serial_number", "brand", "model", "branch_name", "assigned_user", "status", "purchase_date", "warranty_date", "created_date", "last_updated"];
 
     const headerStyle = {
       font: { bold: true, color: { argb: "FFFFFFFF" }, size: 11 },
@@ -432,54 +435,63 @@ router.get("/export", requireAssetManager, async (req, res) => {
     };
 
     const formatDate = (d) => (d ? new Date(d).toLocaleDateString("en-PH") : "");
+    const rowToValues = (r) => [
+      r.asset_id, r.asset_name, r.asset_type, r.serial_number,
+      r.brand || "", r.model || "", r.branch_name,
+      r.assigned_name || r.borrower_name || "", r.status,
+      formatDate(r.purchase_date), formatDate(r.warranty_expiration),
+      formatDate(r.created_at), formatDate(r.updated_at),
+    ];
 
-    if (isSuperAdmin && Object.keys(branchMap).length > 1) {
-      // Multi-sheet: one sheet per branch
-      for (const [branchName, branchRows] of Object.entries(branchMap)) {
+    const addAutoFilter = (ws, colCount) => {
+      const lastCol = String.fromCharCode(64 + colCount);
+      ws.autoFilter = `A1:${lastCol}${ws.rowCount}`;
+    };
+
+    if (isSuperAdmin && branchNames.length > 0) {
+      // ── Sheet 1: All Hardware Assets (everything) ──
+      const mainWs = workbook.addWorksheet("All Hardware Assets");
+      mainWs.columns = headers.map((h, i) => ({ header: h, key: colKeys[i], width: colWidths[i] }));
+      mainWs.getRow(1).eachCell((cell) => { cell.style = headerStyle; });
+      mainWs.views = [{ state: "frozen", ySplit: 1 }];
+
+      rows.forEach((r) => {
+        mainWs.addRow(rowToValues(r)).eachCell((cell) => { cell.style = cellStyle; });
+      });
+      addAutoFilter(mainWs, headers.length);
+
+      // ── Per-branch sheets ──
+      for (const branchName of branchNames) {
         const sheetName = branchName.substring(0, 31);
         const ws = workbook.addWorksheet(sheetName);
-
-        ws.columns = headers.map((h, i) => ({ header: h, key: h.toLowerCase().replace(/\s+/g, "_"), width: colWidths[i] }));
+        ws.columns = headers.map((h, i) => ({ header: h, key: colKeys[i], width: colWidths[i] }));
         ws.getRow(1).eachCell((cell) => { cell.style = headerStyle; });
         ws.views = [{ state: "frozen", ySplit: 1 }];
 
-        branchRows.forEach((r) => {
-          ws.addRow([
-            r.asset_id, r.asset_name, r.asset_type, r.serial_number,
-            r.brand || "", r.model || "", r.branch_name,
-            r.assigned_name || r.borrower_name || "", r.status,
-            formatDate(r.purchase_date), formatDate(r.warranty_expiration),
-            formatDate(r.created_at), formatDate(r.updated_at),
-          ]).eachCell((cell) => { cell.style = cellStyle; });
+        branchMap[branchName].forEach((r) => {
+          ws.addRow(rowToValues(r)).eachCell((cell) => { cell.style = cellStyle; });
         });
+        addAutoFilter(ws, headers.length);
       }
     } else {
-      // Single sheet (admin or single-branch case)
+      // Single sheet for Admin or single-branch SuperAdmin
       const ws = workbook.addWorksheet("Hardware Assets");
-      ws.columns = headers.map((h, i) => ({ header: h, key: h.toLowerCase().replace(/\s+/g, "_"), width: colWidths[i] }));
+      ws.columns = headers.map((h, i) => ({ header: h, key: colKeys[i], width: colWidths[i] }));
       ws.getRow(1).eachCell((cell) => { cell.style = headerStyle; });
       ws.views = [{ state: "frozen", ySplit: 1 }];
 
-      let currentBranch = "";
-      for (const r of rows) {
-        if (isSuperAdmin && r.branch_name !== currentBranch) {
-          currentBranch = r.branch_name;
-          ws.addRow([]);
-        }
-        ws.addRow([
-          r.asset_id, r.asset_name, r.asset_type, r.serial_number,
-          r.brand || "", r.model || "", r.branch_name,
-          r.assigned_name || r.borrower_name || "", r.status,
-          formatDate(r.purchase_date), formatDate(r.warranty_expiration),
-          formatDate(r.created_at), formatDate(r.updated_at),
-        ]).eachCell((cell) => { cell.style = cellStyle; });
-      }
+      rows.forEach((r) => {
+        ws.addRow(rowToValues(r)).eachCell((cell) => { cell.style = cellStyle; });
+      });
+      addAutoFilter(ws, headers.length);
     }
 
+    // Build descriptive filename
     const dateLabel = start_date && end_date
       ? `${start_date}_to_${end_date}`
       : new Date().toISOString().slice(0, 10);
-    const filename = `hardware-assets-export-${dateLabel}.xlsx`;
+    const scopeLabel = isSuperAdmin ? "all-branches" : `branch-${branchId}`;
+    const filename = `hardware-assets-${scopeLabel}-${dateLabel}.xlsx`;
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
