@@ -335,4 +335,160 @@ router.post("/discovery/:id/create-asset", requireAssetManager, async (req, res)
   }
 });
 
+/* ─────────────────────────────────────────────
+   GET /api/v1/hardware-assets/export — Excel export with role enforcement
+   ───────────────────────────────────────────── */
+router.get("/export", requireAssetManager, async (req, res) => {
+  try {
+    const { start_date, end_date } = req.query;
+    const role = String(req.assetUser.role || "").toLowerCase().replace(/[\s_-]/g, "");
+    const isSuperAdmin = role === "superadmin";
+    const branchId = req.assetBranchId; // set by requireAssetManager for admins
+
+    // Build query with role-based branch scope
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (!isSuperAdmin && branchId) {
+      conditions.push(`a.branch_id = $${idx++}`);
+      params.push(branchId);
+    }
+
+    if (start_date) {
+      conditions.push(`(a.created_at >= $${idx} OR a.purchase_date >= $${idx} OR a.updated_at >= $${idx})`);
+      params.push(start_date);
+      idx++;
+    }
+
+    if (end_date) {
+      conditions.push(`(a.created_at <= $${idx} OR a.purchase_date <= $${idx} OR a.updated_at <= $${idx})`);
+      params.push(end_date);
+      idx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const result = await db.query(`
+      SELECT
+        a.asset_id, a.asset_name, a.asset_type, a.serial_number,
+        a.brand, a.model, a.manufacturer, a.asset_tag,
+        COALESCE(b.branch_name, 'Unassigned') AS branch_name,
+        a.branch_id, a.assigned_name, a.borrower_name, a.status,
+        a.purchase_date, a.warranty_expiration, a.created_at, a.updated_at,
+        a.supplier, a.purchase_price, a.team_department,
+        a.processor, a.ram, a.storage
+      FROM hardware_assets a
+      LEFT JOIN branches b ON a.branch_id = b.branch_id
+      ${whereClause}
+      ORDER BY b.branch_name, a.asset_name
+    `, params);
+
+    const rows = result.rows;
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "No hardware assets found for the selected date range." });
+    }
+
+    // Group by branch
+    const branchMap = {};
+    for (const row of rows) {
+      const bn = row.branch_name || "Unassigned";
+      if (!branchMap[bn]) branchMap[bn] = [];
+      branchMap[bn].push(row);
+    }
+
+    const ExcelJS = require("exceljs");
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "AstreaBlue ITSM";
+    workbook.created = new Date();
+
+    const colWidths = [8, 28, 16, 20, 14, 14, 20, 18, 14, 16, 16, 20, 20];
+    const headers = [
+      "Asset ID", "Asset Name", "Type", "Serial Number", "Brand",
+      "Model", "Branch", "Assigned User", "Status",
+      "Purchase Date", "Warranty Date", "Created Date", "Last Updated",
+    ];
+
+    const headerStyle = {
+      font: { bold: true, color: { argb: "FFFFFFFF" }, size: 11 },
+      fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E40AF" } },
+      alignment: { vertical: "middle", horizontal: "center" },
+      border: {
+        top: { style: "thin", color: { argb: "FFCBD5E1" } },
+        bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
+        left: { style: "thin", color: { argb: "FFCBD5E1" } },
+        right: { style: "thin", color: { argb: "FFCBD5E1" } },
+      },
+    };
+
+    const cellStyle = {
+      alignment: { vertical: "middle" },
+      border: {
+        top: { style: "thin", color: { argb: "FFE2E8F0" } },
+        bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+        left: { style: "thin", color: { argb: "FFE2E8F0" } },
+        right: { style: "thin", color: { argb: "FFE2E8F0" } },
+      },
+    };
+
+    const formatDate = (d) => (d ? new Date(d).toLocaleDateString("en-PH") : "");
+
+    if (isSuperAdmin && Object.keys(branchMap).length > 1) {
+      // Multi-sheet: one sheet per branch
+      for (const [branchName, branchRows] of Object.entries(branchMap)) {
+        const sheetName = branchName.substring(0, 31);
+        const ws = workbook.addWorksheet(sheetName);
+
+        ws.columns = headers.map((h, i) => ({ header: h, key: h.toLowerCase().replace(/\s+/g, "_"), width: colWidths[i] }));
+        ws.getRow(1).eachCell((cell) => { cell.style = headerStyle; });
+        ws.views = [{ state: "frozen", ySplit: 1 }];
+
+        branchRows.forEach((r) => {
+          ws.addRow([
+            r.asset_id, r.asset_name, r.asset_type, r.serial_number,
+            r.brand || "", r.model || "", r.branch_name,
+            r.assigned_name || r.borrower_name || "", r.status,
+            formatDate(r.purchase_date), formatDate(r.warranty_expiration),
+            formatDate(r.created_at), formatDate(r.updated_at),
+          ]).eachCell((cell) => { cell.style = cellStyle; });
+        });
+      }
+    } else {
+      // Single sheet (admin or single-branch case)
+      const ws = workbook.addWorksheet("Hardware Assets");
+      ws.columns = headers.map((h, i) => ({ header: h, key: h.toLowerCase().replace(/\s+/g, "_"), width: colWidths[i] }));
+      ws.getRow(1).eachCell((cell) => { cell.style = headerStyle; });
+      ws.views = [{ state: "frozen", ySplit: 1 }];
+
+      let currentBranch = "";
+      for (const r of rows) {
+        if (isSuperAdmin && r.branch_name !== currentBranch) {
+          currentBranch = r.branch_name;
+          ws.addRow([]);
+        }
+        ws.addRow([
+          r.asset_id, r.asset_name, r.asset_type, r.serial_number,
+          r.brand || "", r.model || "", r.branch_name,
+          r.assigned_name || r.borrower_name || "", r.status,
+          formatDate(r.purchase_date), formatDate(r.warranty_expiration),
+          formatDate(r.created_at), formatDate(r.updated_at),
+        ]).eachCell((cell) => { cell.style = cellStyle; });
+      }
+    }
+
+    const dateLabel = start_date && end_date
+      ? `${start_date}_to_${end_date}`
+      : new Date().toISOString().slice(0, 10);
+    const filename = `hardware-assets-export-${dateLabel}.xlsx`;
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error("Export error:", error.message);
+    return res.status(500).json({ success: false, message: "Failed to generate export.", error: error.message });
+  }
+});
+
 module.exports = router;
