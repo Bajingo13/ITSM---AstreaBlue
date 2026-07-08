@@ -234,7 +234,7 @@ export default function App() {
           path="/cmdb"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <CMDB />
+              <CMDB initialTab="config-items" />
             </ProtectedRoute>
           }
         />
@@ -242,7 +242,7 @@ export default function App() {
           path="/dependency-map"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <CMDB />
+              <CMDB initialTab="dependency-map" />
             </ProtectedRoute>
           }
         />
@@ -250,7 +250,7 @@ export default function App() {
           path="/change-impact"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <CMDB />
+              <CMDB initialTab="change-impact" />
             </ProtectedRoute>
           }
         />
