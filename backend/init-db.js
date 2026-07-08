@@ -15,6 +15,11 @@ const migrationFiles = [
   "2026-07-06-useful-life-months-capitalization.sql",
   "2026-07-06-laptop-monitoring-mvp.sql",
   "2026-07-06-laptop-monitoring-device-uuid.sql",
+  "2026-07-07-consent-document-workflow.sql",
+  "2026-07-07-fix-schema-drift.sql",
+  "2026-07-07-ra10173-compliance.sql",
+  "2026-07-07-user-employee-fields.sql",
+  "2026-07-08-laptop-monitoring-asset-department.sql",
 ];
 
 const defaultTicketCategories = [

@@ -468,9 +468,9 @@ router.post("/screenshot", requireAgent, (req, res) => {
 async function refreshDeviceStatuses() {
   await db.query(
     `UPDATE monitored_devices
-     SET status=CASE WHEN last_seen_at IS NOT NULL AND last_seen_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 second') THEN 'Online' ELSE 'Offline' END,
+     SET status=CASE WHEN last_seen_at IS NOT NULL AND last_seen_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 second') THEN 'Online' ELSE 'Offline' END,
      updated_at=CURRENT_TIMESTAMP
-     WHERE status IS DISTINCT FROM CASE WHEN last_seen_at IS NOT NULL AND last_seen_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 second') THEN 'Online' ELSE 'Offline' END`,
+     WHERE status IS DISTINCT FROM CASE WHEN last_seen_at IS NOT NULL AND last_seen_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 second') THEN 'Online' ELSE 'Offline' END`,
     [ONLINE_THRESHOLD_SECONDS]
   );
 }
