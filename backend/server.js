@@ -4290,29 +4290,43 @@ app.post("/api/v1/tickets/:id/comments", async (req, res) => {
 app.delete("/api/v1/tickets/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    console.log(`[DELETE] Deleting ticket #${id} requested by ${req.query?.role_name || req.headers?.origin || "unknown"}`);
 
-    const result = await db.query(
-      `
-      DELETE FROM tickets
-      WHERE id = $1
-      RETURNING id
-      `,
-      [id]
-    );
+    const existing = await db.query(`SELECT id, ticket_number, status FROM tickets WHERE id = $1`, [id]);
 
-    if (result.rows.length === 0) {
+    if (existing.rows.length === 0) {
+      console.warn(`[DELETE] Ticket #${id} not found — already deleted or invalid ID`);
       return res.status(404).json({
         success: false,
         error: "Ticket not found",
       });
     }
 
+    console.log(`[DELETE] Found ticket #${id}: "${existing.rows[0].ticket_number}" [${existing.rows[0].status}]`);
+
+    // Nullify any knowledge_base articles referencing this ticket (FK constraint blocks delete otherwise)
+    const kbResult = await db.query(
+      `UPDATE knowledge_base SET related_ticket_id = NULL WHERE related_ticket_id = $1 RETURNING kb_id`,
+      [id]
+    );
+    if (kbResult.rows.length > 0) {
+      console.log(`[DELETE] Disassociated ${kbResult.rows.length} knowledge base article(s) from ticket #${id}`);
+    }
+
+    const result = await db.query(
+      `DELETE FROM tickets WHERE id = $1 RETURNING id, ticket_number`,
+      [id]
+    );
+
+    console.log(`[DELETE] Successfully deleted ticket #${id} (${result.rows[0]?.ticket_number || "N/A"})`);
+
     res.json({
       success: true,
       message: "Ticket deleted successfully",
     });
   } catch (err) {
-    console.error("Delete ticket error:", err.message);
+    console.error(`[DELETE] Error deleting ticket #${req.params?.id}:`, err.message);
+    if (err.stack) console.error(`[DELETE] Stack:`, err.stack.split("\n").slice(0, 4).join("\n"));
 
     res.status(500).json({
       success: false,
