@@ -148,8 +148,53 @@ async function get(pathname) {
   return result;
 }
 
+// ─── Policy Management ────────────────────────────────────────────────────────
+const POLICY_FILE = path.join(DEVICE_DIR, 'policy.json');
+let cachedPolicy = {
+  heartbeat_enabled: true,
+  hardware_inventory_enabled: true,
+  software_inventory_enabled: true,
+  activity_monitoring_enabled: true,
+  screenshot_monitoring_enabled: false,
+};
+
+function loadCachedPolicy() {
+  try {
+    if (fs.existsSync(POLICY_FILE)) {
+      const existing = JSON.parse(fs.readFileSync(POLICY_FILE, 'utf8'));
+      cachedPolicy = { ...cachedPolicy, ...existing };
+    }
+  } catch (error) {
+    warn(`Failed to load cached policy: ${error.message}`);
+  }
+}
+
+function saveCachedPolicy(policy) {
+  try {
+    fs.writeFileSync(POLICY_FILE, JSON.stringify(policy, null, 2), 'utf8');
+  } catch (error) {
+    warn(`Failed to save cached policy: ${error.message}`);
+  }
+}
+
+async function fetchPolicy() {
+  try {
+    const result = await get(`/policy/latest?device_uuid=${encodeURIComponent(deviceUuid)}`);
+    if (result.success && result.data) {
+      cachedPolicy = { ...cachedPolicy, ...result.data };
+      saveCachedPolicy(cachedPolicy);
+      log(`Policy sync SUCCESS | version=${cachedPolicy.policy_version || 'unknown'}`);
+    }
+  } catch (error) {
+    warn(`Policy sync FAILURE | Using cached policy. error=${error.message}`);
+  }
+}
+
+loadCachedPolicy();
+
 // ─── Heartbeat ────────────────────────────────────────────────────────────────
 async function heartbeat() {
+  if (!cachedPolicy.heartbeat_enabled) return true; // Pretend success
   try {
     const result = await post('/heartbeat', {
       device_uuid: deviceUuid,
@@ -210,6 +255,7 @@ async function readActivity() {
 }
 
 async function sendActivity() {
+  if (!cachedPolicy.activity_monitoring_enabled) return;
   try {
     const activity = await readActivity();
     await post('/activity', {
@@ -228,7 +274,7 @@ async function sendActivity() {
 
 // ─── Screenshot (disabled by default, requires server-side consent) ───────────
 async function captureScreenshot() {
-  if (!screenshotEnabled || process.platform !== 'win32') return;
+  if (!screenshotEnabled || process.platform !== 'win32' || !cachedPolicy.screenshot_monitoring_enabled) return;
   try {
     const permission = await get(`/screenshot-permission?device_uuid=${encodeURIComponent(deviceUuid)}`);
     if (!permission.data?.allowed) {
@@ -256,6 +302,7 @@ async function captureScreenshot() {
 
 // ============================================================================
 async function sendHardwareInventory() {
+  if (!cachedPolicy.hardware_inventory_enabled) return;
   try {
     const [system, osInfo, cpu, mem, disk, net] = await Promise.all([
       si.system(),
@@ -335,6 +382,7 @@ async function readSoftwareInventory() {
 }
 
 async function sendSoftwareInventory() {
+  if (!cachedPolicy.software_inventory_enabled) return;
   const scanStartedAt = new Date().toISOString();
   try {
     const software = await readSoftwareInventory();
@@ -366,14 +414,16 @@ if (screenshotEnabled) warn('Screenshot capture ENABLED — requires explicit se
 log('='.repeat(60));
 
 // Send immediately on startup, then on intervals
-heartbeat().then((registered) => { 
+heartbeat().then(async (registered) => { 
   if (registered) {
+    await fetchPolicy();
     sendActivity();
     sendHardwareInventory();
     sendSoftwareInventory();
   }
 });
 setInterval(heartbeat,    heartbeatMs);
+setInterval(fetchPolicy,  60 * 1000); // 60 seconds
 setInterval(sendActivity, activityMs);
 setInterval(sendHardwareInventory, 24 * 60 * 60 * 1000); // 24 hours
 setInterval(sendSoftwareInventory, 24 * 60 * 60 * 1000); // 24 hours

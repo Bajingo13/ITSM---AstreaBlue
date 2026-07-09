@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, Clock3, Monitor, Package, Search, ShieldCheck,
 import PageHero from "../components/layout/PageHero";
 import { API_URL } from "../config/api";
 import { authHeaders } from "../services/authHeaders";
+import EndpointPolicies from "./EndpointPolicies";
 
 const API_BASE = `${API_URL}/api/v1/endpoint-management`;
 const formatDate = (value) => value ? new Date(value).toLocaleString() : "Never";
@@ -422,8 +423,30 @@ export default function EndpointMonitoring() {
               <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider text-slate-500 mb-3">Consent / Policy</h3>
               <div className="space-y-2 text-sm text-slate-600">
                 <p><span className="font-bold">Consent Status:</span> {selectedDevice?.consent_status || "Pending"}</p>
-                <p><span className="font-bold">Policy Status:</span> {selectedDevice?.policy_synced_at ? "Synced" : "Pending"}</p>
-                <p><span className="font-bold">Last Policy Sync:</span> {formatDate(selectedDevice?.policy_synced_at)}</p>
+                <p><span className="font-bold">Effective Policy:</span> {details?.policy?.policy_name || "Unknown"}</p>
+                <p><span className="font-bold">Policy Version:</span> {details?.policy?.policy_version || "Unknown"}</p>
+                <p><span className="font-bold">Last Generated:</span> {details?.policy?.generated_at ? formatDate(details?.policy?.generated_at) : "Never"}</p>
+                <p><span className="font-bold">Last Downloaded:</span> {selectedDevice?.policy_synced_at ? formatDate(selectedDevice?.policy_synced_at) : "Never"}</p>
+                {details?.policy?.reasons && Object.keys(details.policy.reasons).length > 0 && (
+                  <div className="mt-2 rounded bg-rose-50 p-2 text-xs text-rose-700">
+                    <p className="font-bold mb-1">Disabled Features:</p>
+                    <ul className="list-disc pl-4">
+                      {Object.entries(details.policy.reasons).map(([k,v]) => <li key={k}>{v}</li>)}
+                    </ul>
+                  </div>
+                )}
+                <div className="mt-3">
+                  <button onClick={async () => {
+                    try {
+                      await monitoringRequest(`/devices/${selectedDevice.device_uuid}/generate-policy`, { method: "POST" });
+                      alert("Policy regenerated successfully.");
+                      loadOverview();
+                      monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/activity`).then(setDetails);
+                    } catch (e) {
+                      alert(e.message);
+                    }
+                  }} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Regenerate Effective Policy</button>
+                </div>
               </div>
             </div>
           </div>
