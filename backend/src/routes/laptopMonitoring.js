@@ -1236,9 +1236,14 @@ router.post("/screenshots/:id/audit-view", requireAdmin, async (req, res) => {
 });
 
 router.post("/hardware-inventory", requireAgent, async (req, res) => {
-  const deviceUuid = String(req.body?.device_uuid || "").trim().toLowerCase();
+  let deviceUuid = String(req.body?.device_uuid || "").trim().toLowerCase();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) {
-    return res.status(400).json({ success: false, message: "A valid device_uuid is required." });
+    const hostname = String(req.body?.hostname || "").trim();
+    if (!hostname) return res.status(400).json({ success: false, message: "A valid device_uuid or hostname is required." });
+    const hash = crypto.createHash('md5').update(hostname.toLowerCase()).digest('hex');
+    deviceUuid = [
+      hash.slice(0, 8), hash.slice(8, 12), '3' + hash.slice(13, 16), 'a' + hash.slice(17, 20), hash.slice(20, 32)
+    ].join('-');
   }
 
   try {
@@ -1276,9 +1281,14 @@ router.post("/hardware-inventory", requireAgent, async (req, res) => {
 });
 
 router.post("/software-inventory", requireAgent, async (req, res) => {
-  const deviceUuid = String(req.body?.device_uuid || "").trim().toLowerCase();
+  let deviceUuid = String(req.body?.device_uuid || "").trim().toLowerCase();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) {
-    return res.status(400).json({ success: false, message: "A valid device_uuid is required." });
+    const hostname = String(req.body?.hostname || "").trim();
+    if (!hostname) return res.status(400).json({ success: false, message: "A valid device_uuid or hostname is required." });
+    const hash = crypto.createHash('md5').update(hostname.toLowerCase()).digest('hex');
+    deviceUuid = [
+      hash.slice(0, 8), hash.slice(8, 12), '3' + hash.slice(13, 16), 'a' + hash.slice(17, 20), hash.slice(20, 32)
+    ].join('-');
   }
   const items = Array.isArray(req.body?.software) ? req.body.software.map(normalizeSoftwareItem).filter(Boolean).slice(0, 2000) : [];
   const scanStartedAt = req.body?.scan_started_at || req.body?.scanned_at || null;
