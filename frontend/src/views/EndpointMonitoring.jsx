@@ -310,8 +310,9 @@ export default function EndpointMonitoring() {
                           setLoading(false);
                         }
                       }} 
-                      className="mt-2 w-full rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700">
-                      Create Asset from Specs
+                      disabled={loading}
+                      className="mt-2 w-full rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                      {loading ? "Creating..." : "Create Asset from Specs"}
                     </button>
                   </div>
                 )}

@@ -985,23 +985,32 @@ router.post("/devices/:deviceId/convert-to-asset", requireAdmin, async (req, res
   if (req.monitoringIsEmployee) return res.status(403).json({ success: false, error: "Access denied." });
   try {
     const { deviceId } = req.params;
+
+    await db.query('BEGIN');
     
-    const deviceQuery = await db.query(`SELECT * FROM monitored_devices WHERE device_id=$1`, [deviceId]);
-    if (!deviceQuery.rows.length) return res.status(404).json({ success: false, error: "Device not found." });
+    // Use FOR UPDATE to lock the row and prevent race conditions if the user double clicks
+    const deviceQuery = await db.query(`SELECT * FROM monitored_devices WHERE device_id=$1 FOR UPDATE`, [deviceId]);
+    if (!deviceQuery.rows.length) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: "Device not found." });
+    }
     const device = deviceQuery.rows[0];
 
     if (!req.monitoringIsSuperAdmin && req.monitoringBranchId) {
       if (device.branch_id !== req.monitoringBranchId) {
+        await db.query('ROLLBACK');
         return res.status(403).json({ success: false, error: "Access denied" });
       }
     }
 
     if (device.asset_id) {
+      await db.query('ROLLBACK');
       return res.status(400).json({ success: false, error: "Device is already linked to an asset." });
     }
 
     const inventoryQuery = await db.query(`SELECT * FROM endpoint_hardware_inventory WHERE device_id=$1 ORDER BY scanned_at DESC LIMIT 1`, [deviceId]);
     if (!inventoryQuery.rows.length) {
+      await db.query('ROLLBACK');
       return res.status(400).json({ success: false, error: "Device has not sent any hardware inventory yet. Wait for the agent to complete a scan." });
     }
     const inv = inventoryQuery.rows[0];
@@ -1015,7 +1024,6 @@ router.post("/devices/:deviceId/convert-to-asset", requireAdmin, async (req, res
     const assetTag = "AUTO-" + Date.now().toString().slice(-6) + "-" + Math.floor(Math.random()*100);
     const os = [inv.os_name, inv.os_version].filter(Boolean).join(" ");
     
-    await db.query('BEGIN');
     const insertAsset = await db.query(`
       INSERT INTO hardware_assets (
         asset_name, asset_type, brand, manufacturer, model, serial_number, asset_tag, 
