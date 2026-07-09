@@ -981,4 +981,64 @@ router.post("/devices/:deviceId/reconcile", requireAdmin, async (req, res) => {
   }
 });
 
+router.post("/devices/:deviceId/convert-to-asset", requireAdmin, async (req, res) => {
+  if (req.monitoringIsEmployee) return res.status(403).json({ success: false, error: "Access denied." });
+  try {
+    const { deviceId } = req.params;
+    
+    const deviceQuery = await db.query(`SELECT * FROM monitored_devices WHERE device_id=$1`, [deviceId]);
+    if (!deviceQuery.rows.length) return res.status(404).json({ success: false, error: "Device not found." });
+    const device = deviceQuery.rows[0];
+
+    if (!req.monitoringIsSuperAdmin && req.monitoringBranchId) {
+      if (device.branch_id !== req.monitoringBranchId) {
+        return res.status(403).json({ success: false, error: "Access denied" });
+      }
+    }
+
+    if (device.asset_id) {
+      return res.status(400).json({ success: false, error: "Device is already linked to an asset." });
+    }
+
+    const inventoryQuery = await db.query(`SELECT * FROM endpoint_hardware_inventory WHERE device_id=$1 ORDER BY scanned_at DESC LIMIT 1`, [deviceId]);
+    if (!inventoryQuery.rows.length) {
+      return res.status(400).json({ success: false, error: "Device has not sent any hardware inventory yet. Wait for the agent to complete a scan." });
+    }
+    const inv = inventoryQuery.rows[0];
+
+    const formatSize = (val) => {
+      const num = parseFloat(String(val || "").replace(/[^0-9.]/g, ''));
+      return isNaN(num) ? null : Math.ceil(num).toString() + " GB";
+    };
+
+    const assetName = inv.model || device.hostname || device.device_name || "Unknown Endpoint";
+    const assetTag = "AUTO-" + Date.now().toString().slice(-6) + "-" + Math.floor(Math.random()*100);
+    const os = [inv.os_name, inv.os_version].filter(Boolean).join(" ");
+    
+    await db.query('BEGIN');
+    const insertAsset = await db.query(`
+      INSERT INTO hardware_assets (
+        asset_name, asset_type, brand, manufacturer, model, serial_number, asset_tag, 
+        processor, ram, storage, operating_system, branch_id, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING asset_id
+    `, [
+      assetName, "Computer", inv.manufacturer || "Unknown", inv.manufacturer || "Unknown", inv.model || "Unknown", inv.serial_number || "UNKNOWN-SN", assetTag,
+      inv.cpu_name, formatSize(inv.total_ram_gb), formatSize(inv.disk_total_gb), os || null,
+      device.branch_id || null, "In Use"
+    ]);
+
+    const newAssetId = insertAsset.rows[0].asset_id;
+    await db.query(`UPDATE monitored_devices SET asset_id = $1 WHERE device_id = $2`, [newAssetId, deviceId]);
+    await db.query('COMMIT');
+
+    await reconcileDevice(deviceId);
+
+    res.json({ success: true, message: "Asset successfully generated from agent specs!" });
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error("Convert to asset error:", error);
+    res.status(500).json({ success: false, error: "Failed to create asset." });
+  }
+});
+
 module.exports = router;

@@ -296,7 +296,23 @@ export default function EndpointMonitoring() {
                 ) : (
                   <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
                     <p className="text-xs font-bold text-amber-800 flex items-center gap-2"><span className="inline-block h-2 w-2 rounded-full bg-amber-500"></span> Unlinked Device</p>
-                    <button onClick={() => handleOpenAssign('asset')} className="mt-2 w-full rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700">Link to Hardware Asset</button>
+                    <button onClick={() => handleOpenAssign('asset')} className="mt-2 w-full rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700">Link to Existing Asset</button>
+                    <button 
+                      onClick={async () => {
+                        const conf = window.confirm("This will automatically create a brand new Hardware Asset using the agent's scanned specifications and link it to this device. Continue?");
+                        if (!conf) return;
+                        setLoading(true);
+                        try {
+                          await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/convert-to-asset`, { method: 'POST' });
+                          loadOverview();
+                        } catch (e) {
+                          alert(e.message);
+                          setLoading(false);
+                        }
+                      }} 
+                      className="mt-2 w-full rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700">
+                      Create Asset from Specs
+                    </button>
                   </div>
                 )}
               </div>
