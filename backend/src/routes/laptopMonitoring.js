@@ -754,9 +754,9 @@ router.get("/software-inventory/summary", requireAdmin, async (req, res) => {
       `SELECT
          COUNT(*)::int AS total_installed_software_records,
          COUNT(DISTINCT LOWER(si.software_name))::int AS unique_applications,
-         COUNT(DISTINCT si.device_uuid)::int FILTER (WHERE si.status='active') AS devices_reporting_software,
-         COUNT(*)::int FILTER (WHERE si.first_seen_at >= CURRENT_TIMESTAMP - INTERVAL '30 days') AS recently_installed,
-         COUNT(*)::int FILTER (WHERE si.status='removed') AS removed_missing_software
+         COUNT(DISTINCT si.device_uuid) FILTER (WHERE si.status='active')::int AS devices_reporting_software,
+         COUNT(*) FILTER (WHERE si.first_seen_at >= CURRENT_TIMESTAMP - INTERVAL '30 days')::int AS recently_installed,
+         COUNT(*) FILTER (WHERE si.status='removed')::int AS removed_missing_software
        FROM endpoint_software_inventory si
        ${where}`,
       scope.params
@@ -957,9 +957,9 @@ router.get("/summary", requireAdmin, async (req, res) => {
       `SELECT
          COUNT(*)::int AS total_installed_software_records,
          COUNT(DISTINCT LOWER(si.software_name))::int AS unique_applications,
-         COUNT(DISTINCT si.device_uuid)::int FILTER (WHERE si.status='active') AS devices_reporting_software,
-         COUNT(*)::int FILTER (WHERE si.first_seen_at >= CURRENT_TIMESTAMP - INTERVAL '30 days') AS recently_installed,
-         COUNT(*)::int FILTER (WHERE si.status='removed') AS removed_missing_software
+         COUNT(DISTINCT si.device_uuid) FILTER (WHERE si.status='active')::int AS devices_reporting_software,
+         COUNT(*) FILTER (WHERE si.first_seen_at >= CURRENT_TIMESTAMP - INTERVAL '30 days')::int AS recently_installed,
+         COUNT(*) FILTER (WHERE si.status='removed')::int AS removed_missing_software
        FROM endpoint_software_inventory si
        WHERE ($1::int IS NULL OR si.branch_id=$1) AND ($2::int IS NULL OR si.assigned_user_id=$2)`,
       [req.monitoringBranchId, empId]
