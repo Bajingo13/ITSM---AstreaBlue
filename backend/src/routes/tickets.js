@@ -172,6 +172,14 @@ async function runTicketCreatedSideEffects({ ticketId, ticketNumber, requesterId
 router.get("/", async (req, res) => {
   try {
     const params = [];
+
+    // Auto-delete cancelled tickets older than 3 days
+    try {
+      await db.query(
+        `DELETE FROM tickets WHERE status = 'Cancelled' AND cancelled_at IS NOT NULL AND cancelled_at < NOW() - INTERVAL '3 days'`
+      );
+    } catch(e) { console.warn("Auto-delete cancelled tickets failed:", e.message); }
+
     const accessClauses = addTicketAccessFilter(req, params, "t");
     const whereSql = accessClauses.length
       ? `WHERE ${accessClauses.join(" AND ")}`
@@ -658,6 +666,11 @@ router.put("/:id", async (req, res) => {
         ? new Date()
         : existing.closed_at;
 
+    const cancelledAt =
+      finalStatus === "Cancelled" && !existing.cancelled_at
+        ? new Date()
+        : existing.cancelled_at;
+
     // SLA Calculations on Update
     const isNowResolvedOrClosed = (finalStatus === "Resolved" || finalStatus === "Closed");
     const now = new Date();
@@ -696,12 +709,12 @@ router.put("/:id", async (req, res) => {
         urgency = $10,
         resolution_notes = $11,
         root_cause = $12,
-        time_spent_minutes = $13,
         parts_used = $14,
         satisfaction_rating = $15,
         resolved_at = $16,
         closed_at = $17,
         first_response_at = $18,
+        cancelled_at = $22,
         response_sla_status = $20,
         resolution_sla_status = $21
       WHERE id = $19
@@ -720,6 +733,8 @@ router.put("/:id", async (req, res) => {
         first_response_at,
         resolved_at,
         closed_at,
+        cancelled_at,
+
         resolution_notes,
         root_cause,
         time_spent_minutes,
@@ -753,7 +768,8 @@ router.put("/:id", async (req, res) => {
         firstResponseAt,
         id,
         resSlaStat,
-        resolSlaStat
+        resolSlaStat,
+        cancelledAt
       ]
     );
 

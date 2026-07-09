@@ -3339,6 +3339,14 @@ app.get("/api/v1/tickets", async (req, res) => {
   try {
     const params = [];
     const accessClauses = addTicketAccessClauses(req, params, "t", "requester");
+
+    // Auto-delete cancelled tickets older than 3 days
+    try {
+      await db.query(
+        `DELETE FROM tickets WHERE status = 'Cancelled' AND cancelled_at IS NOT NULL AND cancelled_at < NOW() - INTERVAL '3 days'`
+      );
+    } catch(e) { console.warn("Auto-delete cancelled tickets failed:", e.message); }
+
     const whereSql = accessClauses.length
       ? `WHERE ${accessClauses.join(" AND ")}`
       : "";
@@ -3866,6 +3874,11 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         ? new Date()
         : existing.closed_at;
 
+    const cancelledAt =
+      finalStatus === "Cancelled" && !existing.cancelled_at
+        ? new Date()
+        : existing.cancelled_at;
+
     const result = await db.query(
       `
       UPDATE tickets
@@ -3887,7 +3900,8 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         satisfaction_rating = $15,
         resolved_at = $16,
         closed_at = $17,
-        first_response_at = $18
+        first_response_at = $18,
+        cancelled_at = $20
       WHERE id = $19
       RETURNING
         id,
@@ -3901,6 +3915,8 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         impact,
         urgency,
         sla_due_date,
+        cancelled_at,
+
         first_response_at,
         resolved_at,
         closed_at,
@@ -3932,6 +3948,8 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         closedAt,
         firstResponseAt,
         id,
+        cancelledAt,
+
       ]
     );
 
