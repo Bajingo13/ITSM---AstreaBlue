@@ -1896,14 +1896,20 @@ function AssetCard({ asset, onView, onEdit, onHistory, onDelete }) {
 
 function AssetDetailsModal({ asset, onClose }) {
   const [hardware, setHardware] = useState(null);
+  const [software, setSoftware] = useState([]);
   
   const [reconciliation, setReconciliation] = useState([]);
 
   useEffect(() => {
     if (asset?.asset_id) {
-      fetch(`${API_URL}/api/v1/laptop-monitoring/hardware-inventory-by-asset/${asset.asset_id}`, { headers: authHeaders() })
+      fetch(`${API_URL}/api/v1/endpoint-management/hardware-inventory-by-asset/${asset.asset_id}`, { headers: authHeaders() })
         .then(r => r.json())
         .then(d => { if (d.success) setHardware(d.data); })
+        .catch(console.error);
+
+      fetch(`${API_URL}/api/v1/endpoint-management/software-inventory-by-asset/${asset.asset_id}`, { headers: authHeaders() })
+        .then(r => r.json())
+        .then(d => { if (d.success) setSoftware(Array.isArray(d.data) ? d.data : []); })
         .catch(console.error);
 
       fetch(`${API_URL}/api/v1/assets/${asset.asset_id}/reconciliation`, { headers: authHeaders() })
@@ -2085,11 +2091,48 @@ function AssetDetailsModal({ asset, onClose }) {
                 </div>
               </section>
             ) : null}
+
+            <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="mb-4 text-sm font-black uppercase tracking-[0.16em] text-slate-500">Agent-Detected Software</h3>
+              {software.length === 0 ? (
+                <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">No software inventory scan available for this linked asset.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[760px] text-left text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 font-black">Software</th>
+                        <th className="px-4 py-3 font-black">Version</th>
+                        <th className="px-4 py-3 font-black">Publisher</th>
+                        <th className="px-4 py-3 font-black">Last Seen</th>
+                        <th className="px-4 py-3 font-black">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {software.slice(0, 100).map((item) => (
+                        <tr key={item.id}>
+                          <td className="px-4 py-3 font-bold text-slate-900">{item.software_name}</td>
+                          <td className="px-4 py-3 text-slate-600">{item.version || "—"}</td>
+                          <td className="px-4 py-3 text-slate-600">{item.publisher || "—"}</td>
+                          <td className="px-4 py-3 text-slate-500">{item.last_seen_at ? new Date(item.last_seen_at).toLocaleString() : "Never"}</td>
+                          <td className="px-4 py-3"><AssetSoftwareStatus status={item.status} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+function AssetSoftwareStatus({ status = "active" }) {
+  const active = String(status).toLowerCase() === "active";
+  return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-black uppercase ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{status}</span>;
 }
 
 function AssetDetailSection({ title, items }) {

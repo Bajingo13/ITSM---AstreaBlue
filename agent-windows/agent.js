@@ -8,7 +8,7 @@
  * Log files are written to:
  *   C:\ProgramData\AstreaBlue\MonitoringAgent\logs\agent-YYYY-MM-DD.log
  *
- * Run via service: install-service.ps1  (recommended for production)
+ * Run via invisible.vbs + HKLM Run registry entry.
  * Run manually:    node agent.js        (dev / troubleshooting)
  */
 
@@ -43,6 +43,7 @@ const screenshotMs     = Math.max(activityMs, 5 * 60 * 1000);
 const screenshotEnabled = Boolean(config.screenshotEnabled);
 const heartbeatEndpoint = `${backendUrl}/api/v1/laptop-monitoring/heartbeat`;
 const activityEndpoint = `${backendUrl}/api/v1/laptop-monitoring/activity`;
+const softwareInventoryEndpoint = `${backendUrl}/api/v1/laptop-monitoring/software-inventory`;
 
 if (!backendUrl || !agentToken || agentToken.startsWith('replace-')) {
   console.error('[AstreaBlue Agent] ERROR: Set backendUrl and agentToken in agent-config.json before starting.');
@@ -101,7 +102,7 @@ function loadOrCreateDeviceIdentity() {
     device_uuid: crypto.randomUUID(),
     hostname: os.hostname(),
     device_name: deviceName,
-    agent_version: 'node-windows-1.2',
+    agent_version: 'astreablue-run-1.3',
     created_at: new Date().toISOString(),
   };
   try {
@@ -154,7 +155,7 @@ async function heartbeat() {
       device_uuid: deviceUuid,
       hostname: os.hostname(),
       device_name: deviceName,
-      agent_version: 'node-windows-1.2',
+      agent_version: 'astreablue-run-1.3',
       logged_in_user: os.userInfo().username,
       timestamp: new Date().toISOString(),
     });
@@ -293,6 +294,63 @@ async function sendHardwareInventory() {
 }
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
+const SOFTWARE_INVENTORY_SCRIPT = `
+$paths = @(
+  @{ Path='HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; Source='registry:hklm' },
+  @{ Path='HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; Source='registry:hklm-wow6432' },
+  @{ Path='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; Source='registry:hkcu' }
+)
+$items = New-Object System.Collections.Generic.List[object]
+foreach ($entry in $paths) {
+  try {
+    Get-ItemProperty -Path $entry.Path -ErrorAction Stop | ForEach-Object {
+      $name = [string]$_.DisplayName
+      if (-not [string]::IsNullOrWhiteSpace($name)) {
+        $items.Add([pscustomobject]@{
+          software_name = $name.Trim()
+          version = if ($_.DisplayVersion) { [string]$_.DisplayVersion } else { $null }
+          publisher = if ($_.Publisher) { [string]$_.Publisher } else { $null }
+          install_date = if ($_.InstallDate) { [string]$_.InstallDate } else { $null }
+          install_location = if ($_.InstallLocation) { [string]$_.InstallLocation } else { $null }
+          source = $entry.Source
+        })
+      }
+    }
+  } catch {}
+}
+$items | Sort-Object software_name, publisher -Unique | ConvertTo-Json -Compress -Depth 3
+`;
+
+async function readSoftwareInventory() {
+  if (process.platform !== 'win32') return [];
+  const { stdout } = await execFileAsync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', SOFTWARE_INVENTORY_SCRIPT],
+    { windowsHide: true, timeout: 120000, maxBuffer: 8 * 1024 * 1024 }
+  );
+  const trimmed = stdout.trim();
+  if (!trimmed) return [];
+  const parsed = JSON.parse(trimmed);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+async function sendSoftwareInventory() {
+  const scanStartedAt = new Date().toISOString();
+  try {
+    const software = await readSoftwareInventory();
+    await post('/software-inventory', {
+      device_uuid: deviceUuid,
+      hostname: os.hostname(),
+      scan_started_at: scanStartedAt,
+      scan_completed_at: new Date().toISOString(),
+      software,
+    });
+    log(`Software Inventory SUCCESS | endpoint=${softwareInventoryEndpoint} | records=${software.length}`);
+  } catch (e) {
+    err(`Software Inventory FAILURE | endpoint=${softwareInventoryEndpoint} | error=${e.message}`);
+  }
+}
+
 log('='.repeat(60));
 log(`AstreaBlue Monitoring Agent starting — v1.1`);
 log(`Device:   ${deviceName}`);
@@ -301,6 +359,7 @@ log(`Hostname: ${os.hostname()}`);
 log(`Backend:  ${backendUrl}`);
 log(`Heartbeat endpoint: ${heartbeatEndpoint}`);
 log(`Activity endpoint:  ${activityEndpoint}`);
+log(`Software inventory endpoint: ${softwareInventoryEndpoint}`);
 log(`Heartbeat every ${heartbeatMs / 1000}s | Activity every ${activityMs / 1000}s`);
 log('Privacy:  No keystrokes, passwords, microphone, or camera data collected.');
 if (screenshotEnabled) warn('Screenshot capture ENABLED — requires explicit server-side consent per device.');
@@ -311,11 +370,13 @@ heartbeat().then((registered) => {
   if (registered) {
     sendActivity();
     sendHardwareInventory();
+    sendSoftwareInventory();
   }
 });
 setInterval(heartbeat,    heartbeatMs);
 setInterval(sendActivity, activityMs);
 setInterval(sendHardwareInventory, 24 * 60 * 60 * 1000); // 24 hours
+setInterval(sendSoftwareInventory, 24 * 60 * 60 * 1000); // 24 hours
 
 if (screenshotEnabled) {
   captureScreenshot();

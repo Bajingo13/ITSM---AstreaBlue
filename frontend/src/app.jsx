@@ -371,6 +371,22 @@ export default function App() {
         />
 
         <Route
+          path="/endpoint-management"
+          element={
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+              <EndpointMonitoring />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/endpoints"
+          element={
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+              <EndpointMonitoring />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/endpoint-monitoring"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
@@ -406,7 +422,7 @@ export default function App() {
           path="/usb-dlp-monitoring"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <ModulePlaceholder title="USB & DLP Monitoring" />
+              <ModulePlaceholder title="USB & Device Control" />
             </ProtectedRoute>
           }
         />
@@ -430,7 +446,7 @@ export default function App() {
           path="/alert-escalation-engine"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <ModulePlaceholder title="Alert & Escalation Engine" />
+              <ModulePlaceholder title="Endpoint Alerts & Escalation" />
             </ProtectedRoute>
           }
         />

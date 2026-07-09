@@ -13,6 +13,20 @@ const multer = require("multer");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
+const CONSENT_STATUSES = [
+  "draft",
+  "pending_employee",
+  "submitted",
+  "pending_approval",
+  "approved",
+  "rejected",
+  "revision_requested",
+  "withdrawn",
+  "expired",
+  "superseded",
+  "pending",
+  "signed",
+];
 
 // ─── Signature image storage ──────────────────────────────────────────────────
 const sigDir = path.join(__dirname, "..", "..", "uploads", "consent-signatures");
@@ -56,6 +70,76 @@ const tablesReady = (async () => {
       CREATE INDEX IF NOT EXISTS consent_documents_status_idx   ON consent_documents(status);
       CREATE INDEX IF NOT EXISTS consent_audit_employee_idx ON consent_audit_logs(employee_id);
       CREATE INDEX IF NOT EXISTS consent_audit_consent_idx  ON consent_audit_logs(consent_id);
+    `);
+    await db.query(`
+      ALTER TABLE consent_documents DROP CONSTRAINT IF EXISTS consent_documents_status_check;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS device_uuid UUID;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS asset_id INTEGER;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS department_id INTEGER;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS requested_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS approved_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS revision_reason TEXT;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS effective_date DATE;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS reason_for_version TEXT;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS previous_consent_id BIGINT REFERENCES consent_documents(consent_id) ON DELETE SET NULL;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS verification_code VARCHAR(80);
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS hostname VARCHAR(255);
+      UPDATE consent_documents SET status='pending_employee' WHERE status='pending';
+      UPDATE consent_documents SET status='approved', active=true, approved_at=COALESCE(approved_at, signed_at), submitted_at=COALESCE(submitted_at, signed_at) WHERE status='signed';
+      ALTER TABLE consent_documents ADD CONSTRAINT consent_documents_status_check
+        CHECK (status IN ('draft','pending_employee','submitted','pending_approval','approved','rejected','revision_requested','withdrawn','expired','superseded','pending','signed'));
+
+      CREATE UNIQUE INDEX IF NOT EXISTS consent_documents_active_employee_device_uidx
+        ON consent_documents(employee_id, device_uuid)
+        WHERE active = true AND status = 'approved' AND device_uuid IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS endpoint_monitoring_policies (
+        policy_id BIGSERIAL PRIMARY KEY,
+        consent_id BIGINT NOT NULL REFERENCES consent_documents(consent_id) ON DELETE CASCADE,
+        consent_version VARCHAR(50) NOT NULL,
+        employee_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        asset_id INTEGER,
+        device_uuid UUID,
+        branch_id INTEGER,
+        department_id INTEGER,
+        application_monitoring BOOLEAN NOT NULL DEFAULT false,
+        web_monitoring BOOLEAN NOT NULL DEFAULT false,
+        screenshot_monitoring BOOLEAN NOT NULL DEFAULT false,
+        usb_monitoring BOOLEAN NOT NULL DEFAULT false,
+        location_tracking BOOLEAN NOT NULL DEFAULT false,
+        device_telemetry BOOLEAN NOT NULL DEFAULT true,
+        email_header_monitoring BOOLEAN NOT NULL DEFAULT false,
+        retention_days INTEGER NOT NULL DEFAULT 180,
+        effective_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        status VARCHAR(30) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS endpoint_policies_device_status_idx ON endpoint_monitoring_policies(device_uuid, status, effective_at DESC);
+      CREATE INDEX IF NOT EXISTS endpoint_policies_employee_status_idx ON endpoint_monitoring_policies(employee_id, status, effective_at DESC);
+
+      CREATE TABLE IF NOT EXISTS monitoring_retention_rules (
+        rule_id BIGSERIAL PRIMARY KEY,
+        data_type VARCHAR(80) NOT NULL UNIQUE,
+        retention_days INTEGER NOT NULL,
+        description TEXT,
+        updated_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO monitoring_retention_rules (data_type, retention_days, description)
+      VALUES
+        ('activity_timeline', 180, 'Activity Timeline'),
+        ('screenshots', 90, 'Screenshots'),
+        ('usb_logs', 365, 'USB Logs'),
+        ('alert_logs', 730, 'Alert Logs'),
+        ('audit_logs', 2555, 'Audit Logs')
+      ON CONFLICT (data_type) DO NOTHING;
     `);
     // Idempotently add optional user fields used by consent documents
     await db.query(`
@@ -111,6 +195,62 @@ async function audit(consentId, employeeId, actorId, actorRole, eventType, detai
   }
 }
 
+function normalizeStatus(value) {
+  const status = String(value || "").toLowerCase().replace(/[\s-]+/g, "_");
+  if (status === "pending") return "pending_employee";
+  if (status === "signed") return "approved";
+  return CONSENT_STATUSES.includes(status) ? status : "draft";
+}
+
+function actorId(actor) {
+  return actor?.userId || actor?.user_id || null;
+}
+
+function selectedPrefs(doc) {
+  return Array.isArray(doc?.monitoring_preferences) ? doc.monitoring_preferences : [];
+}
+
+async function generateEndpointPolicy(doc, actor) {
+  const prefs = selectedPrefs(doc);
+  await db.query(
+    `UPDATE endpoint_monitoring_policies SET status='superseded'
+     WHERE status='active' AND employee_id=$1 AND ($2::uuid IS NULL OR device_uuid=$2::uuid)`,
+    [doc.employee_id, doc.device_uuid || null]
+  );
+  const policy = await db.query(
+    `INSERT INTO endpoint_monitoring_policies (
+       consent_id, consent_version, employee_id, asset_id, device_uuid, branch_id, department_id,
+       application_monitoring, web_monitoring, screenshot_monitoring, usb_monitoring,
+       location_tracking, device_telemetry, email_header_monitoring, retention_days, status
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,180,'active')
+     RETURNING *`,
+    [
+      doc.consent_id,
+      doc.consent_version || "1.0",
+      doc.employee_id,
+      doc.asset_id || null,
+      doc.device_uuid || null,
+      doc.branch_id || null,
+      doc.department_id || null,
+      prefs.includes("application_monitoring") || prefs.includes("applications"),
+      prefs.includes("web_monitoring") || prefs.includes("website_monitoring"),
+      prefs.includes("screenshot_monitoring") || prefs.includes("screenshot"),
+      prefs.includes("usb_monitoring"),
+      prefs.includes("location_tracking"),
+      prefs.includes("email_header_monitoring"),
+    ]
+  );
+  await audit(doc.consent_id, doc.employee_id, actorId(actor), actor?.role || "system", "policy_generated", `Policy ${policy.rows[0].policy_id} generated.`);
+  return policy.rows[0];
+}
+
+async function assertConsentAccess(req, consent) {
+  const role = String(req.actor?.role || "").toLowerCase().replace(/[\s_-]/g, "");
+  if (role === "superadmin" || role === "hr") return true;
+  if (role === "admin") return String(consent.branch_id || "") === String(req.actor.branchId || req.actor.branch_id || "");
+  return String(consent.employee_id || "") === String(actorId(req.actor) || "");
+}
+
 // ─── Manila timestamp helper ──────────────────────────────────────────────────
 function manilaTime(date) {
   const d = date instanceof Date ? date : new Date(date || Date.now());
@@ -130,9 +270,14 @@ function manilaTime(date) {
 router.get("/my", requireAuth, async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT * FROM consent_documents WHERE employee_id=$1
-       ORDER BY CASE status WHEN 'signed' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
-                created_at DESC LIMIT 1`,
+      `SELECT cd.*, md.hostname, md.device_name, ha.asset_tag, ha.serial_number, ha.model, b.branch_name
+       FROM consent_documents cd
+       LEFT JOIN monitored_devices md ON md.device_uuid = cd.device_uuid
+       LEFT JOIN hardware_assets ha ON ha.asset_id = cd.asset_id
+       LEFT JOIN branches b ON b.branch_id = cd.branch_id
+       WHERE cd.employee_id=$1
+       ORDER BY CASE cd.status WHEN 'pending_employee' THEN 0 WHEN 'revision_requested' THEN 1 WHEN 'pending_approval' THEN 2 WHEN 'approved' THEN 3 ELSE 4 END,
+                cd.created_at DESC LIMIT 1`,
       [req.actor.userId || req.actor.user_id]
     );
     return res.json({ success: true, data: result.rows[0] || null });
@@ -149,13 +294,13 @@ router.post("/draft", requireAuth, async (req, res) => {
     // Check for existing signed consent
     const existing = await db.query(
       `SELECT consent_id, status FROM consent_documents
-       WHERE employee_id=$1 AND status='signed' LIMIT 1`,
+       WHERE employee_id=$1 AND status IN ('approved','signed') LIMIT 1`,
       [employeeId]
     );
     if (existing.rows.length)
       return res.status(409).json({
         success: false,
-        message: "You already have a signed consent document. Use 'Request Consent Change' to modify it.",
+        message: "You already have an approved consent document. Use 'Request Consent Change' to modify it.",
         existing: existing.rows[0],
       });
 
@@ -172,12 +317,22 @@ router.post("/draft", requireAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "Employee profile not found." });
     const emp = userRes.rows[0];
 
-    const draft = await db.query(
+    const pendingRequest = await db.query(
+      `SELECT * FROM consent_documents
+       WHERE employee_id=$1 AND status IN ('pending_employee','revision_requested')
+       ORDER BY requested_at DESC NULLS LAST, created_at DESC LIMIT 1`,
+      [employeeId]
+    );
+    const draft = pendingRequest.rows.length ? await db.query(
+      `UPDATE consent_documents SET monitoring_preferences=$1, updated_at=CURRENT_TIMESTAMP
+       WHERE consent_id=$2 RETURNING *`,
+      [JSON.stringify(req.body.monitoring_preferences || []), pendingRequest.rows[0].consent_id]
+    ) : await db.query(
       `INSERT INTO consent_documents
          (employee_id,employee_full_name,employee_email,employee_number,
           branch_id,branch_name,department,form_title,consent_version,
-          monitoring_preferences,status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
+          monitoring_preferences,status,requested_at,created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',CURRENT_TIMESTAMP,$1)
        RETURNING *`,
       [
         employeeId,
@@ -193,7 +348,7 @@ router.post("/draft", requireAuth, async (req, res) => {
       ]
     );
     await audit(draft.rows[0].consent_id, employeeId, employeeId, req.actor.role, "consent_created",
-      "Employee initiated consent draft.");
+      "Employee opened consent wizard.");
     return res.status(201).json({ success: true, data: draft.rows[0] });
   } catch (err) {
     console.error("[consent:draft]", err.message);
@@ -206,7 +361,7 @@ router.post("/:id/sign", requireAuth, async (req, res) => {
   const employeeId = req.actor.userId || req.actor.user_id;
   try {
     const docRes = await db.query(
-      `SELECT * FROM consent_documents WHERE consent_id=$1 AND employee_id=$2 AND status='pending'`,
+      `SELECT * FROM consent_documents WHERE consent_id=$1 AND employee_id=$2 AND status IN ('draft','pending_employee','revision_requested','pending')`,
       [req.params.id, employeeId]
     );
     if (!docRes.rows.length)
@@ -236,8 +391,9 @@ router.post("/:id/sign", requireAuth, async (req, res) => {
     const now = new Date();
     const updated = await db.query(
       `UPDATE consent_documents SET
-         status='signed',
+         status='pending_approval',
          signed_at=$1,
+         submitted_at=$1,
          e_signature_image=$2,
          printed_name=$3,
          monitoring_preferences=$4,
@@ -256,6 +412,8 @@ router.post("/:id/sign", requireAuth, async (req, res) => {
 
     await audit(req.params.id, employeeId, employeeId, req.actor.role, "consent_signed",
       `Signed at ${manilaTime(now)}. Printed name: ${printed_name}.`);
+    await audit(req.params.id, employeeId, employeeId, req.actor.role, "consent_submitted",
+      "Employee submitted consent for admin approval.");
 
     return res.json({ success: true, data: updated.rows[0] });
   } catch (err) {
@@ -394,7 +552,18 @@ router.get("/all", requireAuth, async (req, res) => {
               cd.monitoring_preferences, 
               cd.e_signature_image AS signature, 
               cd.status AS consent_status, 
-              cd.created_at AS submitted_at, 
+              cd.status AS status,
+              cd.signed_at,
+              cd.submitted_at,
+              cd.approved_at,
+              cd.created_at AS requested_at,
+              cd.device_uuid,
+              cd.asset_id,
+              cd.hostname,
+              cd.printed_name,
+              cd.e_signature_image,
+              cd.form_title,
+              cd.consent_version,
               cd.updated_at
        FROM consent_documents cd
        LEFT JOIN branches b ON b.branch_id = cd.branch_id
@@ -418,12 +587,19 @@ router.get("/:id", requireAuth, async (req, res) => {
     const employeeId = actor.userId || actor.user_id;
 
     const result = await db.query(
-      `SELECT * FROM consent_documents WHERE consent_id=$1 ${isAdmin ? "" : "AND employee_id=$2"}`,
+      `SELECT cd.*, md.hostname, md.device_name, ha.asset_tag, ha.serial_number, ha.model
+       FROM consent_documents cd
+       LEFT JOIN monitored_devices md ON md.device_uuid = cd.device_uuid
+       LEFT JOIN hardware_assets ha ON ha.asset_id = cd.asset_id
+       WHERE cd.consent_id=$1 ${isAdmin ? "" : "AND cd.employee_id=$2"}`,
       isAdmin ? [req.params.id] : [req.params.id, employeeId]
     );
     if (!result.rows.length)
       return res.status(404).json({ success: false, message: "Consent document not found." });
 
+    if (!(await assertConsentAccess(req, result.rows[0]))) {
+      return res.status(403).json({ success: false, message: "Access denied." });
+    }
     return res.json({ success: true, data: result.rows[0] });
   } catch (err) {
     console.error("[consent:get]", err.message);
@@ -461,7 +637,10 @@ router.put("/:id/admin-action", requireAdminOrHR, async (req, res) => {
     if (!docRes.rows.length)
       return res.status(404).json({ success: false, message: "Consent not found." });
 
-    let newStatus = docRes.rows[0].status;
+    if (!(await assertConsentAccess(req, docRes.rows[0]))) {
+      return res.status(403).json({ success: false, message: "Access denied." });
+    }
+    let newStatus = normalizeStatus(docRes.rows[0].status);
     let eventType = "consent_approved";
     if (action === "withdraw") {
       newStatus = "withdrawn";
@@ -470,15 +649,14 @@ router.put("/:id/admin-action", requireAdminOrHR, async (req, res) => {
       newStatus = "superseded";
       eventType = "consent_superseded";
     } else if (action === "reject") {
+      newStatus = "rejected";
       eventType = "consent_rejected";
     }
 
-    if (action !== "reject") {
-      await db.query(
-        `UPDATE consent_documents SET status=$1, updated_at=CURRENT_TIMESTAMP WHERE consent_id=$2`,
-        [newStatus, req.params.id]
-      );
-    }
+    await db.query(
+      `UPDATE consent_documents SET status=$1, active=false, updated_at=CURRENT_TIMESTAMP WHERE consent_id=$2`,
+      [newStatus, req.params.id]
+    );
 
     await audit(req.params.id, docRes.rows[0].employee_id,
       actor.userId || actor.user_id, actor.role, eventType,
@@ -491,13 +669,82 @@ router.put("/:id/admin-action", requireAdminOrHR, async (req, res) => {
   }
 });
 
+// POST /consent/:id/review - approve, reject, or request revision.
+router.post("/:id/review", requireAdminOrHR, async (req, res) => {
+  const actor = req.actor;
+  const action = String(req.body.action || "").toLowerCase().replace(/[\s-]+/g, "_");
+  const reason = String(req.body.reason || "").trim();
+  if (!["approve", "reject", "request_revision"].includes(action)) {
+    return res.status(400).json({ success: false, message: "Action must be approve, reject, or request_revision." });
+  }
+  if ((action === "reject" || action === "request_revision") && !reason) {
+    return res.status(400).json({ success: false, message: "A reason is required." });
+  }
+  try {
+    await db.query("BEGIN");
+    const docRes = await db.query(`SELECT * FROM consent_documents WHERE consent_id=$1 FOR UPDATE`, [req.params.id]);
+    const doc = docRes.rows[0];
+    if (!doc) {
+      await db.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Consent not found." });
+    }
+    if (!(await assertConsentAccess(req, doc))) {
+      await db.query("ROLLBACK");
+      return res.status(403).json({ success: false, message: "Access denied." });
+    }
+
+    let updated;
+    let policy = null;
+    if (action === "approve") {
+      await db.query(
+        `UPDATE consent_documents
+         SET status='superseded', active=false, previous_consent_id=COALESCE(previous_consent_id, $1), updated_at=CURRENT_TIMESTAMP
+         WHERE employee_id=$2 AND consent_id<>$1 AND status IN ('approved','signed') AND active=true
+           AND ($3::uuid IS NULL OR device_uuid=$3::uuid)`,
+        [doc.consent_id, doc.employee_id, doc.device_uuid || null]
+      );
+      updated = await db.query(
+        `UPDATE consent_documents
+         SET status='approved', active=true, approved_by=$1, approved_at=CURRENT_TIMESTAMP,
+             effective_date=COALESCE(effective_date, CURRENT_DATE),
+             verification_code=COALESCE(verification_code, $2),
+             updated_at=CURRENT_TIMESTAMP
+         WHERE consent_id=$3 RETURNING *`,
+        [actorId(actor), `AB-CONSENT-${doc.consent_id}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`, doc.consent_id]
+      );
+      policy = await generateEndpointPolicy(updated.rows[0], actor);
+      await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_approved", "Consent approved.");
+    } else if (action === "reject") {
+      updated = await db.query(
+        `UPDATE consent_documents SET status='rejected', active=false, rejection_reason=$1, updated_at=CURRENT_TIMESTAMP
+         WHERE consent_id=$2 RETURNING *`,
+        [reason, doc.consent_id]
+      );
+      await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_rejected", reason);
+    } else {
+      updated = await db.query(
+        `UPDATE consent_documents SET status='revision_requested', active=false, revision_reason=$1, updated_at=CURRENT_TIMESTAMP
+         WHERE consent_id=$2 RETURNING *`,
+        [reason, doc.consent_id]
+      );
+      await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "revision_requested", reason);
+    }
+    await db.query("COMMIT");
+    return res.json({ success: true, data: updated.rows[0], policy });
+  } catch (err) {
+    await db.query("ROLLBACK").catch(() => {});
+    console.error("[consent:review]", err.message);
+    return res.status(500).json({ success: false, message: "Failed to review consent." });
+  }
+});
+
 // POST /consent/:id/approve-change — admin approves a change request, creates new consent version
 router.post("/:id/approve-change", requireAdminOrHR, async (req, res) => {
   const { new_preferences, notes } = req.body;
   const actor = req.actor;
   try {
     const docRes = await db.query(
-      `SELECT * FROM consent_documents WHERE consent_id=$1 AND status='signed'`,
+      `SELECT * FROM consent_documents WHERE consent_id=$1 AND status IN ('approved','signed')`,
       [req.params.id]
     );
     if (!docRes.rows.length)
@@ -513,20 +760,20 @@ router.post("/:id/approve-change", requireAdminOrHR, async (req, res) => {
       `INSERT INTO consent_documents
          (employee_id, employee_full_name, employee_email, employee_number,
           branch_id, branch_name, department, form_title, consent_version,
-          monitoring_preferences, signed_at, e_signature_image, printed_name, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_TIMESTAMP,$11,$12,'signed')
+          monitoring_preferences, signed_at, e_signature_image, printed_name, status, submitted_at, approved_at, approved_by, active, previous_consent_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_TIMESTAMP,$11,$12,'approved',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,$13,true,$14)
        RETURNING *`,
       [
         old.employee_id, old.employee_full_name, old.employee_email, old.employee_number,
         old.branch_id, old.branch_name, old.department, old.form_title, newVersion,
         JSON.stringify(new_preferences || old.monitoring_preferences || []),
-        old.e_signature_image, old.printed_name,
+        old.e_signature_image, old.printed_name, actorId(actor), old.consent_id,
       ]
     );
 
     // Archive old consent
     await db.query(
-      `UPDATE consent_documents SET status='superseded', updated_at=CURRENT_TIMESTAMP WHERE consent_id=$1`,
+      `UPDATE consent_documents SET status='superseded', active=false, updated_at=CURRENT_TIMESTAMP WHERE consent_id=$1`,
       [old.consent_id]
     );
 
@@ -537,6 +784,7 @@ router.post("/:id/approve-change", requireAdminOrHR, async (req, res) => {
       "consent_approved", notes || `Change approved by ${actor.name || actor.role}. New version: ${newVersion}.`);
     await audit(newId, old.employee_id, actor.userId || actor.user_id, actor.role,
       "policy_updated", `Monitoring policy updated to consent version ${newVersion}.`);
+    await generateEndpointPolicy(newDoc.rows[0], actor);
 
     return res.json({
       success: true,
@@ -575,10 +823,10 @@ router.get("/:id/audit", requireAdminOrHR, async (req, res) => {
 router.get("/policy/:userId", async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT consent_id, status, monitoring_preferences, signed_at, consent_version
+      `SELECT consent_id, status, monitoring_preferences, signed_at, approved_at, consent_version
        FROM consent_documents
        WHERE employee_id=$1
-       ORDER BY CASE status WHEN 'signed' THEN 0 ELSE 1 END, signed_at DESC NULLS LAST
+       ORDER BY CASE status WHEN 'approved' THEN 0 WHEN 'signed' THEN 1 ELSE 2 END, approved_at DESC NULLS LAST, signed_at DESC NULLS LAST
        LIMIT 1`,
       [req.params.userId]
     );
@@ -587,12 +835,12 @@ router.get("/policy/:userId", async (req, res) => {
     audit(doc?.consent_id || null, Number(req.params.userId) || null, null, "agent",
       "policy_synced", `Agent fetched policy for user ${req.params.userId}.`).catch(() => {});
 
-    if (!doc || doc.status !== "signed") {
+    if (!doc || !["approved", "signed"].includes(doc.status)) {
       return res.json({
         success: true,
         policy: {
           optional_monitoring_enabled: false,
-          reason: doc ? `Consent status: ${doc.status}` : "No consent on file",
+          reason: "Consent not approved.",
           preferences: [],
           // Policy plumbing: feature flags for agent implementation
           screenshot_allowed: false,

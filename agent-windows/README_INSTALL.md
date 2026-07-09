@@ -33,7 +33,7 @@ This is the Windows Endpoint Monitoring Agent for AstreaBlue ITSM.
 
 ## Testing the Installation
 
-1. Open the **Laptop Monitoring** dashboard in AstreaBlue.
+1. Open the **Endpoint Management** dashboard in AstreaBlue.
 2. Verify the device appears as **Online**.
 3. To test disconnection, you can stop the service:
    ```powershell

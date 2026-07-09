@@ -137,7 +137,7 @@ function StepIntro({ onContinue }) {
               In compliance with the Data Privacy Act of 2012 (Republic Act No. 10173), AstreaBlue
               Enterprise ITSM is committed to protecting the privacy and confidentiality of your
               personal data. This notice explains how we collect, use, and protect information
-              gathered through our laptop activity monitoring system.
+              gathered through our endpoint management and monitoring system.
             </p>
           </div>
 

@@ -654,6 +654,11 @@ app.use("/api/v1/hardware-assets", async (_req, res, next) => {
   if (await hardwareAssetTablesReady) return next();
   return res.status(503).json({ success: false, message: "Hardware asset storage is unavailable." });
 }, assetManagementRoutes);
+// Endpoint Management is the evolved parent module for endpoint registration,
+// inventory, monitoring, policies, compliance, and health. Keep the legacy
+// Laptop Monitoring path as a compatibility alias for existing agents/clients.
+app.use("/api/v1/endpoint-management", laptopMonitoringRoutes);
+app.use("/api/v1/endpoints", laptopMonitoringRoutes);
 app.use("/api/v1/laptop-monitoring", laptopMonitoringRoutes);
 app.use("/api/v1/ra-10173-compliance", ra10173ComplianceRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
