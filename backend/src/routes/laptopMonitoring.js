@@ -883,7 +883,8 @@ router.get("/hardware-inventory-by-asset/:assetId", requireAdmin, async (req, re
   }
 });
 
-router.delete("/devices/:id", requireSuperAdmin, async (req, res) => {
+router.delete("/devices/:id", requireAdmin, async (req, res) => {
+  if (!req.monitoringIsSuperAdmin) return res.status(403).json({ success: false, error: "Superadmin required." });
   try {
     const result = await db.query(`DELETE FROM monitored_devices WHERE device_id=$1 RETURNING *`, [req.params.id]);
     if (!result.rows.length) return res.status(404).json({ success: false, error: "Device not found." });
