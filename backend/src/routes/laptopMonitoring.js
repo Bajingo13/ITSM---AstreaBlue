@@ -442,24 +442,50 @@ function normalizeSoftwareItem(item) {
 }
 
 async function findDevice(body) {
-  const deviceUuid = String(body.device_uuid || "").trim().toLowerCase();
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) return null;
-  const result = await db.query(
-    `SELECT * FROM monitored_devices WHERE device_uuid=$1::uuid LIMIT 1`,
-    [deviceUuid]
-  );
+  let deviceUuid = String(body.device_uuid || "").trim().toLowerCase();
+  
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) {
+    const hostname = String(body.hostname || "").trim();
+    if (!hostname) return null;
+    const hash = crypto.createHash('md5').update(hostname.toLowerCase()).digest('hex');
+    deviceUuid = [
+      hash.slice(0, 8), hash.slice(8, 12), '3' + hash.slice(13, 16), 'a' + hash.slice(17, 20), hash.slice(20, 32)
+    ].join('-');
+  }
+
+  const result = await db.query(`SELECT * FROM monitored_devices WHERE device_uuid=$1::uuid LIMIT 1`, [deviceUuid]);
+  
+  if (!result.rows.length) {
+    const hostname = String(body.hostname || "");
+    if (!hostname) return null;
+    const legacyRes = await db.query(
+      `SELECT * FROM monitored_devices WHERE device_uuid IS NULL AND LOWER(hostname)=LOWER($1) ORDER BY last_seen_at DESC NULLS LAST LIMIT 1`,
+      [hostname]
+    );
+    if (legacyRes.rows.length) {
+       await db.query(`UPDATE monitored_devices SET device_uuid=$1 WHERE device_id=$2`, [deviceUuid, legacyRes.rows[0].device_id]);
+       legacyRes.rows[0].device_uuid = deviceUuid;
+       return legacyRes.rows[0];
+    }
+  }
+
   return result.rows[0] || null;
 }
 
 router.post("/heartbeat", requireAgent, async (req, res) => {
-  const deviceUuid = String(req.body?.device_uuid || "").trim().toLowerCase();
+  let deviceUuid = String(req.body?.device_uuid || "").trim().toLowerCase();
   const hostname = String(req.body?.hostname || req.body?.device_name || "").trim();
   const deviceName = String(req.body?.device_name || hostname).trim().slice(0, 255);
   const loggedInUser = String(req.body?.logged_in_user || "").trim().slice(0, 255) || null;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) {
-    return res.status(400).json({ success: false, message: "A valid device_uuid is required." });
-  }
+
   if (!hostname) return res.status(400).json({ success: false, message: "Hostname is required." });
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) {
+    const hash = crypto.createHash('md5').update(hostname.toLowerCase()).digest('hex');
+    deviceUuid = [
+      hash.slice(0, 8), hash.slice(8, 12), '3' + hash.slice(13, 16), 'a' + hash.slice(17, 20), hash.slice(20, 32)
+    ].join('-');
+  }
   try {
     // One-time adoption preserves activity history for pre-UUID installations.
     await db.query(
