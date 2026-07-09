@@ -893,6 +893,10 @@ export default function Assets() {
   const totalActive = visibleAssets.filter((asset) => asset.status === "Active").length;
   const totalBorrowed = visibleAssets.filter((asset) => asset.status === "Borrowed").length;
 
+  const verifiedAssets = visibleAssets.filter(a => a.monitoring_device_id && a.agent_serial_number && String(a.serial_number).trim().toLowerCase() === String(a.agent_serial_number).trim().toLowerCase()).length;
+  const mismatchedAssets = visibleAssets.filter(a => a.monitoring_device_id && a.agent_serial_number && String(a.serial_number).trim().toLowerCase() !== String(a.agent_serial_number).trim().toLowerCase()).length;
+  const pendingAssets = visibleAssets.filter(a => a.monitoring_device_id && !a.agent_serial_number).length;
+  const offlineDevices = visibleAssets.filter(a => a.monitoring_device_id && a.monitoring_status === "Offline").length;
 
   /* Branch carousel scroll state */
   const carouselRef = useRef(null);
@@ -1258,6 +1262,24 @@ export default function Assets() {
         </div>
       </section>
 
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Verified Assets</p>
+          <p className="mt-3 text-2xl font-black text-emerald-600">{verifiedAssets}</p>
+        </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Mismatched Assets</p>
+          <p className="mt-3 text-2xl font-black text-rose-600">{mismatchedAssets}</p>
+        </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Pending Verification</p>
+          <p className="mt-3 text-2xl font-black text-amber-600">{pendingAssets}</p>
+        </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Offline Devices</p>
+          <p className="mt-3 text-2xl font-black text-slate-900">{offlineDevices}</p>
+        </div>
+      </section>
 
       {/* Branch Filter — compact searchable dropdown */}
       {isSuperAdmin && (
@@ -1874,6 +1896,12 @@ function AssetDetailsModal({ asset, onClose }) {
             {hardware && (
               <section className="mt-8 rounded-3xl border border-blue-200 bg-blue-50/50 p-6 shadow-sm">
                 <h3 className="mb-4 text-sm font-black uppercase tracking-[0.16em] text-blue-800">Agent-Detected Hardware</h3>
+                {String(asset.serial_number||'').trim().toLowerCase() !== String(hardware.serial_number||'').trim().toLowerCase() && (
+                  <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                    <p className="text-sm font-black text-rose-700 uppercase tracking-wide">Action Recommended</p>
+                    <p className="mt-1 text-sm font-semibold text-rose-900">Serial number mismatch. Verify whether the physical device was replaced.</p>
+                  </div>
+                )}
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div>
                     <p className="text-xs font-bold text-slate-500">Serial Number</p>

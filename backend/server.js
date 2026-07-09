@@ -1394,11 +1394,15 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
         md.hostname as monitoring_hostname,
         md.status as monitoring_status,
         md.last_seen_at as monitoring_last_seen,
-        md.logged_in_user as monitoring_logged_in_user
+        md.logged_in_user as monitoring_logged_in_user,
+        ehi.serial_number as agent_serial_number,
+        ehi.manufacturer as agent_manufacturer,
+        ehi.model as agent_model
       FROM hardware_assets a
       LEFT JOIN branches b ON a.branch_id = b.branch_id
       LEFT JOIN asset_financials f ON f.asset_id = a.asset_id
       LEFT JOIN monitored_devices md ON md.asset_id = a.asset_id
+      LEFT JOIN endpoint_hardware_inventory ehi ON ehi.device_id = md.device_id
       ${whereSql}
       ORDER BY a.created_at DESC
       `,
