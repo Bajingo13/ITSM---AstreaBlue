@@ -1402,7 +1402,11 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
       LEFT JOIN branches b ON a.branch_id = b.branch_id
       LEFT JOIN asset_financials f ON f.asset_id = a.asset_id
       LEFT JOIN monitored_devices md ON md.asset_id = a.asset_id
-      LEFT JOIN endpoint_hardware_inventory ehi ON ehi.device_id = md.device_id
+      LEFT JOIN (
+        SELECT DISTINCT ON (device_id) *
+        FROM endpoint_hardware_inventory
+        ORDER BY device_id, scanned_at DESC
+      ) ehi ON ehi.device_id = md.device_id
       ${whereSql}
       ORDER BY a.created_at DESC
       `,
