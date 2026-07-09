@@ -1897,11 +1897,18 @@ function AssetCard({ asset, onView, onEdit, onHistory, onDelete }) {
 function AssetDetailsModal({ asset, onClose }) {
   const [hardware, setHardware] = useState(null);
   
+  const [reconciliation, setReconciliation] = useState([]);
+
   useEffect(() => {
     if (asset?.asset_id) {
       fetch(`${API_URL}/api/v1/laptop-monitoring/hardware-inventory-by-asset/${asset.asset_id}`, { headers: authHeaders() })
         .then(r => r.json())
         .then(d => { if (d.success) setHardware(d.data); })
+        .catch(console.error);
+
+      fetch(`${API_URL}/api/v1/assets/${asset.asset_id}/reconciliation`, { headers: authHeaders() })
+        .then(r => r.json())
+        .then(d => { if (d.success) setReconciliation(d.data); })
         .catch(console.error);
     }
   }, [asset?.asset_id]);
@@ -1991,6 +1998,8 @@ function AssetDetailsModal({ asset, onClose }) {
     },
   ];
 
+  const hasCriticalMismatch = reconciliation.some(r => r.severity === 'Critical');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
@@ -2020,27 +2029,54 @@ function AssetDetailsModal({ asset, onClose }) {
               <AssetDetailSection key={section.title} title={section.title} items={section.items} />
             ))}
 
-            {hardware && (
+            {reconciliation.length > 0 ? (
               <section className="mt-8 rounded-3xl border border-blue-200 bg-blue-50/50 p-6 shadow-sm">
-                <h3 className="mb-4 text-sm font-black uppercase tracking-[0.16em] text-blue-800">Agent-Detected Hardware</h3>
-                {String(asset.serial_number||'').trim().toLowerCase() !== String(hardware.serial_number||'').trim().toLowerCase() && (
+                <h3 className="mb-4 text-sm font-black uppercase tracking-[0.16em] text-blue-800">Agent Verification</h3>
+                {hasCriticalMismatch && (
                   <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 p-4">
                     <p className="text-sm font-black text-rose-700 uppercase tracking-wide">Action Recommended</p>
                     <p className="mt-1 text-sm font-semibold text-rose-900">Serial number mismatch. Verify whether the physical device was replaced.</p>
                   </div>
                 )}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-slate-600">
+                    <thead className="bg-slate-100 text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 font-black">Field</th>
+                        <th className="px-4 py-3 font-black">Asset Record</th>
+                        <th className="px-4 py-3 font-black">Agent Detected</th>
+                        <th className="px-4 py-3 font-black">Verification</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {reconciliation.map((r, i) => (
+                        <tr key={i}>
+                          <td className="px-4 py-3 font-bold">{r.field_name}</td>
+                          <td className="px-4 py-3">{r.asset_value || '—'}</td>
+                          <td className="px-4 py-3">{r.detected_value || '—'}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                              r.status === 'Match' ? 'bg-emerald-100 text-emerald-800' :
+                              r.status === 'Unknown' ? 'bg-slate-100 text-slate-800' :
+                              r.severity === 'Critical' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {r.status} {r.status === 'Mismatch' ? `(${r.severity})` : ''}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-4 text-xs font-semibold text-slate-500 text-right">
+                  Last checked: {new Date(reconciliation[0]?.checked_at).toLocaleString()}
+                </div>
+              </section>
+            ) : hardware ? (
+              <section className="mt-8 rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+                <h3 className="mb-4 text-sm font-black uppercase tracking-[0.16em] text-slate-500">Agent-Detected Hardware</h3>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <div>
-                    <p className="text-xs font-bold text-slate-500">Serial Number</p>
-                    <p className="text-sm font-semibold text-slate-900">
-                      Asset: {asset.serial_number || 'N/A'}<br/>
-                      Agent: {hardware.serial_number}
-                    </p>
-                    <p className={`text-xs mt-1 font-bold ${String(asset.serial_number||'').trim().toLowerCase() === String(hardware.serial_number||'').trim().toLowerCase() ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      <span className="mr-1">●</span>
-                      {String(asset.serial_number||'').trim().toLowerCase() === String(hardware.serial_number||'').trim().toLowerCase() ? 'Match' : 'Mismatch'}
-                    </p>
-                  </div>
+                  <div><p className="text-xs font-bold text-slate-500">Serial Number</p><p className="text-sm font-semibold text-slate-900">{hardware.serial_number}</p></div>
                   <div><p className="text-xs font-bold text-slate-500">Processor</p><p className="text-sm font-semibold text-slate-900">{hardware.cpu_name}</p></div>
                   <div><p className="text-xs font-bold text-slate-500">Memory (RAM)</p><p className="text-sm font-semibold text-slate-900">{hardware.total_ram_gb} GB</p></div>
                   <div><p className="text-xs font-bold text-slate-500">Operating System</p><p className="text-sm font-semibold text-slate-900">{hardware.os_name} {hardware.os_version}</p></div>
@@ -2048,7 +2084,7 @@ function AssetDetailsModal({ asset, onClose }) {
                   <div><p className="text-xs font-bold text-slate-500">Last Scan</p><p className="text-sm font-semibold text-slate-900">{new Date(hardware.scanned_at).toLocaleString()}</p></div>
                 </div>
               </section>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

@@ -15,11 +15,11 @@ const formatDuration = (seconds) => {
   return `${(value / 3600).toFixed(1)} hr`;
 };
 
-async function monitoringRequest(path) {
-  const response = await fetch(`${API_BASE}${path}`, { headers: authHeaders() });
+async function monitoringRequest(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), ...options });
   const body = await response.json();
-  if (!response.ok || body.success === false) throw new Error(body.message || "Monitoring request failed.");
-  return body.data;
+  if (!response.ok || body.success === false) throw new Error(body.error || body.message || "Monitoring request failed.");
+  return body.data || body;
 }
 
 export default function EndpointMonitoring() {
@@ -35,6 +35,8 @@ export default function EndpointMonitoring() {
   const [activeTabState, setActiveTabState] = useState(searchParams.get("tab") || "overview");
   
   const [details, setDetails] = useState(null);
+  const [reconciliation, setReconciliation] = useState([]);
+  const [reconciling, setReconciling] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [debugInfo, setDebugInfo] = useState(null);
@@ -101,9 +103,13 @@ export default function EndpointMonitoring() {
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => {
     if (!selectedId || typeof selectedId === "function" || String(selectedId).includes("=>")) {
+      setReconciliation([]);
       return setDetails(null);
     }
     monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/activity`).then(setDetails).catch((requestError) => setError(requestError.message));
+    monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconciliation`)
+      .then(data => setReconciliation(Array.isArray(data) ? data : []))
+      .catch(e => console.error(e));
   }, [selectedId]);
   useEffect(() => {
     const timer = window.setInterval(loadOverview, 60000);
@@ -295,6 +301,49 @@ export default function EndpointMonitoring() {
                 )}
               </div>
             </div>
+
+            {selectedDevice?.asset_id && (
+              <div>
+                <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider text-slate-500 mb-3">Linked Asset Verification</h3>
+                <div className="space-y-2 text-sm text-slate-600">
+                  <p><span className="font-bold">Asset Tag:</span> {selectedDevice?.asset_tag}</p>
+                  {reconciliation.length > 0 ? (
+                    <>
+                      <p><span className="font-bold">Verification Status:</span> {
+                        reconciliation.some(r => r.severity === 'Critical') ? <span className="text-rose-600 font-bold">Critical Mismatches</span> :
+                        reconciliation.some(r => r.status === 'Mismatch') ? <span className="text-amber-600 font-bold">Mismatches Found</span> :
+                        <span className="text-emerald-600 font-bold">Verified</span>
+                      }</p>
+                      <p><span className="font-bold">Mismatches:</span> {reconciliation.filter(r => r.status === 'Mismatch').length}</p>
+                      <p><span className="font-bold">Last Reconciled:</span> {new Date(reconciliation[0].checked_at).toLocaleString()}</p>
+                    </>
+                  ) : (
+                    <p className="text-slate-500 italic">No verification data available.</p>
+                  )}
+                  <div className="mt-3">
+                    <button 
+                      onClick={async () => {
+                        setReconciling(true);
+                        try {
+                          await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconcile`, { method: 'POST' });
+                          const newData = await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconciliation`);
+                          setReconciliation(Array.isArray(newData) ? newData : []);
+                          alert("Reconciliation completed.");
+                        } catch (e) {
+                          alert(e.message);
+                        } finally {
+                          setReconciling(false);
+                        }
+                      }}
+                      disabled={reconciling}
+                      className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {reconciling ? 'Running...' : 'Run Reconciliation'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div>
               <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider text-slate-500 mb-3">Asset Ownership</h3>

@@ -1663,6 +1663,34 @@ app.post("/api/v1/hardware-assets", async (req, res) => {
   }
 });
 
+app.get("/api/v1/assets/:assetId/reconciliation", async (req, res) => {
+  try {
+    const auth = getAuthFromRequest(req);
+    if (!auth) return res.status(401).json({ success: false, error: "Unauthorized" });
+    
+    const role = String(auth.role || "").toLowerCase();
+    if (role === 'employee') return res.status(403).json({ success: false, error: "Access denied" });
+
+    const { assetId } = req.params;
+    
+    if (role !== 'superadmin' && auth.branchId) {
+      const assetCheck = await db.query(`SELECT branch_id FROM hardware_assets WHERE asset_id=$1`, [assetId]);
+      if (!assetCheck.rows.length || assetCheck.rows[0].branch_id !== auth.branchId) {
+        return res.status(403).json({ success: false, error: "Access denied" });
+      }
+    }
+
+    const result = await db.query(
+      `SELECT * FROM asset_inventory_reconciliation WHERE asset_id=$1 ORDER BY checked_at DESC`,
+      [assetId]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error("Fetch reconciliation error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch reconciliation data." });
+  }
+});
+
 app.put("/api/v1/hardware-assets/:id", async (req, res) => {
   try {
     await requireHardwareAssetTables();
@@ -1869,6 +1897,12 @@ app.put("/api/v1/hardware-assets/:id", async (req, res) => {
 
     await insertAssetHistory(updatedAsset.asset_id, "Asset Updated", { status: status || existing.rows[0].status }, branchId, null);
 
+    const linkedDevice = await db.query(`SELECT device_id FROM monitored_devices WHERE asset_id=$1`, [id]);
+    if (linkedDevice.rows.length) {
+      const { reconcileDevice } = require("./src/services/reconciliationService");
+      await reconcileDevice(linkedDevice.rows[0].device_id);
+    }
+
     res.json(updatedAsset);
   } catch (err) {
     console.error("Update hardware asset error:", err.message);
@@ -1972,6 +2006,9 @@ app.put("/api/v1/hardware-assets/:id/link-device", async (req, res) => {
     // First unlink any device currently linked to this asset, then link the new device
     await db.query(`UPDATE monitored_devices SET asset_id = NULL WHERE asset_id = $1`, [id]);
     const result = await db.query(`UPDATE monitored_devices SET asset_id = $1 WHERE device_id = $2 RETURNING *`, [id, device_id]);
+    
+    const { reconcileDevice } = require("./src/services/reconciliationService");
+    await reconcileDevice(device_id);
     
     return res.json({ success: true, message: "Asset linked successfully.", data: result.rows[0] });
   } catch (err) {
