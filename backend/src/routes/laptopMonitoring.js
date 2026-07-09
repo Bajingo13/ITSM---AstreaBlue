@@ -174,12 +174,7 @@ const tablesReady = (async () => {
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS branch_id INTEGER;
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS department VARCHAR(255);
 
-      CREATE TABLE IF NOT EXISTS monitored_device_assignments (
-        id BIGSERIAL PRIMARY KEY,
-        device_id BIGINT REFERENCES monitored_devices(device_id) ON DELETE CASCADE,
-        device_uuid UUID,
-        asset_id INTEGER,
-        old_user_id INTEGER,
+
       
       CREATE TABLE IF NOT EXISTS monitoring_consents (
         id BIGSERIAL PRIMARY KEY, device_id BIGINT NOT NULL REFERENCES monitored_devices(device_id) ON DELETE CASCADE,
