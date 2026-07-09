@@ -411,7 +411,29 @@ async function getApprovedConsentPreferences(device) {
      ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
     [device.assigned_user_id, device.device_uuid]
   );
-  return result.rows[0]?.monitoring_preferences || [];
+  if (result.rows.length) {
+    return result.rows[0]?.monitoring_preferences || [];
+  }
+  
+  const legacy = await db.query(
+    `SELECT application_monitoring, web_monitoring, device_telemetry, email_header_monitoring
+     FROM laptop_activity_monitoring 
+     WHERE user_id=$1 AND consent_status='Consented' 
+     ORDER BY created_at DESC LIMIT 1`,
+    [device.assigned_user_id]
+  );
+  
+  if (legacy.rows.length) {
+    const l = legacy.rows[0];
+    const prefs = [];
+    if (l.application_monitoring) prefs.push("application_monitoring");
+    if (l.web_monitoring) prefs.push("website_monitoring");
+    if (l.device_telemetry) prefs.push("device_telemetry");
+    if (l.email_header_monitoring) prefs.push("email_header_monitoring");
+    return prefs;
+  }
+  
+  return [];
 }
 
 function softwareScope(req, alias = "si") {
@@ -664,6 +686,24 @@ router.get("/policy", requireAgent, async (req, res) => {
           policy.usbMonitoring = hasPreference(prefs, "usb_monitoring", "usb");
           policy.browserMonitoring = hasPreference(prefs, "web_monitoring", "website_monitoring", "browser");
           policy.emailHeaderMonitoring = hasPreference(prefs, "email_header_monitoring", "email");
+        } else {
+          // Fall back to oldest legacy table (laptop_activity_monitoring)
+          const oldestLegacy = await db.query(
+            `SELECT * FROM laptop_activity_monitoring WHERE user_id=$1 AND consent_status='Consented' ORDER BY created_at DESC LIMIT 1`,
+            [device.assigned_user_id]
+          );
+          if (oldestLegacy.rows.length) {
+            const consent = oldestLegacy.rows[0];
+            policy.consent_status = "approved";
+            policy.consent_version = "1.0 (Legacy)";
+            policy.policy_reason = "Active consent applied (Legacy).";
+            policy.applicationMonitoring = consent.application_monitoring;
+            policy.screenshotMonitoring = false; // Legacy didn't track screenshots
+            policy.usbMonitoring = false; // Legacy didn't track USB
+            policy.browserMonitoring = consent.web_monitoring;
+            policy.deviceTelemetry = consent.device_telemetry;
+            policy.emailHeaderMonitoring = consent.email_header_monitoring;
+          }
         }
       }
     }
