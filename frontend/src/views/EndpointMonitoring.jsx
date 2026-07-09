@@ -312,9 +312,17 @@ export default function EndpointMonitoring() {
                       <p><span className="font-bold">Verification Status:</span> {
                         reconciliation.some(r => r.severity === 'Critical') ? <span className="text-rose-600 font-bold">Critical Mismatches</span> :
                         reconciliation.some(r => r.status === 'Mismatch') ? <span className="text-amber-600 font-bold">Mismatches Found</span> :
+                        reconciliation.every(r => r.status === 'Unknown') ? <span className="text-amber-600 font-bold">Pending Scan</span> :
                         <span className="text-emerald-600 font-bold">Verified</span>
                       }</p>
                       <p><span className="font-bold">Mismatches:</span> {reconciliation.filter(r => r.status === 'Mismatch').length}</p>
+                      {reconciliation.filter(r => r.status === 'Mismatch').length > 0 && (
+                        <ul className="mt-1 list-disc pl-5 text-rose-600 text-xs font-semibold">
+                          {reconciliation.filter(r => r.status === 'Mismatch').map((m, i) => (
+                            <li key={i}>{m.field_name}: Asset says "{m.asset_value || 'N/A'}", Agent says "{m.detected_value || 'N/A'}"</li>
+                          ))}
+                        </ul>
+                      )}
                       <p><span className="font-bold">Last Reconciled:</span> {new Date(reconciliation[0].checked_at).toLocaleString()}</p>
                     </>
                   ) : (
@@ -328,9 +336,8 @@ export default function EndpointMonitoring() {
                           await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconcile`, { method: 'POST' });
                           const newData = await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconciliation`);
                           setReconciliation(Array.isArray(newData) ? newData : []);
-                          alert("Reconciliation completed.");
                         } catch (e) {
-                          alert(e.message);
+                          console.error(e);
                         } finally {
                           setReconciling(false);
                         }
