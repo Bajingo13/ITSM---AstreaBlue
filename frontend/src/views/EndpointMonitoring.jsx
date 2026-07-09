@@ -258,11 +258,9 @@ export default function EndpointMonitoring() {
               <div className="flex items-center gap-2">
                 <StatusBadge status={selectedDevice.status} />
                 <ConsentBadge status={selectedDevice.consent_status} />
-                {isSuperAdmin && (
-                  <button onClick={handleDeleteDevice} className="ml-4 rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-100 transition">
-                    Delete Device
-                  </button>
-                )}
+                <button onClick={handleDeleteDevice} className="ml-4 rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-100 transition">
+                  Delete Device
+                </button>
               </div>
             )}
           </div>
