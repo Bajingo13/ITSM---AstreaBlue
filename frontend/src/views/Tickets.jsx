@@ -16,6 +16,7 @@ import {
   Paperclip,
   RefreshCw,
   XCircle,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import AttachmentPreviewModal from "../components/AttachmentPreviewModal";
@@ -401,6 +402,9 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   const [actionError, setActionError] = useState("");
   const [kbModalOpen, setKbModalOpen] = useState(false);
   const [kbMessage, setKbMessage] = useState("");
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   const activeRole = role || user?.role_name || user?.role;
 
   const fetchDetails = useCallback(async () => {
@@ -628,6 +632,43 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
     setCancelError("");
     onClose();
   };
+
+  const openDeleteModal = () => {
+    setDeleteModalOpen(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setDeleteModalOpen(false);
+  };
+
+  const deleteTicket = async () => {
+    try {
+      setDeleting(true);
+
+      const res = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await readJsonSafely(res);
+
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to delete ticket.");
+      }
+
+      setDeleteModalOpen(false);
+      setDeleting(false);
+      onClose("Ticket deleted successfully.");
+      void Promise.resolve(onRefresh()).catch((refreshError) => {
+        if (import.meta.env.DEV) console.error("Ticket refresh failed:", refreshError);
+      });
+    } catch (err) {
+      setDeleting(false);
+      onClose("Failed to delete ticket. Please try again.");
+    }
+  };
+
 
   const cancelTicket = async () => {
     const reason = cancellationReason.trim();
@@ -1091,10 +1132,11 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
             <div className="flex items-center justify-end gap-3">
             <button
-              onClick={handleCloseDrawer}
-              className="astrea-button astrea-button-secondary"
+              onClick={openDeleteModal}
+              className="flex items-center gap-2 rounded-xl border border-red-300 px-5 py-3 font-bold text-red-700 hover:bg-red-50 disabled:opacity-60"
             >
-              Close
+              <Trash2 size={18} />
+              Delete
             </button>
 
             <button
@@ -1176,6 +1218,47 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
           </div>
         </div>
       )}
+      {deleteModalOpen && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <h3 className="text-lg font-black text-slate-900">
+                Delete Ticket
+              </h3>
+            </div>
+
+            <div className="px-6 py-5">
+              <p className="text-sm font-semibold text-slate-600">
+                Are you sure you want to delete this ticket? This action cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                onClick={closeDeleteModal}
+                disabled={deleting}
+                className="rounded-xl border border-slate-200 px-5 py-3 font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={deleteTicket}
+                disabled={deleting}
+                className={`flex items-center gap-2 rounded-xl border-2 px-6 py-3 font-bold transition disabled:opacity-60 ${
+                  deleting
+                    ? "border-red-600 bg-red-600 text-white shadow-lg shadow-red-600/20"
+                    : "border-red-300 bg-white text-red-700 hover:bg-red-50"
+                }`}
+              >
+                <Trash2 size={18} className={deleting ? "text-white" : "text-red-500"} />
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {previewAttachment && (
         <AttachmentPreviewModal
           attachment={previewAttachment}
