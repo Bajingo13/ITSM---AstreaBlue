@@ -176,6 +176,22 @@ export default function EndpointMonitoring() {
     }
   };
 
+  const handleDeleteDevice = async () => {
+    if (!window.confirm("Are you sure you want to permanently delete this device and all its monitoring logs?")) return;
+    try {
+      const response = await fetch(`${API_BASE}/devices/${selectedId}`, {
+        method: "DELETE",
+        headers: authHeaders()
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to delete device");
+      setSelectedId("");
+      loadOverview();
+    } catch (e) {
+      alert("Delete failed: " + e.message);
+    }
+  };
+
   const appUsage = useMemo(() => {
     const usage = new Map();
     for (const item of details?.activity || []) {
@@ -238,7 +254,17 @@ export default function EndpointMonitoring() {
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <h2 className="text-xl font-black text-slate-900">{selectedDevice?.hostname || "Device Activity"}</h2>
-            {selectedDevice && <div className="flex items-center gap-2"><StatusBadge status={selectedDevice.status} /><ConsentBadge status={selectedDevice.consent_status} /></div>}
+            {selectedDevice && (
+              <div className="flex items-center gap-2">
+                <StatusBadge status={selectedDevice.status} />
+                <ConsentBadge status={selectedDevice.consent_status} />
+                {isSuperAdmin && (
+                  <button onClick={handleDeleteDevice} className="ml-4 rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-100 transition">
+                    Delete Device
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           
           <div className="mt-4 grid gap-6 md:grid-cols-2">
