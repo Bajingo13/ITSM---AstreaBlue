@@ -26,7 +26,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { API_URL } from "../config/api";
-import PageHero from "../components/layout/PageHero";
+
 import { authHeaders } from "../services/authHeaders";
 
 const API_BASE = `${API_URL}/api/v1`;
@@ -711,6 +711,10 @@ export default function Assets() {
   const [historyAsset, setHistoryAsset] = useState(null);
   const [historyRecords, setHistoryRecords] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportDateFrom, setExportDateFrom] = useState("");
+  const [exportDateTo, setExportDateTo] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const changeViewMode = (mode) => {
     setViewMode(mode);
@@ -1180,21 +1184,80 @@ export default function Assets() {
     }
   };
 
+
+  /* ── Export ───────────────────────────────────── */
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const params = new URLSearchParams({ t: Date.now() });
+      if (exportDateFrom) params.set("start_date", exportDateFrom);
+      if (exportDateTo) params.set("end_date", exportDateTo);
+
+      const res = await fetch(`${API_BASE}/hardware-assets/export?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token") || sessionStorage.getItem("token") || ""}` },
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Export failed" }));
+        alert(err.message || err.error || "No hardware assets found for the selected date range.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : "hardware-assets-export.xlsx";
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      setShowExportModal(false);
+    } catch (err) {
+      console.error("Export error:", err);
+      alert("Failed to export hardware assets. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
   return (
     <div className="space-y-6">
-      <PageHero
-        title="Hardware Assets"
-        subtitle="Track company laptops, desktops, printers, phones and hardware by branch with status monitoring, borrower history, and lifecycle controls."
-        stats={`${totalAssets} total assets • ${totalActive} active • ${totalBorrowed} borrowed`}
-        action={{
-          label: "Add Hardware Asset",
-          icon: Plus,
-          onClick: () => {
-            setEditingAsset(null);
-            setShowAssetModal(true);
-          },
-        }}
-      />
+      <section className="astrea-page-hero relative overflow-hidden rounded-[28px] border border-white/15 px-7 py-8 text-white shadow-[var(--astrea-hero-shadow)] lg:px-10 lg:py-10">
+        <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full border-[34px] border-cyan-200/10" />
+        <div className="pointer-events-none absolute bottom-[-110px] right-24 h-56 w-56 rounded-full bg-cyan-300/10 blur-2xl" />
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl">
+            <h1 className="text-3xl font-black sm:text-4xl">Hardware Assets</h1>
+            <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-blue-100 sm:text-base">
+              Track company laptops, desktops, printers, phones and hardware by branch with status monitoring, borrower history, and lifecycle controls.
+            </p>
+            <p className="mt-4 text-sm text-cyan-100">
+              {totalAssets} total assets · {totalActive} active · {totalBorrowed} borrowed
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={openAddAsset}
+              className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
+            >
+              <Plus size={18} />
+              Add Asset
+            </button>
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="inline-flex items-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-black text-white shadow-sm backdrop-blur-sm transition hover:bg-white/20"
+            >
+              <Download size={18} />
+              Export
+            </button>
+          </div>
+        </div>
+      </section>
+
 
       {/* Branch Filter — compact searchable dropdown */}
       {isSuperAdmin && (
@@ -1580,6 +1643,67 @@ export default function Assets() {
       {viewingAsset && <AssetDetailsModal asset={viewingAsset} onClose={() => setViewingAsset(null)} />}
       {historyAsset && (
         <AssetHistoryModal asset={historyAsset} records={historyRecords} loading={historyLoading} onClose={() => setHistoryAsset(null)} />
+      )}
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-[28px] bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <h2 className="text-xl font-black text-slate-900">Export Hardware Assets</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Select a date range for the export.
+              </p>
+            </div>
+            <div className="space-y-5 px-6 py-6">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">From Date</span>
+                <input
+                  type="date"
+                  value={exportDateFrom}
+                  onChange={(e) => setExportDateFrom(e.target.value)}
+                  className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15"
+                />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">To Date</span>
+                <input
+                  type="date"
+                  value={exportDateTo}
+                  onChange={(e) => setExportDateTo(e.target.value)}
+                  className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15"
+                />
+              </label>
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => { setShowExportModal(false); setExportDateFrom(""); setExportDateTo(""); }}
+                className="rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exporting}
+                className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {exporting ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download size={16} />
+                    Export Excel
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
