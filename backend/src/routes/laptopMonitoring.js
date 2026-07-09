@@ -337,7 +337,7 @@ async function ensureConsentRequestForDevice(device, actorId) {
 
   const existing = await db.query(
     `SELECT consent_id, status FROM consent_documents
-     WHERE employee_id=$1 AND device_uuid=$2::uuid
+     WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL)
        AND status IN ('pending_employee','pending_approval','revision_requested','approved','signed')
      ORDER BY created_at DESC LIMIT 1`,
     [device.assigned_user_id, device.device_uuid]
@@ -407,7 +407,7 @@ async function getApprovedConsentPreferences(device) {
   const result = await db.query(
     `SELECT monitoring_preferences
      FROM consent_documents
-     WHERE employee_id=$1 AND device_uuid=$2::uuid AND status IN ('approved','signed') AND active IS NOT FALSE
+     WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed') AND active IS NOT FALSE
      ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
     [device.assigned_user_id, device.device_uuid]
   );
@@ -635,7 +635,7 @@ router.get("/policy", requireAgent, async (req, res) => {
         const fallbackConsent = formalConsent.rows.length ? { rows: [] } : await db.query(
           `SELECT status, monitoring_preferences, consent_version, approved_at, signed_at
            FROM consent_documents
-           WHERE employee_id=$1 AND device_uuid=$2::uuid AND status IN ('approved','signed')
+           WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
            ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
           [device.assigned_user_id, device.device_uuid]
         );
@@ -693,7 +693,7 @@ router.get("/screenshot-permission", requireAgent, async (req, res) => {
     if (device.assigned_user_id) {
       const formalConsent = await db.query(
         `SELECT monitoring_preferences FROM consent_documents
-         WHERE employee_id=$1 AND device_uuid=$2::uuid AND status IN ('approved','signed')
+         WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
          ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
         [device.assigned_user_id, device.device_uuid]
       );
@@ -736,7 +736,7 @@ router.post("/screenshot", requireAgent, (req, res) => {
       // Enforce formal Consent
       const formalConsent = await db.query(
         `SELECT monitoring_preferences, department FROM consent_documents
-         WHERE employee_id=$1 AND device_uuid=$2::uuid AND status IN ('approved','signed')
+         WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
          ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
         [device.assigned_user_id, device.device_uuid]
       );
@@ -1094,7 +1094,7 @@ router.get("/usb-monitoring-permission", requireAgent, async (req, res) => {
     if (device.assigned_user_id) {
       const formalConsent = await db.query(
         `SELECT monitoring_preferences FROM consent_documents
-         WHERE employee_id=$1 AND device_uuid=$2::uuid AND status IN ('approved','signed')
+         WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
          ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
         [device.assigned_user_id, device.device_uuid]
       );
@@ -1119,7 +1119,7 @@ router.get("/website-monitoring-permission", requireAgent, async (req, res) => {
     if (device.assigned_user_id) {
       const formalConsent = await db.query(
         `SELECT monitoring_preferences FROM consent_documents
-         WHERE employee_id=$1 AND device_uuid=$2::uuid AND status IN ('approved','signed')
+         WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
          ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
         [device.assigned_user_id, device.device_uuid]
       );
@@ -1764,7 +1764,7 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
   if (device.assigned_user_id) {
     const formalConsent = await db.query(
       `SELECT monitoring_preferences FROM consent_documents
-       WHERE employee_id=$1 AND device_uuid=$2::uuid AND status IN ('approved','signed')
+       WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
        ORDER BY approved_at DESC NULLS LAST LIMIT 1`,
       [device.assigned_user_id, device.device_uuid]
     );
