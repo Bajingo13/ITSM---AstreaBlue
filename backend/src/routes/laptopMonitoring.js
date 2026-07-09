@@ -7,6 +7,7 @@ const multer = require("multer");
 const sharp = require("sharp");
 const db = require("../../config/db");
 const { createNotification } = require("../services/notificationService");
+const { reconcileDevice } = require("../services/reconciliationService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -87,6 +88,30 @@ const tablesReady = (async () => {
         user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, consent_type VARCHAR(50) NOT NULL,
         consent_status VARCHAR(30) NOT NULL DEFAULT 'Pending', consented_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(device_id,user_id,consent_type)
+      );
+      CREATE TABLE IF NOT EXISTS asset_inventory_reconciliation (
+        id BIGSERIAL PRIMARY KEY,
+        asset_id INTEGER REFERENCES hardware_assets(asset_id) ON DELETE CASCADE,
+        device_uuid UUID,
+        device_id BIGINT REFERENCES monitored_devices(device_id) ON DELETE CASCADE,
+        field_name VARCHAR(100) NOT NULL,
+        asset_value TEXT,
+        detected_value TEXT,
+        status VARCHAR(50) NOT NULL DEFAULT 'Unknown',
+        severity VARCHAR(50) NOT NULL DEFAULT 'None',
+        checked_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS asset_inventory_history (
+        id BIGSERIAL PRIMARY KEY,
+        asset_id INTEGER REFERENCES hardware_assets(asset_id) ON DELETE CASCADE,
+        device_uuid UUID,
+        field_name VARCHAR(100) NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        source VARCHAR(100),
+        detected_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
     await db.query(`
@@ -614,6 +639,10 @@ router.put("/devices/:id/assign", requireAdmin, async (req, res) => {
        VALUES ($1, 'system_audit', $2, $3)`,
       [req.params.id, eventName, `Assigned User ID: ${assigned_user_id || 'None'}, Branch: ${branch_id || 'None'}`]
     );
+    
+    if (targetAssetId) {
+      await reconcileDevice(req.params.id);
+    }
 
     return res.json({ success: true, message: "Device assignment updated.", data: updated.rows[0] });
   } catch (error) {
@@ -831,6 +860,8 @@ router.post("/hardware-inventory", requireAgent, async (req, res) => {
       cpu_name, total_ram_gb, os_name, os_version, os_build, architecture,
       disk_total_gb, disk_free_gb, mac_address, ip_address, scanned_at
     ]);
+    
+    await reconcileDevice(device_id);
 
     return res.json({ success: true, message: "Hardware inventory updated." });
   } catch (error) {
@@ -891,6 +922,62 @@ router.delete("/devices/:id", requireAdmin, async (req, res) => {
     res.json({ success: true, message: "Device deleted successfully." });
   } catch (error) {
     res.status(500).json({ success: false, error: "Failed to delete device." });
+  }
+});
+
+router.get("/assets/:assetId/reconciliation", requireAdmin, async (req, res) => {
+  try {
+    const { assetId } = req.params;
+    const result = await db.query(
+      `SELECT * FROM asset_inventory_reconciliation WHERE asset_id=$1 ORDER BY checked_at DESC`,
+      [assetId]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: "Failed to fetch reconciliation data." });
+  }
+});
+
+router.get("/devices/:deviceId/reconciliation", requireAdmin, async (req, res) => {
+  if (req.monitoringIsEmployee) return res.status(403).json({ success: false, error: "Access denied." });
+  try {
+    const { deviceId } = req.params;
+    if (!req.monitoringIsSuperAdmin && req.monitoringBranchId) {
+      const dev = await db.query(`SELECT branch_id FROM monitored_devices WHERE device_id=$1`, [deviceId]);
+      if (!dev.rows.length || dev.rows[0].branch_id !== req.monitoringBranchId) {
+        return res.status(403).json({ success: false, error: "Access denied" });
+      }
+    }
+    const result = await db.query(
+      `SELECT * FROM asset_inventory_reconciliation WHERE device_id=$1 ORDER BY checked_at DESC`,
+      [deviceId]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: "Failed to fetch reconciliation data." });
+  }
+});
+
+router.post("/devices/:deviceId/reconcile", requireAdmin, async (req, res) => {
+  if (req.monitoringIsEmployee) return res.status(403).json({ success: false, error: "Access denied." });
+  try {
+    const { deviceId } = req.params;
+    if (!req.monitoringIsSuperAdmin && req.monitoringBranchId) {
+      const dev = await db.query(`SELECT branch_id FROM monitored_devices WHERE device_id=$1`, [deviceId]);
+      if (!dev.rows.length || dev.rows[0].branch_id !== req.monitoringBranchId) {
+        return res.status(403).json({ success: false, error: "Access denied" });
+      }
+    }
+    const result = await reconcileDevice(deviceId);
+    if (!result) {
+      return res.status(400).json({ success: false, error: "Could not reconcile device. Missing asset or inventory." });
+    }
+    res.json({ success: true, data: result, message: "Reconciliation successful." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: "Failed to reconcile device." });
   }
 });
 
