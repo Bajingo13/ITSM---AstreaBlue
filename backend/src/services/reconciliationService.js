@@ -47,8 +47,15 @@ async function reconcileDevice(deviceId) {
     const normalize = (val) => String(val || "").trim().toLowerCase();
 
     for (const comp of comparisons) {
-      const aVal = String(comp.assetVal || "").trim();
-      const iVal = String(comp.invVal || "").trim();
+      let aVal = String(comp.assetVal || "").trim();
+      let iVal = String(comp.invVal || "").trim();
+      
+      if (iVal && ['total_ram_gb', 'disk_total_gb'].includes(comp.field)) {
+        const num = parseFloat(iVal.replace(/[^0-9.]/g, ''));
+        if (!isNaN(num)) {
+          iVal = Math.ceil(num).toString();
+        }
+      }
       
       let status = 'Match';
       let severity = 'None';
@@ -65,8 +72,8 @@ async function reconcileDevice(deviceId) {
            const numA = parseFloat(normA.replace(/[^0-9.]/g, ''));
            const numI = parseFloat(normI.replace(/[^0-9.]/g, ''));
            if (!isNaN(numA) && !isNaN(numI)) {
-             // within 10% diff
-             if (Math.abs(numA - numI) / Math.max(numA, numI) > 0.1) {
+             // within 20% diff
+             if (Math.abs(numA - numI) / Math.max(numA, numI) > 0.2) {
                status = 'Mismatch';
              }
            } else {

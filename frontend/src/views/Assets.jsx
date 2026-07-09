@@ -2541,7 +2541,7 @@ function AssetField({ label, required = false, className = "", error = "", child
     <label className={`block space-y-2 ${className}`}>
       <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">
         {label}
-        {required && <span> *</span>}
+        {required && <span className="ml-1 text-rose-500">*</span>}
       </span>
       {children}
       {error && <span className="block text-xs font-bold text-rose-600">{error}</span>}
