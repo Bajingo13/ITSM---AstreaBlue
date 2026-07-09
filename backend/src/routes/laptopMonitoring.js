@@ -429,15 +429,15 @@ function softwareScope(req, alias = "si") {
 }
 
 function normalizeSoftwareItem(item) {
-  const name = String(item?.software_name || item?.name || "").trim().slice(0, 500);
+  const name = String(item?.software_name || item?.name || "").replace(/\0/g, '').trim().slice(0, 500);
   if (!name) return null;
   return {
     software_name: name,
-    version: String(item?.version || "").trim().slice(0, 255) || null,
-    publisher: String(item?.publisher || "").trim().slice(0, 255) || null,
-    install_date: String(item?.install_date || "").trim().slice(0, 80) || null,
-    install_location: String(item?.install_location || "").trim().slice(0, 2000) || null,
-    source: String(item?.source || "registry").trim().slice(0, 80) || "registry",
+    version: String(item?.version || "").replace(/\0/g, '').trim().slice(0, 255) || null,
+    publisher: String(item?.publisher || "").replace(/\0/g, '').trim().slice(0, 255) || null,
+    install_date: String(item?.install_date || "").replace(/\0/g, '').trim().slice(0, 80) || null,
+    install_location: String(item?.install_location || "").replace(/\0/g, '').trim().slice(0, 2000) || null,
+    source: String(item?.source || "registry").replace(/\0/g, '').trim().slice(0, 80) || "registry",
   };
 }
 
@@ -1374,7 +1374,7 @@ router.post("/software-inventory", requireAgent, async (req, res) => {
   } catch (error) {
     await db.query("ROLLBACK").catch(() => {});
     console.error("[laptop-monitoring:software-inventory]", error.message);
-    return res.status(500).json({ success: false, message: "Failed to synchronize software inventory." });
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 
