@@ -26,6 +26,7 @@ import CMDB from "./views/CMDB";
 import ChangeManagement from "./views/ChangeManagement";
 import ProblemManagement from "./views/ProblemManagement";
 import Analytics from "./views/Analytics";
+import EndpointPolicies from './views/EndpointPolicies';
 import EndpointMonitoring from "./views/EndpointMonitoring";
 import Settings from "./views/Settings";
 import UserManagement from "./views/UserManagement";
@@ -76,6 +77,8 @@ export default function App() {
         }
       >
         <Route path="/ticket/:ticketId" element={<NotificationTicketDetails />} />
+        <Route path="/endpoint-management" element={<EndpointMonitoring />} />
+        <Route path="/endpoint-policies" element={<EndpointPolicies />} />
         <Route
           path="/dashboard"
           element={

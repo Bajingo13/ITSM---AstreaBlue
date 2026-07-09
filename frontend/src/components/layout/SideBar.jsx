@@ -88,6 +88,7 @@ const coreModuleItems = [
     icon: Monitor,
     children: [
       { label: "Dashboard", icon: LayoutDashboard, path: "/endpoint-management" },
+      { label: "Endpoint Policies", icon: Shield, path: "/endpoint-policies" },
       { label: "Devices", icon: Monitor, path: "/endpoint-monitoring?tab=devices" },
       { label: "Hardware Inventory", icon: HardDrive, path: "/endpoint-monitoring?tab=devices" },
       { label: "Software Inventory", icon: Package, path: "/endpoint-monitoring?tab=software" },
