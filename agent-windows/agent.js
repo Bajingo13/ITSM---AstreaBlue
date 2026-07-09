@@ -20,6 +20,7 @@ const path    = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const crypto  = require('crypto');
+const si      = require('systeminformation');
 
 const execFileAsync = promisify(execFile);
 
@@ -252,6 +253,45 @@ async function captureScreenshot() {
   }
 }
 
+// ============================================================================
+async function sendHardwareInventory() {
+  try {
+    const [system, osInfo, cpu, mem, disk, net] = await Promise.all([
+      si.system(),
+      si.osInfo(),
+      si.cpu(),
+      si.mem(),
+      si.fsSize(),
+      si.networkInterfaces()
+    ]);
+
+    const primaryDisk = disk[0] || {};
+    const defaultNet = (Array.isArray(net) ? net : [net]).find(n => !n.internal && n.mac) || net[0] || {};
+
+    const payload = {
+      device_uuid: deviceUuid,
+      manufacturer: system.manufacturer,
+      model: system.model,
+      serial_number: system.serial,
+      cpu_name: `${cpu.manufacturer} ${cpu.brand}`.trim(),
+      total_ram_gb: (mem.total / (1024 ** 3)).toFixed(2),
+      os_name: osInfo.distro,
+      os_version: osInfo.release,
+      os_build: osInfo.build,
+      architecture: osInfo.arch,
+      disk_total_gb: primaryDisk.size ? (primaryDisk.size / (1024 ** 3)).toFixed(2) : null,
+      disk_free_gb: primaryDisk.available ? (primaryDisk.available / (1024 ** 3)).toFixed(2) : null,
+      mac_address: defaultNet.mac,
+      ip_address: defaultNet.ip4
+    };
+
+    await post('/hardware-inventory', payload);
+    log(`Hardware Inventory SUCCESS | Sent hardware specifications to AstreaBlue.`);
+  } catch (e) {
+    err(`Hardware Inventory FAILURE | error=${e.message}`);
+  }
+}
+
 // ─── Startup ──────────────────────────────────────────────────────────────────
 log('='.repeat(60));
 log(`AstreaBlue Monitoring Agent starting — v1.1`);
@@ -267,9 +307,16 @@ if (screenshotEnabled) warn('Screenshot capture ENABLED — requires explicit se
 log('='.repeat(60));
 
 // Send immediately on startup, then on intervals
-heartbeat().then((registered) => { if (registered) sendActivity(); });
+heartbeat().then((registered) => { 
+  if (registered) {
+    sendActivity();
+    sendHardwareInventory();
+  }
+});
 setInterval(heartbeat,    heartbeatMs);
 setInterval(sendActivity, activityMs);
+setInterval(sendHardwareInventory, 24 * 60 * 60 * 1000); // 24 hours
+
 if (screenshotEnabled) {
   captureScreenshot();
   setInterval(captureScreenshot, screenshotMs);

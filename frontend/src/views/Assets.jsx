@@ -26,6 +26,8 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { API_URL } from "../config/api";
+import PageHero from "../components/layout/PageHero";
+import { authHeaders } from "../services/authHeaders";
 
 const API_BASE = `${API_URL}/api/v1`;
 const EMPTY_DETAIL_VALUE = "-";
@@ -1180,31 +1182,19 @@ export default function Assets() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-black">Hardware Assets</h1>
-          <p className="mt-2 max-w-2xl text-slate-200">
-            Track company laptops, desktops, printers, phones and hardware by branch with status monitoring, borrower history, and lifecycle controls.
-          </p>
-          <p className="mt-4 text-sm text-blue-100">
-            {totalAssets} total assets · {totalActive} active · {totalBorrowed} borrowed
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={openAddAsset}
-            className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
-          >
-            <Plus size={18} />
-            Add Asset
-          </button>
-          <button className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
-            <Download size={18} />
-            Export
-          </button>
-        </div>
-      </section>
+      <PageHero
+        title="Hardware Assets"
+        subtitle="Track company laptops, desktops, printers, phones and hardware by branch with status monitoring, borrower history, and lifecycle controls."
+        stats={`${totalAssets} total assets • ${totalActive} active • ${totalBorrowed} borrowed`}
+        action={{
+          label: "Add Hardware Asset",
+          icon: Plus,
+          onClick: () => {
+            setEditingAsset(null);
+            setShowAssetModal(true);
+          },
+        }}
+      />
 
       {/* Branch Filter — compact searchable dropdown */}
       {isSuperAdmin && (
@@ -1632,6 +1622,17 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
 }
 
 function AssetDetailsModal({ asset, onClose }) {
+  const [hardware, setHardware] = useState(null);
+  
+  useEffect(() => {
+    if (asset?.asset_id) {
+      fetch(`${API_URL}/api/v1/laptop-monitoring/hardware-inventory-by-asset/${asset.asset_id}`, { headers: authHeaders() })
+        .then(r => r.json())
+        .then(d => { if (d.success) setHardware(d.data); })
+        .catch(console.error);
+    }
+  }, [asset?.asset_id]);
+
   const assetName = formatAssetDetailValue(firstAssetValue(asset, [
     "asset_name",
     (item) => joinAssetValues([
@@ -1745,6 +1746,30 @@ function AssetDetailsModal({ asset, onClose }) {
             {detailSections.map((section) => (
               <AssetDetailSection key={section.title} title={section.title} items={section.items} />
             ))}
+
+            {hardware && (
+              <section className="mt-8 rounded-3xl border border-blue-200 bg-blue-50/50 p-6 shadow-sm">
+                <h3 className="mb-4 text-sm font-black uppercase tracking-[0.16em] text-blue-800">Agent-Detected Hardware</h3>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <p className="text-xs font-bold text-slate-500">Serial Number</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      Asset: {asset.serial_number || 'N/A'}<br/>
+                      Agent: {hardware.serial_number}
+                    </p>
+                    <p className={`text-xs mt-1 font-bold ${String(asset.serial_number||'').trim().toLowerCase() === String(hardware.serial_number||'').trim().toLowerCase() ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      <span className="mr-1">●</span>
+                      {String(asset.serial_number||'').trim().toLowerCase() === String(hardware.serial_number||'').trim().toLowerCase() ? 'Match' : 'Mismatch'}
+                    </p>
+                  </div>
+                  <div><p className="text-xs font-bold text-slate-500">Processor</p><p className="text-sm font-semibold text-slate-900">{hardware.cpu_name}</p></div>
+                  <div><p className="text-xs font-bold text-slate-500">Memory (RAM)</p><p className="text-sm font-semibold text-slate-900">{hardware.total_ram_gb} GB</p></div>
+                  <div><p className="text-xs font-bold text-slate-500">Operating System</p><p className="text-sm font-semibold text-slate-900">{hardware.os_name} {hardware.os_version}</p></div>
+                  <div><p className="text-xs font-bold text-slate-500">IP / MAC Address</p><p className="text-sm font-semibold text-slate-900">{hardware.ip_address} <br/> {hardware.mac_address}</p></div>
+                  <div><p className="text-xs font-bold text-slate-500">Last Scan</p><p className="text-sm font-semibold text-slate-900">{new Date(hardware.scanned_at).toLocaleString()}</p></div>
+                </div>
+              </section>
+            )}
           </div>
         </div>
       </div>

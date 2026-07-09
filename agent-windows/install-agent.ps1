@@ -62,47 +62,29 @@ $newConfig = @{
     screenshotEnabled = $false
 }
 
-$newConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $configFile -Encoding utf8
+[System.IO.File]::WriteAllText($configFile, ($newConfig | ConvertTo-Json -Depth 5))
 Write-Host "Config saved."
 
-# Install Windows Service
-Write-Host "Installing Windows Service..."
-
-$svcScript = @"
-const Service = require('node-windows').Service;
-const path = require('path');
-
-const svc = new Service({
-  name: 'AstreaBlue Monitoring Agent',
-  description: 'AstreaBlue ITSM consent-aware endpoint monitoring agent.',
-  script: path.join(__dirname, 'agent.js'),
-  workingDirectory: __dirname,
-  logpath: 'C:\\ProgramData\\AstreaBlue\\MonitoringAgent\\logs',
-  maxRestarts: 5,
-  wait: 60,
-  grow: 0.25,
-  abortOnError: false
-});
-
-svc.on('install', function() {
-  console.log('Service installed. Starting...');
-  svc.start();
-});
-svc.on('start', function() {
-  console.log('Service started successfully.');
-});
-svc.on('error', function(err) {
-  console.error('Service error:', err);
-});
-
-svc.install();
+# Create invisible launcher script
+Write-Host "Configuring invisible startup..."
+$vbsScript = @"
+Set WshShell = CreateObject("WScript.Shell")
+strPath = Wscript.ScriptFullName
+Set objFSO = CreateObject("Scripting.FileSystemObject")
+Set objFile = objFSO.GetFile(strPath)
+strFolder = objFSO.GetParentFolderName(objFile)
+WshShell.CurrentDirectory = strFolder
+WshShell.Run "cmd.exe /c node agent.js", 0, False
 "@
+$vbsPath = Join-Path $PSScriptRoot "invisible.vbs"
+[System.IO.File]::WriteAllText($vbsPath, $vbsScript)
 
-$tempScriptPath = Join-Path $PSScriptRoot "_temp_install.js"
-$svcScript | Out-File -FilePath $tempScriptPath -Encoding utf8
+# Add to HKLM Run so it starts in every user's Session 1 invisibly
+Write-Host "Registering for startup (All Users)..."
+$regPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+Set-ItemProperty -Path $regPath -Name "AstreaBlueMonitoringAgent" -Value "wscript.exe `"$vbsPath`""
 
-node $tempScriptPath
-Start-Sleep -Seconds 5
-if (Test-Path $tempScriptPath) { Remove-Item $tempScriptPath -Force }
+Write-Host "Starting agent now..."
+Start-Process "wscript.exe" -ArgumentList "`"$vbsPath`"" -WindowStyle Hidden
 
-Write-Host "Installation Complete! Service is running." -ForegroundColor Green
+Write-Host "Installation Complete! Agent is running silently in the background." -ForegroundColor Green

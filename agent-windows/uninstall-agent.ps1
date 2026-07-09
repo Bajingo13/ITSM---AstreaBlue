@@ -8,31 +8,16 @@ if (-not $isAdmin) {
 
 Write-Host "Uninstalling AstreaBlue Monitoring Agent..."
 
-$svcScript = @"
-const Service = require('node-windows').Service;
-const path = require('path');
+# 1. Stop and delete old Windows Service if it exists
+net stop "AstreaBlue Monitoring Agent" 2>$null
+sc.exe delete astreabluemonitoringagent.exe 2>$null
 
-const svc = new Service({
-  name: 'AstreaBlue Monitoring Agent',
-  script: path.join(__dirname, 'agent.js'),
-  workingDirectory: __dirname
-});
+# 2. Remove HKLM Run Key
+$regPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+Remove-ItemProperty -Path $regPath -Name "AstreaBlueMonitoringAgent" -ErrorAction SilentlyContinue
 
-svc.on('uninstall', function() {
-  console.log('Service uninstalled successfully.');
-});
-svc.on('error', function(err) {
-  console.error('Service error:', err);
-});
-
-svc.uninstall();
-"@
-
-$tempScriptPath = Join-Path $PSScriptRoot "_temp_uninstall.js"
-$svcScript | Out-File -FilePath $tempScriptPath -Encoding utf8
-
-node $tempScriptPath
-Start-Sleep -Seconds 5
-if (Test-Path $tempScriptPath) { Remove-Item $tempScriptPath -Force }
+# 3. Kill running agent processes
+Write-Host "Stopping running agent processes..."
+Get-CimInstance Win32_Process -Filter "CommandLine LIKE '%node agent.js%'" | Invoke-CimMethod -MethodName Terminate 2>$null
 
 Write-Host "Uninstall Complete." -ForegroundColor Green

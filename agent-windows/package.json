@@ -12,6 +12,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "node-windows": "^1.0.0-beta.8"
+    "node-windows": "^1.0.0-beta.8",
+    "systeminformation": "^5.31.15"
   }
 }

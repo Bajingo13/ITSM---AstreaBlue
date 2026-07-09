@@ -66,6 +66,17 @@ const tablesReady = (async () => {
         severity VARCHAR(20) NOT NULL, alert_type VARCHAR(100) NOT NULL, message TEXT,
         status VARCHAR(20) NOT NULL DEFAULT 'Open', created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
+      CREATE TABLE IF NOT EXISTS endpoint_hardware_inventory (
+        id BIGSERIAL PRIMARY KEY, device_id BIGINT NOT NULL REFERENCES monitored_devices(device_id) ON DELETE CASCADE,
+        device_uuid UUID, asset_id INTEGER,
+        manufacturer VARCHAR(255), model VARCHAR(255), serial_number VARCHAR(255),
+        cpu_name VARCHAR(255), total_ram_gb NUMERIC(8,2),
+        os_name VARCHAR(255), os_version VARCHAR(255), os_build VARCHAR(255), architecture VARCHAR(50),
+        disk_total_gb NUMERIC(10,2), disk_free_gb NUMERIC(10,2),
+        mac_address VARCHAR(255), ip_address VARCHAR(255),
+        scanned_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
       
       ALTER TABLE monitored_devices ADD COLUMN IF NOT EXISTS asset_id INTEGER;
       ALTER TABLE monitored_devices ADD COLUMN IF NOT EXISTS department VARCHAR(255);
@@ -526,14 +537,15 @@ router.get("/devices/:id/activity", requireAdmin, async (req, res) => {
     const empId = req.monitoringIsEmployee ? req.monitoringUser.userId : null;
     const allowed = await db.query(`SELECT device_id FROM monitored_devices WHERE device_id=$1 AND ($2::int IS NULL OR branch_id=$2) AND ($3::int IS NULL OR assigned_user_id=$3)`, [req.params.id, req.monitoringBranchId, empId]);
     if (!allowed.rows.length) return res.status(404).json({ success: false, message: "Device not found or access denied." });
-    const [activity, screenshots, alerts, consents, assignments] = await Promise.all([
+    const [activity, screenshots, alerts, consents, assignments, hardware] = await Promise.all([
       db.query(`SELECT * FROM laptop_activity_logs WHERE device_id=$1 ORDER BY occurred_at DESC LIMIT 200`, [req.params.id]),
       db.query(`SELECT * FROM laptop_screenshots WHERE device_id=$1 ORDER BY captured_at DESC LIMIT 50`, [req.params.id]),
       db.query(`SELECT * FROM laptop_alerts WHERE device_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.params.id]),
       db.query(`SELECT id,device_id,user_id,consent_type,consent_status,consented_at,created_at FROM monitoring_consents WHERE device_id=$1 ORDER BY created_at DESC`, [req.params.id]),
-      db.query(`SELECT a.*, ou.full_name as old_user_name, nu.full_name as new_user_name FROM monitored_device_assignments a LEFT JOIN users ou ON a.old_user_id=ou.user_id LEFT JOIN users nu ON a.new_user_id=nu.user_id WHERE device_id=$1 ORDER BY changed_at DESC`, [req.params.id])
+      db.query(`SELECT a.*, ou.full_name as old_user_name, nu.full_name as new_user_name FROM monitored_device_assignments a LEFT JOIN users ou ON a.old_user_id=ou.user_id LEFT JOIN users nu ON a.new_user_id=nu.user_id WHERE device_id=$1 ORDER BY changed_at DESC`, [req.params.id]),
+      db.query(`SELECT * FROM endpoint_hardware_inventory WHERE device_id=$1 ORDER BY scanned_at DESC LIMIT 1`, [req.params.id])
     ]);
-    return res.json({ success: true, data: { activity: activity.rows, screenshots: screenshots.rows, alerts: alerts.rows, consents: consents.rows, assignments: assignments.rows } });
+    return res.json({ success: true, data: { activity: activity.rows, screenshots: screenshots.rows, alerts: alerts.rows, consents: consents.rows, assignments: assignments.rows, hardware: hardware.rows[0] || null } });
   } catch (error) {
     console.error("[laptop-monitoring:device-activity]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load device activity." });
@@ -789,5 +801,86 @@ router.post("/screenshots/:id/audit-view", requireAdmin, async (req, res) => {
   }
 });
 
-module.exports = router;
+router.post("/hardware-inventory", requireAgent, async (req, res) => {
+  const deviceUuid = String(req.body?.device_uuid || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) {
+    return res.status(400).json({ success: false, message: "A valid device_uuid is required." });
+  }
 
+  try {
+    const deviceResult = await db.query(`SELECT device_id, asset_id FROM monitored_devices WHERE device_uuid=$1 LIMIT 1`, [deviceUuid]);
+    if (!deviceResult.rows.length) {
+      return res.status(404).json({ success: false, message: "Device not found." });
+    }
+    const { device_id, asset_id } = deviceResult.rows[0];
+
+    const {
+      manufacturer, model, serial_number, cpu_name, total_ram_gb,
+      os_name, os_version, os_build, architecture,
+      disk_total_gb, disk_free_gb, mac_address, ip_address, scanned_at
+    } = req.body;
+
+    await db.query(`
+      INSERT INTO endpoint_hardware_inventory (
+        device_id, device_uuid, asset_id, manufacturer, model, serial_number,
+        cpu_name, total_ram_gb, os_name, os_version, os_build, architecture,
+        disk_total_gb, disk_free_gb, mac_address, ip_address, scanned_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, COALESCE($17::timestamptz, CURRENT_TIMESTAMP))
+    `, [
+      device_id, deviceUuid, asset_id, manufacturer, model, serial_number,
+      cpu_name, total_ram_gb, os_name, os_version, os_build, architecture,
+      disk_total_gb, disk_free_gb, mac_address, ip_address, scanned_at
+    ]);
+
+    return res.json({ success: true, message: "Hardware inventory updated." });
+  } catch (error) {
+    console.error("Hardware inventory error:", error.message);
+    return res.status(500).json({ success: false, error: "Database error." });
+  }
+});
+
+router.get("/hardware-inventory/:deviceId", requireAdmin, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const deviceResult = await db.query(`SELECT branch_id, assigned_user_id FROM monitored_devices WHERE device_id=$1`, [deviceId]);
+    if (!deviceResult.rows.length) return res.status(404).json({ success: false });
+    
+    const device = deviceResult.rows[0];
+    if (!req.monitoringIsSuperAdmin) {
+      if (req.monitoringIsEmployee && String(device.assigned_user_id) !== String(req.monitoringUser.userId)) {
+        return res.status(403).json({ success: false, error: "Access denied." });
+      }
+      if (req.monitoringBranchId && String(device.branch_id) !== String(req.monitoringBranchId)) {
+        return res.status(403).json({ success: false, error: "Access denied." });
+      }
+    }
+
+    const result = await db.query(
+      `SELECT * FROM endpoint_hardware_inventory WHERE device_id=$1 ORDER BY scanned_at DESC LIMIT 1`,
+      [deviceId]
+    );
+    res.json({ success: true, data: result.rows[0] || null });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: "Failed to fetch hardware inventory" });
+  }
+});
+
+router.get("/hardware-inventory-by-asset/:assetId", requireAdmin, async (req, res) => {
+  try {
+    const { assetId } = req.params;
+    const deviceResult = await db.query(`SELECT device_id FROM monitored_devices WHERE asset_id=$1`, [assetId]);
+    if (!deviceResult.rows.length) return res.json({ success: true, data: null });
+    
+    const deviceId = deviceResult.rows[0].device_id;
+    const result = await db.query(
+      `SELECT * FROM endpoint_hardware_inventory WHERE device_id=$1 ORDER BY scanned_at DESC LIMIT 1`,
+      [deviceId]
+    );
+    res.json({ success: true, data: result.rows[0] || null });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch hardware inventory" });
+  }
+});
+
+module.exports = router;

@@ -1,8 +1,8 @@
 {
-  "backendUrl": "http://localhost:5000",
-  "agentToken": "dev-monitoring-token",
-  "deviceName": "",
-  "heartbeatIntervalSeconds": 30,
-  "activityIntervalSeconds": 30,
-  "screenshotEnabled": false
+    "activityIntervalSeconds":  30,
+    "agentToken":  "dev-monitoring-token",
+    "screenshotEnabled":  false,
+    "deviceName":  "Makati Head Office",
+    "heartbeatIntervalSeconds":  30,
+    "backendUrl":  "https://backend-production-fc059.up.railway.app"
 }

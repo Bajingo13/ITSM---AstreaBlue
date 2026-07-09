@@ -4433,20 +4433,7 @@ app.get("/api/v1/requests/:id", async (req, res) => {
 
 app.get('/', (req, res) => res.status(200).json({ success: true, message: "API is online" }));
 
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: "API route not found",
-  });
-});
 
-app.use((err, req, res, next) => {
-  console.error("Unhandled server error:", err.message);
-  res.status(500).json({
-    success: false,
-    error: "Internal server error",
-  });
-});
 
 /* ==========================
    START SERVER
@@ -4500,6 +4487,21 @@ app.post("/api/v1/ticket-categories", async (req, res) => {
     console.error("Create ticket category error:", error.message);
     return res.status(500).json({ success: false, error: "Failed to save ticket category." });
   }
+});
+
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: "API route not found",
+  });
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled server error:", err.message);
+  res.status(500).json({
+    success: false,
+    error: "Internal server error",
+  });
 });
 
 module.exports = { app, httpServer, get io() { return io; } };
