@@ -312,6 +312,7 @@ export default function EndpointMonitoring() {
                       <p><span className="font-bold">Verification Status:</span> {
                         reconciliation.some(r => r.severity === 'Critical') ? <span className="text-rose-600 font-bold">Critical Mismatches</span> :
                         reconciliation.some(r => r.status === 'Mismatch') ? <span className="text-amber-600 font-bold">Mismatches Found</span> :
+                        reconciliation.every(r => r.status === 'Unknown') ? <span className="text-amber-600 font-bold">Pending Scan</span> :
                         <span className="text-emerald-600 font-bold">Verified</span>
                       }</p>
                       <p><span className="font-bold">Mismatches:</span> {reconciliation.filter(r => r.status === 'Mismatch').length}</p>

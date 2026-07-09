@@ -4,7 +4,7 @@ async function reconcileDevice(deviceId) {
   try {
     // Get device and asset
     const deviceQuery = await db.query(
-      `SELECT d.device_uuid, d.asset_id, i.* 
+      `SELECT d.device_uuid, d.asset_id as device_asset_id, i.* 
        FROM monitored_devices d
        LEFT JOIN endpoint_hardware_inventory i ON d.device_id = i.device_id
        WHERE d.device_id = $1
@@ -12,12 +12,12 @@ async function reconcileDevice(deviceId) {
       [deviceId]
     );
 
-    if (!deviceQuery.rows.length || !deviceQuery.rows[0].asset_id) {
+    if (!deviceQuery.rows.length || !deviceQuery.rows[0].device_asset_id) {
       return null;
     }
 
     const inventory = deviceQuery.rows[0];
-    const assetId = inventory.asset_id;
+    const assetId = inventory.device_asset_id;
     const deviceUuid = inventory.device_uuid;
 
     const assetQuery = await db.query(
