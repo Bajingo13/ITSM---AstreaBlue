@@ -1876,6 +1876,65 @@ app.put("/api/v1/hardware-assets/:id", async (req, res) => {
   }
 });
 
+/* ─────────────────────────────────────────────
+   DELETE /api/v1/hardware-assets/:id — Delete a hardware asset
+   ───────────────────────────────────────────── */
+app.delete("/api/v1/hardware-assets/:id", async (req, res) => {
+  try {
+    await requireHardwareAssetTables();
+    const auth = getAuthFromRequest(req);
+    if (!auth) {
+      return res.status(401).json({ success: false, error: "Authentication required." });
+    }
+
+    const role = String(auth.role || "").toLowerCase().replace(/[\s_-]/g, "");
+    if (!["superadmin", "admin"].includes(role)) {
+      return res.status(403).json({ success: false, error: "Only Super Admin and Admin Branch can delete hardware assets." });
+    }
+
+    const assetId = req.params.id;
+
+    // Verify the asset exists and enforce branch scope
+    let assetQuery;
+    let assetParams;
+    if (role === "superadmin") {
+      assetQuery = `SELECT asset_id, branch_id, asset_name FROM hardware_assets WHERE asset_id = $1`;
+      assetParams = [assetId];
+    } else {
+      // Admin Branch — can only delete assets in their branch
+      assetQuery = `SELECT asset_id, branch_id, asset_name FROM hardware_assets WHERE asset_id = $1 AND branch_id = $2`;
+      assetParams = [assetId, auth.branchId];
+    }
+
+    const assetResult = await db.query(assetQuery, assetParams);
+    if (!assetResult.rows.length) {
+      return res.status(404).json({ success: false, error: "Hardware asset not found or you do not have permission to delete it." });
+    }
+
+    const asset = assetResult.rows[0];
+
+    // Unlink any monitored devices before deleting
+    await db.query(`UPDATE monitored_devices SET asset_id = NULL WHERE asset_id = $1`, [assetId]);
+
+    // Delete the asset (cascades to asset_history, asset_financials, asset_borrow_records)
+    await db.query(`DELETE FROM hardware_assets WHERE asset_id = $1`, [assetId]);
+
+    // Record the deletion in asset_history
+    await insertAssetHistory(
+      assetId,
+      "deleted",
+      { asset_name: asset.asset_name, deleted_by: auth.userId || null },
+      asset.branch_id,
+      auth.userId || null
+    );
+
+    return res.json({ success: true, message: "Hardware asset deleted successfully." });
+  } catch (err) {
+    console.error("Delete hardware asset error:", err.message);
+    return res.status(500).json({ success: false, error: "Failed to delete hardware asset. Please try again.", details: err.message });
+  }
+});
+
 app.put("/api/v1/hardware-assets/:id/link-device", async (req, res) => {
   try {
     const auth = getAuthFromRequest(req);

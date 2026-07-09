@@ -19,6 +19,7 @@ import {
   Plus,
   Search,
   ShieldCheck,
+  Trash2,
   Truck,
   User,
   X,
@@ -715,6 +716,9 @@ export default function Assets() {
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [deletingAsset, setDeletingAsset] = useState(null);
+  const [toast, setToast] = useState(null); // { message, type } where type is "success" | "error"
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
 
   const changeViewMode = (mode) => {
     setViewMode(mode);
@@ -1189,6 +1193,40 @@ export default function Assets() {
   };
 
 
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleDelete = async () => {
+    if (!deletingAsset) return;
+    try {
+      const res = await fetch(`${API_BASE}/hardware-assets/${deletingAsset.asset_id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || data.message || "Failed to delete hardware asset");
+      }
+      setDeletingAsset(null);
+      showToast("Hardware asset deleted successfully.", "success");
+      await fetchAssets();
+    } catch (err) {
+      console.error("Delete hardware asset failed:", err);
+      setDeletingAsset(null);
+      showToast(err.message || "Failed to delete hardware asset. Please try again.", "error");
+    } finally {
+      setDeleteConfirmed(false);
+    }
+  };
+
+  const handleDeleteClick = () => {
+    setDeleteConfirmed(true);
+    // Small delay so the button visually transitions before deletion proceeds
+    setTimeout(() => handleDelete(), 200);
+  };
+
   /* ── Export ───────────────────────────────────── */
   const handleExport = async () => {
     try {
@@ -1510,7 +1548,14 @@ export default function Assets() {
           ) : (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {visibleAssets.map((asset) => (
-                <AssetCard key={asset.asset_id} asset={asset} onView={() => setViewingAsset(asset)} onEdit={() => openEditAsset(asset)} onHistory={() => openHistory(asset)} />
+                <AssetCard
+                  key={asset.asset_id}
+                  asset={asset}
+                  onView={() => setViewingAsset(asset)}
+                  onEdit={() => openEditAsset(asset)}
+                  onHistory={() => openHistory(asset)}
+                  onDelete={() => setDeletingAsset(asset)}
+                />
               ))}
             </div>
           )}
@@ -1629,6 +1674,14 @@ export default function Assets() {
                       >
                         Dispose
                       </button>
+                      {(activeRole === "SuperAdmin" || activeRole === "Admin") && (
+                        <button
+                          onClick={() => setDeletingAsset(asset)}
+                          className="inline-flex items-center gap-1 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100"
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1727,11 +1780,81 @@ export default function Assets() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      {deletingAsset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-[28px] bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <h2 className="text-xl font-black text-slate-900">Delete Hardware Asset</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Are you sure you want to delete this hardware asset? This action cannot be undone.
+              </p>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-slate-600">
+                <span className="font-bold">Asset:</span> {deletingAsset.asset_name || `${deletingAsset.brand || ""} ${deletingAsset.model || ""}`.trim() || "Unknown"}
+              </p>
+              {deletingAsset.serial_number && (
+                <p className="mt-1 text-sm text-slate-600">
+                  <span className="font-bold">Serial:</span> {deletingAsset.serial_number}
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => { setDeletingAsset(null); setDeleteConfirmed(false); }}
+                className="rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteClick}
+                disabled={deleteConfirmed}
+                className={`inline-flex items-center gap-2 rounded-2xl border px-5 py-2.5 text-sm font-bold transition-all duration-200 ${
+                  deleteConfirmed
+                    ? "border-red-600 bg-red-600 text-white hover:bg-red-700 hover:border-red-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <Trash2 size={16} className={`transition-all duration-200 ${deleteConfirmed ? "text-white" : "text-slate-400"}`} />
+                {deleteConfirmed ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 rounded-2xl px-5 py-3 shadow-2xl transition-all ${
+            toast.type === "success"
+              ? "bg-emerald-600 text-white"
+              : "bg-red-600 text-white"
+          }`}
+        >
+          {toast.type === "success" ? (
+            <CheckCircle size={18} />
+          ) : (
+            <AlertTriangle size={18} />
+          )}
+          <span className="text-sm font-bold">{toast.message}</span>
+          <button onClick={() => setToast(null)} className="ml-2 rounded-full p-0.5 hover:bg-white/20">
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function AssetCard({ asset, onView, onEdit, onHistory }) {
+function AssetCard({ asset, onView, onEdit, onHistory, onDelete }) {
+  const { role } = useAuth();
+  const activeRole = role || "Employee";
+  const canDelete = activeRole === "SuperAdmin" || activeRole === "Admin";
   const location = asset.location || asset.branch_name || asset.department || asset.team_department || "Unassigned";
   const assignedTo = asset.assigned_name || asset.borrower_name || "Unassigned";
 
@@ -1757,15 +1880,19 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
           <p><span className="font-bold text-slate-800">Location:</span> {location}</p>
           <p><span className="font-bold text-slate-800">Assigned:</span> {assignedTo}</p>
         </div>
-        <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
+        <div className="mt-5 grid grid-cols-4 gap-2 border-t border-slate-100 pt-4">
           <button onClick={onView} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"><Eye size={14} /> View</button>
           <button onClick={onEdit} className="inline-flex items-center justify-center gap-1 rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-100"><Pencil size={14} /> Edit</button>
           <button onClick={onHistory} className="inline-flex items-center justify-center gap-1 rounded-xl bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 hover:bg-violet-100"><History size={14} /> History</button>
+          {canDelete && (
+            <button onClick={onDelete} className="inline-flex items-center justify-center gap-1 rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100"><Trash2 size={14} /> Delete</button>
+          )}
         </div>
       </div>
     </article>
   );
 }
+
 
 function AssetDetailsModal({ asset, onClose }) {
   const [hardware, setHardware] = useState(null);
