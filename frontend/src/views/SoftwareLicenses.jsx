@@ -614,21 +614,38 @@ export default function SoftwareLicenses() {
     }
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (filteredLicenses.length === 0) return;
-    const headers = ["License Name", "Vendor", "Type", "Total Licenses", "Used Licenses", "Expiry Date", "Annual Cost", "Status", "Branch"];
-    const rows = filteredLicenses.map((l) => [
-      l.license_name, l.vendor, l.license_type, l.total_licenses, l.used_licenses,
-      l.expiry_date, l.annual_cost, l.status, l.branch_name,
-    ]);
-    const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${v || ""}"`).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "software-licenses.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const params = new URLSearchParams({ t: Date.now() });
+      const roleName = getRoleName(user);
+      if (user?.user_id) params.set("current_user_id", user.user_id);
+      if (roleName) params.set("role_name", roleName);
+      if (user?.branch_id) params.set("current_branch_id", user.branch_id);
+
+      const res = await fetch(`${API_BASE}/software-licenses/export?${params.toString()}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Export failed" }));
+        alert(err.message || err.error || "No software licenses found for export.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : "software-licenses.xlsx";
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export error:", err);
+      alert("Failed to export software licenses. Please try again.");
+    }
   };
 
   const handlePrint = () => {

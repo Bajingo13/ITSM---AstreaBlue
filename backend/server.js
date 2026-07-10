@@ -3208,6 +3208,155 @@ app.get("/api/v1/software-licenses", async (req, res) => {
   }
 });
 
+// GET /api/v1/software-licenses/export — Protected Excel export
+app.get("/api/v1/software-licenses/export", async (req, res) => {
+  try {
+    const scope = requireSoftwareLicenseScope(req, res);
+    if (!scope) return;
+
+    let whereClause = "";
+    const params = [];
+    if (scope.branchId) {
+      params.push(scope.branchId);
+      whereClause = `WHERE sl.branch_id = $1`;
+    }
+
+    const result = await db.query(
+      `SELECT
+        sl.*,
+        GREATEST(sl.total_licenses - sl.used_licenses, 0) AS available_licenses,
+        CASE
+          WHEN sl.expiry_date < CURRENT_DATE THEN 'Expired'
+          WHEN sl.expiry_date <= CURRENT_DATE + INTERVAL '30 days' THEN 'Expiring Soon'
+          ELSE 'Active'
+        END AS status,
+        b.branch_name
+      FROM software_licenses sl
+      LEFT JOIN branches b ON sl.branch_id = b.branch_id
+      ${whereClause}
+      ORDER BY sl.license_name`,
+      params
+    );
+
+    const rows = result.rows;
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "No software licenses found for export." });
+    }
+
+    const ExcelJS = require("exceljs");
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "AstreaBlue ITSM";
+    wb.created = new Date();
+
+    const ws = wb.addWorksheet("Software Licenses");
+
+    const headers = [
+      "License Name", "Vendor", "Branch", "Type", "Total Licenses",
+      "Used Licenses", "Available Licenses", "Utilization",
+      "Expiry Date", "Annual Cost", "Status",
+    ];
+    const colWidths = [30, 22, 18, 18, 16, 16, 18, 14, 16, 16, 16];
+    const colKeys = ["license_name", "vendor", "branch_name", "license_type", "total_licenses",
+      "used_licenses", "available_licenses", "utilization",
+      "expiry_date", "annual_cost", "status"];
+
+    const headerStyle = {
+      font: { bold: true, color: { argb: "FFFFFFFF" }, size: 11 },
+      fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E40AF" } },
+      alignment: { vertical: "middle", horizontal: "center" },
+      border: {
+        top: { style: "thin", color: { argb: "FFCBD5E1" } },
+        bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
+        left: { style: "thin", color: { argb: "FFCBD5E1" } },
+        right: { style: "thin", color: { argb: "FFCBD5E1" } },
+      },
+    };
+
+    const cellStyle = {
+      alignment: { vertical: "middle" },
+      border: {
+        top: { style: "thin", color: { argb: "FFE2E8F0" } },
+        bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+        left: { style: "thin", color: { argb: "FFE2E8F0" } },
+        right: { style: "thin", color: { argb: "FFE2E8F0" } },
+      },
+    };
+
+    ws.columns = headers.map((h, i) => ({ header: h, key: colKeys[i], width: colWidths[i] }));
+    ws.getRow(1).eachCell((cell) => { cell.style = headerStyle; });
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+
+    const formatDate = (d) => (d ? new Date(d).toLocaleDateString("en-PH") : "");
+    const formatCurrency = (v) => (v != null ? Number(v).toLocaleString("en-PH", { minimumFractionDigits: 2 }) : "");
+
+    rows.forEach((r) => {
+      const total = Number(r.total_licenses) || 0;
+      const used = Number(r.used_licenses) || 0;
+      const avail = Math.max(total - used, 0);
+      const util = total > 0 ? ((used / total) * 100).toFixed(1) + "%" : "0%";
+
+      ws.addRow({
+        license_name: r.license_name,
+        vendor: r.vendor || "",
+        branch_name: r.branch_name || "",
+        license_type: r.license_type || "",
+        total_licenses: total,
+        used_licenses: used,
+        available_licenses: avail,
+        utilization: util,
+        expiry_date: formatDate(r.expiry_date),
+        annual_cost: formatCurrency(r.annual_cost),
+        status: r.status || "Active",
+      }).eachCell((cell) => { cell.style = cellStyle; });
+    });
+
+    ws.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: ws.rowCount, column: headers.length },
+    };
+
+    // Apply protection (same as hardware assets)
+    const protectionPassword = process.env.EXCEL_PROTECTION_PASSWORD || "AstreaBlue@2026!Secure";
+    ws.protect(protectionPassword, {
+      autoFilter: true,
+      selectLockedCells: true,
+      selectUnlockedCells: true,
+      sort: true,
+      formatCells: false, formatColumns: false, formatRows: false,
+      insertColumns: false, insertRows: false, deleteColumns: false, deleteRows: false,
+      insertHyperlinks: false,
+    });
+
+    // Add workbook structure protection via JSZip
+    const crypto = require("crypto");
+    const JSZip = require("jszip");
+    const excelBuf = await wb.xlsx.writeBuffer();
+    const zip = await JSZip.loadAsync(Buffer.from(excelBuf));
+    let wbXml = await zip.file("xl/workbook.xml").async("string");
+    if (!wbXml.includes("workbookProtection")) {
+      const salt = crypto.randomBytes(16).toString("base64");
+      const spinCount = 100000;
+      let hash = crypto.createHash("sha512").update(protectionPassword + salt).digest();
+      for (let i = 1; i < spinCount; i++) {
+        hash = crypto.createHash("sha512").update(hash).digest();
+      }
+      const hashValue = hash.toString("base64");
+      const protElement = `<workbookProtection workbookAlgorithmName="SHA-512" workbookHashValue="${hashValue}" workbookSaltValue="${salt}" workbookSpinCount="${spinCount}" lockStructure="1"/>`;
+      wbXml = wbXml.replace(/<workbookPr[^/]*\/>/, (match) => `${match}${protElement}`);
+      zip.file("xl/workbook.xml", wbXml);
+    }
+    const finalBuf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+
+    const filename = `software-licenses-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.end(finalBuf);
+  } catch (err) {
+    console.error("Export software licenses error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to export software licenses." });
+  }
+});
+
 // GET /api/v1/software-licenses/summary?branch_id=1
 app.get("/api/v1/software-licenses/summary", async (req, res) => {
   try {
