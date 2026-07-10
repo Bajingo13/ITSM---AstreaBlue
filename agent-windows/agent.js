@@ -152,10 +152,16 @@ async function get(pathname) {
 const POLICY_FILE = path.join(DEVICE_DIR, 'policy.json');
 let cachedPolicy = {
   heartbeat_enabled: true,
+  telemetry_enabled: true,
   hardware_inventory_enabled: true,
   software_inventory_enabled: true,
-  activity_monitoring_enabled: true,
+  policy_sync_enabled: true,
+  activity_monitoring_enabled: false,
   screenshot_monitoring_enabled: false,
+  browser_monitoring_enabled: false,
+  usb_monitoring_enabled: false,
+  location_tracking_enabled: false,
+  auto_incident_enabled: false,
 };
 
 function loadCachedPolicy() {
@@ -194,7 +200,6 @@ loadCachedPolicy();
 
 // ─── Heartbeat ────────────────────────────────────────────────────────────────
 async function heartbeat() {
-  if (!cachedPolicy.heartbeat_enabled) return true; // Pretend success
   try {
     const result = await post('/heartbeat', {
       device_uuid: deviceUuid,
@@ -255,7 +260,10 @@ async function readActivity() {
 }
 
 async function sendActivity() {
-  if (!cachedPolicy.activity_monitoring_enabled) return;
+  if (!cachedPolicy.activity_monitoring_enabled) {
+    warn('Activity skipped — effective policy does not enable activity monitoring.');
+    return;
+  }
   try {
     const activity = await readActivity();
     await post('/activity', {
@@ -302,7 +310,6 @@ async function captureScreenshot() {
 
 // ============================================================================
 async function sendHardwareInventory() {
-  if (!cachedPolicy.hardware_inventory_enabled) return;
   try {
     const [system, osInfo, cpu, mem, disk, net] = await Promise.all([
       si.system(),
@@ -382,7 +389,6 @@ async function readSoftwareInventory() {
 }
 
 async function sendSoftwareInventory() {
-  if (!cachedPolicy.software_inventory_enabled) return;
   const scanStartedAt = new Date().toISOString();
   try {
     const software = await readSoftwareInventory();

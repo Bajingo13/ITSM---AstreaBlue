@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Activity, AlertTriangle, Clock3, Monitor, Package, Search, ShieldCheck, Users } from "lucide-react";
+import { Activity, AlertTriangle, Clock3, Monitor, Package, RefreshCw, Search, ShieldCheck, Users } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
 import { API_URL } from "../config/api";
+import { useAuth } from "../context/AuthContext";
 import { authHeaders } from "../services/authHeaders";
 import EndpointPolicies from "./EndpointPolicies";
 
@@ -25,6 +26,8 @@ async function monitoringRequest(path, options = {}) {
 
 export default function EndpointMonitoring() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { role } = useAuth();
+  const isSuperAdmin = String(role || "").toLowerCase().replace(/[\s_-]/g, "") === "superadmin";
 
   const [devices, setDevices] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -40,6 +43,9 @@ export default function EndpointMonitoring() {
   const [softwareInventory, setSoftwareInventory] = useState([]);
   const [softwareSummary, setSoftwareSummary] = useState(null);
   const [softwareFilters, setSoftwareFilters] = useState({ q: "", publisher: "", status: "active", device_uuid: "", employee_id: "", branch_id: "" });
+  const [healthData, setHealthData] = useState(null);
+  const [selectedHealth, setSelectedHealth] = useState(null);
+  const [healthLoading, setHealthLoading] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -67,6 +73,7 @@ export default function EndpointMonitoring() {
 
   const tabs = [
     { id: "overview", label: "Overview" },
+    { id: "health", label: "Endpoint Health" },
     { id: "devices", label: "Devices" },
     { id: "activity", label: "Activity Timeline" },
     { id: "screenshots", label: "Screenshots" },
@@ -122,8 +129,21 @@ export default function EndpointMonitoring() {
     }
   }, [softwareFilters]);
 
+  const loadHealth = useCallback(async () => {
+    try {
+      setHealthLoading(true);
+      const data = await monitoringRequest("/health");
+      setHealthData(data || null);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setHealthLoading(false);
+    }
+  }, []);
+
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => { if (activeTab === "software") loadSoftwareInventory(); }, [activeTab, loadSoftwareInventory]);
+  useEffect(() => { if (activeTab === "health") loadHealth(); }, [activeTab, loadHealth]);
   useEffect(() => {
     if (!selectedId || typeof selectedId === "function" || String(selectedId).includes("=>")) {
       setReconciliation([]);
@@ -139,7 +159,53 @@ export default function EndpointMonitoring() {
     return () => window.clearInterval(timer);
   }, [loadOverview]);
 
+  useEffect(() => {
+    const currentDevice = devices.find((device) => String(device.device_id) === String(selectedId));
+    const lookup = currentDevice?.device_uuid || currentDevice?.device_id;
+    if (!lookup) {
+      setSelectedHealth(null);
+      return;
+    }
+    monitoringRequest(`/devices/${encodeURIComponent(lookup)}/health`)
+      .then(setSelectedHealth)
+      .catch(() => setSelectedHealth(null));
+  }, [devices, selectedId]);
+
   const selectedDevice = devices.find((device) => String(device.device_id) === String(selectedId));
+
+  const refreshSelectedHealth = async () => {
+    const lookup = selectedDevice?.device_uuid || selectedDevice?.device_id;
+    if (!lookup) return null;
+    const data = await monitoringRequest(`/devices/${encodeURIComponent(lookup)}/health`);
+    setSelectedHealth(data);
+    return data;
+  };
+
+  const handleDiagnosticAction = async (action) => {
+    if (!selectedDevice) return;
+    try {
+      setHealthLoading(true);
+      if (action === "refresh" || action === "health" || action === "inventory") {
+        await refreshSelectedHealth();
+      }
+      if (action === "policy") {
+        await monitoringRequest(`/devices/${selectedDevice.device_uuid}/generate-policy`, { method: "POST" });
+        await refreshSelectedHealth();
+      }
+      if (action === "reconcile") {
+        await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconcile`, { method: "POST" });
+        const newData = await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconciliation`);
+        setReconciliation(Array.isArray(newData) ? newData : []);
+        await refreshSelectedHealth();
+      }
+      await loadOverview();
+      if (activeTab === "health") await loadHealth();
+    } catch (requestError) {
+      alert(requestError.message);
+    } finally {
+      setHealthLoading(false);
+    }
+  };
   
   const handleOpenAssign = async (type) => {
     try {
@@ -260,6 +326,68 @@ export default function EndpointMonitoring() {
       <div className="space-y-6">
         <section className="rounded-3xl border border-blue-200 bg-blue-50 p-6"><h2 className="flex items-center gap-2 font-black text-blue-950"><ShieldCheck size={20} /> Privacy & RA 10173 Compliance</h2><ul className="mt-3 list-disc space-y-1 pl-5 text-sm font-semibold text-blue-900"><li>Monitoring requires informed employee consent and a documented legitimate IT/security purpose.</li><li>Screenshots require separate, explicit consent and are rejected by the API without it.</li><li>Configure and communicate an appropriate data-retention period.</li><li>Monitoring data is for authorized IT and security operations only.</li><li>This MVP does not collect keystrokes, passwords, microphone audio, or camera data.</li></ul></section>
         <p className="text-slate-600">Select a tab above to view detailed monitoring data.</p>
+      </div>
+    )}
+
+    {activeTab === "health" && (
+      <div className="space-y-6">
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {[
+            ["Registered Endpoints", healthData?.summary?.registered_endpoints || 0],
+            ["Online Endpoints", healthData?.summary?.online_endpoints || 0],
+            ["Offline Endpoints", healthData?.summary?.offline_endpoints || 0],
+            ["Heartbeat Healthy", healthData?.summary?.heartbeat_healthy || 0],
+            ["Activity Healthy", healthData?.summary?.activity_healthy || 0],
+            ["Hardware Healthy", healthData?.summary?.hardware_inventory_healthy || 0],
+            ["Software Healthy", healthData?.summary?.software_inventory_healthy || 0],
+            ["Policy Sync Healthy", healthData?.summary?.policy_sync_healthy || 0],
+            ["Consent Active", healthData?.summary?.consent_active || 0],
+            ["Requires Attention", healthData?.summary?.endpoints_requiring_attention || 0],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between"><p className="text-xs font-black uppercase tracking-wider text-slate-500">{label}</p><Activity size={18} className="text-blue-600" /></div>
+              <p className="mt-3 text-2xl font-black text-slate-900">{value}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-6">
+            <h2 className="text-lg font-black text-slate-900">Endpoint Health</h2>
+            <button onClick={loadHealth} disabled={healthLoading} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+              <RefreshCw size={14} /> Refresh
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1150px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>{["Endpoint", "Health", "Heartbeat", "Activity", "Hardware", "Software", "Policy", "Consent", "Last Communication"].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}</tr>
+              </thead>
+              <tbody>
+                {healthLoading && !healthData ? (
+                  <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">Loading endpoint health...</td></tr>
+                ) : (healthData?.endpoints || []).length === 0 ? (
+                  <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">No endpoint health data available.</td></tr>
+                ) : healthData.endpoints.map((endpoint) => (
+                  <tr key={endpoint.device_id} className="border-t border-slate-100">
+                    <td className="px-4 py-3">
+                      <button onClick={() => { setSelectedId(endpoint.device_id); setActiveTab("devices"); }} className="text-left font-bold text-blue-700 hover:underline">{endpoint.device_name || endpoint.hostname}</button>
+                      <p className="text-xs text-slate-500">{endpoint.assigned_employee || "Unassigned"} · {endpoint.branch_name || "No branch"}</p>
+                    </td>
+                    <td className="px-4 py-3"><HealthBadge status={endpoint.overall_health} /></td>
+                    <td className="px-4 py-3"><HealthBadge status={endpoint.heartbeat.status} /></td>
+                    <td className="px-4 py-3"><HealthBadge status={endpoint.activity.status} /></td>
+                    <td className="px-4 py-3"><HealthBadge status={endpoint.hardware_inventory.status} /></td>
+                    <td className="px-4 py-3"><HealthBadge status={endpoint.software_inventory.status} /></td>
+                    <td className="px-4 py-3"><HealthBadge status={endpoint.policy.status} /></td>
+                    <td className="px-4 py-3"><HealthBadge status={endpoint.consent.status} /></td>
+                    <td className="px-4 py-3 text-slate-500">{formatDate(endpoint.agent_sync?.last_communication_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     )}
 
@@ -435,7 +563,7 @@ export default function EndpointMonitoring() {
                     </ul>
                   </div>
                 )}
-                <div className="mt-3">
+                {isSuperAdmin && <div className="mt-3">
                   <button onClick={async () => {
                     try {
                       await monitoringRequest(`/devices/${selectedDevice.device_uuid}/generate-policy`, { method: "POST" });
@@ -446,10 +574,112 @@ export default function EndpointMonitoring() {
                       alert(e.message);
                     }
                   }} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Regenerate Effective Policy</button>
-                </div>
+                </div>}
               </div>
             </div>
           </div>
+
+          <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="font-black text-slate-900">Endpoint Diagnostics</h3>
+              <HealthBadge status={selectedHealth?.overall_health || "Warning"} />
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <DiagnosticRow label="Last Heartbeat" value={formatDate(selectedHealth?.heartbeat?.last_seen_at || selectedDevice?.last_seen_at)} status={selectedHealth?.heartbeat?.status} />
+              <DiagnosticRow label="Last Activity" value={formatDate(selectedHealth?.activity?.last_seen_at || selectedDevice?.last_activity)} status={selectedHealth?.activity?.status} />
+              <DiagnosticRow label="Last Idle Detection" value={formatDate(selectedHealth?.idle_detection?.last_seen_at)} status={selectedHealth?.idle_detection?.status} />
+              <DiagnosticRow label="Last Hardware Inventory" value={formatDate(selectedHealth?.hardware_inventory?.last_seen_at || details?.hardware?.scanned_at)} status={selectedHealth?.hardware_inventory?.status} />
+              <DiagnosticRow label="Last Software Inventory" value={formatDate(selectedHealth?.software_inventory?.last_seen_at)} status={selectedHealth?.software_inventory?.status} />
+              <DiagnosticRow label="Last Policy Download" value={formatDate(selectedHealth?.policy?.last_seen_at || selectedDevice?.policy_synced_at)} status={selectedHealth?.policy?.status} />
+              <DiagnosticRow label="Current Policy Version" value={selectedHealth?.policy?.current_policy_version || details?.policy?.policy_version || "Unknown"} status={selectedHealth?.policy?.status} />
+              <DiagnosticRow label="Consent Status" value={selectedHealth?.consent?.consent_status || selectedDevice?.consent_status || "Pending"} status={selectedHealth?.consent?.status} />
+              <DiagnosticRow label="Agent Version" value={selectedDevice?.agent_version || "Unknown"} status="Healthy" />
+              <DiagnosticRow label="Windows Version" value={selectedHealth?.debug?.windows_version || details?.hardware?.os_name || "Unknown"} status={selectedHealth?.hardware_inventory?.status} />
+              <DiagnosticRow label="Endpoint Status" value={selectedHealth?.endpoint_status || selectedDevice?.status || "Unknown"} status={selectedHealth?.overall_health} />
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div>
+                <h4 className="text-sm font-black uppercase text-slate-500">Communication Timeline</h4>
+                <div className="mt-3 space-y-2">
+                  {(selectedHealth?.timeline || []).map((item) => (
+                    <div key={item.event_type} className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-sm">
+                      <span className="font-bold text-slate-700">{item.event_type}</span>
+                      <span className="text-xs text-slate-500">{formatDate(item.occurred_at)}</span>
+                      <HealthBadge status={item.status} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-black uppercase text-slate-500">Failure Reasons</h4>
+                <div className="mt-3 space-y-2">
+                  {(selectedHealth?.failure_reasons || []).length === 0 ? <Empty text="No diagnostic failures." /> : selectedHealth.failure_reasons.map((item, index) => (
+                    <div key={`${item.area}-${index}`} className="rounded-xl bg-white px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between gap-3"><span className="font-bold text-slate-800">{item.area}</span><HealthBadge status={item.severity} /></div>
+                      <p className="mt-1 text-xs text-slate-500">{item.message}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div>
+                <h4 className="text-sm font-black uppercase text-slate-500">Onboarding Checklist</h4>
+                <div className="mt-3 space-y-2">
+                  {(selectedHealth?.checklist || []).map((item) => (
+                    <div key={item.step} className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-sm">
+                      <span className="font-bold text-slate-700">{item.step}</span>
+                      <ChecklistBadge status={item.status} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-black uppercase text-slate-500">Effective Policy Permissions</h4>
+                <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
+                  {Object.entries(selectedHealth?.policy?.feature_permissions || {}).length === 0 ? <Empty text="No effective policy permissions generated yet." /> : Object.entries(selectedHealth.policy.feature_permissions).map(([key, feature]) => (
+                    <div key={key} className="rounded-xl bg-white px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-bold text-slate-700">{key.replace(/_/g, " ")}</span>
+                        <HealthBadge status={feature.enabled ? "Healthy" : "Offline"} />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">Source: {feature.source_policy || "Unknown"}{feature.consent_required ? " · Consent required" : ""}</p>
+                      {!feature.enabled && feature.reason && <p className="mt-1 text-xs font-semibold text-amber-700">{feature.reason}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {isSuperAdmin && (
+              <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                <h4 className="font-black text-sky-950">SuperAdmin Diagnostic Actions</h4>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button onClick={() => handleDiagnosticAction("refresh")} disabled={healthLoading} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Refresh Endpoint Status</button>
+                  <button onClick={() => handleDiagnosticAction("health")} disabled={healthLoading} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Run Health Check</button>
+                  <button onClick={() => handleDiagnosticAction("policy")} disabled={healthLoading || !selectedDevice?.device_uuid} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Regenerate Effective Policy</button>
+                  <button onClick={() => handleDiagnosticAction("inventory")} disabled={healthLoading} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Recalculate Inventory Status</button>
+                  <button onClick={() => handleDiagnosticAction("reconcile")} disabled={healthLoading || reconciling} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Re-run Asset Reconciliation</button>
+                </div>
+                <div className="mt-4 grid gap-2 text-xs text-sky-950 md:grid-cols-2 xl:grid-cols-3">
+                  <p><span className="font-bold">Device UUID:</span> {selectedHealth?.debug?.device_uuid || selectedDevice?.device_uuid || "Unknown"}</p>
+                  <p><span className="font-bold">Asset ID:</span> {selectedHealth?.debug?.asset_id || selectedDevice?.asset_id || "Unlinked"}</p>
+                  <p><span className="font-bold">Employee:</span> {selectedHealth?.debug?.employee || selectedDevice?.assigned_user || "Unassigned"}</p>
+                  <p><span className="font-bold">Branch:</span> {selectedHealth?.debug?.branch || selectedDevice?.branch_name || "Unknown"}</p>
+                  <p><span className="font-bold">Department:</span> {selectedHealth?.debug?.department || selectedDevice?.department || "Unknown"}</p>
+                  <p><span className="font-bold">Policy Version:</span> {selectedHealth?.debug?.policy_version || "Unknown"}</p>
+                  <p><span className="font-bold">Consent Version:</span> {selectedHealth?.debug?.consent_version || "Unknown"}</p>
+                  <p><span className="font-bold">Last API Response:</span> {selectedHealth?.debug?.last_api_response || "Not tracked"}</p>
+                  <p><span className="font-bold">Last Error:</span> {selectedHealth?.debug?.last_error || "None tracked"}</p>
+                  <p><span className="font-bold">Last Sync Time:</span> {formatDate(selectedHealth?.debug?.last_sync_time)}</p>
+                  <p><span className="font-bold">Agent Version:</span> {selectedHealth?.debug?.agent_version || selectedDevice?.agent_version || "Unknown"}</p>
+                  <p><span className="font-bold">OS Build:</span> {selectedHealth?.debug?.os_build || "Unknown"}</p>
+                </div>
+              </div>
+            )}
+          </section>
           
           {selectedDevice && (
             <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -725,6 +955,37 @@ function ConsentBadge({ status = "Pending" }) {
 function SoftwareStatus({ status = "active" }) {
   const active = String(status).toLowerCase() === "active";
   return <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{status}</span>;
+}
+
+function HealthBadge({ status = "Warning" }) {
+  const normalized = String(status || "Warning").toLowerCase();
+  const styles = normalized === "healthy" ? "bg-emerald-100 text-emerald-800" :
+    normalized === "warning" ? "bg-amber-100 text-amber-800" :
+    normalized === "critical" ? "bg-rose-100 text-rose-800" :
+    normalized === "offline" ? "bg-slate-200 text-slate-700" :
+    "bg-sky-100 text-sky-800";
+  return <span className={`rounded-full px-3 py-1 text-xs font-black ${styles}`}>{status || "Warning"}</span>;
+}
+
+function DiagnosticRow({ label, value, status = "Warning" }) {
+  return (
+    <div className="rounded-xl bg-white p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-black uppercase text-slate-500">{label}</p>
+        <HealthBadge status={status} />
+      </div>
+      <p className="mt-2 break-words text-sm font-bold text-slate-900">{value || "Unknown"}</p>
+    </div>
+  );
+}
+
+function ChecklistBadge({ status = "Pending" }) {
+  const normalized = String(status || "Pending").toLowerCase();
+  const styles = normalized === "complete" ? "bg-emerald-100 text-emerald-800" :
+    normalized === "failed" ? "bg-rose-100 text-rose-800" :
+    normalized === "not applicable" ? "bg-slate-200 text-slate-700" :
+    "bg-amber-100 text-amber-800";
+  return <span className={`rounded-full px-3 py-1 text-xs font-black ${styles}`}>{status}</span>;
 }
 
 function Empty({ text }) {

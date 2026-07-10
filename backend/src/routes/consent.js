@@ -10,6 +10,8 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
+const PDFDocument = require("pdfkit");
+const { createNotification } = require("../services/notificationService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -75,6 +77,7 @@ const tablesReady = (async () => {
       ALTER TABLE consent_documents DROP CONSTRAINT IF EXISTS consent_documents_status_check;
       ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL;
       ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS device_uuid UUID;
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS device_id BIGINT;
       ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS asset_id INTEGER;
       ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS department_id INTEGER;
       ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ;
@@ -244,6 +247,181 @@ async function generateEndpointPolicy(doc, actor) {
   return policy.rows[0];
 }
 
+function hasPreference(prefs, ...names) {
+  return Array.isArray(prefs) && names.some((name) => prefs.includes(name));
+}
+
+async function regenerateEffectiveEndpointPolicy(deviceUuid, actor) {
+  if (!deviceUuid) return null;
+  const deviceResult = await db.query(
+    `SELECT d.*, u.department as employee_department
+     FROM monitored_devices d
+     LEFT JOIN users u ON u.user_id=d.assigned_user_id
+     WHERE d.device_uuid=$1::uuid LIMIT 1`,
+    [deviceUuid]
+  );
+  if (!deviceResult.rows.length) return null;
+  const device = deviceResult.rows[0];
+
+  const assignments = await db.query(
+    `SELECT a.*, p.priority, p.config_json, p.name
+     FROM endpoint_policy_assignments a
+     JOIN endpoint_policies p ON p.id=a.policy_id
+     WHERE p.is_active=true`
+  );
+
+  const defaultConfig = {
+    heartbeat_enabled: true,
+    telemetry_enabled: true,
+    hardware_inventory_enabled: true,
+    software_inventory_enabled: true,
+    policy_sync_enabled: true,
+    activity_monitoring_enabled: false,
+    screenshot_monitoring_enabled: false,
+    usb_monitoring_enabled: false,
+    browser_monitoring_enabled: false,
+    location_tracking_enabled: false,
+    auto_incident_enabled: false,
+    intervals: { heartbeat: 60, activity: 60 },
+    retention: { logs_days: 30 },
+  };
+  let effectiveConfig = { ...defaultConfig };
+  let effectivePolicyName = "Company Default Safe Policy";
+  let effectivePolicyVersion = "1.0";
+  const featureSources = {};
+  const targetPriorities = { Employee: 6, Device: 5, Asset: 4, Department: 3, Branch: 2, Global: 1 };
+  let highestPriority = 0;
+
+  for (const row of assignments.rows) {
+    let matches = false;
+    if (row.target_type === "Employee" && row.target_id === String(device.assigned_user_id)) matches = true;
+    else if (row.target_type === "Device" && row.target_id === String(device.device_uuid)) matches = true;
+    else if (row.target_type === "Asset" && row.target_id === String(device.asset_id)) matches = true;
+    else if (row.target_type === "Department" && (row.target_id === String(device.department) || row.target_id === String(device.employee_department))) matches = true;
+    else if (row.target_type === "Branch" && row.target_id === String(device.branch_id)) matches = true;
+    else if (row.target_type === "Global") matches = true;
+    if (!matches) continue;
+    const score = (Number(row.priority) || 0) * 100 + (targetPriorities[row.target_type] || 0);
+    if (score >= highestPriority) {
+      highestPriority = score;
+      effectiveConfig = { ...effectiveConfig, ...(row.config_json || {}) };
+      effectivePolicyName = row.name || `Policy ID ${row.policy_id}`;
+      effectivePolicyVersion = `${row.priority || 0}.${row.id}`;
+      for (const key of Object.keys(row.config_json || {})) featureSources[key] = row.target_type;
+    }
+  }
+
+  const reasons = {};
+  const consentResult = device.assigned_user_id ? await db.query(
+    `SELECT consent_id, consent_version, monitoring_preferences
+     FROM consent_documents
+     WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status='approved' AND active=true
+     ORDER BY approved_at DESC NULLS LAST LIMIT 1`,
+    [device.assigned_user_id, device.device_uuid]
+  ) : { rows: [] };
+  const consent = consentResult.rows[0] || null;
+  const prefs = consent?.monitoring_preferences || [];
+  const consentGated = [
+    ["activity_monitoring_enabled", ["application_monitoring", "applications", "activity_monitoring"], "Application/window activity"],
+    ["screenshot_monitoring_enabled", ["screenshot_monitoring", "screenshot"], "Screenshot Monitoring"],
+    ["browser_monitoring_enabled", ["web_monitoring", "website_monitoring", "browser"], "Browser/domain monitoring"],
+    ["usb_monitoring_enabled", ["usb_monitoring", "usb"], "USB activity monitoring"],
+    ["location_tracking_enabled", ["location_tracking"], "Location tracking"],
+  ];
+  for (const [flag, names, label] of consentGated) {
+    if (!device.assigned_user_id) {
+      effectiveConfig[flag] = false;
+      reasons[flag] = "Device is not assigned to an employee.";
+    } else if (!consent) {
+      effectiveConfig[flag] = false;
+      reasons[flag] = "No active approved consent.";
+    } else if (!hasPreference(prefs, ...names)) {
+      effectiveConfig[flag] = false;
+      reasons[flag] = `Employee consent excludes ${label}.`;
+    } else if (!effectiveConfig[flag]) {
+      reasons[flag] = `Disabled by ${featureSources[flag] || "endpoint"} policy.`;
+    }
+  }
+
+  const features = {};
+  for (const key of [
+    "heartbeat_enabled", "telemetry_enabled", "hardware_inventory_enabled", "software_inventory_enabled", "policy_sync_enabled",
+    "activity_monitoring_enabled", "screenshot_monitoring_enabled", "browser_monitoring_enabled", "usb_monitoring_enabled",
+    "location_tracking_enabled", "auto_incident_enabled",
+  ]) {
+    const needsConsent = consentGated.some(([flag]) => flag === key);
+    features[key] = {
+      enabled: !!effectiveConfig[key],
+      source_policy: featureSources[key] || effectivePolicyName,
+      consent_required: needsConsent,
+      reason: effectiveConfig[key] ? null : (reasons[key] || "No endpoint policy assigned."),
+    };
+  }
+
+  const policyJson = {
+    device_uuid: device.device_uuid,
+    policy_version: effectivePolicyVersion,
+    policy_name: effectivePolicyName,
+    consent_id: consent?.consent_id || null,
+    consent_version: consent?.consent_version || null,
+    ...effectiveConfig,
+    features,
+    reasons,
+    generated_at: new Date().toISOString(),
+  };
+  await db.query(
+    `INSERT INTO endpoint_effective_policies (device_uuid, policy_json, generated_at)
+     VALUES ($1,$2,CURRENT_TIMESTAMP)
+     ON CONFLICT (device_uuid) DO UPDATE SET policy_json=EXCLUDED.policy_json, generated_at=CURRENT_TIMESTAMP`,
+    [deviceUuid, JSON.stringify(policyJson)]
+  );
+  await audit(consent?.consent_id || null, device.assigned_user_id, actorId(actor), actor?.role || "system", "effective_policy_generated", `Effective endpoint policy regenerated for ${deviceUuid}.`);
+  return policyJson;
+}
+
+async function notifyBranchAdmins(branchId, title, message, metadata = {}) {
+  const candidates = [];
+  const attempts = [
+    {
+      sql: `SELECT u.user_id FROM users u LEFT JOIN roles r ON r.role_id=u.role_id
+            WHERE LOWER(REPLACE(REPLACE(COALESCE(r.role_name,''),'_',''),' ','')) IN ('superadmin','admin')
+              AND ($1::int IS NULL OR u.branch_id=$1 OR LOWER(REPLACE(REPLACE(COALESCE(r.role_name,''),'_',''),' ',''))='superadmin')`,
+      params: [branchId || null],
+    },
+    {
+      sql: `SELECT user_id FROM users
+            WHERE LOWER(REPLACE(REPLACE(COALESCE(role_name,''),'_',''),' ','')) IN ('superadmin','admin')
+              AND ($1::int IS NULL OR branch_id=$1 OR LOWER(REPLACE(REPLACE(COALESCE(role_name,''),'_',''),' ',''))='superadmin')`,
+      params: [branchId || null],
+    },
+    {
+      sql: `SELECT user_id FROM users WHERE ($1::int IS NULL OR branch_id=$1)`,
+      params: [branchId || null],
+    },
+  ];
+  for (const attempt of attempts) {
+    const result = await db.query(attempt.sql, attempt.params).catch(() => ({ rows: [] }));
+    if (result.rows.length) {
+      candidates.push(...result.rows);
+      break;
+    }
+  }
+  const seen = new Set();
+  const admins = candidates.filter((admin) => {
+    if (seen.has(admin.user_id)) return false;
+    seen.add(admin.user_id);
+    return true;
+  });
+  await Promise.all(admins.map((admin) => createNotification({
+    userId: admin.user_id,
+    title,
+    message,
+    type: "privacy_consent",
+    metadata,
+    dedupeKey: metadata?.dedupeKey ? `${metadata.dedupeKey}-${admin.user_id}` : null,
+  }).catch(() => null)));
+}
+
 async function assertConsentAccess(req, consent) {
   const role = String(req.actor?.role || "").toLowerCase().replace(/[\s_-]/g, "");
   if (role === "superadmin" || role === "hr") return true;
@@ -371,8 +549,12 @@ router.post("/:id/sign", requireAuth, async (req, res) => {
       });
 
     const { e_signature_image, printed_name, monitoring_preferences } = req.body;
-    if (!e_signature_image || !printed_name)
-      return res.status(400).json({ success: false, message: "E-signature and printed name are required." });
+    if (!e_signature_image)
+      return res.status(400).json({ success: false, message: "E-signature is required." });
+    const profileName = await db.query(`SELECT full_name FROM users WHERE user_id=$1`, [employeeId]).catch(() => ({ rows: [] }));
+    const finalPrintedName = String(printed_name || profileName.rows[0]?.full_name || docRes.rows[0].employee_full_name || "").trim();
+    if (!finalPrintedName)
+      return res.status(400).json({ success: false, message: "Printed name is required." });
 
     // Save signature image as file (base64 → PNG) for durable storage
     let sigPath = null;
@@ -403,7 +585,7 @@ router.post("/:id/sign", requireAuth, async (req, res) => {
       [
         now,
         sigPath || e_signature_image,    // prefer file path, fall back to inline base64
-        String(printed_name).trim().slice(0, 255),
+        finalPrintedName.slice(0, 255),
         JSON.stringify(monitoring_preferences || docRes.rows[0].monitoring_preferences || []),
         req.params.id,
         employeeId,
@@ -411,9 +593,16 @@ router.post("/:id/sign", requireAuth, async (req, res) => {
     );
 
     await audit(req.params.id, employeeId, employeeId, req.actor.role, "consent_signed",
-      `Signed at ${manilaTime(now)}. Printed name: ${printed_name}.`);
+      `Signed at ${manilaTime(now)}. Printed name: ${finalPrintedName}.`);
+    await audit(req.params.id, employeeId, employeeId, req.actor.role, "signature_saved",
+      "Employee e-signature saved.");
     await audit(req.params.id, employeeId, employeeId, req.actor.role, "consent_submitted",
       "Employee submitted consent for admin approval.");
+    await notifyBranchAdmins(updated.rows[0].branch_id, "Consent pending approval", `${updated.rows[0].employee_full_name} submitted endpoint monitoring consent for approval.`, {
+      consentId: updated.rows[0].consent_id,
+      deviceUuid: updated.rows[0].device_uuid,
+      dedupeKey: `consent-submitted-${updated.rows[0].consent_id}`,
+    });
 
     return res.json({ success: true, data: updated.rows[0] });
   } catch (err) {
@@ -546,8 +735,12 @@ router.get("/all", requireAuth, async (req, res) => {
     const result = await db.query(
       `SELECT cd.consent_id, 
               cd.employee_full_name AS employee, 
+              cd.employee_full_name,
+              cd.employee_email,
+              cd.employee_number,
               cd.employee_id, 
               b.branch_name AS branch, 
+              b.branch_name,
               cd.department, 
               cd.monitoring_preferences, 
               cd.e_signature_image AS signature, 
@@ -559,7 +752,10 @@ router.get("/all", requireAuth, async (req, res) => {
               cd.created_at AS requested_at,
               cd.device_uuid,
               cd.asset_id,
-              cd.hostname,
+              COALESCE(cd.hostname, md.hostname) AS hostname,
+              md.device_name,
+              ha.asset_tag,
+              ha.model,
               cd.printed_name,
               cd.e_signature_image,
               cd.form_title,
@@ -567,6 +763,8 @@ router.get("/all", requireAuth, async (req, res) => {
               cd.updated_at
        FROM consent_documents cd
        LEFT JOIN branches b ON b.branch_id = cd.branch_id
+       LEFT JOIN monitored_devices md ON md.device_uuid = cd.device_uuid
+       LEFT JOIN hardware_assets ha ON ha.asset_id = cd.asset_id
        ${whereClause}
        ORDER BY cd.created_at DESC`,
        queryArgs
@@ -627,6 +825,110 @@ router.post("/:id/log-print", requireAuth, async (req, res) => {
 });
 
 // PUT /consent/:id/admin-action — admin approves withdrawal or change
+function signatureBuffer(signature) {
+  if (!signature) return null;
+  try {
+    if (String(signature).startsWith("data:image/")) {
+      return Buffer.from(String(signature).replace(/^data:image\/\w+;base64,/, ""), "base64");
+    }
+    if (String(signature).startsWith("/uploads/")) {
+      const fullPath = path.join(__dirname, "..", "..", String(signature).replace(/^\//, ""));
+      if (fs.existsSync(fullPath)) return fs.readFileSync(fullPath);
+    }
+  } catch (_error) {}
+  return null;
+}
+
+function createConsentPdfBuffer(consent, auditRows = []) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 54, size: "A4" });
+    const chunks = [];
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("error", reject);
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    const prefs = Array.isArray(consent.monitoring_preferences) ? consent.monitoring_preferences : [];
+    doc.fontSize(10).fillColor("#1d4ed8").text("AstreaBlue Enterprise ITSM", { align: "center" });
+    doc.moveDown(0.4).fontSize(18).fillColor("#0f172a").text(consent.form_title || "RA 10173 Data Privacy Consent - Employee Monitoring", { align: "center" });
+    doc.moveDown(0.3).fontSize(9).fillColor("#475569").text("Pursuant to Republic Act No. 10173 - Data Privacy Act of 2012", { align: "center" });
+    doc.moveDown(1.2);
+    const line = (label, value) => {
+      doc.font("Helvetica").fontSize(9).fillColor("#64748b").text(label, { continued: true, width: 145 });
+      doc.font("Helvetica-Bold").fillColor("#0f172a").text(value || "N/A");
+      doc.font("Helvetica");
+    };
+    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text("Consent Record");
+    doc.moveDown(0.5);
+    line("Consent ID / Version: ", `#${consent.consent_id} / v${consent.consent_version || "1.0"}`);
+    line("Status: ", consent.status);
+    line("Requested / Submitted: ", `${manilaTime(consent.requested_at || consent.created_at)} / ${consent.submitted_at ? manilaTime(consent.submitted_at) : "N/A"}`);
+    line("Approved: ", consent.approved_at ? `${manilaTime(consent.approved_at)} by ${consent.approver_name || consent.approved_by || "N/A"}` : "N/A");
+    doc.moveDown();
+    doc.font("Helvetica-Bold").fontSize(12).text("Employee and Endpoint Details");
+    doc.moveDown(0.5);
+    line("Employee: ", `${consent.employee_full_name} (${consent.employee_email})`);
+    line("Employee Number: ", consent.employee_number);
+    line("Branch / Department: ", `${consent.branch_name || "N/A"} / ${consent.department || "N/A"}`);
+    line("Asset: ", `${consent.asset_tag || "N/A"} ${consent.model ? `(${consent.model})` : ""}`);
+    line("Device: ", `${consent.hostname || consent.device_name || "N/A"} / ${consent.device_uuid || "N/A"}`);
+    doc.moveDown();
+    doc.font("Helvetica-Bold").fontSize(12).text("Selected Monitoring Categories");
+    doc.moveDown(0.5);
+    if (prefs.length) prefs.forEach((pref) => doc.font("Helvetica").fontSize(10).fillColor("#0f172a").text(`- ${pref}`));
+    else doc.font("Helvetica").fontSize(10).fillColor("#0f172a").text("No optional categories selected.");
+    doc.moveDown();
+    doc.font("Helvetica-Bold").fontSize(12).text("Legal / Privacy Statement");
+    doc.moveDown(0.5).font("Helvetica").fontSize(9).fillColor("#334155").text("The employee acknowledges that AstreaBlue may process endpoint monitoring data for legitimate IT operations, security, asset protection, compliance, and support purposes. Required endpoint telemetry such as heartbeat, device registration, hardware inventory, software inventory, asset reconciliation, and policy synchronization remains operational. Privacy-sensitive optional monitoring is enabled only when both approved consent and endpoint policy permit it.", { align: "justify" });
+    doc.moveDown();
+    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text("Employee E-Signature");
+    doc.moveDown(0.5);
+    const sig = signatureBuffer(consent.e_signature_image);
+    if (sig) {
+      try { doc.image(sig, { fit: [220, 75], align: "left" }); } catch (_error) { doc.text("[signature image unavailable]"); }
+    } else {
+      doc.text("[e-signature image unavailable]");
+    }
+    doc.moveDown(0.8);
+    doc.text("____________________________");
+    doc.font("Helvetica").fontSize(10).text(consent.printed_name || consent.employee_full_name || "Employee Printed Name");
+    if (auditRows.length) {
+      doc.addPage();
+      doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text("Audit Trail");
+      doc.moveDown(0.5);
+      auditRows.forEach((row) => doc.font("Helvetica").fontSize(8).fillColor("#334155").text(`${manilaTime(row.created_at)} - ${row.event_type}: ${row.details || ""}`));
+    }
+    doc.end();
+  });
+}
+
+router.get("/:id/pdf", requireAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT cd.*, md.hostname, md.device_name, ha.asset_tag, ha.serial_number, ha.model, u.full_name AS approver_name
+       FROM consent_documents cd
+       LEFT JOIN monitored_devices md ON md.device_uuid=cd.device_uuid
+       LEFT JOIN hardware_assets ha ON ha.asset_id=cd.asset_id
+       LEFT JOIN users u ON u.user_id=cd.approved_by
+       WHERE cd.consent_id=$1`,
+      [req.params.id]
+    );
+    const consent = result.rows[0];
+    if (!consent) return res.status(404).json({ success: false, message: "Consent document not found." });
+    if (!(await assertConsentAccess(req, consent))) return res.status(403).json({ success: false, message: "Access denied." });
+    if (!["approved", "signed"].includes(String(consent.status).toLowerCase())) {
+      return res.status(400).json({ success: false, message: "PDF download is available after consent approval." });
+    }
+    const auditResult = await db.query(`SELECT * FROM consent_audit_logs WHERE consent_id=$1 ORDER BY created_at ASC`, [req.params.id]);
+    const pdfBuffer = await createConsentPdfBuffer(consent, auditResult.rows);
+    await audit(consent.consent_id, consent.employee_id, actorId(req.actor), req.actor.role, "consent_pdf_downloaded", "Consent PDF generated/downloaded.");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="AstreaBlue-Consent-${consent.consent_id}.pdf"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error("[consent:pdf]", err.message);
+    return res.status(500).json({ success: false, message: "Could not generate the consent PDF right now. Please try again." });
+  }
+});
+
 router.put("/:id/admin-action", requireAdminOrHR, async (req, res) => {
   const { action, notes } = req.body; // action: 'withdraw' | 'supersede' | 'reject'
   const actor = req.actor;
@@ -657,6 +959,9 @@ router.put("/:id/admin-action", requireAdminOrHR, async (req, res) => {
       `UPDATE consent_documents SET status=$1, active=false, updated_at=CURRENT_TIMESTAMP WHERE consent_id=$2`,
       [newStatus, req.params.id]
     );
+    if (docRes.rows[0].device_uuid) {
+      await regenerateEffectiveEndpointPolicy(docRes.rows[0].device_uuid, actor);
+    }
 
     await audit(req.params.id, docRes.rows[0].employee_id,
       actor.userId || actor.user_id, actor.role, eventType,
@@ -713,6 +1018,9 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
         [actorId(actor), `AB-CONSENT-${doc.consent_id}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`, doc.consent_id]
       );
       policy = await generateEndpointPolicy(updated.rows[0], actor);
+      if (updated.rows[0].device_uuid) {
+        await regenerateEffectiveEndpointPolicy(updated.rows[0].device_uuid, actor);
+      }
       await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_approved", "Consent approved.");
     } else if (action === "reject") {
       updated = await db.query(
@@ -720,6 +1028,7 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
          WHERE consent_id=$2 RETURNING *`,
         [reason, doc.consent_id]
       );
+      if (doc.device_uuid) await regenerateEffectiveEndpointPolicy(doc.device_uuid, actor);
       await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_rejected", reason);
     } else {
       updated = await db.query(
@@ -727,6 +1036,7 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
          WHERE consent_id=$2 RETURNING *`,
         [reason, doc.consent_id]
       );
+      if (doc.device_uuid) await regenerateEffectiveEndpointPolicy(doc.device_uuid, actor);
       await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "revision_requested", reason);
     }
     await db.query("COMMIT");
@@ -785,6 +1095,9 @@ router.post("/:id/approve-change", requireAdminOrHR, async (req, res) => {
     await audit(newId, old.employee_id, actor.userId || actor.user_id, actor.role,
       "policy_updated", `Monitoring policy updated to consent version ${newVersion}.`);
     await generateEndpointPolicy(newDoc.rows[0], actor);
+    if (newDoc.rows[0].device_uuid) {
+      await regenerateEffectiveEndpointPolicy(newDoc.rows[0].device_uuid, actor);
+    }
 
     return res.json({
       success: true,

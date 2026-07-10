@@ -173,6 +173,7 @@ const tablesReady = (async () => {
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS current_logged_in_user VARCHAR(255);
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS branch_id INTEGER;
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS department VARCHAR(255);
+      ALTER TABLE consent_documents ADD COLUMN IF NOT EXISTS device_id BIGINT;
 
 
       
@@ -357,10 +358,10 @@ async function ensureConsentRequestForDevice(device, actorId) {
   const created = await db.query(
     `INSERT INTO consent_documents (
        employee_id, assigned_user_id, employee_full_name, employee_email, employee_number,
-       branch_id, branch_name, department, device_uuid, asset_id, requested_at,
+       branch_id, branch_name, department, device_uuid, device_id, asset_id, requested_at,
        requested_by, created_by, status, consent_version, form_title, hostname
-     ) VALUES ($1,$1,$2,$3,$4,$5,$6,$7,$8,$9,CURRENT_TIMESTAMP,$10,$10,'pending_employee','1.0',
-       'RA 10173 Data Privacy Consent - Employee Monitoring',$11)
+     ) VALUES ($1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_TIMESTAMP,$11,$11,'pending_employee','1.0',
+       'RA 10173 Data Privacy Consent - Employee Monitoring',$12)
      RETURNING consent_id, status`,
     [
       device.assigned_user_id,
@@ -371,6 +372,7 @@ async function ensureConsentRequestForDevice(device, actorId) {
       employee.branch_name || null,
       device.department || employee.department || null,
       device.device_uuid,
+      device.device_id,
       device.asset_id,
       actorId || null,
       device.hostname || null,
@@ -448,6 +450,225 @@ function softwareScope(req, alias = "si") {
     conditions.push(`${alias}.assigned_user_id=$${params.length}`);
   }
   return { conditions, params };
+}
+
+function minutesSince(value) {
+  if (!value) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
+}
+
+function healthItem(label, timestamp, warningMinutes, criticalMinutes, missingStatus = "Warning") {
+  const ageMinutes = minutesSince(timestamp);
+  if (ageMinutes === null) {
+    return {
+      label,
+      status: missingStatus,
+      last_seen_at: null,
+      age_minutes: null,
+      message: `${label} has not reported yet.`,
+    };
+  }
+  if (criticalMinutes && ageMinutes > criticalMinutes) {
+    return {
+      label,
+      status: "Critical",
+      last_seen_at: timestamp,
+      age_minutes: ageMinutes,
+      message: `${label} is stale for ${ageMinutes} minutes.`,
+    };
+  }
+  if (warningMinutes && ageMinutes > warningMinutes) {
+    return {
+      label,
+      status: "Warning",
+      last_seen_at: timestamp,
+      age_minutes: ageMinutes,
+      message: `${label} is stale for ${ageMinutes} minutes.`,
+    };
+  }
+  return {
+    label,
+    status: "Healthy",
+    last_seen_at: timestamp,
+    age_minutes: ageMinutes,
+    message: `${label} is current.`,
+  };
+}
+
+function consentHealth(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (["signed", "approved", "granted", "consented"].includes(normalized)) {
+    return { label: "Consent", status: "Healthy", consent_status: status, message: "Consent is active." };
+  }
+  if (["pending", "pending_employee", "pending_approval", ""].includes(normalized)) {
+    return { label: "Consent", status: "Information", consent_status: status || "Pending", message: "Consent is pending." };
+  }
+  return { label: "Consent", status: "Warning", consent_status: status || "Pending", message: "Consent needs review." };
+}
+
+function buildEndpointHealth(row) {
+  const policyJson = row.policy_json || {};
+  const heartbeat = healthItem("Heartbeat", row.last_seen_at, 2, 5, "Offline");
+  if (heartbeat.status === "Critical") heartbeat.status = "Critical";
+  const activity = healthItem("Activity", row.last_activity_at, 10, null, "Warning");
+  const idleDetection = healthItem("Idle Detection", row.last_idle_detection_at || row.last_activity_at, 10, null, "Warning");
+  const hardwareInventory = healthItem("Hardware Inventory", row.last_hardware_inventory_at, 24 * 60, null, "Warning");
+  const softwareInventory = healthItem("Software Inventory", row.last_software_inventory_at, 24 * 60, null, "Warning");
+  const policy = healthItem("Policy Sync", row.last_policy_sync_at, 24 * 60, null, "Warning");
+  policy.current_policy_version = row.current_policy_version || policyJson.policy_version || "Unknown";
+  policy.generated_at = row.policy_generated_at || null;
+  policy.policy_name = policyJson.policy_name || "Unknown";
+  policy.feature_permissions = policyJson.features || {};
+  policy.disabled_reasons = policyJson.reasons || {};
+  const consent = consentHealth(row.consent_status);
+
+  const components = [heartbeat, activity, idleDetection, hardwareInventory, softwareInventory, policy, consent];
+  let overall = "Healthy";
+  if (heartbeat.status === "Offline") overall = "Offline";
+  else if (components.some((item) => item.status === "Critical")) overall = "Critical";
+  else if (components.some((item) => item.status === "Warning")) overall = "Warning";
+
+  const failureReasons = components
+    .filter((item) => ["Offline", "Critical", "Warning", "Information"].includes(item.status))
+    .map((item) => ({ area: item.label, severity: item.status === "Information" ? "Info" : item.status, message: item.message }));
+
+  const recommendedActions = [];
+  if (heartbeat.status === "Offline" || heartbeat.status === "Critical") recommendedActions.push("Verify the endpoint agent is running and can reach the Railway API.");
+  if (activity.status === "Warning") recommendedActions.push("Confirm activity telemetry is enabled and the user session is active.");
+  if (hardwareInventory.status === "Warning") recommendedActions.push("Wait for the next inventory cycle or restart the agent after local validation.");
+  if (softwareInventory.status === "Warning") recommendedActions.push("Confirm the 24-hour software inventory task completed successfully.");
+  if (policy.status === "Warning") recommendedActions.push("Regenerate the effective policy and confirm the agent downloads it.");
+  if (consent.status === "Information") recommendedActions.push("Complete employee consent before enabling sensitive monitoring.");
+  if (!recommendedActions.length) recommendedActions.push("No corrective action required.");
+
+  const timeline = [
+    { event_type: "Heartbeat", occurred_at: row.last_seen_at, status: heartbeat.status },
+    { event_type: "Activity", occurred_at: row.last_activity_at, status: activity.status },
+    { event_type: "Idle Detection", occurred_at: row.last_idle_detection_at || row.last_activity_at, status: idleDetection.status },
+    { event_type: "Hardware Inventory", occurred_at: row.last_hardware_inventory_at, status: hardwareInventory.status },
+    { event_type: "Software Inventory", occurred_at: row.last_software_inventory_at, status: softwareInventory.status },
+    { event_type: "Policy Sync", occurred_at: row.last_policy_sync_at, status: policy.status },
+  ];
+  const monitoringActive = !!(
+    heartbeat.status === "Healthy" &&
+    policy.status === "Healthy" &&
+    policyJson.features &&
+    Object.values(policyJson.features).some((feature) => feature?.consent_required && feature.enabled)
+  );
+  const checklist = [
+    { step: "Asset Linked", status: row.asset_id ? "Complete" : "Pending" },
+    { step: "Employee Assigned", status: row.assigned_user_id ? "Complete" : "Pending" },
+    { step: "Consent Requested", status: row.consent_id ? "Complete" : "Pending" },
+    { step: "Consent Submitted", status: ["pending_approval", "approved", "signed"].includes(String(row.consent_status || "").toLowerCase()) ? "Complete" : "Pending" },
+    { step: "Consent Approved", status: consent.status === "Healthy" ? "Complete" : "Pending" },
+    { step: "Effective Policy Generated", status: row.policy_generated_at ? "Complete" : "Pending" },
+    { step: "Agent Policy Downloaded", status: row.last_policy_sync_at ? "Complete" : "Pending" },
+    { step: "Monitoring Active", status: monitoringActive ? "Complete" : (consent.status === "Healthy" ? "Pending" : "Not Applicable") },
+  ];
+
+  return {
+    device_uuid: row.device_uuid,
+    device_id: row.device_id,
+    hostname: row.hostname,
+    device_name: row.device_name,
+    assigned_employee: row.assigned_employee,
+    branch_name: row.branch_name,
+    department: row.department,
+    overall_health: overall,
+    endpoint_status: overall,
+    heartbeat,
+    activity,
+    idle_detection: idleDetection,
+    hardware_inventory: hardwareInventory,
+    software_inventory: softwareInventory,
+    policy,
+    consent,
+    checklist,
+    agent_sync: {
+      last_communication_at: row.last_seen_at,
+      last_api_response: row.last_api_response || null,
+      last_error: row.last_error || null,
+      last_sync_time: row.last_policy_sync_at || row.last_seen_at || null,
+    },
+    timeline,
+    failure_reasons: failureReasons,
+    recommended_actions: recommendedActions,
+    debug: {
+      device_uuid: row.device_uuid,
+      asset_id: row.asset_id,
+      employee: row.assigned_employee,
+      branch: row.branch_name,
+      department: row.department,
+      policy_version: row.current_policy_version || policyJson.policy_version || "Unknown",
+      consent_version: row.consent_version || "Unknown",
+      last_api_response: row.last_api_response || null,
+      last_error: row.last_error || null,
+      last_sync_time: row.last_policy_sync_at || row.last_seen_at || null,
+      agent_version: row.agent_version,
+      os_build: row.os_build,
+      windows_version: row.windows_version,
+      feature_permissions: policyJson.features || {},
+      disabled_reasons: policyJson.reasons || {},
+    },
+  };
+}
+
+async function loadEndpointHealthRows(req, deviceLookup = null) {
+  const params = [];
+  const conditions = [];
+  if (deviceLookup) {
+    params.push(deviceLookup);
+    if (/^\d+$/.test(String(deviceLookup))) {
+      conditions.push(`d.device_id=$${params.length}`);
+    } else {
+      conditions.push(`d.device_uuid::text=$${params.length}`);
+    }
+  }
+  if (!req.monitoringIsSuperAdmin && req.monitoringBranchId) {
+    params.push(req.monitoringBranchId);
+    conditions.push(`d.branch_id=$${params.length}`);
+  }
+  if (req.monitoringIsEmployee) {
+    params.push(req.monitoringUserId);
+    conditions.push(`d.assigned_user_id=$${params.length}`);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const result = await db.query(
+    `SELECT d.*, u.full_name AS assigned_employee, COALESCE(d.department, u.department) AS department, b.branch_name,
+       a.asset_tag,
+       COALESCE(
+         (SELECT cd.status FROM consent_documents cd
+          WHERE cd.employee_id=d.assigned_user_id AND (d.device_uuid IS NULL OR cd.device_uuid=d.device_uuid OR cd.device_uuid IS NULL)
+          ORDER BY cd.approved_at DESC NULLS LAST, cd.signed_at DESC NULLS LAST, cd.created_at DESC LIMIT 1),
+         d.consent_status
+       ) AS consent_status,
+       (SELECT cd.consent_id::text FROM consent_documents cd
+        WHERE cd.employee_id=d.assigned_user_id AND (d.device_uuid IS NULL OR cd.device_uuid=d.device_uuid OR cd.device_uuid IS NULL)
+        ORDER BY cd.approved_at DESC NULLS LAST, cd.signed_at DESC NULLS LAST, cd.created_at DESC LIMIT 1) AS consent_id,
+       (SELECT cd.consent_version FROM consent_documents cd
+        WHERE cd.employee_id=d.assigned_user_id AND (d.device_uuid IS NULL OR cd.device_uuid=d.device_uuid OR cd.device_uuid IS NULL)
+        ORDER BY cd.approved_at DESC NULLS LAST, cd.signed_at DESC NULLS LAST, cd.created_at DESC LIMIT 1) AS consent_version,
+       (SELECT al.occurred_at FROM laptop_activity_logs al WHERE al.device_id=d.device_id AND al.event_type IS DISTINCT FROM 'system_audit' ORDER BY al.occurred_at DESC LIMIT 1) AS last_activity_at,
+       (SELECT al.occurred_at FROM laptop_activity_logs al WHERE al.device_id=d.device_id AND al.event_type IS DISTINCT FROM 'system_audit' AND al.idle_seconds IS NOT NULL ORDER BY al.occurred_at DESC LIMIT 1) AS last_idle_detection_at,
+       (SELECT hi.scanned_at FROM endpoint_hardware_inventory hi WHERE hi.device_id=d.device_id ORDER BY hi.scanned_at DESC LIMIT 1) AS last_hardware_inventory_at,
+       (SELECT hi.os_build FROM endpoint_hardware_inventory hi WHERE hi.device_id=d.device_id ORDER BY hi.scanned_at DESC LIMIT 1) AS os_build,
+       (SELECT CONCAT_WS(' ', hi.os_name, hi.os_version) FROM endpoint_hardware_inventory hi WHERE hi.device_id=d.device_id ORDER BY hi.scanned_at DESC LIMIT 1) AS windows_version,
+       (SELECT MAX(si.last_seen_at) FROM endpoint_software_inventory si WHERE si.device_id=d.device_id) AS last_software_inventory_at,
+       ep.generated_at AS policy_generated_at,
+       ep.policy_json->>'policy_version' AS current_policy_version,
+       ep.policy_json AS policy_json,
+       NULL::text AS last_api_response,
+       NULL::text AS last_error
+     FROM monitored_devices d
+     LEFT JOIN users u ON u.user_id=d.assigned_user_id
+     LEFT JOIN branches b ON b.branch_id=d.branch_id
+     LEFT JOIN hardware_assets a ON a.asset_id=d.asset_id
+     LEFT JOIN endpoint_effective_policies ep ON ep.device_uuid=d.device_uuid
+     ${where}
+     ORDER BY d.last_seen_at DESC NULLS LAST`,
+    params
+  );
+  return result.rows;
 }
 
 function normalizeSoftwareItem(item) {
@@ -548,11 +769,10 @@ router.post("/activity", requireAgent, async (req, res) => {
     const windowTitle = String(req.body?.window_title || "").slice(0, 500) || null;
     const urlDomain = String(req.body?.url_domain || "").slice(0, 255).toLowerCase() || null;
     const idleSeconds = Math.max(0, Math.round(Number(req.body?.idle_seconds) || 0));
-    const prefs = await getApprovedConsentPreferences(device);
-    const appAllowed = hasPreference(prefs, "application_monitoring", "applications", "app_usage", "window_title", "idle_time");
-    const webAllowed = hasPreference(prefs, "web_monitoring", "website_monitoring", "network_domains", "browser");
-    if ((!appAllowed && (appName || windowTitle || idleSeconds > 0)) || (!webAllowed && urlDomain)) {
-      return res.status(403).json({ success: false, message: "Consent not approved." });
+    if (urlDomain) {
+      const prefs = await getApprovedConsentPreferences(device);
+      const webAllowed = hasPreference(prefs, "web_monitoring", "website_monitoring", "network_domains", "browser");
+      if (!webAllowed) return res.status(403).json({ success: false, message: "Consent not approved." });
     }
     const activity = await db.query(
       `INSERT INTO laptop_activity_logs (device_id,device_uuid,asset_id,assigned_user_id,current_logged_in_user,branch_id,department,event_type,app_name,window_title,idle_seconds,url_domain,occurred_at)
@@ -984,6 +1204,48 @@ router.get("/software-inventory-by-asset/:assetId", requireAdmin, async (req, re
   } catch (error) {
     console.error("[laptop-monitoring:software-by-asset]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load asset software inventory." });
+  }
+});
+
+router.get("/health", requireAdmin, async (req, res) => {
+  try {
+    if (req.monitoringIsEmployee) {
+      return res.status(403).json({ success: false, message: "Employees cannot view endpoint diagnostics." });
+    }
+    await refreshDeviceStatuses();
+    const rows = await loadEndpointHealthRows(req);
+    const endpoints = rows.map(buildEndpointHealth);
+    const summary = {
+      registered_endpoints: endpoints.length,
+      online_endpoints: endpoints.filter((item) => item.heartbeat.status === "Healthy" || item.overall_health === "Healthy" || item.overall_health === "Warning").length,
+      offline_endpoints: endpoints.filter((item) => item.overall_health === "Offline").length,
+      heartbeat_healthy: endpoints.filter((item) => item.heartbeat.status === "Healthy").length,
+      activity_healthy: endpoints.filter((item) => item.activity.status === "Healthy").length,
+      hardware_inventory_healthy: endpoints.filter((item) => item.hardware_inventory.status === "Healthy").length,
+      software_inventory_healthy: endpoints.filter((item) => item.software_inventory.status === "Healthy").length,
+      policy_sync_healthy: endpoints.filter((item) => item.policy.status === "Healthy").length,
+      consent_active: endpoints.filter((item) => item.consent.status === "Healthy").length,
+      endpoints_requiring_attention: endpoints.filter((item) => item.overall_health !== "Healthy").length,
+    };
+    return res.json({ success: true, data: { summary, endpoints } });
+  } catch (error) {
+    console.error("[laptop-monitoring:health]", error.message);
+    return res.status(500).json({ success: false, message: "Failed to load endpoint health." });
+  }
+});
+
+router.get("/devices/:deviceUuid/health", requireAdmin, async (req, res) => {
+  try {
+    if (req.monitoringIsEmployee) {
+      return res.status(403).json({ success: false, message: "Employees cannot view endpoint diagnostics." });
+    }
+    await refreshDeviceStatuses();
+    const rows = await loadEndpointHealthRows(req, req.params.deviceUuid);
+    if (!rows.length) return res.status(404).json({ success: false, message: "Device not found or access denied." });
+    return res.json({ success: true, data: buildEndpointHealth(rows[0]) });
+  } catch (error) {
+    console.error("[laptop-monitoring:device-health]", error.message);
+    return res.status(500).json({ success: false, message: "Failed to load endpoint diagnostics." });
   }
 });
 
@@ -1764,17 +2026,21 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
     telemetry_enabled: true,
     hardware_inventory_enabled: true,
     software_inventory_enabled: true,
+    policy_sync_enabled: true,
     activity_monitoring_enabled: false,
     screenshot_monitoring_enabled: false,
     usb_monitoring_enabled: false,
     browser_monitoring_enabled: false,
+    location_tracking_enabled: false,
+    auto_incident_enabled: false,
     intervals: { heartbeat: 60, activity: 60 },
     retention: { logs_days: 30 }
   };
   let effectivePolicyName = "Default (Safe)";
   let effectivePolicyVersion = "1.0";
+  const featureSources = {};
 
-  const targetPriorities = { 'Device': 6, 'Asset': 5, 'Employee': 4, 'Department': 3, 'Branch': 2, 'Global': 1 };
+  const targetPriorities = { 'Employee': 6, 'Device': 5, 'Asset': 4, 'Department': 3, 'Branch': 2, 'Global': 1 };
   
   for (const row of assignments.rows) {
     let matches = false;
@@ -1793,39 +2059,44 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
         effectiveConfig = { ...effectiveConfig, ...row.config_json };
         effectivePolicyName = `Policy ID ${row.policy_id}`;
         effectivePolicyVersion = `${row.priority}.${row.id}`;
+        for (const key of Object.keys(row.config_json || {})) featureSources[key] = row.target_type;
       }
     }
   }
 
   const reasons = {};
+  let consentDoc = null;
   
   // Consent Integration
   let hasConsent = false;
   if (device.assigned_user_id) {
     const formalConsent = await db.query(
-      `SELECT monitoring_preferences FROM consent_documents
-       WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
+      `SELECT consent_id, consent_version, monitoring_preferences FROM consent_documents
+       WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status='approved' AND active=true
        ORDER BY approved_at DESC NULLS LAST LIMIT 1`,
       [device.assigned_user_id, device.device_uuid]
     );
     if (formalConsent.rows.length) {
       hasConsent = true;
-      const prefs = formalConsent.rows[0].monitoring_preferences || [];
-      if (!hasPreference(prefs, "application_monitoring", "applications")) {
+      consentDoc = formalConsent.rows[0];
+      const prefs = consentDoc.monitoring_preferences || [];
+      if (!hasPreference(prefs, "application_monitoring", "applications", "activity_monitoring")) {
         effectiveConfig.activity_monitoring_enabled = false;
-        reasons.activity_monitoring_enabled = "Activity monitoring disabled because consent is not approved.";
+        reasons.activity_monitoring_enabled = "Employee consent excludes Application/window activity.";
+      } else if (!effectiveConfig.activity_monitoring_enabled) {
+        reasons.activity_monitoring_enabled = `Disabled by ${featureSources.activity_monitoring_enabled || "endpoint"} policy.`;
       }
       if (!hasPreference(prefs, "screenshot_monitoring", "screenshot")) {
         effectiveConfig.screenshot_monitoring_enabled = false;
-        reasons.screenshot_monitoring_enabled = "Screenshot monitoring disabled because consent is not approved.";
+        reasons.screenshot_monitoring_enabled = "Employee consent excludes Screenshot Monitoring.";
       }
       if (!hasPreference(prefs, "web_monitoring", "website_monitoring", "browser")) {
         effectiveConfig.browser_monitoring_enabled = false;
-        reasons.browser_monitoring_enabled = "Browser monitoring disabled because consent is not approved.";
+        reasons.browser_monitoring_enabled = "Employee consent excludes Browser/domain monitoring.";
       }
       if (!hasPreference(prefs, "usb_monitoring", "usb")) {
         effectiveConfig.usb_monitoring_enabled = false;
-        reasons.usb_monitoring_enabled = "USB monitoring disabled because consent is not approved.";
+        reasons.usb_monitoring_enabled = "Employee consent excludes USB activity monitoring.";
       }
     }
   }
@@ -1835,17 +2106,37 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
     effectiveConfig.screenshot_monitoring_enabled = false;
     effectiveConfig.browser_monitoring_enabled = false;
     effectiveConfig.usb_monitoring_enabled = false;
-    reasons.activity_monitoring_enabled = "Activity monitoring disabled because consent is missing/pending/withdrawn.";
-    reasons.screenshot_monitoring_enabled = "Screenshot monitoring disabled because consent is missing/pending/withdrawn.";
-    reasons.browser_monitoring_enabled = "Browser monitoring disabled because consent is missing/pending/withdrawn.";
-    reasons.usb_monitoring_enabled = "USB monitoring disabled because consent is missing/pending/withdrawn.";
+    effectiveConfig.location_tracking_enabled = false;
+    reasons.activity_monitoring_enabled = device.assigned_user_id ? "No active approved consent." : "Device is not assigned to an employee.";
+    reasons.screenshot_monitoring_enabled = device.assigned_user_id ? "No active approved consent." : "Device is not assigned to an employee.";
+    reasons.browser_monitoring_enabled = device.assigned_user_id ? "No active approved consent." : "Device is not assigned to an employee.";
+    reasons.usb_monitoring_enabled = device.assigned_user_id ? "No active approved consent." : "Device is not assigned to an employee.";
+    reasons.location_tracking_enabled = device.assigned_user_id ? "No active approved consent." : "Device is not assigned to an employee.";
+  }
+
+  const features = {};
+  for (const key of [
+    "heartbeat_enabled", "telemetry_enabled", "hardware_inventory_enabled", "software_inventory_enabled", "policy_sync_enabled",
+    "activity_monitoring_enabled", "screenshot_monitoring_enabled", "browser_monitoring_enabled", "usb_monitoring_enabled",
+    "location_tracking_enabled", "auto_incident_enabled",
+  ]) {
+    const consentRequired = ["activity_monitoring_enabled", "screenshot_monitoring_enabled", "browser_monitoring_enabled", "usb_monitoring_enabled", "location_tracking_enabled"].includes(key);
+    features[key] = {
+      enabled: !!effectiveConfig[key],
+      source_policy: featureSources[key] || effectivePolicyName,
+      consent_required: consentRequired,
+      reason: effectiveConfig[key] ? null : (reasons[key] || "No endpoint policy assigned."),
+    };
   }
 
   const policyJson = {
     device_uuid: device.device_uuid,
     policy_version: effectivePolicyVersion,
     policy_name: effectivePolicyName,
+    consent_id: consentDoc?.consent_id || null,
+    consent_version: consentDoc?.consent_version || null,
     ...effectiveConfig,
+    features,
     reasons,
     generated_at: new Date().toISOString()
   };
