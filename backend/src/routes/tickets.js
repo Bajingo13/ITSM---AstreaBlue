@@ -13,6 +13,14 @@ const { createNotification } = require("../services/notificationService");
 const { applySlaToNewTicket } = require("../services/slaService");
 const { emitSlaUpdated } = require("../services/socketService");
 
+function normalizeOptionalInteger(value, fallback = null) {
+  if (value === undefined || value === "") return fallback;
+  if (value === null) return null;
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : fallback;
+}
+
 // Initialize DB changes for integration
 const setupTickets = async () => {
   try {
@@ -20,12 +28,29 @@ const setupTickets = async () => {
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS related_device_uuid UUID;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS related_asset_id INTEGER;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS alert_id BIGINT;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'Web';
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS impact VARCHAR(20) DEFAULT 'Medium';
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS urgency VARCHAR(20) DEFAULT 'Medium';
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS sla_policy_id INTEGER;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS sla_due_date TIMESTAMP;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS response_due_at TIMESTAMP;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS resolution_due_at TIMESTAMP;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS response_sla_status VARCHAR(30) DEFAULT 'Pending';
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS resolution_sla_status VARCHAR(30) DEFAULT 'Pending';
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS first_response_at TIMESTAMP;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS resolution_notes TEXT;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS root_cause TEXT;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS time_spent_minutes INTEGER;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS parts_used TEXT;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS satisfaction_rating INTEGER;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
     `);
   } catch (err) {
     console.error("Failed to alter tickets table:", err.message);
   }
 };
-setupTickets();
 
 const router = express.Router();
 
@@ -43,7 +68,20 @@ async function ensureTicketBranchColumn() {
   }
 }
 
-ensureTicketBranchColumn();
+const ticketSchemaReady = (async () => {
+  await setupTickets();
+  await ensureTicketBranchColumn();
+})();
+
+router.use(async (req, res, next) => {
+  try {
+    await ticketSchemaReady;
+    next();
+  } catch (err) {
+    console.error("Ticket schema setup error:", err.message);
+    res.status(500).json({ success: false, error: "Ticket schema setup failed" });
+  }
+});
 
 async function getTicketNotificationDetails(ticketId) {
   const result = await db.query(
@@ -650,6 +688,18 @@ router.put("/:id", async (req, res) => {
         : existing.description;
 
     const finalStatus = status ?? existing.status;
+    const finalCategoryId = normalizeOptionalInteger(category_id, existing.category_id);
+    const finalRequesterId = normalizeOptionalInteger(requester_id, existing.requester_id);
+    const finalAssignedTo = normalizeOptionalInteger(assigned_to, existing.assigned_to);
+    const finalTimeSpentMinutes = normalizeOptionalInteger(
+      time_spent_minutes,
+      existing.time_spent_minutes
+    );
+    const finalSatisfactionRating = normalizeOptionalInteger(
+      satisfaction_rating,
+      existing.satisfaction_rating
+    );
+    const changedById = normalizeOptionalInteger(changed_by, null);
 
     const resolvedAt =
       finalStatus === "Resolved" && !existing.resolved_at
@@ -709,6 +759,7 @@ router.put("/:id", async (req, res) => {
         urgency = $10,
         resolution_notes = $11,
         root_cause = $12,
+        time_spent_minutes = $13,
         parts_used = $14,
         satisfaction_rating = $15,
         resolved_at = $16,
@@ -716,7 +767,8 @@ router.put("/:id", async (req, res) => {
         first_response_at = $18,
         cancelled_at = $22,
         response_sla_status = $20,
-        resolution_sla_status = $21
+        resolution_sla_status = $21,
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = $19
       RETURNING
         id,
@@ -752,17 +804,17 @@ router.put("/:id", async (req, res) => {
         finalDescription,
         priority ?? existing.priority,
         finalStatus,
-        category_id ?? existing.category_id,
-        requester_id ?? existing.requester_id,
-        assigned_to ?? existing.assigned_to,
+        finalCategoryId,
+        finalRequesterId,
+        finalAssignedTo,
         source ?? existing.source,
         impact ?? existing.impact,
         urgency ?? existing.urgency,
         resolution_notes ?? existing.resolution_notes,
         root_cause ?? existing.root_cause,
-        time_spent_minutes ?? existing.time_spent_minutes,
+        finalTimeSpentMinutes,
         parts_used ?? existing.parts_used,
-        satisfaction_rating ?? existing.satisfaction_rating,
+        finalSatisfactionRating,
         resolvedAt,
         closedAt,
         firstResponseAt,
@@ -783,7 +835,7 @@ router.put("/:id", async (req, res) => {
             (ticket_id, changed_by, action, old_value, new_value)
             VALUES ($1, $2, $3, $4, $5)
             `,
-            [id, changed_by, "Status Updated", existing.status, status]
+            [id, changedById, "Status Updated", existing.status, status]
           );
         } catch(e) { console.warn("History insert failed:", e.message); }
       }
@@ -796,7 +848,7 @@ router.put("/:id", async (req, res) => {
             (ticket_id, changed_by, action, old_value, new_value)
             VALUES ($1, $2, $3, $4, $5)
             `,
-            [id, changed_by, "Response SLA", existing.response_sla_status || 'Pending', resSlaStat]
+            [id, changedById, "Response SLA", existing.response_sla_status || 'Pending', resSlaStat]
           );
         } catch(e) {}
       }
@@ -809,7 +861,7 @@ router.put("/:id", async (req, res) => {
             (ticket_id, changed_by, action, old_value, new_value)
             VALUES ($1, $2, $3, $4, $5)
             `,
-            [id, changed_by, "Resolution SLA", existing.resolution_sla_status || 'Pending', resolSlaStat]
+            [id, changedById, "Resolution SLA", existing.resolution_sla_status || 'Pending', resolSlaStat]
           );
         } catch(e) {}
       }

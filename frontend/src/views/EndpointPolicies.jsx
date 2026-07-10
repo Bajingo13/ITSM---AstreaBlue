@@ -16,6 +16,12 @@ export default function EndpointPolicies() {
   
   // Assignment form state
   const [assignForm, setAssignForm] = useState({ policy_id: "", target_type: "global", target_id: "" });
+  const [toast, setToast] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    window.setTimeout(() => setToast(null), 4500);
+  };
   
   const fetchPolicies = async () => {
     try {
@@ -36,7 +42,6 @@ export default function EndpointPolicies() {
   }, []);
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this policy?")) return;
     try {
       const res = await fetch(`${API_BASE}/policies/${id}`, { method: "DELETE", headers: authHeaders() });
       if (!res.ok) {
@@ -44,8 +49,9 @@ export default function EndpointPolicies() {
         throw new Error(data.message || "Delete failed");
       }
       fetchPolicies();
+      showToast("Endpoint policy deleted.");
     } catch (e) {
-      alert(e.message);
+      showToast(e.message, "error");
     }
   };
 
@@ -88,7 +94,7 @@ export default function EndpointPolicies() {
       form={assignForm}
       setForm={setAssignForm}
       onCancel={() => setView("list")} 
-      onSave={() => { setView("list"); fetchPolicies(); }} 
+      onSave={() => { setView("list"); fetchPolicies(); showToast("Policy assigned successfully. Agents refresh policy every 60 seconds."); }}
     />;
   }
 
@@ -169,7 +175,7 @@ export default function EndpointPolicies() {
                 <button onClick={() => handleEdit(policy)} className="flex-1 flex justify-center items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 transition">
                   <Edit size={14} /> Edit
                 </button>
-                <button onClick={() => handleDelete(policy.id)} className="flex-1 flex justify-center items-center gap-2 rounded-xl bg-white border border-rose-200 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 transition">
+                <button onClick={() => setDeleteTarget(policy)} className="flex-1 flex justify-center items-center gap-2 rounded-xl bg-white border border-rose-200 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-50 transition">
                   <Trash2 size={14} /> Delete
                 </button>
               </div>
@@ -177,6 +183,17 @@ export default function EndpointPolicies() {
           ))
         )}
       </div>
+      {deleteTarget && (
+        <ConfirmModal
+          title="Delete Endpoint Policy"
+          message={`Delete policy "${deleteTarget.policy_name}"? This action cannot be undone.`}
+          confirmLabel="Delete Policy"
+          tone="danger"
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => { const target = deleteTarget; setDeleteTarget(null); handleDelete(target.id); }}
+        />
+      )}
+      {toast && <PageToast toast={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }
@@ -374,7 +391,6 @@ function PolicyAssignForm({ policies, form, setForm, onCancel, onSave }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to assign policy");
-      alert("Policy assigned successfully! Note: Agent updates its policy every 60 seconds.");
       onSave();
     } catch (e) {
       setError(e.message);
@@ -522,6 +538,32 @@ function PolicyAuditLogs({ onCancel }) {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PageToast({ toast, onClose }) {
+  const isError = toast.type === "error";
+  return (
+    <div className={`fixed bottom-6 right-6 z-[70] flex max-w-md items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-bold shadow-2xl ${isError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+      <span>{toast.message}</span>
+      <button onClick={onClose} className="ml-2 text-slate-400 hover:text-slate-700">x</button>
+    </div>
+  );
+}
+
+function ConfirmModal({ title, message, confirmLabel = "Confirm", tone = "default", onCancel, onConfirm }) {
+  const danger = tone === "danger";
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4">
+      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+        <h3 className="text-xl font-black text-slate-900">{title}</h3>
+        <p className="mt-2 text-sm text-slate-600">{message}</p>
+        <div className="mt-6 flex justify-end gap-3">
+          <button onClick={onCancel} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+          <button onClick={onConfirm} className={`rounded-xl px-4 py-2 text-sm font-bold text-white ${danger ? "bg-rose-600 hover:bg-rose-700" : "bg-blue-600 hover:bg-blue-700"}`}>{confirmLabel}</button>
         </div>
       </div>
     </div>

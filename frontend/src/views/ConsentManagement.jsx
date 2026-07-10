@@ -69,7 +69,7 @@ function StatusBadge({ status }) {
 }
 
 // ─── Printable Consent Modal ───────────────────────────────────────────────────
-function ConsentPrintModal({ consent, onClose, onAction }) {
+function ConsentPrintModal({ consent, onClose, onAction, onNotify }) {
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditLoading, setAuditLoading] = useState(true);
   const [actioning, setActioning] = useState(false);
@@ -129,8 +129,9 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
         headers: authHeaders(),
         body: JSON.stringify({ action }),
       });
+      onNotify?.(`Consent PDF downloaded for #${consent.consent_id}.`);
     } catch (err) {
-      alert(err.message || "Consent PDF is unavailable right now.");
+      onNotify?.(err.message || "Consent PDF is unavailable right now.", "error");
     }
   };
 
@@ -152,9 +153,11 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Action failed.");
       onAction(consent.consent_id, data.data?.status || (actionType === "approve_change" ? "approved" : data.new_status));
+      const label = actionType === "request_revision" ? "Revision requested" : actionType.replaceAll("_", " ");
+      onNotify?.(`Consent #${consent.consent_id}: ${label} completed.`);
       onClose();
     } catch (err) {
-      alert("Error: " + err.message);
+      onNotify?.(err.message || "Consent action failed.", "error");
     } finally {
       setActioning(false);
     }
@@ -416,9 +419,15 @@ export default function ConsentManagement() {
   const [consents, setConsents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("pending_approval");
   const [selectedConsent, setSelectedConsent] = useState(null);
   const [apiError, setApiError] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    window.setTimeout(() => setToast(null), 4500);
+  };
 
   const fetchConsents = useCallback(async () => {
     try {
@@ -462,17 +471,32 @@ export default function ConsentManagement() {
     pending: consents.filter((c) => ["pending_employee", "pending_approval", "pending"].includes(c.consent_status)).length,
     review: consents.filter((c) => c.consent_status === "pending_approval").length,
   };
+  const statusTabs = [
+    ["pending_employee", "Pending Employee"],
+    ["pending_approval", "Pending Approval"],
+    ["approved", "Approved"],
+    ["rejected", "Rejected"],
+    ["revision_requested", "Revision Requested"],
+    ["withdrawn", "Withdrawn"],
+    ["expired", "Expired"],
+    ["superseded", "Superseded"],
+  ];
+  const counts = statusTabs.reduce((acc, [status]) => {
+    acc[status] = consents.filter((c) => c.consent_status === status).length;
+    return acc;
+  }, {});
 
   const handleAction = (consentId, newStatus) => {
     setConsents((prev) =>
       prev.map((c) => (c.consent_id === consentId ? { ...c, consent_status: newStatus } : c))
     );
+    fetchConsents();
   };
 
   return (
     <div className="space-y-6">
       <PageHero
-        eyebrow="RA 10173 Compliance"
+        eyebrow="Endpoint Management / Consent & Privacy"
         title="Consent Document Management"
         subtitle="View, verify, and manage all employee consent documents. Authorize consent changes and withdrawals per company policy."
       />
@@ -505,6 +529,17 @@ export default function ConsentManagement() {
 
       {/* Table */}
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-5 flex flex-wrap gap-2">
+          {statusTabs.map(([status, label]) => (
+            <button
+              key={status}
+              onClick={() => setStatusFilter(status)}
+              className={`rounded-xl border px-3 py-2 text-xs font-black transition ${statusFilter === status ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}
+            >
+              {label} <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5">{counts[status] || 0}</span>
+            </button>
+          ))}
+        </div>
         <div className="mb-5 flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px]">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -515,26 +550,13 @@ export default function ConsentManagement() {
               className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm font-medium text-slate-900 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
             />
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-600"
-          >
-            <option value="all">All Statuses</option>
-            <option value="pending_employee">Pending Employee</option>
-            <option value="pending_approval">Pending Approval</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="revision_requested">Revision Requested</option>
-            <option value="withdrawn">Withdrawn</option>
-            <option value="superseded">Superseded</option>
-          </select>
+          <button onClick={() => setStatusFilter("all")} className={`rounded-xl border px-4 py-2.5 text-sm font-bold ${statusFilter === "all" ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-700"}`}>All Records</button>
         </div>
 
         {loading ? (
           <p className="py-10 text-center text-slate-400 font-semibold">Loading consent documents...</p>
         ) : filtered.length === 0 ? (
-          <p className="py-10 text-center text-slate-400 font-semibold">No consent documents found.</p>
+          <p className="py-10 text-center text-slate-400 font-semibold">{statusFilter === "pending_approval" ? "No consent records are currently awaiting approval." : "No consent records found for this status."}</p>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-slate-200">
             <table className="w-full text-left">
@@ -545,7 +567,7 @@ export default function ConsentManagement() {
                   <th className="px-4 py-3">Branch / Dept</th>
                   <th className="px-4 py-3">Version</th>
                   <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Signed At</th>
+                  <th className="px-4 py-3">Submitted At</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
@@ -556,6 +578,8 @@ export default function ConsentManagement() {
                     <td className="px-4 py-4">
                       <p className="font-bold text-slate-900">{c.employee}</p>
                       <p className="text-xs text-slate-500">ID: {c.employee_id}</p>
+                      <p className="text-xs text-slate-500">Asset: {c.asset_tag || "—"}</p>
+                      <p className="text-xs text-slate-500">Host: {c.hostname || "—"}</p>
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-600">
                       {c.branch || "—"} / {c.department || "—"}
@@ -603,10 +627,22 @@ export default function ConsentManagement() {
           consent={selectedConsent}
           onClose={() => setSelectedConsent(null)}
           onAction={handleAction}
+          onNotify={showToast}
         />
       )}
         </>
       )}
+      {toast && <PageToast toast={toast} onClose={() => setToast(null)} />}
+    </div>
+  );
+}
+
+function PageToast({ toast, onClose }) {
+  const isError = toast.type === "error";
+  return (
+    <div className={`fixed bottom-6 right-6 z-[70] flex max-w-md items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-bold shadow-2xl ${isError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+      <span>{toast.message}</span>
+      <button onClick={onClose} className="ml-2 text-slate-400 hover:text-slate-700">x</button>
     </div>
   );
 }

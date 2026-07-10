@@ -46,6 +46,8 @@ export default function EndpointMonitoring() {
   const [healthData, setHealthData] = useState(null);
   const [selectedHealth, setSelectedHealth] = useState(null);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
   const [reconciling, setReconciling] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -173,6 +175,11 @@ export default function EndpointMonitoring() {
 
   const selectedDevice = devices.find((device) => String(device.device_id) === String(selectedId));
 
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    window.setTimeout(() => setToast(null), 4500);
+  };
+
   const refreshSelectedHealth = async () => {
     const lookup = selectedDevice?.device_uuid || selectedDevice?.device_id;
     if (!lookup) return null;
@@ -200,8 +207,11 @@ export default function EndpointMonitoring() {
       }
       await loadOverview();
       if (activeTab === "health") await loadHealth();
+      if (action === "policy") showToast(`Policy regenerated successfully for ${selectedDevice.hostname}. Version is ready for synchronization.`);
+      else if (action === "reconcile") showToast(`Asset reconciliation completed for ${selectedDevice.hostname}.`);
+      else showToast(`Endpoint diagnostics refreshed for ${selectedDevice.hostname}.`);
     } catch (requestError) {
-      alert(requestError.message);
+      showToast(requestError.message || "Endpoint action failed. Review the endpoint assignment, consent, and policy configuration.", "error");
     } finally {
       setHealthLoading(false);
     }
@@ -237,7 +247,7 @@ export default function EndpointMonitoring() {
       if (type === 'employee') setShowAssignEmployeeModal(true);
     } catch (e) {
       console.error(e);
-      alert("Failed to load assignment data.");
+      showToast("Failed to load assignment data.", "error");
     }
   };
 
@@ -264,15 +274,15 @@ export default function EndpointMonitoring() {
       setShowLinkAssetModal(false);
       setShowAssignEmployeeModal(false);
       loadOverview();
+      showToast("Endpoint assignment updated. Consent workflow and asset links were refreshed.");
     } catch (e) {
-      alert("Assignment failed: " + e.message);
+      showToast(`Assignment failed: ${e.message}`, "error");
     } finally {
       setAssignLoading(false);
     }
   };
 
   const handleDeleteDevice = async () => {
-    if (!window.confirm("Are you sure you want to permanently delete this device and all its monitoring logs?")) return;
     try {
       const response = await fetch(`${API_BASE}/devices/${selectedId}`, {
         method: "DELETE",
@@ -282,8 +292,9 @@ export default function EndpointMonitoring() {
       if (!response.ok) throw new Error(data.error || "Failed to delete device");
       setSelectedId("");
       loadOverview();
+      showToast("Endpoint device and monitoring logs were deleted.");
     } catch (e) {
-      alert("Delete failed: " + e.message);
+      showToast(`Delete failed: ${e.message}`, "error");
     }
   };
 
@@ -416,7 +427,7 @@ export default function EndpointMonitoring() {
               <div className="flex items-center gap-2">
                 <StatusBadge status={selectedDevice.status} />
                 <ConsentBadge status={selectedDevice.consent_status} />
-                <button onClick={handleDeleteDevice} className="ml-4 rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-100 transition">
+                <button onClick={() => setConfirmAction({ title: "Delete Endpoint", message: `Delete ${selectedDevice.hostname} and all monitoring logs? This cannot be undone.`, confirmLabel: "Delete Endpoint", tone: "danger", onConfirm: handleDeleteDevice })} className="ml-4 rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-100 transition">
                   Delete Device
                 </button>
               </div>
@@ -451,16 +462,22 @@ export default function EndpointMonitoring() {
                     <button onClick={() => handleOpenAssign('asset')} className="mt-2 w-full rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700">Link to Existing Asset</button>
                     <button 
                       onClick={async () => {
-                        const conf = window.confirm("This will automatically create a brand new Hardware Asset using the agent's scanned specifications and link it to this device. Continue?");
-                        if (!conf) return;
-                        setLoading(true);
-                        try {
-                          await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/convert-to-asset`, { method: 'POST' });
-                          loadOverview();
-                        } catch (e) {
-                          alert(e.message);
-                          setLoading(false);
-                        }
+                        setConfirmAction({
+                          title: "Create Hardware Asset",
+                          message: "Create a new Hardware Asset from the agent's scanned specifications and link it to this endpoint?",
+                          confirmLabel: "Create Asset",
+                          onConfirm: async () => {
+                            setLoading(true);
+                            try {
+                              await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/convert-to-asset`, { method: 'POST' });
+                              await loadOverview();
+                              showToast("Hardware Asset created from endpoint specifications.");
+                            } catch (e) {
+                              showToast(e.message, "error");
+                              setLoading(false);
+                            }
+                          },
+                        });
                       }} 
                       disabled={loading}
                       className="mt-2 w-full rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
@@ -564,16 +581,7 @@ export default function EndpointMonitoring() {
                   </div>
                 )}
                 {isSuperAdmin && <div className="mt-3">
-                  <button onClick={async () => {
-                    try {
-                      await monitoringRequest(`/devices/${selectedDevice.device_uuid}/generate-policy`, { method: "POST" });
-                      alert("Policy regenerated successfully.");
-                      loadOverview();
-                      monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/activity`).then(setDetails);
-                    } catch (e) {
-                      alert(e.message);
-                    }
-                  }} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Regenerate Effective Policy</button>
+                  <button onClick={() => handleDiagnosticAction("policy")} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Regenerate Effective Policy</button>
                 </div>}
               </div>
             </div>
@@ -940,6 +948,18 @@ export default function EndpointMonitoring() {
             </div>
           </div>
         )}
+        {confirmAction && (
+          <ConfirmModal
+            {...confirmAction}
+            onCancel={() => setConfirmAction(null)}
+            onConfirm={async () => {
+              const run = confirmAction.onConfirm;
+              setConfirmAction(null);
+              await run?.();
+            }}
+          />
+        )}
+        {toast && <PageToast toast={toast} onClose={() => setToast(null)} />}
   </div>;
 }
 
@@ -986,6 +1006,32 @@ function ChecklistBadge({ status = "Pending" }) {
     normalized === "not applicable" ? "bg-slate-200 text-slate-700" :
     "bg-amber-100 text-amber-800";
   return <span className={`rounded-full px-3 py-1 text-xs font-black ${styles}`}>{status}</span>;
+}
+
+function PageToast({ toast, onClose }) {
+  const isError = toast.type === "error";
+  return (
+    <div className={`fixed bottom-6 right-6 z-[70] flex max-w-md items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-bold shadow-2xl ${isError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+      <span>{toast.message}</span>
+      <button onClick={onClose} className="ml-2 text-slate-400 hover:text-slate-700">x</button>
+    </div>
+  );
+}
+
+function ConfirmModal({ title, message, confirmLabel = "Confirm", tone = "default", onCancel, onConfirm }) {
+  const danger = tone === "danger";
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4">
+      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+        <h3 className="text-xl font-black text-slate-900">{title}</h3>
+        <p className="mt-2 text-sm text-slate-600">{message}</p>
+        <div className="mt-6 flex justify-end gap-3">
+          <button onClick={onCancel} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+          <button onClick={onConfirm} className={`rounded-xl px-4 py-2 text-sm font-bold text-white ${danger ? "bg-rose-600 hover:bg-rose-700" : "bg-blue-600 hover:bg-blue-700"}`}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Empty({ text }) {

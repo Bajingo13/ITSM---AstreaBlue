@@ -807,11 +807,15 @@ router.post("/activity", requireAgent, async (req, res) => {
         for (const admin of admins.rows) {
           if (typeof createNotification === 'function') {
             await createNotification({
-              user_id: admin.user_id,
+              userId: admin.user_id,
               title: "Endpoint Security Alert",
               message: `High severity alert on ${device.hostname}: ${type}`,
               type: "security_alert",
-              related_id: ticketRes.rows[0].id
+              ticketId: ticketRes.rows[0].id,
+              relatedEntityType: "endpoint",
+              relatedEntityId: device.device_uuid || device.device_id,
+              metadata: { deviceUuid: device.device_uuid, deviceId: device.device_id, alertType: type },
+              dedupeKey: `endpoint-alert-${device.device_id}-${type}-${ticketRes.rows[0].id}`,
             }).catch(e => console.error("Notification failed", e));
           }
         }
@@ -2159,6 +2163,16 @@ router.post("/devices/:deviceUuid/generate-policy", requireAdmin, async (req, re
   try {
     const policy = await generateEffectivePolicy(req.params.deviceUuid, req.monitoringUserId);
     if (!policy) return res.status(404).json({ success: false, message: "Device not found." });
+    await createNotification({
+      userId: req.monitoringUserId,
+      title: "Endpoint policy regenerated",
+      message: `Policy regenerated for endpoint ${req.params.deviceUuid}. Version ${policy.policy_version || "unknown"} is ready for synchronization.`,
+      type: "endpoint_policy",
+      relatedEntityType: "endpoint_policy",
+      relatedEntityId: req.params.deviceUuid,
+      metadata: { deviceUuid: req.params.deviceUuid, policyVersion: policy.policy_version },
+      dedupeKey: `policy-regenerated-${req.params.deviceUuid}-${policy.generated_at || Date.now()}`,
+    }).catch(() => null);
     res.json({ success: true, data: policy });
   } catch (error) {
     console.error("[laptop-monitoring] generate effective policy error:", error.message);

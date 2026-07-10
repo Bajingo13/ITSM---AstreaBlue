@@ -310,6 +310,8 @@ async function ensureAttachmentsAndInvites() {
     await db.query(`
       ALTER TABLE notifications
       ADD COLUMN IF NOT EXISTS related_ticket_id INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS related_entity_type VARCHAR(80),
+      ADD COLUMN IF NOT EXISTS related_entity_id VARCHAR(120),
       ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb
     `);
   } catch (err) {

@@ -417,9 +417,24 @@ async function notifyBranchAdmins(branchId, title, message, metadata = {}) {
     title,
     message,
     type: "privacy_consent",
+    relatedEntityType: metadata?.relatedEntityType || "consent",
+    relatedEntityId: metadata?.consentId || metadata?.relatedEntityId || null,
     metadata,
     dedupeKey: metadata?.dedupeKey ? `${metadata.dedupeKey}-${admin.user_id}` : null,
   }).catch(() => null)));
+}
+
+async function notifyConsentEmployee(doc, title, message, dedupeSuffix) {
+  await createNotification({
+    userId: doc.employee_id,
+    title,
+    message,
+    type: "privacy_consent",
+    relatedEntityType: "consent",
+    relatedEntityId: doc.consent_id,
+    metadata: { consentId: doc.consent_id, deviceUuid: doc.device_uuid, assetId: doc.asset_id },
+    dedupeKey: `consent-${doc.consent_id}-${dedupeSuffix}`,
+  }).catch(() => null);
 }
 
 async function assertConsentAccess(req, consent) {
@@ -601,6 +616,7 @@ router.post("/:id/sign", requireAuth, async (req, res) => {
     await notifyBranchAdmins(updated.rows[0].branch_id, "Consent pending approval", `${updated.rows[0].employee_full_name} submitted endpoint monitoring consent for approval.`, {
       consentId: updated.rows[0].consent_id,
       deviceUuid: updated.rows[0].device_uuid,
+      relatedEntityType: "consent",
       dedupeKey: `consent-submitted-${updated.rows[0].consent_id}`,
     });
 
@@ -728,8 +744,7 @@ router.get("/all", requireAuth, async (req, res) => {
       whereClause = "WHERE cd.branch_id = $1";
       queryArgs.push(actor.branchId || actor.branch_id);
     } else {
-      whereClause = "WHERE cd.employee_id = $1";
-      queryArgs.push(actor.userId || actor.user_id);
+      return res.status(403).json({ success: false, message: "Consent Management requires Admin access." });
     }
 
     const result = await db.query(
@@ -962,6 +977,13 @@ router.put("/:id/admin-action", requireAdminOrHR, async (req, res) => {
     if (docRes.rows[0].device_uuid) {
       await regenerateEffectiveEndpointPolicy(docRes.rows[0].device_uuid, actor);
     }
+    if (newStatus === "withdrawn") {
+      await notifyConsentEmployee(docRes.rows[0], "Consent withdrawn", "Your endpoint monitoring consent was withdrawn. Optional monitoring has been disabled.", "withdrawn");
+    } else if (newStatus === "rejected") {
+      await notifyConsentEmployee(docRes.rows[0], "Consent rejected", notes || "Your endpoint monitoring consent was rejected. Please review the reason and submit again if needed.", "rejected");
+    } else if (newStatus === "superseded") {
+      await notifyConsentEmployee(docRes.rows[0], "Consent superseded", "A newer endpoint monitoring consent version replaced this record.", "superseded");
+    }
 
     await audit(req.params.id, docRes.rows[0].employee_id,
       actor.userId || actor.user_id, actor.role, eventType,
@@ -1022,6 +1044,7 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
         await regenerateEffectiveEndpointPolicy(updated.rows[0].device_uuid, actor);
       }
       await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_approved", "Consent approved.");
+      await notifyConsentEmployee(updated.rows[0], "Consent approved", "Your endpoint monitoring consent was approved. The endpoint policy is ready for agent synchronization.", "approved");
     } else if (action === "reject") {
       updated = await db.query(
         `UPDATE consent_documents SET status='rejected', active=false, rejection_reason=$1, updated_at=CURRENT_TIMESTAMP
@@ -1030,6 +1053,7 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
       );
       if (doc.device_uuid) await regenerateEffectiveEndpointPolicy(doc.device_uuid, actor);
       await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_rejected", reason);
+      await notifyConsentEmployee(updated.rows[0], "Consent rejected", reason, "rejected");
     } else {
       updated = await db.query(
         `UPDATE consent_documents SET status='revision_requested', active=false, revision_reason=$1, updated_at=CURRENT_TIMESTAMP
@@ -1038,6 +1062,7 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
       );
       if (doc.device_uuid) await regenerateEffectiveEndpointPolicy(doc.device_uuid, actor);
       await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "revision_requested", reason);
+      await notifyConsentEmployee(updated.rows[0], "Consent revision requested", reason, "revision-requested");
     }
     await db.query("COMMIT");
     return res.json({ success: true, data: updated.rows[0], policy });
