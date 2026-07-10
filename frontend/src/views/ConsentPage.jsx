@@ -619,6 +619,12 @@ export default function ConsentPage() {
   const [viewConsent, setViewConsent] = useState(false);
   const [showChangeModal, setShowChangeModal] = useState(false);
   const [draftId, setDraftId] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    window.setTimeout(() => setToast(null), 4500);
+  };
 
   const fetchConsent = useCallback(async () => {
     try {
@@ -723,8 +729,9 @@ export default function ConsentPage() {
         headers: authHeaders(),
         body: JSON.stringify({ action }),
       });
+      showToast(`Consent PDF downloaded for #${consent.consent_id}.`);
     } catch (err) {
-      alert(err.message || "Consent PDF is unavailable right now.");
+      showToast(err.message || "Consent PDF is unavailable right now.", "error");
     }
   };
 
@@ -820,12 +827,11 @@ export default function ConsentPage() {
             onClose={() => setShowChangeModal(false)}
             onSubmitted={(ticketId) => {
               setShowChangeModal(false);
-              alert(
-                `✅ Your consent change request has been submitted.\n\nTicket ID: ${ticketId}\n\nAn authorized admin or HR officer will review it.`
-              );
+              showToast(`Your consent change request was submitted. Ticket ID: ${ticketId}.`);
             }}
           />
         )}
+        {toast && <PageToast toast={toast} onClose={() => setToast(null)} />}
       </div>
     );
   }
@@ -1127,6 +1133,16 @@ export default function ConsentPage() {
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+function PageToast({ toast, onClose }) {
+  const isError = toast.type === "error";
+  return (
+    <div className={`fixed bottom-6 right-6 z-[70] flex max-w-md items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-bold shadow-2xl ${isError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+      <span>{toast.message}</span>
+      <button onClick={onClose} className="ml-2 text-slate-400 hover:text-slate-700">x</button>
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
+import { authHeaders } from "../services/authHeaders";
 import DashboardHero from "../components/DashboardHero";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass, getSeverityLevel } from "../utils/ticketVisuals";
 
@@ -92,9 +93,9 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
     try {
       const res = await fetch(`${API_BASE}/tickets/${ticketId}`, {
         method: "PUT",
-        headers: {
+        headers: authHeaders({
           "Content-Type": "application/json",
-        },
+        }),
         body: JSON.stringify(buildTicketPayload(user, { status })),
       });
 
@@ -112,9 +113,9 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
 
       const assignRes = await fetch(`${API_BASE}/tickets/${ticketId}/assign`, {
         method: "PATCH",
-        headers: {
+        headers: authHeaders({
           "Content-Type": "application/json",
-        },
+        }),
         body: JSON.stringify({
           ...buildTicketPayload(user, { assigned_to: technicianId }),
         }),
@@ -124,9 +125,9 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
 
       const statusRes = await fetch(`${API_BASE}/tickets/${ticketId}`, {
         method: "PUT",
-        headers: {
+        headers: authHeaders({
           "Content-Type": "application/json",
-        },
+        }),
         body: JSON.stringify(buildTicketPayload(user, { status: "In Progress" })),
       });
 
@@ -485,7 +486,7 @@ function ResolutionModal({ ticket, user, onClose, onResolved }) {
 
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(payload),
       });
 

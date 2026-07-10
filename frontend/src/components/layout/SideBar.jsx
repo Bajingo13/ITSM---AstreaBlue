@@ -92,7 +92,7 @@ const coreModuleItems = [
       { label: "Software Inventory", icon: Package, path: "/endpoint-monitoring?tab=software" },
       { label: "Asset Verification", icon: GitBranch, path: "/endpoint-monitoring?tab=devices" },
       { label: "Endpoint Policies", icon: Shield, path: "/endpoint-monitoring?tab=policies" },
-      { label: "Consent & Privacy", icon: FileText, path: "/consent-management" },
+      { label: "Consent & Privacy / Consent Management", icon: FileText, path: "/consent-management" },
       { label: "Activity Timeline", icon: Activity, path: "/endpoint-monitoring?tab=activity" },
       { label: "Screenshot Capture", icon: Monitor, path: "/screenshot-capture" },
       { label: "USB & DLP Monitoring", icon: Shield, path: "/usb-dlp-monitoring" },

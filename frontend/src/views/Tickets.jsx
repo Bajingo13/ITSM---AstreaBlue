@@ -562,7 +562,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
       if (hasStatusChange) {
         const statusRes = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify(buildTicketPayload(user, { status: selectedStatus })),
         });
 
@@ -579,7 +579,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
         const assignRes = await fetch(`${API_BASE}/tickets/${ticket.id}/assign`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify(
             buildTicketPayload(user, {
               assigned_to: selectedTechnician ? Number(selectedTechnician) : null,
