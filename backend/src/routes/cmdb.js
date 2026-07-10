@@ -10,7 +10,8 @@ function getUser(req) {
   const userId = parseInt(req.query.current_user_id, 10) || req.user?.user_id || null;
   const roleName = req.query.role_name || req.user?.role_name || "Employee";
   const branchId = parseInt(req.query.branch_id, 10) || req.user?.branch_id || null;
-  return { userId, roleName, branchId };
+  const userName = req.query.user_name || req.user?.full_name || "";
+  return { userId, roleName, branchId, userName };
 }
 
 /* ─────────────────────────────────────────────
@@ -205,6 +206,213 @@ router.get("/dependencies", async (req, res) => {
   } catch (err) {
     console.error("GET /dependencies error:", err.message);
     return res.status(500).json({ success: false, message: "Failed to fetch dependencies." });
+  }
+});
+
+/* ─────────────────────────────────────────────
+   POST /api/v1/cmdb/dependencies
+   ───────────────────────────────────────────── */
+router.post("/dependencies", async (req, res) => {
+  try {
+    const { roleName, branchId, userId, userName } = getUser(req);
+    const isAdmin = roleName === "SuperAdmin" || roleName === "Admin";
+    const isSuperAdmin = roleName === "SuperAdmin";
+    const { source_ci_id, target_ci_id, relationship_type, description } = req.body;
+    if (!source_ci_id || !target_ci_id || !relationship_type) {
+      return res.status(400).json({ success: false, message: "Source CI, destination CI, and relationship type are required." });
+    }
+    if (Number(source_ci_id) === Number(target_ci_id)) {
+      return res.status(400).json({ success: false, message: "Source and destination CI cannot be the same." });
+    }
+
+    // Check branch permission
+    if (!isSuperAdmin && roleName === "Admin") {
+      const ciCheck = await db.query(
+        `SELECT branch_id FROM config_items WHERE ci_id IN ($1, $2)`,
+        [source_ci_id, target_ci_id]
+      );
+      const branches = ciCheck.rows.map(r => r.branch_id);
+      if (branches.some(b => Number(b) !== Number(branchId))) {
+        return res.status(403).json({ success: false, message: "CIs must belong to your assigned branch." });
+      }
+    }
+
+    // Check duplicate
+    const existCheck = await db.query(
+      `SELECT dependency_id FROM ci_dependencies WHERE source_ci_id = $1 AND target_ci_id = $2 AND relationship_type = $3`,
+      [source_ci_id, target_ci_id, relationship_type]
+    );
+    if (existCheck.rows.length > 0) {
+      return res.status(409).json({ success: false, message: "This relationship already exists." });
+    }
+
+    // Get branch_id from source CI
+    const srcResult = await db.query(`SELECT branch_id, ci_name FROM config_items WHERE ci_id = $1`, [source_ci_id]);
+    const relBranchId = srcResult.rows[0]?.branch_id || branchId;
+
+    const result = await db.query(
+      `INSERT INTO ci_dependencies (source_ci_id, target_ci_id, relationship_type, description, created_by, branch_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) RETURNING *`,
+      [source_ci_id, target_ci_id, relationship_type, description || null, userId, relBranchId]
+    );
+
+    // Audit log
+    const userRes = await db.query(`SELECT full_name FROM users WHERE user_id = $1`, [userId]);
+    const auditUser = userRes.rows[0]?.full_name || '';
+    await db.query(
+      `INSERT INTO ci_audit_logs (action_type, entity_type, entity_id, user_id, user_name, branch_id, new_values, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      ['create', 'relationship', result.rows[0].dependency_id, userId, auditUser, relBranchId,
+        JSON.stringify({ source_ci_id, target_ci_id, relationship_type }),
+        `Relationship created: ${relationship_type} between CI #${source_ci_id} and CI #${target_ci_id}`
+      ]
+    );
+
+    return res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error("POST /dependencies error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to create dependency." });
+  }
+});
+
+/* ─────────────────────────────────────────────
+   PUT /api/v1/cmdb/dependencies/:id
+   ───────────────────────────────────────────── */
+router.put("/dependencies/:id", async (req, res) => {
+  try {
+    const { roleName, userId } = getUser(req);
+    if (roleName !== "SuperAdmin" && roleName !== "Admin") {
+      return res.status(403).json({ success: false, message: "Insufficient permissions." });
+    }
+
+    const depId = parseInt(req.params.id, 10);
+    if (!depId) return res.status(400).json({ success: false, message: "Invalid dependency ID." });
+
+    const { relationship_type, description } = req.body;
+    if (!relationship_type) return res.status(400).json({ success: false, message: "Relationship type is required." });
+
+    // Get existing
+    const existing = await db.query(`SELECT * FROM ci_dependencies WHERE dependency_id = $1`, [depId]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: "Dependency not found." });
+
+    const oldData = existing.rows[0];
+
+    const result = await db.query(
+      `UPDATE ci_dependencies SET relationship_type = $1, description = $2, updated_at = NOW() WHERE dependency_id = $3 RETURNING *`,
+      [relationship_type, description || null, depId]
+    );
+
+    // Audit log
+    const userRes = await db.query(`SELECT full_name FROM users WHERE user_id = $1`, [userId]);
+    const auditUser = userRes.rows[0]?.full_name || '';
+    await db.query(
+      `INSERT INTO ci_audit_logs (action_type, entity_type, entity_id, user_id, user_name, branch_id, old_values, new_values, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      ['update', 'relationship', depId, userId, auditUser, oldData.branch_id,
+        JSON.stringify({ relationship_type: oldData.relationship_type }),
+        JSON.stringify({ relationship_type }),
+        `Relationship #${depId} updated: ${oldData.relationship_type} → ${relationship_type}`
+      ]
+    );
+
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error("PUT /dependencies/:id error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to update dependency." });
+  }
+});
+
+/* ─────────────────────────────────────────────
+   DELETE /api/v1/cmdb/dependencies/:id
+   ───────────────────────────────────────────── */
+router.delete("/dependencies/:id", async (req, res) => {
+  try {
+    const { roleName, userId, branchId } = getUser(req);
+    if (roleName !== "SuperAdmin" && roleName !== "Admin") {
+      return res.status(403).json({ success: false, message: "Insufficient permissions." });
+    }
+
+    const depId = parseInt(req.params.id, 10);
+    if (!depId) return res.status(400).json({ success: false, message: "Invalid dependency ID." });
+
+    const existing = await db.query(`SELECT * FROM ci_dependencies WHERE dependency_id = $1`, [depId]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: "Dependency not found." });
+
+    const rel = existing.rows[0];
+
+    // Branch check for Admin
+    if (roleName === "Admin" && rel.branch_id && Number(rel.branch_id) !== Number(branchId)) {
+      return res.status(403).json({ success: false, message: "Cannot delete relationships outside your branch." });
+    }
+
+    await db.query(`DELETE FROM ci_dependencies WHERE dependency_id = $1`, [depId]);
+
+    // Audit log
+    const userRes = await db.query(`SELECT full_name FROM users WHERE user_id = $1`, [userId]);
+    const auditUser = userRes.rows[0]?.full_name || '';
+    await db.query(
+      `INSERT INTO ci_audit_logs (action_type, entity_type, entity_id, user_id, user_name, branch_id, old_values, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      ['delete', 'relationship', depId, userId, auditUser, rel.branch_id || branchId,
+        JSON.stringify({ source_ci_id: rel.source_ci_id, target_ci_id: rel.target_ci_id, relationship_type: rel.relationship_type }),
+        `Relationship #${depId} deleted: ${rel.relationship_type} between CI #${rel.source_ci_id} and CI #${rel.target_ci_id}`
+      ]
+    );
+
+    return res.json({ success: true, message: "Dependency deleted." });
+  } catch (err) {
+    console.error("DELETE /dependencies/:id error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to delete dependency." });
+  }
+});
+
+/* ─────────────────────────────────────────────
+   GET /api/v1/cmdb/dependencies/statistics
+   ───────────────────────────────────────────── */
+router.get("/dependencies/statistics", async (req, res) => {
+  try {
+    const { roleName, branchId } = getUser(req);
+    const isSuperAdmin = roleName === "SuperAdmin";
+
+    let ciWhere = "";
+    let depWhere = "";
+    const params = [];
+
+    if (!isSuperAdmin && branchId) {
+      params.push(branchId);
+      ciWhere = ` WHERE branch_id = $1`;
+      depWhere = ` WHERE d.branch_id = $1`;
+    }
+
+    const ciResult = await db.query(`SELECT COUNT(*)::int AS total FROM config_items${ciWhere}`, params);
+    const depResult = await db.query(
+      `SELECT COUNT(*)::int AS total FROM ci_dependencies d${depWhere}`,
+      params
+    );
+    const connectedResult = await db.query(
+      `SELECT COUNT(DISTINCT ci_id)::int AS total FROM (
+        SELECT source_ci_id AS ci_id FROM ci_dependencies d${depWhere.replace('d.', '')}
+        UNION
+        SELECT target_ci_id AS ci_id FROM ci_dependencies d${depWhere.replace('d.', '')}
+      ) sub`,
+      params
+    );
+
+    const totalCIs = ciResult.rows[0]?.total || 0;
+    const totalRelationships = depResult.rows[0]?.total || 0;
+    const connectedCIs = connectedResult.rows[0]?.total || 0;
+    const isolatedCIs = totalCIs - connectedCIs;
+
+    return res.json({
+      total_ci: totalCIs,
+      total_relationships: totalRelationships,
+      connected_ci: connectedCIs,
+      isolated_ci: Math.max(isolatedCIs, 0),
+      last_updated: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("GET /dependencies/statistics error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to fetch dependency statistics." });
   }
 });
 

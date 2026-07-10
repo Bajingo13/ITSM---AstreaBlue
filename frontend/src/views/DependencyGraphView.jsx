@@ -276,7 +276,7 @@ function GraphLegend({ nodeTypes, connectionTypes }) {
 /* ─────────────────────────────────────────────
    EmptyGraphState sub-component
    ───────────────────────────────────────────── */
-function EmptyGraphState() {
+function EmptyGraphState({ onCreate }) {
   return (
     <div className="flex min-h-[400px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white p-12 text-center">
       <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-2xl bg-slate-50">
@@ -286,8 +286,7 @@ function EmptyGraphState() {
       <p className="mt-2 max-w-md text-sm text-slate-500">
         Start creating relationships between Configuration Items to visualize your infrastructure topology.
       </p>
-      <button
-        type="button"
+      <button type="button" onClick={onCreate}
         className="mt-6 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700"
       >
         <Plus size={16} />
@@ -296,6 +295,7 @@ function EmptyGraphState() {
     </div>
   );
 }
+
 
 /* ─────────────────────────────────────────────
    CIDetailPanel — right side panel
@@ -432,7 +432,7 @@ function CIDetailPanel({ node, onClose, onViewCI, onEditCI, onOpenImpact }) {
    ───────────────────────────────────────────── */
 const SVGGraph = forwardRef(function SVGGraph({
   graphNodes, graphEdges, selectedId, hoveredId, onSelect, onHover, onDoubleClick,
-  dimmed, tooltip, tooltipPos, searchQuery,
+  dimmed, tooltip, tooltipPos, searchQuery, onEdgeSelect,
 }, ref) {
   const svgRef = useRef(null);
   const [zoom, setZoom] = useState(1);
@@ -562,7 +562,7 @@ const SVGGraph = forwardRef(function SVGGraph({
             return (
               <g key={`edge-${idx}`}>
                 <path d={path} fill="none" stroke={dim ? "#E2E8F0" : color} strokeWidth={dim ? 1 : 2} strokeLinecap="round" opacity={dim ? 0.25 : 0.8} />
-                <path d={path} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer" />
+                <path d={path} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer" onClick={() => onEdgeSelect?.(edge)} />
                 {!dim && <circle cx={(nodePositions[edge.source].x + nodePositions[edge.target].x) / 2} cy={(nodePositions[edge.source].y + nodePositions[edge.target].y) / 2} r={3} fill={color} />}
               </g>
             );
@@ -732,6 +732,76 @@ function DependencyToolbar({ layoutMode, onLayoutChange, search, onSearchChange,
 }
 
 /* ─────────────────────────────────────────────
+   CreateRelationshipModal — form for creating dependencies
+   ───────────────────────────────────────────── */
+function CreateRelationshipModal({ ciList, onClose, onSubmit, saving, error }) {
+  const [sourceId, setSourceId] = useState("");
+  const [destId, setDestId] = useState("");
+  const [relType, setRelType] = useState("Depends On");
+
+  const RELATIONSHIP_TYPES = [
+    "Depends On", "Connected To", "Uses", "Hosts", "Runs On", "Contains", "Linked To"
+  ];
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!sourceId || !destId || !relType) return;
+    if (sourceId === destId) return;
+    onSubmit({ source_ci_id: sourceId, target_ci_id: destId, relationship_type: relType });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+      <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-7 py-5">
+          <div>
+            <h2 className="text-xl font-black text-slate-900">Create Dependency Relationship</h2>
+            <p className="mt-1 text-sm text-slate-500">Connect two Configuration Items.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Close"><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="px-7 py-6">
+          {error && <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>}
+          <div className="space-y-5">
+            <label className="block space-y-2">
+              <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Source CI *</span>
+              <select value={sourceId} onChange={(e) => setSourceId(e.target.value)}
+                className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15">
+                <option value="">Select source CI</option>
+                {ciList.map((ci) => <option key={ci.ci_id} value={ci.ci_id}>{ci.ci_name} ({ci.ci_type}){ci.branch_name ? ` - ${ci.branch_name}` : ''}</option>)}
+              </select>
+            </label>
+            <label className="block space-y-2">
+              <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Relationship Type *</span>
+              <select value={relType} onChange={(e) => setRelType(e.target.value)}
+                className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15">
+                {RELATIONSHIP_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
+            <label className="block space-y-2">
+              <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Destination CI *</span>
+              <select value={destId} onChange={(e) => setDestId(e.target.value)}
+                className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15">
+                <option value="">Select destination CI</option>
+                {ciList.filter((ci) => String(ci.ci_id) !== sourceId).map((ci) => <option key={ci.ci_id} value={ci.ci_id}>{ci.ci_name} ({ci.ci_type}){ci.branch_name ? ` - ${ci.branch_name}` : ''}</option>)}
+              </select>
+              {sourceId && destId && sourceId === destId && <p className="mt-1 text-xs font-bold text-rose-600">Source and destination cannot be the same.</p>}
+            </label>
+          </div>
+          <div className="mt-7 flex justify-end gap-3 border-t border-slate-100 pt-5">
+            <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 bg-white px-6 py-3 font-black text-slate-600 transition hover:bg-slate-50">Cancel</button>
+            <button type="submit" disabled={saving || !sourceId || !destId || sourceId === destId}
+              className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-8 py-3 font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
+              {saving ? 'Saving...' : <><Plus size={18} /> Save Relationship</>}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
    Main DependencyGraphView export
    ───────────────────────────────────────────── */
 export default function DependencyGraphView({ user, role, branches }) {
@@ -746,6 +816,12 @@ export default function DependencyGraphView({ user, role, branches }) {
   const [layoutMode, setLayoutMode] = useState("auto");
   const [searchQuery, setSearchQuery] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [ciList, setCiList] = useState([]);
+  const [selectedEdge, setSelectedEdge] = useState(null);
+  const [savingRel, setSavingRel] = useState(false);
+  const [relError, setRelError] = useState("");
+  const [depStats, setDepStats] = useState(null);
   const graphRef = useRef(null);
 
   const fetchDependencies = useCallback(async () => {
@@ -769,6 +845,87 @@ export default function DependencyGraphView({ user, role, branches }) {
       setLoading(false);
     }
   }, [user, role, filterBranch]);
+
+  const fetchCIList = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({
+        current_user_id: user?.user_id || "",
+        role_name: role || "",
+        branch_id: user?.branch_id || "",
+      });
+      if (filterBranch && filterBranch !== "All") params.set("branch", filterBranch);
+      const res = await fetch(`${API_BASE}/cmdb/config-items?${params.toString()}`);
+      const data = await res.json();
+      if (res.ok) setCiList(Array.isArray(data) ? data : []);
+    } catch { /* silently fail */ }
+  }, [user, role, filterBranch]);
+
+  const fetchDepStats = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({
+        current_user_id: user?.user_id || "",
+        role_name: role || "",
+        branch_id: user?.branch_id || "",
+      });
+      const res = await fetch(`${API_BASE}/cmdb/dependencies/statistics?${params.toString()}`);
+      const data = await res.json();
+      if (res.ok) setDepStats(data);
+    } catch { /* silently fail */ }
+  }, [user, role]);
+
+  useEffect(() => { fetchCIList(); }, [fetchCIList]);
+  useEffect(() => { fetchDepStats(); }, [fetchDepStats]);
+
+  const createRelationship = useCallback(async (formData) => {
+    try {
+      setSavingRel(true);
+      setRelError("");
+      const params = new URLSearchParams({
+        current_user_id: user?.user_id || "",
+        role_name: role || "",
+        branch_id: user?.branch_id || "",
+      });
+      const res = await fetch(`${API_BASE}/cmdb/dependencies?${params.toString()}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Unable to create relationship");
+      setShowCreateModal(false);
+      setRelError("");
+      fetchDependencies();
+      fetchDepStats();
+    } catch (err) {
+      setRelError(err.message);
+    } finally {
+      setSavingRel(false);
+    }
+  }, [user, role, fetchDependencies, fetchDepStats]);
+
+  const deleteRelationship = useCallback(async (depId) => {
+    if (!window.confirm("Delete this relationship? This action cannot be undone.")) return;
+    try {
+      const params = new URLSearchParams({
+        current_user_id: user?.user_id || "",
+        role_name: role || "",
+        branch_id: user?.branch_id || "",
+      });
+      const res = await fetch(`${API_BASE}/cmdb/dependencies/${depId}?${params.toString()}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Unable to delete relationship");
+      }
+      setSelectedEdge(null);
+      fetchDependencies();
+      fetchDepStats();
+    } catch (err) {
+      console.error("Delete relationship failed:", err);
+      alert(err.message);
+    }
+  }, [user, role, fetchDependencies, fetchDepStats]);
 
   useEffect(() => {
     fetchDependencies();
@@ -820,6 +977,7 @@ export default function DependencyGraphView({ user, role, branches }) {
         target: tgtId,
         type: dep.relationship_type || "Depends On",
         description: dep.dep_description,
+        dependency_id: dep.dependency_id,
       });
 
       // Track deps for detail panel
@@ -883,6 +1041,10 @@ export default function DependencyGraphView({ user, role, branches }) {
     }
   }, []);
 
+  const handleEdgeSelect = useCallback((edge) => {
+    setSelectedEdge(edge);
+  }, []);
+
   const handleDoubleClick = useCallback((node) => {
     fetchCIDetail(node);
   }, [fetchCIDetail]);
@@ -901,32 +1063,49 @@ export default function DependencyGraphView({ user, role, branches }) {
       <section className="astrea-page-hero relative overflow-hidden rounded-[28px] border border-white/15 px-7 py-8 text-white shadow-[var(--astrea-hero-shadow)] lg:px-10 lg:py-10">
         <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full border-[34px] border-cyan-200/10" />
         <div className="pointer-events-none absolute bottom-[-110px] right-24 h-56 w-56 rounded-full bg-cyan-300/10 blur-2xl" />
-        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="max-w-3xl">
-            <div className="mt-4 flex flex-wrap gap-4">
-              <div>
-                <p className="text-2xl font-black text-white">{totalRelationships}</p>
-                <p className="text-xs text-cyan-100">Total Relationships</p>
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-black sm:text-4xl">Dependency Mapping</h1>
+            <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-blue-100 sm:text-base">
+              Visualize relationships and dependencies between Configuration Items (CIs) across your IT infrastructure.
+            </p>
+            {/* Statistics cards */}
+            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              <div className="rounded-xl border border-white/15 bg-white/5 p-3 backdrop-blur-sm">
+                <p className="text-xl font-black text-white">{depStats?.total_ci ?? 0}</p>
+                <p className="text-[10px] font-bold text-blue-100">Total CIs</p>
               </div>
-              <div className="w-px bg-white/20" />
-              <div>
-                <p className="text-2xl font-black text-white">{totalConnectedCIs}</p>
-                <p className="text-xs text-cyan-100">Connected CIs</p>
+              <div className="rounded-xl border border-white/15 bg-white/5 p-3 backdrop-blur-sm">
+                <p className="text-xl font-black text-white">{depStats?.total_relationships ?? totalRelationships}</p>
+                <p className="text-[10px] font-bold text-blue-100">Relationships</p>
               </div>
-              <div className="w-px bg-white/20" />
-              <div>
-                <p className="text-sm font-black text-white mt-1.5">{lastUpdated ? formatDate(lastUpdated) : "—"}</p>
-                <p className="text-xs text-cyan-100">Last Updated</p>
+              <div className="rounded-xl border border-white/15 bg-white/5 p-3 backdrop-blur-sm">
+                <p className="text-xl font-black text-white">{depStats?.connected_ci ?? totalConnectedCIs}</p>
+                <p className="text-[10px] font-bold text-blue-100">Connected CIs</p>
+              </div>
+              <div className="rounded-xl border border-white/15 bg-white/5 p-3 backdrop-blur-sm">
+                <p className="text-xl font-black text-white">{depStats?.isolated_ci ?? 0}</p>
+                <p className="text-[10px] font-bold text-blue-100">Isolated CIs</p>
+              </div>
+              <div className="rounded-xl border border-white/15 bg-white/5 p-3 backdrop-blur-sm">
+                <p className="text-sm font-black text-white mt-0.5">{lastUpdated ? formatDate(lastUpdated) : "—"}</p>
+                <p className="text-[10px] font-bold text-blue-100">Last Updated</p>
               </div>
             </div>
           </div>
-          {isSuperAdmin && (
-            <BranchSelector
-              branches={branches}
-              value={filterBranch}
-              onChange={(val) => { setFilterBranch(val); setSelectedNode(null); }}
-            />
-          )}
+          <div className="flex flex-col items-end gap-3">
+            {(isSuperAdmin || role === "Admin") && (
+              <button type="button" onClick={() => { setShowCreateModal(true); setRelError(""); }}
+                className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100">
+                <Plus size={18} /> Create Dependency
+              </button>
+            )}
+            {isSuperAdmin && (
+              <BranchSelector branches={branches} value={filterBranch}
+                onChange={(val) => { setFilterBranch(val); setSelectedNode(null); }}
+              />
+            )}
+          </div>
         </div>
       </section>
 
@@ -951,8 +1130,7 @@ export default function DependencyGraphView({ user, role, branches }) {
         </div>
       )}
 
-      {/* Empty state */}
-      {!loading && empty && <EmptyGraphState />}
+      {!loading && empty && <EmptyGraphState onCreate={() => { setShowCreateModal(true); setRelError(""); }} />}
 
       {/* Main content: graph + detail panel */}
       {!loading && !empty && (
@@ -972,6 +1150,7 @@ export default function DependencyGraphView({ user, role, branches }) {
               tooltip={tooltip}
               tooltipPos={tooltipPos}
               searchQuery={searchQuery}
+              onEdgeSelect={handleEdgeSelect}
             />
           </div>
 
@@ -1001,6 +1180,35 @@ export default function DependencyGraphView({ user, role, branches }) {
       {/* Legend */}
       {!loading && !empty && (
         <GraphLegend nodeTypes={nodeTypes} connectionTypes={connectionTypes} />
+      )}
+
+      {/* Create Relationship Modal */}
+      {showCreateModal && (
+        <CreateRelationshipModal
+          ciList={ciList}
+          onClose={() => setShowCreateModal(false)}
+          onSubmit={createRelationship}
+          saving={savingRel}
+          error={relError}
+        />
+      )}
+
+      {/* Delete Edge Confirmation */}
+      {selectedEdge && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+          <div className="flex w-full max-w-sm flex-col rounded-[28px] bg-white p-7 shadow-2xl">
+            <h3 className="text-lg font-black text-slate-900">Delete Relationship</h3>
+            <p className="mt-2 text-sm text-slate-500">
+              Are you sure you want to delete this "{selectedEdge.type}" relationship?
+            </p>
+            <div className="mt-6 flex gap-3 justify-end">
+              <button type="button" onClick={() => setSelectedEdge(null)}
+                className="rounded-2xl border border-slate-200 bg-white px-5 py-2.5 font-black text-slate-600 transition hover:bg-slate-50">Cancel</button>
+              <button type="button" onClick={() => deleteRelationship(selectedEdge.dependency_id)}
+                className="rounded-2xl bg-rose-600 px-5 py-2.5 font-black text-white transition hover:bg-rose-700">Delete</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

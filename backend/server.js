@@ -633,6 +633,31 @@ async function ensureCmdbTables() {
       CREATE INDEX IF NOT EXISTS idx_ci_dependencies_target ON ci_dependencies(target_ci_id)
     `);
 
+    // Ensure CI relationship columns (migration)
+    await db.query(`ALTER TABLE ci_dependencies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+    await db.query(`ALTER TABLE ci_dependencies ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL`);
+    await db.query(`ALTER TABLE ci_dependencies ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id) ON DELETE CASCADE`);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ci_audit_logs (
+        log_id SERIAL PRIMARY KEY,
+        action_type VARCHAR(50) NOT NULL,
+        entity_type VARCHAR(50) NOT NULL DEFAULT 'relationship',
+        entity_id INTEGER,
+        user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+        user_name VARCHAR(255),
+        branch_id INTEGER REFERENCES branches(branch_id) ON DELETE SET NULL,
+        branch_name VARCHAR(255),
+        old_values JSONB,
+        new_values JSONB,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_ci_audit_logs_entity ON ci_audit_logs(entity_type, entity_id)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_ci_audit_logs_user ON ci_audit_logs(user_id)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_ci_audit_logs_created ON ci_audit_logs(created_at DESC)`);
+
     // Seed CI categories
     await db.query(`
       INSERT INTO ci_categories (category_name, description)
