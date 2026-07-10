@@ -277,6 +277,9 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
               ["Employee Email", consent.employee_email],
               ["Employee ID / Number", consent.employee_number || "—"],
               ["Branch / Department", `${consent.branch_name || "—"} / ${consent.department || "—"}`],
+              ["Hardware Asset", `${consent.asset_tag || "—"}${consent.model ? ` / ${consent.model}` : ""}`],
+              ["Endpoint Hostname", consent.hostname || consent.device_name || "—"],
+              ["Device UUID", consent.device_uuid || "—"],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
@@ -698,12 +701,31 @@ export default function ConsentPage() {
   const logPrint = async (action) => {
     if (!consent) return;
     try {
+      if (action === "download") {
+        const res = await fetch(`${API_BASE}/consent/${consent.consent_id}/pdf`, { headers: authHeaders() });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.message || "Failed to download consent PDF.");
+        }
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `AstreaBlue-Consent-${consent.consent_id}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        return;
+      }
       await fetch(`${API_BASE}/consent/${consent.consent_id}/log-print`, {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ action }),
       });
-    } catch {}
+    } catch (err) {
+      alert(err.message || "Consent PDF is unavailable right now.");
+    }
   };
 
   // ── Signed state ─────────────────────────────────────────────────────────────
