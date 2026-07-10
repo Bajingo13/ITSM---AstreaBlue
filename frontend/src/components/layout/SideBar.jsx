@@ -51,8 +51,6 @@ const coreModuleItems = [
     icon: Database,
     children: [
       { label: "Configuration Items", icon: Database, path: "/cmdb" },
-      { label: "Dependency Mapping", icon: GitBranch, path: "/dependency-map" },
-      { label: "Change Impact Analysis", icon: AlertTriangle, path: "/change-impact" },
     ],
   },
   {
