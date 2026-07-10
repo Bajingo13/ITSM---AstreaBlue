@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { API_URL } from "../config/api";
+import DependencyGraphView from "./DependencyGraphView";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -615,6 +616,7 @@ function ConfigItemsPanel({ user, role, branches }) {
   const [draftEnv, setDraftEnv] = useState("All");
   const [draftBranch, setDraftBranch] = useState(isSuperAdmin ? "All" : String(currentBranchId || ""));
   const [showFilterPopover, setShowFilterPopover] = useState(false);
+  const filterPopoverRef = useRef(null);
   const [filterOptions, setFilterOptions] = useState(null);
   const [ciData, setCiData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -672,7 +674,16 @@ function ConfigItemsPanel({ user, role, branches }) {
       });
       const res = await fetch(`${API_BASE}/cmdb/statistics?${params.toString()}`);
       const data = await res.json();
-      if (res.ok) setStatistics(typeof data === "object" && !Array.isArray(data) ? data : {});
+      if (res.ok && typeof data === "object" && !Array.isArray(data)) {
+        setStatistics({
+          totalServers: data.total_servers ?? 0,
+          totalApplications: data.total_applications ?? 0,
+          totalNetworkDevices: data.total_network_devices ?? 0,
+          totalActiveCIs: data.total_active ?? 0,
+        });
+      } else {
+        setStatistics({});
+      }
     } catch {
       // silently fail
     }
@@ -730,6 +741,13 @@ function ConfigItemsPanel({ user, role, branches }) {
     setDraftBranch(isSuperAdmin ? "All" : String(currentBranchId || ""));
   }, [isSuperAdmin, currentBranchId]);
 
+  /* ── Immediate branch filter (no popover needed) ── */
+  const handleBranchChange = useCallback((branchId) => {
+    setBranchFilter(branchId);
+    setDraftBranch(branchId);
+    fetchCIs({ branch: branchId, type: typeFilter, status: statusFilter, env: environmentFilter, search });
+  }, [typeFilter, statusFilter, environmentFilter, search, fetchCIs]);
+
   const handleCancelFilters = useCallback(() => {
     setDraftType(typeFilter);
     setDraftStatus(statusFilter);
@@ -738,14 +756,29 @@ function ConfigItemsPanel({ user, role, branches }) {
     setShowFilterPopover(false);
   }, [typeFilter, statusFilter, environmentFilter, branchFilter]);
 
-  /* ── Open popover: sync draft from current filters ── */
+  /* ── Toggle popover: sync draft from current filters when opening ── */
   const openFilterPopover = useCallback(() => {
-    setDraftType(typeFilter);
-    setDraftStatus(statusFilter);
-    setDraftEnv(environmentFilter);
-    setDraftBranch(branchFilter);
-    setShowFilterPopover(true);
+    setShowFilterPopover((prev) => {
+      if (!prev) {
+        setDraftType(typeFilter);
+        setDraftStatus(statusFilter);
+        setDraftEnv(environmentFilter);
+        setDraftBranch(branchFilter);
+      }
+      return !prev;
+    });
   }, [typeFilter, statusFilter, environmentFilter, branchFilter]);
+
+  /* ── Click outside to close popover ── */
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (filterPopoverRef.current && !filterPopoverRef.current.contains(event.target)) {
+        setShowFilterPopover(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleDeleteCI = useCallback(async (ci) => {
     if (!window.confirm(`Delete "${ci.ci_name}"? This action cannot be undone.`)) return;
@@ -763,11 +796,12 @@ function ConfigItemsPanel({ user, role, branches }) {
         throw new Error(data.error || "Unable to delete CI");
       }
       await fetchCIs();
+      await fetchStatistics();
     } catch (err) {
       console.error("Delete CI failed:", err);
       alert(err.message || "Unable to delete CI");
     }
-  }, [user, role, fetchCIs]);
+  }, [user, role, fetchCIs, fetchStatistics]);
 
   const handleSubmitCI = useCallback(async (formData, ciId) => {
     const params = new URLSearchParams({
@@ -786,9 +820,10 @@ function ConfigItemsPanel({ user, role, branches }) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || data.message || "Unable to save CI");
     await fetchCIs();
+    await fetchStatistics();
     setShowForm(false);
     setEditingCi(null);
-  }, [user, role, fetchCIs]);
+  }, [user, role, fetchCIs, fetchStatistics]);
 
   const openAddCI = () => {
     setEditingCi(null);
@@ -830,6 +865,7 @@ function ConfigItemsPanel({ user, role, branches }) {
       if (typeFilter !== "All" && ci.ci_type !== typeFilter) return false;
       if (statusFilter !== "All" && ci.status !== statusFilter) return false;
       if (environmentFilter !== "All" && ci.environment !== environmentFilter) return false;
+      if (branchFilter !== "All" && String(ci.branch_id) !== String(branchFilter)) return false;
       if (search.trim()) {
         const q = search.trim().toLowerCase();
         const fields = [ci.ci_name, ci.ci_type, ci.ip_address, ci.owner, ci.operating_system, ci.branch_name];
@@ -841,26 +877,30 @@ function ConfigItemsPanel({ user, role, branches }) {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-black">Configuration Items</h1>
-          <p className="mt-2 max-w-2xl text-slate-200">
-            Manage servers, applications, network devices, databases, and all infrastructure components.
-          </p>
-          <p className="mt-4 text-sm text-blue-100">
-            {ciData.length} CI{ciData.length !== 1 ? "s" : ""} total
-          </p>
+      {/* Header — Assets-style hero */}
+      <section className="astrea-page-hero relative overflow-hidden rounded-[28px] border border-white/15 px-7 py-8 text-white shadow-[var(--astrea-hero-shadow)] lg:px-10 lg:py-10">
+        <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full border-[34px] border-cyan-200/10" />
+        <div className="pointer-events-none absolute bottom-[-110px] right-24 h-56 w-56 rounded-full bg-cyan-300/10 blur-2xl" />
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl">
+            <h1 className="text-3xl font-black sm:text-4xl">Configuration Items</h1>
+            <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-blue-100 sm:text-base">
+              Manage servers, applications, network devices, databases, and all infrastructure components.
+            </p>
+            <p className="mt-4 text-sm text-cyan-100">
+              {filteredCIs.length} CI{filteredCIs.length !== 1 ? "s" : ""} displayed
+            </p>
+          </div>
+          {canCreate && (
+            <button
+              onClick={openAddCI}
+              className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
+            >
+              <Plus size={18} />
+              Add CI
+            </button>
+          )}
         </div>
-        {canCreate && (
-          <button
-            onClick={openAddCI}
-            className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
-          >
-            <Plus size={18} />
-            Add CI
-          </button>
-        )}
       </section>
 
       {/* Summary Cards */}
@@ -878,144 +918,152 @@ function ConfigItemsPanel({ user, role, branches }) {
           />
         </div>
 
-        <div className="relative">
+        {isSuperAdmin && (
+          <BranchSelector
+            branches={filterBranches}
+            value={branchFilter}
+            onChange={handleBranchChange}
+          />
+        )}
+
+        <div ref={filterPopoverRef} className="relative">
           <button
             type="button"
             onClick={openFilterPopover}
-            className="inline-flex items-center gap-2 rounded-3xl border border-blue-200 bg-white px-5 py-3 text-sm font-bold text-blue-600 shadow-sm transition hover:bg-blue-50 hover:shadow-md"
+            aria-expanded={showFilterPopover}
+            className={`inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black shadow-sm transition ${
+              showFilterPopover
+                ? "border-blue-300 bg-blue-50 text-blue-700 ring-4 ring-blue-600/10"
+                : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+            }`}
           >
             <Filter size={16} />
-            Sort & Filter
-            <ChevronDown size={14} className={`transition ${showFilterPopover ? "rotate-180" : ""}`} />
+            <span>Filter</span>
             {activeFilterCount > 0 && (
-              <span className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[11px] font-black text-white">
+              <span className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-black text-white leading-none">
                 {activeFilterCount}
               </span>
             )}
+            <ChevronDown size={16} className={`shrink-0 transition-transform duration-150 ${showFilterPopover ? "rotate-180" : ""}`} />
           </button>
 
-          {/* Filter Popover */}
-          {showFilterPopover && (
-            <div className="absolute right-0 z-30 mt-2 w-80 rounded-2xl border border-slate-200 bg-white shadow-2xl">
-              {/* Header */}
-              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-                <h3 className="text-sm font-black text-slate-900">Filters</h3>
-                <button
-                  type="button"
-                  onClick={handleClearFilters}
-                  className="text-xs font-bold text-blue-600 transition hover:text-blue-800"
-                >
-                  Clear Filter
-                </button>
-              </div>
+          <div
+            className={`absolute right-0 top-full z-40 mt-2 w-[min(92vw,440px)] origin-top-right overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/12 transition-all duration-150 ${
+              showFilterPopover ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0 pointer-events-none"
+            }`}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3.5">
+              <h3 className="text-sm font-black text-slate-900">Filters</h3>
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="text-xs font-bold text-blue-600 transition hover:text-blue-800"
+              >
+                Clear Filter
+              </button>
+            </div>
 
-              {/* Branch (SuperAdmin: radio list; Admin: hidden) */}
+            {/* Branch Section */}
+            <div className="border-b border-slate-100 px-4 py-4">
+              <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Branch</p>
               {isSuperAdmin ? (
-                <div className="border-b border-slate-100 px-5 py-4">
-                  <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Branch</p>
-                  <div className="space-y-2">
-                    <label className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition hover:bg-slate-50">
-                      <input
-                        type="radio"
-                        name="cmdb-branch-filter"
-                        value="All"
-                        checked={draftBranch === "All"}
-                        onChange={() => setDraftBranch("All")}
-                        className="h-4 w-4 accent-blue-600"
-                      />
-                      <div>
-                        <p className="text-sm font-bold text-slate-900">All Branches</p>
-                        <p className="text-xs text-slate-500">Show CIs from all branches</p>
-                      </div>
-                    </label>
-                    {filterBranches.map((b) => {
-                      const bId = String(b.branch_id);
-                      return (
-                        <label key={bId} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition hover:bg-slate-50">
-                          <input
-                            type="radio"
-                            name="cmdb-branch-filter"
-                            value={bId}
-                            checked={draftBranch === bId}
-                            onChange={() => setDraftBranch(bId)}
-                            className="h-4 w-4 accent-blue-600"
-                          />
-                          <p className="text-sm font-bold text-slate-900">{b.branch_name}</p>
-                        </label>
-                      );
-                    })}
-                  </div>
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => setDraftBranch("All")}
+                    className={`flex w-full items-center justify-between rounded-[11px] px-3 py-2.5 text-left text-sm font-bold transition ${
+                      draftBranch === "All" ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-blue-50/60 hover:text-blue-700"
+                    }`}
+                  >
+                    <span>All Branches</span>
+                    {draftBranch === "All" && <CheckCircle size={16} className="text-blue-600" />}
+                  </button>
+                  {filterBranches.map((b) => {
+                    const bId = String(b.branch_id);
+                    return (
+                      <button
+                        key={bId}
+                        type="button"
+                        onClick={() => setDraftBranch(bId)}
+                        className={`flex w-full items-center justify-between rounded-[11px] px-3 py-2.5 text-left text-sm font-bold transition ${
+                          draftBranch === bId ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-blue-50/60 hover:text-blue-700"
+                        }`}
+                      >
+                        <span>{b.branch_name}</span>
+                        {draftBranch === bId && <CheckCircle size={16} className="text-blue-600" />}
+                      </button>
+                    );
+                  })}
                 </div>
               ) : (
-                <div className="border-b border-slate-100 px-5 py-4">
-                  <p className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Branch</p>
-                  <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-600">
-                    {user?.branch_name || "Assigned Branch"}
-                  </p>
-                </div>
+                <p className="rounded-[11px] bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-600">
+                  {user?.branch_name || "Assigned Branch"}
+                </p>
               )}
+            </div>
 
-              {/* CI Type */}
-              <div className="border-b border-slate-100 px-5 py-4">
-                <p className="mb-2.5 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">CI Type</p>
-                <select
-                  value={draftType}
-                  onChange={(e) => setDraftType(e.target.value)}
-                  className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15"
-                >
-                  {typeOptions.map((t) => (
-                    <option key={t} value={t}>{t === "All" ? "All Types" : t}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Status */}
-              <div className="border-b border-slate-100 px-5 py-4">
-                <p className="mb-2.5 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Status</p>
-                <select
-                  value={draftStatus}
-                  onChange={(e) => setDraftStatus(e.target.value)}
-                  className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15"
-                >
-                  {statusOptions.map((s) => (
-                    <option key={s} value={s}>{s === "All" ? "All Status" : s}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Environment */}
-              <div className="px-5 py-4">
-                <p className="mb-2.5 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Environment</p>
-                <select
-                  value={draftEnv}
-                  onChange={(e) => setDraftEnv(e.target.value)}
-                  className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15"
-                >
-                  {envOptions.map((e) => (
-                    <option key={e} value={e}>{e === "All" ? "All Environments" : e}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-                <button
-                  type="button"
-                  onClick={handleCancelFilters}
-                  className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleApplyFilters}
-                  className="flex-1 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700"
-                >
-                  Apply Filter
-                </button>
+            {/* CI Type, Status, Environment Grid */}
+            <div className="border-b border-slate-100 px-4 py-4">
+              <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Filters</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">CI Type</span>
+                  <select
+                    value={draftType}
+                    onChange={(e) => setDraftType(e.target.value)}
+                    className="w-full rounded-[11px] border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-200 hover:bg-blue-50/40 focus:border-blue-500 focus:ring-4 focus:ring-blue-600/10"
+                  >
+                    {typeOptions.map((t) => (
+                      <option key={t} value={t}>{t === "All" ? "All Types" : t}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">Status</span>
+                  <select
+                    value={draftStatus}
+                    onChange={(e) => setDraftStatus(e.target.value)}
+                    className="w-full rounded-[11px] border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-200 hover:bg-blue-50/40 focus:border-blue-500 focus:ring-4 focus:ring-blue-600/10"
+                  >
+                    {statusOptions.map((s) => (
+                      <option key={s} value={s}>{s === "All" ? "All Status" : s}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">Environment</span>
+                  <select
+                    value={draftEnv}
+                    onChange={(e) => setDraftEnv(e.target.value)}
+                    className="w-full rounded-[11px] border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-200 hover:bg-blue-50/40 focus:border-blue-500 focus:ring-4 focus:ring-blue-600/10"
+                  >
+                    {envOptions.map((e) => (
+                      <option key={e} value={e}>{e === "All" ? "All Environments" : e}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
             </div>
-          )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-2.5 px-4 py-4">
+              <button
+                type="button"
+                onClick={handleCancelFilters}
+                className="flex-1 rounded-[11px] border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-600 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyFilters}
+                className="flex-1 rounded-[11px] bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-blue-700"
+              >
+                Apply Filter
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1138,20 +1186,27 @@ function DependencyMapPanel({ user, role, branches }) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-black">Dependency Map</h1>
-          <p className="mt-2 max-w-2xl text-slate-200">
-            Visualize relationships and dependencies between configuration items across your infrastructure.
-          </p>
+      <section className="astrea-page-hero relative overflow-hidden rounded-[28px] border border-white/15 px-7 py-8 text-white shadow-[var(--astrea-hero-shadow)] lg:px-10 lg:py-10">
+        <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full border-[34px] border-cyan-200/10" />
+        <div className="pointer-events-none absolute bottom-[-110px] right-24 h-56 w-56 rounded-full bg-cyan-300/10 blur-2xl" />
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl">
+            <h1 className="text-3xl font-black sm:text-4xl">Dependency Map</h1>
+            <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-blue-100 sm:text-base">
+              Visualize relationships and dependencies between configuration items and infrastructure components.
+            </p>
+            <p className="mt-4 text-sm text-cyan-100">
+              {dependencies.length} relationship{dependencies.length !== 1 ? "s" : ""} mapped
+            </p>
+          </div>
+          {isSuperAdmin && (
+            <BranchSelector
+              branches={branches}
+              value={filterBranch}
+              onChange={(val) => setFilterBranch(val)}
+            />
+          )}
         </div>
-        {isSuperAdmin && (
-          <BranchSelector
-            branches={branches}
-            value={filterBranch}
-            onChange={(val) => setFilterBranch(val)}
-          />
-        )}
       </section>
 
       {/* Legend */}
@@ -1317,12 +1372,26 @@ function ChangeImpactPanel({ user, role, branches }) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-black">Change Impact Analysis</h1>
-          <p className="mt-2 max-w-2xl text-slate-200">
-            Assess the downstream impact of changes to a configuration item before making modifications.
-          </p>
+      <section className="astrea-page-hero relative overflow-hidden rounded-[28px] border border-white/15 px-7 py-8 text-white shadow-[var(--astrea-hero-shadow)] lg:px-10 lg:py-10">
+        <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full border-[34px] border-cyan-200/10" />
+        <div className="pointer-events-none absolute bottom-[-110px] right-24 h-56 w-56 rounded-full bg-cyan-300/10 blur-2xl" />
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl">
+            <h1 className="text-3xl font-black sm:text-4xl">Change Impact Analysis</h1>
+            <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-blue-100 sm:text-base">
+              Analyze potential risks and affected components before implementing changes.
+            </p>
+            <p className="mt-4 text-sm text-cyan-100">
+              {ciList.length} CI{ciList.length !== 1 ? "s" : ""} available for analysis
+            </p>
+          </div>
+          <button
+            onClick={() => handleSelectCI("")}
+            className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
+          >
+            <Plus size={18} />
+            New Analysis
+          </button>
         </div>
       </section>
 
@@ -1585,7 +1654,7 @@ export default function CMDB({ initialTab = "config-items" }) {
         <ConfigItemsPanel user={user} role={activeRole} branches={visibleBranches} />
       )}
       {activeTab === "dependency-map" && (
-        <DependencyMapPanel user={user} role={activeRole} branches={visibleBranches} />
+        <DependencyGraphView user={user} role={activeRole} branches={visibleBranches} />
       )}
       {activeTab === "change-impact" && (
         <ChangeImpactPanel user={user} role={activeRole} branches={visibleBranches} />
