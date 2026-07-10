@@ -8,7 +8,7 @@
  * Log files are written to:
  *   C:\ProgramData\AstreaBlue\MonitoringAgent\logs\agent-YYYY-MM-DD.log
  *
- * Run via service: install-service.ps1  (recommended for production)
+ * Run via invisible.vbs + HKLM Run registry entry.
  * Run manually:    node agent.js        (dev / troubleshooting)
  */
 
@@ -20,6 +20,7 @@ const path    = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const crypto  = require('crypto');
+const si      = require('systeminformation');
 
 const execFileAsync = promisify(execFile);
 
@@ -42,6 +43,7 @@ const screenshotMs     = Math.max(activityMs, 5 * 60 * 1000);
 const screenshotEnabled = Boolean(config.screenshotEnabled);
 const heartbeatEndpoint = `${backendUrl}/api/v1/laptop-monitoring/heartbeat`;
 const activityEndpoint = `${backendUrl}/api/v1/laptop-monitoring/activity`;
+const softwareInventoryEndpoint = `${backendUrl}/api/v1/laptop-monitoring/software-inventory`;
 
 if (!backendUrl || !agentToken || agentToken.startsWith('replace-')) {
   console.error('[AstreaBlue Agent] ERROR: Set backendUrl and agentToken in agent-config.json before starting.');
@@ -100,7 +102,7 @@ function loadOrCreateDeviceIdentity() {
     device_uuid: crypto.randomUUID(),
     hostname: os.hostname(),
     device_name: deviceName,
-    agent_version: 'node-windows-1.2',
+    agent_version: 'astreablue-run-1.3',
     created_at: new Date().toISOString(),
   };
   try {
@@ -146,14 +148,59 @@ async function get(pathname) {
   return result;
 }
 
+// ─── Policy Management ────────────────────────────────────────────────────────
+const POLICY_FILE = path.join(DEVICE_DIR, 'policy.json');
+let cachedPolicy = {
+  heartbeat_enabled: true,
+  hardware_inventory_enabled: true,
+  software_inventory_enabled: true,
+  activity_monitoring_enabled: true,
+  screenshot_monitoring_enabled: false,
+};
+
+function loadCachedPolicy() {
+  try {
+    if (fs.existsSync(POLICY_FILE)) {
+      const existing = JSON.parse(fs.readFileSync(POLICY_FILE, 'utf8'));
+      cachedPolicy = { ...cachedPolicy, ...existing };
+    }
+  } catch (error) {
+    warn(`Failed to load cached policy: ${error.message}`);
+  }
+}
+
+function saveCachedPolicy(policy) {
+  try {
+    fs.writeFileSync(POLICY_FILE, JSON.stringify(policy, null, 2), 'utf8');
+  } catch (error) {
+    warn(`Failed to save cached policy: ${error.message}`);
+  }
+}
+
+async function fetchPolicy() {
+  try {
+    const result = await get(`/policy/latest?device_uuid=${encodeURIComponent(deviceUuid)}`);
+    if (result.success && result.data) {
+      cachedPolicy = { ...cachedPolicy, ...result.data };
+      saveCachedPolicy(cachedPolicy);
+      log(`Policy sync SUCCESS | version=${cachedPolicy.policy_version || 'unknown'}`);
+    }
+  } catch (error) {
+    warn(`Policy sync FAILURE | Using cached policy. error=${error.message}`);
+  }
+}
+
+loadCachedPolicy();
+
 // ─── Heartbeat ────────────────────────────────────────────────────────────────
 async function heartbeat() {
+  if (!cachedPolicy.heartbeat_enabled) return true; // Pretend success
   try {
     const result = await post('/heartbeat', {
       device_uuid: deviceUuid,
       hostname: os.hostname(),
       device_name: deviceName,
-      agent_version: 'node-windows-1.2',
+      agent_version: 'astreablue-run-1.3',
       logged_in_user: os.userInfo().username,
       timestamp: new Date().toISOString(),
     });
@@ -208,6 +255,7 @@ async function readActivity() {
 }
 
 async function sendActivity() {
+  if (!cachedPolicy.activity_monitoring_enabled) return;
   try {
     const activity = await readActivity();
     await post('/activity', {
@@ -226,7 +274,7 @@ async function sendActivity() {
 
 // ─── Screenshot (disabled by default, requires server-side consent) ───────────
 async function captureScreenshot() {
-  if (!screenshotEnabled || process.platform !== 'win32') return;
+  if (!screenshotEnabled || process.platform !== 'win32' || !cachedPolicy.screenshot_monitoring_enabled) return;
   try {
     const permission = await get(`/screenshot-permission?device_uuid=${encodeURIComponent(deviceUuid)}`);
     if (!permission.data?.allowed) {
@@ -252,7 +300,105 @@ async function captureScreenshot() {
   }
 }
 
+// ============================================================================
+async function sendHardwareInventory() {
+  if (!cachedPolicy.hardware_inventory_enabled) return;
+  try {
+    const [system, osInfo, cpu, mem, disk, net] = await Promise.all([
+      si.system(),
+      si.osInfo(),
+      si.cpu(),
+      si.mem(),
+      si.fsSize(),
+      si.networkInterfaces()
+    ]);
+
+    const primaryDisk = disk[0] || {};
+    const defaultNet = (Array.isArray(net) ? net : [net]).find(n => !n.internal && n.mac) || net[0] || {};
+
+    const payload = {
+      device_uuid: deviceUuid,
+      manufacturer: system.manufacturer,
+      model: system.model,
+      serial_number: system.serial,
+      cpu_name: `${cpu.manufacturer} ${cpu.brand}`.trim(),
+      total_ram_gb: (mem.total / (1024 ** 3)).toFixed(2),
+      os_name: osInfo.distro,
+      os_version: osInfo.release,
+      os_build: osInfo.build,
+      architecture: osInfo.arch,
+      disk_total_gb: primaryDisk.size ? (primaryDisk.size / (1024 ** 3)).toFixed(2) : null,
+      disk_free_gb: primaryDisk.available ? (primaryDisk.available / (1024 ** 3)).toFixed(2) : null,
+      mac_address: defaultNet.mac,
+      ip_address: defaultNet.ip4
+    };
+
+    await post('/hardware-inventory', payload);
+    log(`Hardware Inventory SUCCESS | Sent hardware specifications to AstreaBlue.`);
+  } catch (e) {
+    err(`Hardware Inventory FAILURE | error=${e.message}`);
+  }
+}
+
 // ─── Startup ──────────────────────────────────────────────────────────────────
+const SOFTWARE_INVENTORY_SCRIPT = `
+$paths = @(
+  @{ Path='HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; Source='registry:hklm' },
+  @{ Path='HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; Source='registry:hklm-wow6432' },
+  @{ Path='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; Source='registry:hkcu' }
+)
+$items = New-Object System.Collections.Generic.List[object]
+foreach ($entry in $paths) {
+  try {
+    Get-ItemProperty -Path $entry.Path -ErrorAction Stop | ForEach-Object {
+      $name = [string]$_.DisplayName
+      if (-not [string]::IsNullOrWhiteSpace($name)) {
+        $items.Add([pscustomobject]@{
+          software_name = $name.Trim()
+          version = if ($_.DisplayVersion) { [string]$_.DisplayVersion } else { $null }
+          publisher = if ($_.Publisher) { [string]$_.Publisher } else { $null }
+          install_date = if ($_.InstallDate) { [string]$_.InstallDate } else { $null }
+          install_location = if ($_.InstallLocation) { [string]$_.InstallLocation } else { $null }
+          source = $entry.Source
+        })
+      }
+    }
+  } catch {}
+}
+$items | Sort-Object software_name, publisher -Unique | ConvertTo-Json -Compress -Depth 3
+`;
+
+async function readSoftwareInventory() {
+  if (process.platform !== 'win32') return [];
+  const { stdout } = await execFileAsync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', SOFTWARE_INVENTORY_SCRIPT],
+    { windowsHide: true, timeout: 120000, maxBuffer: 8 * 1024 * 1024 }
+  );
+  const trimmed = stdout.trim();
+  if (!trimmed) return [];
+  const parsed = JSON.parse(trimmed);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+async function sendSoftwareInventory() {
+  if (!cachedPolicy.software_inventory_enabled) return;
+  const scanStartedAt = new Date().toISOString();
+  try {
+    const software = await readSoftwareInventory();
+    await post('/software-inventory', {
+      device_uuid: deviceUuid,
+      hostname: os.hostname(),
+      scan_started_at: scanStartedAt,
+      scan_completed_at: new Date().toISOString(),
+      software,
+    });
+    log(`Software Inventory SUCCESS | endpoint=${softwareInventoryEndpoint} | records=${software.length}`);
+  } catch (e) {
+    err(`Software Inventory FAILURE | endpoint=${softwareInventoryEndpoint} | error=${e.message}`);
+  }
+}
+
 log('='.repeat(60));
 log(`AstreaBlue Monitoring Agent starting — v1.1`);
 log(`Device:   ${deviceName}`);
@@ -261,15 +407,27 @@ log(`Hostname: ${os.hostname()}`);
 log(`Backend:  ${backendUrl}`);
 log(`Heartbeat endpoint: ${heartbeatEndpoint}`);
 log(`Activity endpoint:  ${activityEndpoint}`);
+log(`Software inventory endpoint: ${softwareInventoryEndpoint}`);
 log(`Heartbeat every ${heartbeatMs / 1000}s | Activity every ${activityMs / 1000}s`);
 log('Privacy:  No keystrokes, passwords, microphone, or camera data collected.');
 if (screenshotEnabled) warn('Screenshot capture ENABLED — requires explicit server-side consent per device.');
 log('='.repeat(60));
 
 // Send immediately on startup, then on intervals
-heartbeat().then((registered) => { if (registered) sendActivity(); });
+heartbeat().then(async (registered) => { 
+  if (registered) {
+    await fetchPolicy();
+    sendActivity();
+    sendHardwareInventory();
+    sendSoftwareInventory();
+  }
+});
 setInterval(heartbeat,    heartbeatMs);
+setInterval(fetchPolicy,  60 * 1000); // 60 seconds
 setInterval(sendActivity, activityMs);
+setInterval(sendHardwareInventory, 24 * 60 * 60 * 1000); // 24 hours
+setInterval(sendSoftwareInventory, 24 * 60 * 60 * 1000); // 24 hours
+
 if (screenshotEnabled) {
   captureScreenshot();
   setInterval(captureScreenshot, screenshotMs);

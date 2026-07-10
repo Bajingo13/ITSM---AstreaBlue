@@ -49,14 +49,21 @@ function authHeaders() {
 
 function StatusBadge({ status }) {
   const map = {
-    signed: "bg-blue-100 text-blue-700",
+    approved: "bg-green-100 text-green-700",
+    signed: "bg-green-100 text-green-700",
+    pending_employee: "bg-amber-100 text-amber-700",
+    pending_approval: "bg-blue-100 text-blue-700",
+    revision_requested: "bg-amber-100 text-amber-700",
     pending: "bg-amber-100 text-amber-700",
+    rejected: "bg-red-100 text-red-700",
     withdrawn: "bg-red-100 text-red-700",
     superseded: "bg-slate-100 text-slate-600",
+    expired: "bg-slate-100 text-slate-600",
   };
+  const label = String(status || "draft").replaceAll("_", " ");
   return (
     <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-black uppercase ${map[status] || "bg-slate-100 text-slate-600"}`}>
-      {status}
+      {label}
     </span>
   );
 }
@@ -112,17 +119,20 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
     setActioning(true);
     try {
       let url, body;
-      if (actionType === "approve_change") {
+      if (["approve", "reject", "request_revision"].includes(actionType)) {
+        url = `${API_BASE}/consent/${consent.consent_id}/review`;
+        body = JSON.stringify({ action: actionType, reason: actionNotes });
+      } else if (actionType === "approve_change") {
         url = `${API_BASE}/consent/${consent.consent_id}/approve-change`;
         body = JSON.stringify({ new_preferences: approvePrefs, notes: actionNotes });
       } else {
         url = `${API_BASE}/consent/${consent.consent_id}/admin-action`;
         body = JSON.stringify({ action: actionType, notes: actionNotes });
       }
-      const res = await fetch(url, { method: actionType === "approve_change" ? "POST" : "PUT", headers: authHeaders(), body });
+      const res = await fetch(url, { method: ["approve_change", "approve", "reject", "request_revision"].includes(actionType) ? "POST" : "PUT", headers: authHeaders(), body });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Action failed.");
-      onAction(consent.consent_id, actionType === "approve_change" ? "superseded" : data.new_status);
+      onAction(consent.consent_id, data.data?.status || (actionType === "approve_change" ? "approved" : data.new_status));
       onClose();
     } catch (err) {
       alert("Error: " + err.message);
@@ -276,10 +286,12 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
               <h3 className="font-black text-amber-900">Admin Action</h3>
               <div className="flex flex-wrap gap-2">
                 {[
+                  ["approve", "Approve Consent"],
+                  ["reject", "Reject"],
+                  ["request_revision", "Request Revision"],
                   ["approve_change", "Approve Change Request"],
                   ["withdraw", "Withdraw Consent"],
                   ["supersede", "Supersede"],
-                  ["reject", "Reject Change Request"],
                 ].map(([val, lab]) => (
                   <button
                     key={val}
@@ -343,7 +355,7 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
 
         {/* Footer */}
         <div className="border-t border-slate-200 bg-white/95 px-7 py-4 flex flex-wrap items-center gap-3 justify-end">
-          {consent.status === "signed" && (
+          {["pending_approval", "approved", "signed"].includes(consent.status) && (
             <>
               <button
                 onClick={() => { logPrint("print"); window.print(); }}
@@ -424,9 +436,9 @@ export default function ConsentManagement() {
 
   const stats = {
     total: consents.length,
-    signed: consents.filter((c) => c.consent_status === "signed").length,
-    pending: consents.filter((c) => c.consent_status === "pending").length,
-    withdrawn: consents.filter((c) => c.consent_status === "withdrawn").length,
+    approved: consents.filter((c) => ["approved", "signed"].includes(c.consent_status)).length,
+    pending: consents.filter((c) => ["pending_employee", "pending_approval", "pending"].includes(c.consent_status)).length,
+    review: consents.filter((c) => c.consent_status === "pending_approval").length,
   };
 
   const handleAction = (consentId, newStatus) => {
@@ -455,9 +467,9 @@ export default function ConsentManagement() {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {[
           ["Total Consents", stats.total, "bg-slate-50 text-slate-700"],
-          ["Signed", stats.signed, "bg-blue-50 text-blue-700"],
+          ["Approved", stats.approved, "bg-green-50 text-green-700"],
           ["Pending", stats.pending, "bg-amber-50 text-amber-700"],
-          ["Withdrawn", stats.withdrawn, "bg-red-50 text-red-700"],
+          ["Needs Review", stats.review, "bg-blue-50 text-blue-700"],
         ].map(([label, value, cls]) => (
           <div key={label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className={`inline-flex items-center rounded-2xl p-3 ${cls} mb-3`}>
@@ -487,8 +499,11 @@ export default function ConsentManagement() {
             className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-600"
           >
             <option value="all">All Statuses</option>
-            <option value="signed">Signed</option>
-            <option value="pending">Pending</option>
+            <option value="pending_employee">Pending Employee</option>
+            <option value="pending_approval">Pending Approval</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="revision_requested">Revision Requested</option>
             <option value="withdrawn">Withdrawn</option>
             <option value="superseded">Superseded</option>
           </select>

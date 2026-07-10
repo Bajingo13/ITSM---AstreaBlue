@@ -2,7 +2,7 @@
   "name": "astreablue-monitoring-agent-windows",
   "version": "1.2.0",
   "private": true,
-  "description": "Consent-aware AstreaBlue Windows endpoint monitoring agent — production-ready with Windows Service support",
+  "description": "Consent-aware AstreaBlue Windows endpoint management agent using invisible.vbs and HKLM Run startup",
   "main": "agent.js",
   "scripts": {
     "start": "node agent.js",
@@ -12,6 +12,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "node-windows": "^1.0.0-beta.8"
+    "node-windows": "^1.0.0-beta.8",
+    "systeminformation": "^5.31.15"
   }
 }

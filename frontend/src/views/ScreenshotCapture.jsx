@@ -4,7 +4,7 @@ import PageHero from "../components/layout/PageHero";
 import { API_URL } from "../config/api";
 import { authHeaders } from "../services/authHeaders";
 
-const API_BASE = `${API_URL}/api/v1/laptop-monitoring`;
+const API_BASE = `${API_URL}/api/v1/endpoint-management`;
 
 const formatDate = (value) => value ? new Date(value).toLocaleString() : "Never";
 

@@ -19,6 +19,7 @@ import {
   Plus,
   Search,
   ShieldCheck,
+  Trash2,
   Truck,
   User,
   X,
@@ -26,6 +27,8 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { API_URL } from "../config/api";
+
+import { authHeaders } from "../services/authHeaders";
 
 const API_BASE = `${API_URL}/api/v1`;
 const EMPTY_DETAIL_VALUE = "-";
@@ -709,6 +712,13 @@ export default function Assets() {
   const [historyAsset, setHistoryAsset] = useState(null);
   const [historyRecords, setHistoryRecords] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportDateFrom, setExportDateFrom] = useState("");
+  const [exportDateTo, setExportDateTo] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [deletingAsset, setDeletingAsset] = useState(null);
+  const [toast, setToast] = useState(null); // { message, type } where type is "success" | "error"
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
 
   const changeViewMode = (mode) => {
     setViewMode(mode);
@@ -887,6 +897,10 @@ export default function Assets() {
   const totalActive = visibleAssets.filter((asset) => asset.status === "Active").length;
   const totalBorrowed = visibleAssets.filter((asset) => asset.status === "Borrowed").length;
 
+  const verifiedAssets = visibleAssets.filter(a => a.monitoring_device_id && a.agent_serial_number && String(a.serial_number).trim().toLowerCase() === String(a.agent_serial_number).trim().toLowerCase()).length;
+  const mismatchedAssets = visibleAssets.filter(a => a.monitoring_device_id && a.agent_serial_number && String(a.serial_number).trim().toLowerCase() !== String(a.agent_serial_number).trim().toLowerCase()).length;
+  const pendingAssets = visibleAssets.filter(a => a.monitoring_device_id && !a.agent_serial_number).length;
+  const offlineDevices = visibleAssets.filter(a => a.monitoring_device_id && a.monitoring_status === "Offline").length;
 
   /* Branch carousel scroll state */
   const carouselRef = useRef(null);
@@ -1178,31 +1192,130 @@ export default function Assets() {
     }
   };
 
+
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleDelete = async () => {
+    if (!deletingAsset) return;
+    try {
+      const res = await fetch(`${API_BASE}/hardware-assets/${deletingAsset.asset_id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || data.message || "Failed to delete hardware asset");
+      }
+      setDeletingAsset(null);
+      showToast("Hardware asset deleted successfully.", "success");
+      await fetchAssets();
+    } catch (err) {
+      console.error("Delete hardware asset failed:", err);
+      setDeletingAsset(null);
+      showToast(err.message || "Failed to delete hardware asset. Please try again.", "error");
+    } finally {
+      setDeleteConfirmed(false);
+    }
+  };
+
+  const handleDeleteClick = () => {
+    setDeleteConfirmed(true);
+    // Small delay so the button visually transitions before deletion proceeds
+    setTimeout(() => handleDelete(), 200);
+  };
+
+  /* ── Export ───────────────────────────────────── */
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const params = new URLSearchParams({ t: Date.now() });
+      if (exportDateFrom) params.set("start_date", exportDateFrom);
+      if (exportDateTo) params.set("end_date", exportDateTo);
+
+      const res = await fetch(`${API_BASE}/hardware-assets/export?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token") || sessionStorage.getItem("token") || ""}` },
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Export failed" }));
+        alert(err.message || err.error || "No hardware assets found for the selected date range.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : "hardware-assets-export.xlsx";
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      setShowExportModal(false);
+    } catch (err) {
+      console.error("Export error:", err);
+      alert("Failed to export hardware assets. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
   return (
     <div className="space-y-6">
-      <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-black">Hardware Assets</h1>
-          <p className="mt-2 max-w-2xl text-slate-200">
-            Track company laptops, desktops, printers, phones and hardware by branch with status monitoring, borrower history, and lifecycle controls.
-          </p>
-          <p className="mt-4 text-sm text-blue-100">
-            {totalAssets} total assets · {totalActive} active · {totalBorrowed} borrowed
-          </p>
-        </div>
+      <section className="astrea-page-hero relative overflow-hidden rounded-[28px] border border-white/15 px-7 py-8 text-white shadow-[var(--astrea-hero-shadow)] lg:px-10 lg:py-10">
+        <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full border-[34px] border-cyan-200/10" />
+        <div className="pointer-events-none absolute bottom-[-110px] right-24 h-56 w-56 rounded-full bg-cyan-300/10 blur-2xl" />
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl">
+            <h1 className="text-3xl font-black sm:text-4xl">Hardware Assets</h1>
+            <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-blue-100 sm:text-base">
+              Track company laptops, desktops, printers, phones and hardware by branch with status monitoring, borrower history, and lifecycle controls.
+            </p>
+            <p className="mt-4 text-sm text-cyan-100">
+              {totalAssets} total assets · {totalActive} active · {totalBorrowed} borrowed
+            </p>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={openAddAsset}
-            className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
-          >
-            <Plus size={18} />
-            Add Asset
-          </button>
-          <button className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100">
-            <Download size={18} />
-            Export
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={openAddAsset}
+              className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
+            >
+              <Plus size={18} />
+              Add Asset
+            </button>
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="inline-flex items-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-black text-white shadow-sm backdrop-blur-sm transition hover:bg-white/20"
+            >
+              <Download size={18} />
+              Export
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Verified Assets</p>
+          <p className="mt-3 text-2xl font-black text-emerald-600">{verifiedAssets}</p>
+        </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Mismatched Assets</p>
+          <p className="mt-3 text-2xl font-black text-rose-600">{mismatchedAssets}</p>
+        </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Pending Verification</p>
+          <p className="mt-3 text-2xl font-black text-amber-600">{pendingAssets}</p>
+        </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Offline Devices</p>
+          <p className="mt-3 text-2xl font-black text-slate-900">{offlineDevices}</p>
         </div>
       </section>
 
@@ -1435,7 +1548,14 @@ export default function Assets() {
           ) : (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {visibleAssets.map((asset) => (
-                <AssetCard key={asset.asset_id} asset={asset} onView={() => setViewingAsset(asset)} onEdit={() => openEditAsset(asset)} onHistory={() => openHistory(asset)} />
+                <AssetCard
+                  key={asset.asset_id}
+                  asset={asset}
+                  onView={() => setViewingAsset(asset)}
+                  onEdit={() => openEditAsset(asset)}
+                  onHistory={() => openHistory(asset)}
+                  onDelete={() => setDeletingAsset(asset)}
+                />
               ))}
             </div>
           )}
@@ -1554,6 +1674,14 @@ export default function Assets() {
                       >
                         Dispose
                       </button>
+                      {(activeRole === "SuperAdmin" || activeRole === "Admin") && (
+                        <button
+                          onClick={() => setDeletingAsset(asset)}
+                          className="inline-flex items-center gap-1 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100"
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1591,11 +1719,142 @@ export default function Assets() {
       {historyAsset && (
         <AssetHistoryModal asset={historyAsset} records={historyRecords} loading={historyLoading} onClose={() => setHistoryAsset(null)} />
       )}
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-[28px] bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <h2 className="text-xl font-black text-slate-900">Export Hardware Assets</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Select a date range for the export.
+              </p>
+            </div>
+            <div className="space-y-5 px-6 py-6">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">From Date</span>
+                <input
+                  type="date"
+                  value={exportDateFrom}
+                  onChange={(e) => setExportDateFrom(e.target.value)}
+                  className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15"
+                />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">To Date</span>
+                <input
+                  type="date"
+                  value={exportDateTo}
+                  onChange={(e) => setExportDateTo(e.target.value)}
+                  className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15"
+                />
+              </label>
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => { setShowExportModal(false); setExportDateFrom(""); setExportDateTo(""); }}
+                className="rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exporting}
+                className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {exporting ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download size={16} />
+                    Export Excel
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deletingAsset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-[28px] bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <h2 className="text-xl font-black text-slate-900">Delete Hardware Asset</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Are you sure you want to delete this hardware asset? This action cannot be undone.
+              </p>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-slate-600">
+                <span className="font-bold">Asset:</span> {deletingAsset.asset_name || `${deletingAsset.brand || ""} ${deletingAsset.model || ""}`.trim() || "Unknown"}
+              </p>
+              {deletingAsset.serial_number && (
+                <p className="mt-1 text-sm text-slate-600">
+                  <span className="font-bold">Serial:</span> {deletingAsset.serial_number}
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => { setDeletingAsset(null); setDeleteConfirmed(false); }}
+                className="rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteClick}
+                disabled={deleteConfirmed}
+                className={`inline-flex items-center gap-2 rounded-2xl border px-5 py-2.5 text-sm font-bold transition-all duration-200 ${
+                  deleteConfirmed
+                    ? "border-red-600 bg-red-600 text-white hover:bg-red-700 hover:border-red-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <Trash2 size={16} className={`transition-all duration-200 ${deleteConfirmed ? "text-white" : "text-slate-400"}`} />
+                {deleteConfirmed ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 rounded-2xl px-5 py-3 shadow-2xl transition-all ${
+            toast.type === "success"
+              ? "bg-emerald-600 text-white"
+              : "bg-red-600 text-white"
+          }`}
+        >
+          {toast.type === "success" ? (
+            <CheckCircle size={18} />
+          ) : (
+            <AlertTriangle size={18} />
+          )}
+          <span className="text-sm font-bold">{toast.message}</span>
+          <button onClick={() => setToast(null)} className="ml-2 rounded-full p-0.5 hover:bg-white/20">
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function AssetCard({ asset, onView, onEdit, onHistory }) {
+function AssetCard({ asset, onView, onEdit, onHistory, onDelete }) {
+  const { role } = useAuth();
+  const activeRole = role || "Employee";
+  const canDelete = activeRole === "SuperAdmin" || activeRole === "Admin";
   const location = asset.location || asset.branch_name || asset.department || asset.team_department || "Unassigned";
   const assignedTo = asset.assigned_name || asset.borrower_name || "Unassigned";
 
@@ -1621,17 +1880,45 @@ function AssetCard({ asset, onView, onEdit, onHistory }) {
           <p><span className="font-bold text-slate-800">Location:</span> {location}</p>
           <p><span className="font-bold text-slate-800">Assigned:</span> {assignedTo}</p>
         </div>
-        <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
+        <div className="mt-5 grid grid-cols-4 gap-2 border-t border-slate-100 pt-4">
           <button onClick={onView} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"><Eye size={14} /> View</button>
           <button onClick={onEdit} className="inline-flex items-center justify-center gap-1 rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-100"><Pencil size={14} /> Edit</button>
           <button onClick={onHistory} className="inline-flex items-center justify-center gap-1 rounded-xl bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 hover:bg-violet-100"><History size={14} /> History</button>
+          {canDelete && (
+            <button onClick={onDelete} className="inline-flex items-center justify-center gap-1 rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100"><Trash2 size={14} /> Delete</button>
+          )}
         </div>
       </div>
     </article>
   );
 }
 
+
 function AssetDetailsModal({ asset, onClose }) {
+  const [hardware, setHardware] = useState(null);
+  const [software, setSoftware] = useState([]);
+  
+  const [reconciliation, setReconciliation] = useState([]);
+
+  useEffect(() => {
+    if (asset?.asset_id) {
+      fetch(`${API_URL}/api/v1/endpoint-management/hardware-inventory-by-asset/${asset.asset_id}`, { headers: authHeaders() })
+        .then(r => r.json())
+        .then(d => { if (d.success) setHardware(d.data); })
+        .catch(console.error);
+
+      fetch(`${API_URL}/api/v1/endpoint-management/software-inventory-by-asset/${asset.asset_id}`, { headers: authHeaders() })
+        .then(r => r.json())
+        .then(d => { if (d.success) setSoftware(Array.isArray(d.data) ? d.data : []); })
+        .catch(console.error);
+
+      fetch(`${API_URL}/api/v1/assets/${asset.asset_id}/reconciliation`, { headers: authHeaders() })
+        .then(r => r.json())
+        .then(d => { if (d.success) setReconciliation(d.data); })
+        .catch(console.error);
+    }
+  }, [asset?.asset_id]);
+
   const assetName = formatAssetDetailValue(firstAssetValue(asset, [
     "asset_name",
     (item) => joinAssetValues([
@@ -1717,6 +2004,8 @@ function AssetDetailsModal({ asset, onClose }) {
     },
   ];
 
+  const hasCriticalMismatch = reconciliation.some(r => r.severity === 'Critical');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
@@ -1745,11 +2034,105 @@ function AssetDetailsModal({ asset, onClose }) {
             {detailSections.map((section) => (
               <AssetDetailSection key={section.title} title={section.title} items={section.items} />
             ))}
+
+            {reconciliation.length > 0 ? (
+              <section className="mt-8 rounded-3xl border border-blue-200 bg-blue-50/50 p-6 shadow-sm">
+                <h3 className="mb-4 text-sm font-black uppercase tracking-[0.16em] text-blue-800">Agent Verification</h3>
+                {hasCriticalMismatch && (
+                  <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                    <p className="text-sm font-black text-rose-700 uppercase tracking-wide">Action Recommended</p>
+                    <p className="mt-1 text-sm font-semibold text-rose-900">Serial number mismatch. Verify whether the physical device was replaced.</p>
+                  </div>
+                )}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-slate-600">
+                    <thead className="bg-slate-100 text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 font-black">Field</th>
+                        <th className="px-4 py-3 font-black">Asset Record</th>
+                        <th className="px-4 py-3 font-black">Agent Detected</th>
+                        <th className="px-4 py-3 font-black">Verification</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {reconciliation.map((r, i) => (
+                        <tr key={i}>
+                          <td className="px-4 py-3 font-bold">{r.field_name}</td>
+                          <td className="px-4 py-3">{r.asset_value || '—'}</td>
+                          <td className="px-4 py-3">{r.detected_value || '—'}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                              r.status === 'Match' ? 'bg-emerald-100 text-emerald-800' :
+                              r.status === 'Unknown' ? 'bg-slate-100 text-slate-800' :
+                              r.severity === 'Critical' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {r.status} {r.status === 'Mismatch' ? `(${r.severity})` : ''}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-4 text-xs font-semibold text-slate-500 text-right">
+                  Last checked: {new Date(reconciliation[0]?.checked_at).toLocaleString()}
+                </div>
+              </section>
+            ) : hardware ? (
+              <section className="mt-8 rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+                <h3 className="mb-4 text-sm font-black uppercase tracking-[0.16em] text-slate-500">Agent-Detected Hardware</h3>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div><p className="text-xs font-bold text-slate-500">Serial Number</p><p className="text-sm font-semibold text-slate-900">{hardware.serial_number}</p></div>
+                  <div><p className="text-xs font-bold text-slate-500">Processor</p><p className="text-sm font-semibold text-slate-900">{hardware.cpu_name}</p></div>
+                  <div><p className="text-xs font-bold text-slate-500">Memory (RAM)</p><p className="text-sm font-semibold text-slate-900">{hardware.total_ram_gb} GB</p></div>
+                  <div><p className="text-xs font-bold text-slate-500">Operating System</p><p className="text-sm font-semibold text-slate-900">{hardware.os_name} {hardware.os_version}</p></div>
+                  <div><p className="text-xs font-bold text-slate-500">IP / MAC Address</p><p className="text-sm font-semibold text-slate-900">{hardware.ip_address} <br/> {hardware.mac_address}</p></div>
+                  <div><p className="text-xs font-bold text-slate-500">Last Scan</p><p className="text-sm font-semibold text-slate-900">{new Date(hardware.scanned_at).toLocaleString()}</p></div>
+                </div>
+              </section>
+            ) : null}
+
+            <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="mb-4 text-sm font-black uppercase tracking-[0.16em] text-slate-500">Agent-Detected Software</h3>
+              {software.length === 0 ? (
+                <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">No software inventory scan available for this linked asset.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[760px] text-left text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 font-black">Software</th>
+                        <th className="px-4 py-3 font-black">Version</th>
+                        <th className="px-4 py-3 font-black">Publisher</th>
+                        <th className="px-4 py-3 font-black">Last Seen</th>
+                        <th className="px-4 py-3 font-black">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {software.slice(0, 100).map((item) => (
+                        <tr key={item.id}>
+                          <td className="px-4 py-3 font-bold text-slate-900">{item.software_name}</td>
+                          <td className="px-4 py-3 text-slate-600">{item.version || "—"}</td>
+                          <td className="px-4 py-3 text-slate-600">{item.publisher || "—"}</td>
+                          <td className="px-4 py-3 text-slate-500">{item.last_seen_at ? new Date(item.last_seen_at).toLocaleString() : "Never"}</td>
+                          <td className="px-4 py-3"><AssetSoftwareStatus status={item.status} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+function AssetSoftwareStatus({ status = "active" }) {
+  const active = String(status).toLowerCase() === "active";
+  return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-black uppercase ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{status}</span>;
 }
 
 function AssetDetailSection({ title, items }) {
@@ -2201,7 +2584,7 @@ function AssetField({ label, required = false, className = "", error = "", child
     <label className={`block space-y-2 ${className}`}>
       <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">
         {label}
-        {required && <span> *</span>}
+        {required && <span className="ml-1 text-rose-500">*</span>}
       </span>
       {children}
       {error && <span className="block text-xs font-bold text-rose-600">{error}</span>}

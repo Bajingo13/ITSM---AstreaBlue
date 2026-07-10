@@ -1,0 +1,32 @@
+<service>
+	<id>astreabluemonitoringagent.exe</id>
+	<name>AstreaBlue Monitoring Agent</name>
+	<description>AstreaBlue ITSM consent-aware endpoint monitoring agent.</description>
+	<executable>D:\node.exe</executable>
+	<argument>--harmony</argument>
+	<argument>C:\Users\janis\asset-monitoring-backend\agent-windows\node_modules\node-windows\lib\wrapper.js</argument>
+	<argument>--file</argument>
+	<argument>C:\Users\janis\asset-monitoring-backend\agent-windows\agent.js</argument>
+	<argument>--scriptoptions=</argument>
+	<argument>--log</argument>
+	<argument>AstreaBlue Monitoring Agent wrapper</argument>
+	<argument>--grow</argument>
+	<argument>0.25</argument>
+	<argument>--wait</argument>
+	<argument>60</argument>
+	<argument>--maxrestarts</argument>
+	<argument>5</argument>
+	<argument>--abortonerror</argument>
+	<argument>n</argument>
+	<argument>--stopparentfirst</argument>
+	<argument>undefined</argument>
+	<logmode>rotate</logmode>
+	<logpath>C:\ProgramData\AstreaBlue\MonitoringAgent\logs</logpath>
+	<stoptimeout>30sec</stoptimeout>
+	<serviceaccount>
+		<domain>LAPTOP-G0VUESLJ</domain>
+		<user>LocalSystem</user>
+		<password></password>
+	</serviceaccount>
+	<workingdirectory>C:\Users\janis\asset-monitoring-backend\agent-windows</workingdirectory>
+</service>

@@ -134,13 +134,36 @@ async function sendInvitationEmail({
 
   try {
     const bodyContent = `
-      <p>Hello <strong>${safeName}</strong>,</p>
-      <p>You've been invited to join the AstreaBlue ITSM system as a <strong>${safeRole}</strong> at <strong>${safeBranch}</strong>.</p>
-      <p>Please complete your registration by visiting the link below:</p>
-      <a href="${inviteLink}" class="button">Complete Registration</a>
-      <p style="font-size: 0.9em; margin-top: 24px; color: #64748b;">Or copy and paste this link into your browser:<br/>
-      <a href="${inviteLink}" style="color: #2563EB; word-break: break-all;">${inviteLink}</a></p>
-      <p style="font-size: 0.85em; margin-top: 32px; color: #64748b;">This link will expire in 24 hours.<br/>If you didn't expect this invitation, please ignore this email.</p>
+      <p style="font-size: 17px; font-weight: 600; margin-bottom: 16px;">Hello ${safeName},</p>
+      <p>You have been invited to join <strong>AstreaBlue ITSM</strong> as a:</p>
+      <div class="info-block" style="background:#F8FAFC;border-radius:12px;padding:18px 22px;margin-bottom:24px;border:1px solid #E2E8F0;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr>
+            <td style="padding:6px 0;font-size:13px;color:#64748B;width:80px;vertical-align:top;">Role:</td>
+            <td style="padding:6px 0;font-size:14px;font-weight:700;color:#2563EB;">${safeRole}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;font-size:13px;color:#64748B;width:80px;vertical-align:top;">Branch:</td>
+            <td style="padding:6px 0;font-size:14px;font-weight:700;color:#0F172A;">${safeBranch}</td>
+          </tr>
+        </table>
+      </div>
+      <p>Complete your registration to activate your account. This invitation is valid for <strong>24 hours</strong>.</p>
+      <div class="button-wrapper" style="text-align:center;margin:28px 0;">
+        <!--[if mso]>
+        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${inviteLink}" style="height:48px;v-text-anchor:middle;width:260px;" arcsize="25%" strokecolor="#2563EB" fillcolor="#2563EB">
+          <w:anchorlock/>
+          <center style="color:#ffffff;font-family:sans-serif;font-size:15px;font-weight:700;">Complete Registration</center>
+        </v:roundrect>
+        <![endif]-->
+        <!--[if !mso]><!-- -->
+        <a href="${inviteLink}" style="display:inline-block;background:linear-gradient(135deg,#2563EB 0%,#38BDF8 100%);color:#ffffff !important;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:700;font-size:15px;text-align:center;box-shadow:0 4px 10px rgba(37,99,235,0.2);">Complete Registration</a>
+        <!--<![endif]-->
+      </div>
+      <div class="fallback-link" style="text-align:center;margin:18px 0 0;font-size:13px;color:#64748B;">
+        Or copy and paste this link into your browser:<br/>
+        <a href="${inviteLink}" style="color:#2563EB;word-break:break-all;">${inviteLink}</a>
+      </div>
     `;
 
     return await sendMail({
@@ -150,13 +173,14 @@ async function sendInvitationEmail({
       text: [
       `Hello ${safeName},`,
       "",
-      `You've been invited to join the AstreaBlue ITSM system as a ${safeRole} at ${safeBranch}.`,
-      "Please complete your registration by visiting the link below:",
+      `You have been invited to join AstreaBlue ITSM as a ${safeRole} at ${safeBranch}.`,
+      "Complete your registration to activate your account:",
       "",
       inviteLink,
       "",
-      "This link will expire in 24 hours.",
-      "If you didn't expect this invitation, please ignore this email.",
+      "This invitation expires in 24 hours.",
+      "Regards,",
+      "AstreaBlue ITSM Team",
       ].join("\n"),
       html: generateEmailHtml("Welcome to AstreaBlue ITSM", bodyContent),
     });

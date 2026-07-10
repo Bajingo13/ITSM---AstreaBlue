@@ -84,6 +84,11 @@ I understand that the monitoring activities listed herein are conducted solely f
 This consent document is legally binding and constitutes my informed agreement to the processing activities described above.
 `.trim();
 
+const approvedStatuses = ["approved", "signed"];
+const terminalStatuses = ["withdrawn", "superseded", "rejected", "expired"];
+const pendingReviewStatuses = ["pending_approval", "submitted"];
+const statusLabel = (status) => String(status || "draft").replaceAll("_", " ");
+
 function getToken() {
   return (
     localStorage.getItem("astreablue_token") ||
@@ -232,14 +237,14 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
                 Consent ID: {consent.consent_id} · Version {consent.consent_version} ·{" "}
                 <span
                   className={`font-black uppercase ${
-                    consent.status === "signed"
-                      ? "text-blue-600"
+                    approvedStatuses.includes(consent.status)
+                      ? "text-green-600"
                       : consent.status === "withdrawn"
                       ? "text-red-600"
                       : "text-amber-600"
                   }`}
                 >
-                  {consent.status}
+                  {statusLabel(consent.status)}
                 </span>
               </p>
             </div>
@@ -422,7 +427,7 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
 
         {/* Footer actions */}
         <div className="border-t border-slate-200 bg-white/95 px-7 py-4 flex flex-wrap items-center gap-3 justify-end">
-          {consent.status === "signed" && (
+          {approvedStatuses.includes(consent.status) && (
             <>
               <button
                 onClick={() => {
@@ -441,7 +446,7 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
               </button>
             </>
           )}
-          {onRequestChange && consent.status === "signed" && (
+          {onRequestChange && approvedStatuses.includes(consent.status) && (
             <button
               onClick={onRequestChange}
               className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-5 py-2.5 text-sm font-bold text-amber-800 hover:bg-amber-100"
@@ -702,7 +707,7 @@ export default function ConsentPage() {
   };
 
   // ── Signed state ─────────────────────────────────────────────────────────────
-  if (!loading && consent?.status === "signed") {
+  if (!loading && approvedStatuses.includes(consent?.status)) {
     return (
       <div className="space-y-6">
         {/* Hero — AstreaBlue gradient */}
@@ -713,12 +718,12 @@ export default function ConsentPage() {
             </p>
             <h1 className="mt-1 text-3xl font-black">Consent Document</h1>
             <p className="mt-2 text-blue-100">
-              Your consent has been signed and is now legally binding.
+              Your consent has been approved and is now legally binding.
             </p>
           </div>
           <div className="flex items-center gap-2 rounded-2xl bg-white/20 px-5 py-3">
               <Lock size={20} />
-              <span className="font-black">Signed & Locked</span>
+              <span className="font-black">Approved & Locked</span>
             </div>
         </section>
 
@@ -726,10 +731,10 @@ export default function ConsentPage() {
         <section className="rounded-3xl border border-blue-200 bg-white p-6 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 className="text-xl font-black text-slate-900">Your Signed Consent</h2>
+              <h2 className="text-xl font-black text-slate-900">Your Approved Consent</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Signed on{" "}
-                {new Date(consent.signed_at).toLocaleString("en-PH", {
+                Approved on{" "}
+                {new Date(consent.approved_at || consent.signed_at).toLocaleString("en-PH", {
                   timeZone: "Asia/Manila",
                   dateStyle: "long",
                   timeStyle: "short",
@@ -737,7 +742,7 @@ export default function ConsentPage() {
               </p>
             </div>
             <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700 uppercase">
-              Signed
+              Approved
             </span>
           </div>
 
@@ -746,7 +751,7 @@ export default function ConsentPage() {
               ["Consent ID", `#${consent.consent_id}`],
               ["Version", `v${consent.consent_version}`],
               ["Printed Name", consent.printed_name || "—"],
-              ["Status", consent.status],
+              ["Status", statusLabel(consent.status)],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
@@ -804,7 +809,38 @@ export default function ConsentPage() {
   }
 
   // ── Withdrawn / superseded state ──────────────────────────────────────────────
-  if (!loading && consent && ["withdrawn", "superseded"].includes(consent.status)) {
+  if (!loading && consent && pendingReviewStatuses.includes(consent.status)) {
+    return (
+      <div className="space-y-6">
+        <section className="rounded-3xl border border-blue-200 bg-blue-50 p-6">
+          <div className="flex items-start gap-4">
+            <Lock size={24} className="shrink-0 text-blue-700 mt-0.5" />
+            <div>
+              <h2 className="font-black text-blue-950">Consent Pending Approval</h2>
+              <p className="mt-1 text-sm text-blue-800">
+                Your signed consent has been submitted. Optional monitoring stays disabled until an authorized admin approves it.
+              </p>
+              <button
+                onClick={() => setViewConsent(true)}
+                className="mt-3 inline-flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800"
+              >
+                <Eye size={16} /> View Submitted Consent
+              </button>
+            </div>
+          </div>
+        </section>
+        {viewConsent && (
+          <ConsentDocumentView
+            consent={consent}
+            onClose={() => setViewConsent(false)}
+            onLogPrint={logPrint}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (!loading && consent && terminalStatuses.includes(consent.status)) {
     return (
       <div className="space-y-6">
         <section className="rounded-3xl border border-red-200 bg-red-50 p-6">
@@ -812,12 +848,12 @@ export default function ConsentPage() {
             <AlertCircle size={24} className="shrink-0 text-red-600 mt-0.5" />
             <div>
               <h2 className="font-black text-red-900">
-                Consent {consent.status === "withdrawn" ? "Withdrawn" : "Superseded"}
+                Consent {statusLabel(consent.status)}
               </h2>
               <p className="mt-1 text-sm text-red-700">
                 {consent.status === "withdrawn"
                   ? "Your consent has been withdrawn. Optional monitoring is disabled."
-                  : "Your consent has been superseded by a newer version."}
+                  : "This consent is no longer active. Optional monitoring remains disabled until a new consent is approved."}
               </p>
               <button
                 onClick={() => { setConsent(null); setStep(1); }}
@@ -886,7 +922,7 @@ export default function ConsentPage() {
             </h2>
             <p className="mt-3 text-slate-600">
               AstreaBlue is required by <strong>RA 10173 (Data Privacy Act of 2012)</strong> to
-              obtain your informed consent before collecting any personal data through laptop
+              obtain your informed consent before collecting any personal data through endpoint
               monitoring. This is a formal, legally binding document.
             </p>
             <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-5 text-left text-sm text-blue-900">
@@ -1047,10 +1083,9 @@ export default function ConsentPage() {
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white">
             <CheckCircle size={32} />
           </div>
-          <h2 className="text-2xl font-black text-blue-900">Consent Signed Successfully!</h2>
+          <h2 className="text-2xl font-black text-blue-900">Consent Submitted Successfully!</h2>
           <p className="mt-3 text-blue-800">
-            Your RA 10173 consent document has been signed and locked. You can view, print, or
-            download it at any time.
+            Your RA 10173 consent document is awaiting admin approval. Optional monitoring remains disabled until approval.
           </p>
           <div className="mt-6 flex justify-center gap-3">
             <button

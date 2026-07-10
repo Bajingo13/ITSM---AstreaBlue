@@ -4,5 +4,6 @@
   "deviceName": "",
   "heartbeatIntervalSeconds": 30,
   "activityIntervalSeconds": 30,
+
   "screenshotEnabled": false
 }

@@ -737,6 +737,11 @@ app.use("/api/v1/hardware-assets", async (_req, res, next) => {
   if (await hardwareAssetTablesReady) return next();
   return res.status(503).json({ success: false, message: "Hardware asset storage is unavailable." });
 }, assetManagementRoutes);
+// Endpoint Management is the evolved parent module for endpoint registration,
+// inventory, monitoring, policies, compliance, and health. Keep the legacy
+// Laptop Monitoring path as a compatibility alias for existing agents/clients.
+app.use("/api/v1/endpoint-management", laptopMonitoringRoutes);
+app.use("/api/v1/endpoints", laptopMonitoringRoutes);
 app.use("/api/v1/laptop-monitoring", laptopMonitoringRoutes);
 app.use("/api/v1/ra-10173-compliance", ra10173ComplianceRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
@@ -1478,11 +1483,19 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
         md.hostname as monitoring_hostname,
         md.status as monitoring_status,
         md.last_seen_at as monitoring_last_seen,
-        md.logged_in_user as monitoring_logged_in_user
+        md.logged_in_user as monitoring_logged_in_user,
+        ehi.serial_number as agent_serial_number,
+        ehi.manufacturer as agent_manufacturer,
+        ehi.model as agent_model
       FROM hardware_assets a
       LEFT JOIN branches b ON a.branch_id = b.branch_id
       LEFT JOIN asset_financials f ON f.asset_id = a.asset_id
       LEFT JOIN monitored_devices md ON md.asset_id = a.asset_id
+      LEFT JOIN (
+        SELECT DISTINCT ON (device_id) *
+        FROM endpoint_hardware_inventory
+        ORDER BY device_id, scanned_at DESC
+      ) ehi ON ehi.device_id = md.device_id
       ${whereSql}
       ORDER BY a.created_at DESC
       `,
@@ -1743,6 +1756,34 @@ app.post("/api/v1/hardware-assets", async (req, res) => {
   }
 });
 
+app.get("/api/v1/assets/:assetId/reconciliation", async (req, res) => {
+  try {
+    const auth = getAuthFromRequest(req);
+    if (!auth) return res.status(401).json({ success: false, error: "Unauthorized" });
+    
+    const role = String(auth.role || "").toLowerCase();
+    if (role === 'employee') return res.status(403).json({ success: false, error: "Access denied" });
+
+    const { assetId } = req.params;
+    
+    if (role !== 'superadmin' && auth.branchId) {
+      const assetCheck = await db.query(`SELECT branch_id FROM hardware_assets WHERE asset_id=$1`, [assetId]);
+      if (!assetCheck.rows.length || assetCheck.rows[0].branch_id !== auth.branchId) {
+        return res.status(403).json({ success: false, error: "Access denied" });
+      }
+    }
+
+    const result = await db.query(
+      `SELECT * FROM asset_inventory_reconciliation WHERE asset_id=$1 ORDER BY checked_at DESC`,
+      [assetId]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error("Fetch reconciliation error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch reconciliation data." });
+  }
+});
+
 app.put("/api/v1/hardware-assets/:id", async (req, res) => {
   try {
     await requireHardwareAssetTables();
@@ -1949,10 +1990,75 @@ app.put("/api/v1/hardware-assets/:id", async (req, res) => {
 
     await insertAssetHistory(updatedAsset.asset_id, "Asset Updated", { status: status || existing.rows[0].status }, branchId, null);
 
+    const linkedDevice = await db.query(`SELECT device_id FROM monitored_devices WHERE asset_id=$1`, [id]);
+    if (linkedDevice.rows.length) {
+      const { reconcileDevice } = require("./src/services/reconciliationService");
+      await reconcileDevice(linkedDevice.rows[0].device_id);
+    }
+
     res.json(updatedAsset);
   } catch (err) {
     console.error("Update hardware asset error:", err.message);
     res.status(500).json({ success: false, error: "Failed to update hardware asset" });
+  }
+});
+
+/* ─────────────────────────────────────────────
+   DELETE /api/v1/hardware-assets/:id — Delete a hardware asset
+   ───────────────────────────────────────────── */
+app.delete("/api/v1/hardware-assets/:id", async (req, res) => {
+  try {
+    await requireHardwareAssetTables();
+    const auth = getAuthFromRequest(req);
+    if (!auth) {
+      return res.status(401).json({ success: false, error: "Authentication required." });
+    }
+
+    const role = String(auth.role || "").toLowerCase().replace(/[\s_-]/g, "");
+    if (!["superadmin", "admin"].includes(role)) {
+      return res.status(403).json({ success: false, error: "Only Super Admin and Admin Branch can delete hardware assets." });
+    }
+
+    const assetId = req.params.id;
+
+    // Verify the asset exists and enforce branch scope
+    let assetQuery;
+    let assetParams;
+    if (role === "superadmin") {
+      assetQuery = `SELECT asset_id, branch_id, asset_name FROM hardware_assets WHERE asset_id = $1`;
+      assetParams = [assetId];
+    } else {
+      // Admin Branch — can only delete assets in their branch
+      assetQuery = `SELECT asset_id, branch_id, asset_name FROM hardware_assets WHERE asset_id = $1 AND branch_id = $2`;
+      assetParams = [assetId, auth.branchId];
+    }
+
+    const assetResult = await db.query(assetQuery, assetParams);
+    if (!assetResult.rows.length) {
+      return res.status(404).json({ success: false, error: "Hardware asset not found or you do not have permission to delete it." });
+    }
+
+    const asset = assetResult.rows[0];
+
+    // Unlink any monitored devices before deleting
+    await db.query(`UPDATE monitored_devices SET asset_id = NULL WHERE asset_id = $1`, [assetId]);
+
+    // Delete the asset (cascades to asset_history, asset_financials, asset_borrow_records)
+    await db.query(`DELETE FROM hardware_assets WHERE asset_id = $1`, [assetId]);
+
+    // Record the deletion in asset_history
+    await insertAssetHistory(
+      assetId,
+      "deleted",
+      { asset_name: asset.asset_name, deleted_by: auth.userId || null },
+      asset.branch_id,
+      auth.userId || null
+    );
+
+    return res.json({ success: true, message: "Hardware asset deleted successfully." });
+  } catch (err) {
+    console.error("Delete hardware asset error:", err.message);
+    return res.status(500).json({ success: false, error: "Failed to delete hardware asset. Please try again.", details: err.message });
   }
 });
 
@@ -1993,6 +2099,9 @@ app.put("/api/v1/hardware-assets/:id/link-device", async (req, res) => {
     // First unlink any device currently linked to this asset, then link the new device
     await db.query(`UPDATE monitored_devices SET asset_id = NULL WHERE asset_id = $1`, [id]);
     const result = await db.query(`UPDATE monitored_devices SET asset_id = $1 WHERE device_id = $2 RETURNING *`, [id, device_id]);
+    
+    const { reconcileDevice } = require("./src/services/reconciliationService");
+    await reconcileDevice(device_id);
     
     return res.json({ success: true, message: "Asset linked successfully.", data: result.rows[0] });
   } catch (err) {
@@ -3323,6 +3432,14 @@ app.get("/api/v1/tickets", async (req, res) => {
   try {
     const params = [];
     const accessClauses = addTicketAccessClauses(req, params, "t", "requester");
+
+    // Auto-delete cancelled tickets older than 3 days
+    try {
+      await db.query(
+        `DELETE FROM tickets WHERE status = 'Cancelled' AND cancelled_at IS NOT NULL AND cancelled_at < NOW() - INTERVAL '3 days'`
+      );
+    } catch(e) { console.warn("Auto-delete cancelled tickets failed:", e.message); }
+
     const whereSql = accessClauses.length
       ? `WHERE ${accessClauses.join(" AND ")}`
       : "";
@@ -3850,6 +3967,11 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         ? new Date()
         : existing.closed_at;
 
+    const cancelledAt =
+      finalStatus === "Cancelled" && !existing.cancelled_at
+        ? new Date()
+        : existing.cancelled_at;
+
     const result = await db.query(
       `
       UPDATE tickets
@@ -3871,7 +3993,8 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         satisfaction_rating = $15,
         resolved_at = $16,
         closed_at = $17,
-        first_response_at = $18
+        first_response_at = $18,
+        cancelled_at = $20
       WHERE id = $19
       RETURNING
         id,
@@ -3885,6 +4008,8 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         impact,
         urgency,
         sla_due_date,
+        cancelled_at,
+
         first_response_at,
         resolved_at,
         closed_at,
@@ -3916,6 +4041,8 @@ app.put("/api/v1/tickets/:id", async (req, res) => {
         closedAt,
         firstResponseAt,
         id,
+        cancelledAt,
+
       ]
     );
 
@@ -4256,29 +4383,43 @@ app.post("/api/v1/tickets/:id/comments", async (req, res) => {
 app.delete("/api/v1/tickets/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    console.log(`[DELETE] Deleting ticket #${id} requested by ${req.query?.role_name || req.headers?.origin || "unknown"}`);
 
-    const result = await db.query(
-      `
-      DELETE FROM tickets
-      WHERE id = $1
-      RETURNING id
-      `,
-      [id]
-    );
+    const existing = await db.query(`SELECT id, ticket_number, status FROM tickets WHERE id = $1`, [id]);
 
-    if (result.rows.length === 0) {
+    if (existing.rows.length === 0) {
+      console.warn(`[DELETE] Ticket #${id} not found — already deleted or invalid ID`);
       return res.status(404).json({
         success: false,
         error: "Ticket not found",
       });
     }
 
+    console.log(`[DELETE] Found ticket #${id}: "${existing.rows[0].ticket_number}" [${existing.rows[0].status}]`);
+
+    // Nullify any knowledge_base articles referencing this ticket (FK constraint blocks delete otherwise)
+    const kbResult = await db.query(
+      `UPDATE knowledge_base SET related_ticket_id = NULL WHERE related_ticket_id = $1 RETURNING kb_id`,
+      [id]
+    );
+    if (kbResult.rows.length > 0) {
+      console.log(`[DELETE] Disassociated ${kbResult.rows.length} knowledge base article(s) from ticket #${id}`);
+    }
+
+    const result = await db.query(
+      `DELETE FROM tickets WHERE id = $1 RETURNING id, ticket_number`,
+      [id]
+    );
+
+    console.log(`[DELETE] Successfully deleted ticket #${id} (${result.rows[0]?.ticket_number || "N/A"})`);
+
     res.json({
       success: true,
       message: "Ticket deleted successfully",
     });
   } catch (err) {
-    console.error("Delete ticket error:", err.message);
+    console.error(`[DELETE] Error deleting ticket #${req.params?.id}:`, err.message);
+    if (err.stack) console.error(`[DELETE] Stack:`, err.stack.split("\n").slice(0, 4).join("\n"));
 
     res.status(500).json({
       success: false,
@@ -4517,20 +4658,7 @@ app.get("/api/v1/requests/:id", async (req, res) => {
 
 app.get('/', (req, res) => res.status(200).json({ success: true, message: "API is online" }));
 
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: "API route not found",
-  });
-});
 
-app.use((err, req, res, next) => {
-  console.error("Unhandled server error:", err.message);
-  res.status(500).json({
-    success: false,
-    error: "Internal server error",
-  });
-});
 
 /* ==========================
    START SERVER
@@ -4584,6 +4712,21 @@ app.post("/api/v1/ticket-categories", async (req, res) => {
     console.error("Create ticket category error:", error.message);
     return res.status(500).json({ success: false, error: "Failed to save ticket category." });
   }
+});
+
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: "API route not found",
+  });
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled server error:", err.message);
+  res.status(500).json({
+    success: false,
+    error: "Internal server error",
+  });
 });
 
 module.exports = { app, httpServer, get io() { return io; } };

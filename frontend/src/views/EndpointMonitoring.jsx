@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Activity, AlertTriangle, Clock3, Laptop, Monitor, ShieldCheck, Users } from "lucide-react";
+import { Activity, AlertTriangle, Clock3, Monitor, Package, Search, ShieldCheck, Users } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
 import { API_URL } from "../config/api";
 import { authHeaders } from "../services/authHeaders";
+import EndpointPolicies from "./EndpointPolicies";
 
-const API_BASE = `${API_URL}/api/v1/laptop-monitoring`;
+const API_BASE = `${API_URL}/api/v1/endpoint-management`;
 const formatDate = (value) => value ? new Date(value).toLocaleString() : "Never";
 const secondsSince = (value) => value ? Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000)) : null;
 const formatDuration = (seconds) => {
@@ -15,11 +16,11 @@ const formatDuration = (seconds) => {
   return `${(value / 3600).toFixed(1)} hr`;
 };
 
-async function monitoringRequest(path) {
-  const response = await fetch(`${API_BASE}${path}`, { headers: authHeaders() });
+async function monitoringRequest(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), ...options });
   const body = await response.json();
-  if (!response.ok || body.success === false) throw new Error(body.message || "Monitoring request failed.");
-  return body.data;
+  if (!response.ok || body.success === false) throw new Error(body.error || body.message || "Monitoring request failed.");
+  return body.data || body;
 }
 
 export default function EndpointMonitoring() {
@@ -35,6 +36,11 @@ export default function EndpointMonitoring() {
   const [activeTabState, setActiveTabState] = useState(searchParams.get("tab") || "overview");
   
   const [details, setDetails] = useState(null);
+  const [reconciliation, setReconciliation] = useState([]);
+  const [softwareInventory, setSoftwareInventory] = useState([]);
+  const [softwareSummary, setSoftwareSummary] = useState(null);
+  const [softwareFilters, setSoftwareFilters] = useState({ q: "", publisher: "", status: "active", device_uuid: "", employee_id: "", branch_id: "" });
+  const [reconciling, setReconciling] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [debugInfo, setDebugInfo] = useState(null);
@@ -61,9 +67,10 @@ export default function EndpointMonitoring() {
 
   const tabs = [
     { id: "overview", label: "Overview" },
-    { id: "devices", label: "Monitored Devices" },
+    { id: "devices", label: "Devices" },
     { id: "activity", label: "Activity Timeline" },
     { id: "screenshots", label: "Screenshots" },
+    { id: "software", label: "Software Inventory" },
     { id: "alerts", label: "Alerts" },
     { id: "consent", label: "Consent Management" },
     { id: "policies", label: "Policies" }
@@ -98,12 +105,34 @@ export default function EndpointMonitoring() {
     }
   }, []);
 
+  const loadSoftwareInventory = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(softwareFilters)) {
+        if (value) params.set(key, value);
+      }
+      const [items, totals] = await Promise.all([
+        monitoringRequest(`/software-inventory${params.toString() ? `?${params.toString()}` : ""}`),
+        monitoringRequest("/software-inventory/summary"),
+      ]);
+      setSoftwareInventory(Array.isArray(items) ? items : []);
+      setSoftwareSummary(totals || null);
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }, [softwareFilters]);
+
   useEffect(() => { loadOverview(); }, [loadOverview]);
+  useEffect(() => { if (activeTab === "software") loadSoftwareInventory(); }, [activeTab, loadSoftwareInventory]);
   useEffect(() => {
     if (!selectedId || typeof selectedId === "function" || String(selectedId).includes("=>")) {
+      setReconciliation([]);
       return setDetails(null);
     }
     monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/activity`).then(setDetails).catch((requestError) => setError(requestError.message));
+    monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconciliation`)
+      .then(data => setReconciliation(Array.isArray(data) ? data : []))
+      .catch(e => console.error(e));
   }, [selectedId]);
   useEffect(() => {
     const timer = window.setInterval(loadOverview, 60000);
@@ -176,6 +205,22 @@ export default function EndpointMonitoring() {
     }
   };
 
+  const handleDeleteDevice = async () => {
+    if (!window.confirm("Are you sure you want to permanently delete this device and all its monitoring logs?")) return;
+    try {
+      const response = await fetch(`${API_BASE}/devices/${selectedId}`, {
+        method: "DELETE",
+        headers: authHeaders()
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to delete device");
+      setSelectedId("");
+      loadOverview();
+    } catch (e) {
+      alert("Delete failed: " + e.message);
+    }
+  };
+
   const appUsage = useMemo(() => {
     const usage = new Map();
     for (const item of details?.activity || []) {
@@ -185,15 +230,16 @@ export default function EndpointMonitoring() {
     return [...usage.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [details]);
   const cards = [
-    ["Monitored Devices", summary?.total_monitored_devices || 0, Laptop],
+    ["Managed Endpoints", summary?.total_monitored_devices || 0, Monitor],
     ["Online", summary?.online_devices || 0, Activity],
     ["Offline", summary?.offline_devices || 0, Monitor],
     ["Active Users Today", summary?.active_users_today || 0, Users],
     ["Average Idle Today", formatDuration(summary?.average_idle_seconds), Clock3],
+    ["Software Records", summary?.total_installed_software_records || 0, Package],
   ];
 
   return <div className="space-y-6">
-    <PageHero eyebrow="System Administration" title="Laptop Activity Monitoring" subtitle="Consent-aware endpoint visibility for IT and security operations—without keystroke, microphone, camera, or password collection." />
+    <PageHero eyebrow="Endpoint Management" title="Endpoint Management" subtitle="Endpoint registration, inventory, policies, monitoring, security, and compliance for company-managed devices." />
     {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 font-semibold text-rose-700">{error}</div>}
     {debugInfo && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950"><h2 className="font-black">SuperAdmin Monitoring Debug</h2><div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3"><p><span className="font-bold">Backend URL:</span> {API_URL}</p><p><span className="font-bold">Database source:</span> {debugInfo.backend_source}</p><p><span className="font-bold">Total devices returned:</span> {devices.length}</p><p><span className="font-bold">Device UUID:</span> {selectedDevice?.device_uuid || "Select a device"}</p><p><span className="font-bold">Hostname:</span> {selectedDevice?.hostname || "Select a device"}</p><p><span className="font-bold">Last heartbeat:</span> {formatDate(selectedDevice?.last_seen_at)}</p><p><span className="font-bold">Seconds since heartbeat:</span> {secondsSince(selectedDevice?.last_seen_at) ?? "No heartbeat"}</p><p><span className="font-bold">Online threshold:</span> {debugInfo.online_threshold_seconds} seconds</p><p><span className="font-bold">Current status:</span> {selectedDevice?.status || "Unknown"}</p></div></section>}
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{cards.map(([label, value, Icon]) => <div key={label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><p className="text-xs font-black uppercase tracking-wider text-slate-500">{label}</p><Icon size={18} className="text-blue-600" /></div><p className="mt-3 text-2xl font-black text-slate-900">{value}</p></div>)}</section>
@@ -219,7 +265,7 @@ export default function EndpointMonitoring() {
 
     {activeTab === "devices" && (
     <section className="grid gap-6 xl:grid-cols-[minmax(300px,0.8fr)_minmax(0,2fr)]">
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black text-slate-900">Monitored Devices</h2><div className="mt-4 space-y-3">{loading ? <p className="text-sm text-slate-500">Loading devices...</p> : devices.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No agent has checked in yet.</p> : devices.map((device) => <button key={device.device_id} onClick={() => setSelectedId(device.device_id)} className={`w-full rounded-2xl border p-4 text-left transition ${String(selectedId) === String(device.device_id) ? "border-blue-400 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}><div className="flex items-center justify-between gap-3"><div><p className="font-black text-slate-900">{device.device_name || device.hostname}</p><p className="text-xs text-slate-500">{device.hostname}</p></div><StatusBadge status={device.status} /></div>
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black text-slate-900">Managed Endpoints</h2><div className="mt-4 space-y-3">{loading ? <p className="text-sm text-slate-500">Loading endpoints...</p> : devices.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No endpoint agent has checked in yet.</p> : devices.map((device) => <button key={device.device_id} onClick={() => setSelectedId(device.device_id)} className={`w-full rounded-2xl border p-4 text-left transition ${String(selectedId) === String(device.device_id) ? "border-blue-400 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}><div className="flex items-center justify-between gap-3"><div><p className="font-black text-slate-900">{device.device_name || device.hostname}</p><p className="text-xs text-slate-500">{device.hostname}</p></div><StatusBadge status={device.status} /></div>
       <div className="mt-2 flex flex-wrap gap-1">
         {!device.asset_id ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">Unlinked Device</span> : <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black text-blue-700">Linked Asset</span>}
         {!device.assigned_user_id ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">Unassigned Employee</span> : null}
@@ -229,16 +275,24 @@ export default function EndpointMonitoring() {
       <div className="space-y-6">
         {!selectedDevice ? (
            <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-             <Laptop className="mx-auto mb-4 text-slate-300" size={48} />
-             <h2 className="text-xl font-black text-slate-900">No Device Selected</h2>
-             <p className="mt-2 text-slate-500">Select a device from the list to view its activity, or install the monitoring agent on a new device.</p>
+             <Monitor className="mx-auto mb-4 text-slate-300" size={48} />
+             <h2 className="text-xl font-black text-slate-900">No Endpoint Selected</h2>
+             <p className="mt-2 text-slate-500">Select an endpoint from the list to view inventory, activity, policy, and health details.</p>
            </div>
         ) : (
           <>
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <h2 className="text-xl font-black text-slate-900">{selectedDevice?.hostname || "Device Activity"}</h2>
-            {selectedDevice && <div className="flex items-center gap-2"><StatusBadge status={selectedDevice.status} /><ConsentBadge status={selectedDevice.consent_status} /></div>}
+            {selectedDevice && (
+              <div className="flex items-center gap-2">
+                <StatusBadge status={selectedDevice.status} />
+                <ConsentBadge status={selectedDevice.consent_status} />
+                <button onClick={handleDeleteDevice} className="ml-4 rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-100 transition">
+                  Delete Device
+                </button>
+              </div>
+            )}
           </div>
           
           <div className="mt-4 grid gap-6 md:grid-cols-2">
@@ -266,11 +320,78 @@ export default function EndpointMonitoring() {
                 ) : (
                   <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
                     <p className="text-xs font-bold text-amber-800 flex items-center gap-2"><span className="inline-block h-2 w-2 rounded-full bg-amber-500"></span> Unlinked Device</p>
-                    <button onClick={() => handleOpenAssign('asset')} className="mt-2 w-full rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700">Link to Hardware Asset</button>
+                    <button onClick={() => handleOpenAssign('asset')} className="mt-2 w-full rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700">Link to Existing Asset</button>
+                    <button 
+                      onClick={async () => {
+                        const conf = window.confirm("This will automatically create a brand new Hardware Asset using the agent's scanned specifications and link it to this device. Continue?");
+                        if (!conf) return;
+                        setLoading(true);
+                        try {
+                          await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/convert-to-asset`, { method: 'POST' });
+                          loadOverview();
+                        } catch (e) {
+                          alert(e.message);
+                          setLoading(false);
+                        }
+                      }} 
+                      disabled={loading}
+                      className="mt-2 w-full rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                      {loading ? "Creating..." : "Create Asset from Specs"}
+                    </button>
                   </div>
                 )}
               </div>
             </div>
+
+            {selectedDevice?.asset_id && (
+              <div>
+                <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider text-slate-500 mb-3">Linked Asset Verification</h3>
+                <div className="space-y-2 text-sm text-slate-600">
+                  <p><span className="font-bold">Asset Tag:</span> {selectedDevice?.asset_tag}</p>
+                  {reconciliation.length > 0 ? (
+                    <>
+                      <p><span className="font-bold">Verification Status:</span> {
+                        reconciliation.some(r => r.severity === 'Critical') ? <span className="text-rose-600 font-bold">Critical Mismatches</span> :
+                        reconciliation.some(r => r.status === 'Mismatch') ? <span className="text-amber-600 font-bold">Mismatches Found</span> :
+                        reconciliation.every(r => r.status === 'Unknown') ? <span className="text-amber-600 font-bold">Pending Scan</span> :
+                        <span className="text-emerald-600 font-bold">Verified</span>
+                      }</p>
+                      <p><span className="font-bold">Mismatches:</span> {reconciliation.filter(r => r.status === 'Mismatch').length}</p>
+                      {reconciliation.filter(r => r.status === 'Mismatch').length > 0 && (
+                        <ul className="mt-1 list-disc pl-5 text-rose-600 text-xs font-semibold">
+                          {reconciliation.filter(r => r.status === 'Mismatch').map((m, i) => (
+                            <li key={i}>{m.field_name}: Asset says "{m.asset_value || 'N/A'}", Agent says "{m.detected_value || 'N/A'}"</li>
+                          ))}
+                        </ul>
+                      )}
+                      <p><span className="font-bold">Last Reconciled:</span> {new Date(reconciliation[0].checked_at).toLocaleString()}</p>
+                    </>
+                  ) : (
+                    <p className="text-slate-500 italic">No verification data available.</p>
+                  )}
+                  <div className="mt-3">
+                    <button 
+                      onClick={async () => {
+                        setReconciling(true);
+                        try {
+                          await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconcile`, { method: 'POST' });
+                          const newData = await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconciliation`);
+                          setReconciliation(Array.isArray(newData) ? newData : []);
+                        } catch (e) {
+                          console.error(e);
+                        } finally {
+                          setReconciling(false);
+                        }
+                      }}
+                      disabled={reconciling}
+                      className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {reconciling ? 'Running...' : 'Run Reconciliation'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div>
               <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider text-slate-500 mb-3">Asset Ownership</h3>
@@ -302,8 +423,30 @@ export default function EndpointMonitoring() {
               <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider text-slate-500 mb-3">Consent / Policy</h3>
               <div className="space-y-2 text-sm text-slate-600">
                 <p><span className="font-bold">Consent Status:</span> {selectedDevice?.consent_status || "Pending"}</p>
-                <p><span className="font-bold">Policy Status:</span> {selectedDevice?.policy_synced_at ? "Synced" : "Pending"}</p>
-                <p><span className="font-bold">Last Policy Sync:</span> {formatDate(selectedDevice?.policy_synced_at)}</p>
+                <p><span className="font-bold">Effective Policy:</span> {details?.policy?.policy_name || "Unknown"}</p>
+                <p><span className="font-bold">Policy Version:</span> {details?.policy?.policy_version || "Unknown"}</p>
+                <p><span className="font-bold">Last Generated:</span> {details?.policy?.generated_at ? formatDate(details?.policy?.generated_at) : "Never"}</p>
+                <p><span className="font-bold">Last Downloaded:</span> {selectedDevice?.policy_synced_at ? formatDate(selectedDevice?.policy_synced_at) : "Never"}</p>
+                {details?.policy?.reasons && Object.keys(details.policy.reasons).length > 0 && (
+                  <div className="mt-2 rounded bg-rose-50 p-2 text-xs text-rose-700">
+                    <p className="font-bold mb-1">Disabled Features:</p>
+                    <ul className="list-disc pl-4">
+                      {Object.entries(details.policy.reasons).map(([k,v]) => <li key={k}>{v}</li>)}
+                    </ul>
+                  </div>
+                )}
+                <div className="mt-3">
+                  <button onClick={async () => {
+                    try {
+                      await monitoringRequest(`/devices/${selectedDevice.device_uuid}/generate-policy`, { method: "POST" });
+                      alert("Policy regenerated successfully.");
+                      loadOverview();
+                      monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/activity`).then(setDetails);
+                    } catch (e) {
+                      alert(e.message);
+                    }
+                  }} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Regenerate Effective Policy</button>
+                </div>
               </div>
             </div>
           </div>
@@ -335,7 +478,7 @@ export default function EndpointMonitoring() {
               if (timeline.length === 0) return <Empty text="No activity reported." />;
               return timeline.map((item, i) => {
                 if (item._type === 'screenshot') return (
-                  <div key={`shot-${item.id}-${i}`} className="rounded-2xl border border-blue-100 bg-blue-50 p-4"><div className="flex justify-between gap-4"><p className="font-bold text-blue-900 flex items-center gap-2"><Monitor size={14}/> Screenshot Captured</p><p className="shrink-0 text-xs text-slate-500">{formatDate(item.captured_at)}</p></div><p className="mt-1 text-sm text-slate-600">Employee: {selectedDevice?.assigned_user || "Unassigned"} · Hostname: {selectedDevice?.hostname}</p>{item.file_url ? <a href={item.file_url} target="_blank" rel="noreferrer" onClick={() => fetch(`${API_URL}/api/v1/laptop-monitoring/screenshots/${item.id}/audit-view`, { method: "POST", headers: authHeaders() }).catch(console.error)} className="mt-2 inline-block rounded-lg bg-blue-600 px-3 py-1 text-xs font-bold text-white hover:bg-blue-700">Open Screenshot</a> : <p className="mt-1 text-xs text-slate-500">Metadata only</p>}</div>
+                  <div key={`shot-${item.id}-${i}`} className="rounded-2xl border border-blue-100 bg-blue-50 p-4"><div className="flex justify-between gap-4"><p className="font-bold text-blue-900 flex items-center gap-2"><Monitor size={14}/> Screenshot Captured</p><p className="shrink-0 text-xs text-slate-500">{formatDate(item.captured_at)}</p></div><p className="mt-1 text-sm text-slate-600">Employee: {selectedDevice?.assigned_user || "Unassigned"} · Hostname: {selectedDevice?.hostname}</p>{item.file_url ? <a href={item.file_url} target="_blank" rel="noreferrer" onClick={() => fetch(`${API_URL}/api/v1/endpoint-management/screenshots/${item.id}/audit-view`, { method: "POST", headers: authHeaders() }).catch(console.error)} className="mt-2 inline-block rounded-lg bg-blue-600 px-3 py-1 text-xs font-bold text-white hover:bg-blue-700">Open Screenshot</a> : <p className="mt-1 text-xs text-slate-500">Metadata only</p>}</div>
                 );
                 if (item._type === 'assignment') return (
                   <div key={`assign-${item.id}-${i}`} className="rounded-2xl border border-violet-200 bg-violet-50 p-4"><div className="flex justify-between gap-4"><p className="font-bold text-violet-900 flex items-center gap-2"><Users size={14}/> Device Assignment</p><p className="shrink-0 text-xs text-slate-500">{formatDate(item.changed_at)}</p></div><p className="mt-1 text-sm text-slate-700"><span className="font-semibold text-slate-500">From:</span> {item.old_user_name || "Unassigned"} → <span className="font-semibold text-slate-500">To:</span> {item.new_user_name || "Unassigned"}</p>{item.reason && <p className="mt-1 text-xs text-slate-500">Reason: {item.reason}</p>}</div>
@@ -350,7 +493,35 @@ export default function EndpointMonitoring() {
             })()}
           </div></div><div><h3 className="font-black text-slate-900">Application Usage</h3><div className="mt-3 space-y-3">{appUsage.length === 0 ? <Empty text="No application data." /> : appUsage.map(([app, count]) => <div key={app} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"><span className="truncate font-bold text-slate-800">{app}</span><span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">{count} samples</span></div>)}</div></div></div>
 
-        <section className="grid gap-6 lg:grid-cols-2"><div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-black text-slate-900">Screenshots</h3><p className="mt-1 text-xs text-slate-500">Available only after explicit screenshot consent.</p><div className="mt-4 grid gap-3 sm:grid-cols-2">{(details?.screenshots || []).length === 0 ? <Empty text="No consent-approved screenshots." /> : details.screenshots.map((shot) => <div key={shot.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><Monitor className="text-blue-600" /><p className="mt-2 text-sm font-bold text-slate-800">{shot.reason || "Agent capture"}</p><p className="text-xs text-slate-500">{formatDate(shot.captured_at)}</p>{shot.file_url ? <a href={shot.file_url} target="_blank" rel="noreferrer" onClick={() => fetch(`${API_URL}/api/v1/laptop-monitoring/screenshots/${shot.id}/audit-view`, { method: "POST", headers: authHeaders() }).catch(console.error)} className="mt-2 inline-block text-xs font-black text-blue-700">View image</a> : <p className="mt-2 text-xs text-slate-500">Metadata only</p>}</div>)}</div></div><div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-black text-slate-900">Consent Records</h3><div className="mt-4 space-y-3">{(details?.consents || []).length === 0 ? <Empty text="No consent records." /> : details.consents.map((consent) => <div key={consent.id} className="flex items-center justify-between rounded-2xl bg-slate-50 p-4"><div><p className="font-bold text-slate-900">{consent.consent_type}</p><p className="text-xs text-slate-500">{formatDate(consent.consented_at)}</p></div><ConsentBadge status={consent.consent_status} /></div>)}</div></div></section>
+        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-black text-slate-900">Hardware Inventory (Agent-Detected)</h3><div className="mt-4 grid gap-4 sm:grid-cols-2 md:grid-cols-4">{!details?.hardware ? <Empty text="No hardware scan available." /> : <><div className="col-span-2"><p className="text-xs font-bold uppercase text-slate-500">System</p><p className="text-sm font-semibold text-slate-900">{details.hardware.manufacturer} {details.hardware.model}</p><p className="text-xs text-slate-500">Serial: {details.hardware.serial_number}</p></div><div className="col-span-2"><p className="text-xs font-bold uppercase text-slate-500">Processor & Memory</p><p className="text-sm font-semibold text-slate-900">{details.hardware.cpu_name}</p><p className="text-xs text-slate-500">{details.hardware.total_ram_gb} GB RAM</p></div><div className="col-span-2"><p className="text-xs font-bold uppercase text-slate-500">Operating System</p><p className="text-sm font-semibold text-slate-900">{details.hardware.os_name} {details.hardware.os_version}</p><p className="text-xs text-slate-500">Build {details.hardware.os_build} ({details.hardware.architecture})</p></div><div className="col-span-2"><p className="text-xs font-bold uppercase text-slate-500">Storage & Network</p><p className="text-sm font-semibold text-slate-900">{details.hardware.disk_free_gb} GB free of {details.hardware.disk_total_gb} GB</p><p className="text-xs text-slate-500">IP: {details.hardware.ip_address} A MAC: {details.hardware.mac_address}</p></div></>}</div></section>
+        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="flex items-center gap-2 font-black text-slate-900"><Package size={18} className="text-blue-600" /> Installed Software</h3>
+            <button onClick={() => setActiveTab("software")} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">View All Software</button>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            {(details?.software || []).length === 0 ? <Empty text="No software inventory scan available." /> : (
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>{["Software", "Version", "Publisher", "Install Date", "Last Seen", "Status"].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {(details?.software || []).slice(0, 25).map((item) => (
+                    <tr key={item.id} className="border-t border-slate-100">
+                      <td className="px-4 py-3 font-bold text-slate-900">{item.software_name}</td>
+                      <td className="px-4 py-3 text-slate-600">{item.version || "—"}</td>
+                      <td className="px-4 py-3 text-slate-600">{item.publisher || "—"}</td>
+                      <td className="px-4 py-3 text-slate-500">{item.install_date || "—"}</td>
+                      <td className="px-4 py-3 text-slate-500">{formatDate(item.last_seen_at)}</td>
+                      <td className="px-4 py-3"><SoftwareStatus status={item.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+        <section className="mt-6 grid gap-6 lg:grid-cols-2"><div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-black text-slate-900">Screenshots</h3><p className="mt-1 text-xs text-slate-500">Available only after explicit screenshot consent.</p><div className="mt-4 grid gap-3 sm:grid-cols-2">{(details?.screenshots || []).length === 0 ? <Empty text="No consent-approved screenshots." /> : details.screenshots.map((shot) => <div key={shot.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><Monitor className="text-blue-600" /><p className="mt-2 text-sm font-bold text-slate-800">{shot.reason || "Agent capture"}</p><p className="text-xs text-slate-500">{formatDate(shot.captured_at)}</p>{shot.file_url ? <a href={shot.file_url} target="_blank" rel="noreferrer" onClick={() => fetch(`${API_URL}/api/v1/endpoint-management/screenshots/${shot.id}/audit-view`, { method: "POST", headers: authHeaders() }).catch(console.error)} className="mt-2 inline-block text-xs font-black text-blue-700">View image</a> : <p className="mt-2 text-xs text-slate-500">Metadata only</p>}</div>)}</div></div><div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-black text-slate-900">Consent Records</h3><div className="mt-4 space-y-3">{(details?.consents || []).length === 0 ? <Empty text="No consent records." /> : details.consents.map((consent) => <div key={consent.id} className="flex items-center justify-between rounded-2xl bg-slate-50 p-4"><div><p className="font-bold text-slate-900">{consent.consent_type}</p><p className="text-xs text-slate-500">{formatDate(consent.consented_at)}</p></div><ConsentBadge status={consent.consent_status} /></div>)}</div></div></section>
           </>
         )}
       </div>
@@ -367,6 +538,76 @@ export default function EndpointMonitoring() {
         <h3 className="mb-2 text-xl font-black text-slate-900">Screenshots</h3>
         <p>Screenshot Monitoring will appear here after device assignment, active consent, and screenshot policy are enabled.</p>
         <button onClick={() => setActiveTab('devices')} className="mt-4 rounded-xl bg-blue-600 px-6 py-2 text-sm font-bold text-white hover:bg-blue-700">Go to Devices</button>
+      </div>
+    )}
+
+    {activeTab === "software" && (
+      <div className="space-y-6">
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {[
+            ["Total Records", softwareSummary?.total_installed_software_records || summary?.total_installed_software_records || 0],
+            ["Unique Apps", softwareSummary?.unique_applications || summary?.unique_applications || 0],
+            ["Reporting Devices", softwareSummary?.devices_reporting_software || summary?.devices_reporting_software || 0],
+            ["Recently Installed", softwareSummary?.recently_installed || summary?.recently_installed || 0],
+            ["Removed / Missing", softwareSummary?.removed_missing_software || summary?.removed_missing_software || 0],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between"><p className="text-xs font-black uppercase tracking-wider text-slate-500">{label}</p><Package size={18} className="text-blue-600" /></div>
+              <p className="mt-3 text-2xl font-black text-slate-900">{value}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-5 grid gap-3 md:grid-cols-3 xl:grid-cols-7">
+            <div className="relative md:col-span-2">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input value={softwareFilters.q} onChange={(e) => setSoftwareFilters((p) => ({ ...p, q: e.target.value }))} placeholder="Search software name" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm font-medium outline-none focus:border-blue-600" />
+            </div>
+            <input value={softwareFilters.publisher} onChange={(e) => setSoftwareFilters((p) => ({ ...p, publisher: e.target.value }))} placeholder="Publisher" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-600" />
+            <select value={softwareFilters.device_uuid} onChange={(e) => setSoftwareFilters((p) => ({ ...p, device_uuid: e.target.value }))} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-600">
+              <option value="">All Devices</option>
+              {devices.filter((d) => d.device_uuid).map((d) => <option key={d.device_uuid} value={d.device_uuid}>{d.hostname || d.device_name}</option>)}
+            </select>
+            <select value={softwareFilters.employee_id} onChange={(e) => setSoftwareFilters((p) => ({ ...p, employee_id: e.target.value }))} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-600">
+              <option value="">All Employees</option>
+              {[...new Map(devices.filter((d) => d.assigned_user_id).map((d) => [d.assigned_user_id, d.assigned_user || `User ${d.assigned_user_id}`])).entries()].map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+            <select value={softwareFilters.branch_id} onChange={(e) => setSoftwareFilters((p) => ({ ...p, branch_id: e.target.value }))} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-600">
+              <option value="">All Branches</option>
+              {[...new Map(devices.filter((d) => d.branch_id).map((d) => [d.branch_id, d.branch_name || `Branch ${d.branch_id}`])).entries()].map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+            <select value={softwareFilters.status} onChange={(e) => setSoftwareFilters((p) => ({ ...p, status: e.target.value }))} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-600">
+              <option value="">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="removed">Removed / Missing</option>
+            </select>
+          </div>
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
+            <table className="w-full min-w-[1100px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>{["Software Name", "Version", "Publisher", "Install Date", "Device", "Assigned Employee", "Branch", "Last Seen", "Status"].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}</tr>
+              </thead>
+              <tbody>
+                {softwareInventory.length === 0 ? (
+                  <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">No software inventory records found.</td></tr>
+                ) : softwareInventory.map((item) => (
+                  <tr key={item.id} className="border-t border-slate-100">
+                    <td className="px-4 py-3 font-bold text-slate-900">{item.software_name}</td>
+                    <td className="px-4 py-3 text-slate-600">{item.version || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{item.publisher || "—"}</td>
+                    <td className="px-4 py-3 text-slate-500">{item.install_date || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{item.hostname || item.device_name || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{item.assigned_employee || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{item.branch_name || "—"}</td>
+                    <td className="px-4 py-3 text-slate-500">{formatDate(item.last_seen_at)}</td>
+                    <td className="px-4 py-3"><SoftwareStatus status={item.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     )}
 
@@ -415,7 +656,7 @@ export default function EndpointMonitoring() {
                 <div>
                   <label className="mb-1 block text-sm font-bold text-slate-700">Hardware Asset (CMDB)</label>
                   {assetsList.length === 0 ? (
-                    <p className="text-sm text-slate-500 italic">No matching laptop/desktop assets found.</p>
+                    <p className="text-sm text-slate-500 italic">No matching endpoint assets found.</p>
                   ) : (
                     <select value={assignForm.asset_id} onChange={(e) => setAssignForm(p => ({ ...p, asset_id: e.target.value }))} className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500">
                       <option value="">No Linked Asset</option>
@@ -479,6 +720,11 @@ function StatusBadge({ status = "Offline" }) {
 function ConsentBadge({ status = "Pending" }) {
   const approved = ["granted", "approved", "consented"].includes(String(status).toLowerCase());
   return <span className={`rounded-full px-3 py-1 text-xs font-black ${approved ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{status || "Pending"}</span>;
+}
+
+function SoftwareStatus({ status = "active" }) {
+  const active = String(status).toLowerCase() === "active";
+  return <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{status}</span>;
 }
 
 function Empty({ text }) {
