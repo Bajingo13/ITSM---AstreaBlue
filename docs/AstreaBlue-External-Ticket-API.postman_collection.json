@@ -1,0 +1,17 @@
+{
+  "info": {"name":"AstreaBlue External Ticket API","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable": [
+    {"key":"base_url","value":"http://localhost:5000"},
+    {"key":"api_key","value":""},
+    {"key":"ticket_number","value":""},
+    {"key":"external_employee_id","value":"HRIS-EMP-1045"},
+    {"key":"external_reference","value":"HRIS-TEST-001"}
+  ],
+  "item": [
+    {"name":"Create ticket","request":{"method":"POST","header":[{"key":"x-api-key","value":"{{api_key}}"},{"key":"Content-Type","value":"application/json"}],"url":"{{base_url}}/api/v1/external/tickets","body":{"mode":"raw","raw":"{\n  \"external_employee_id\": \"{{external_employee_id}}\",\n  \"requester_name\": \"Juan Dela Cruz\",\n  \"requester_email\": \"juan@company.com\",\n  \"origin_system\": \"HRIS\",\n  \"origin_module\": \"Attendance\",\n  \"external_reference\": \"{{external_reference}}\",\n  \"priority\": \"High\",\n  \"title\": \"Unable to Time In\",\n  \"description\": \"The attendance page returns an error.\"\n}"}}},
+    {"name":"Retrieve ticket","request":{"method":"GET","header":[{"key":"x-api-key","value":"{{api_key}}"}],"url":"{{base_url}}/api/v1/external/tickets/{{ticket_number}}"}},
+    {"name":"Add comment","request":{"method":"POST","header":[{"key":"x-api-key","value":"{{api_key}}"},{"key":"Content-Type","value":"application/json"}],"url":"{{base_url}}/api/v1/external/tickets/{{ticket_number}}/comments","body":{"mode":"raw","raw":"{\n  \"comment\": \"The issue is still occurring.\",\n  \"external_comment_reference\": \"HRIS-COMMENT-0001\"\n}"}}},
+    {"name":"Invalid key test","request":{"method":"GET","header":[{"key":"x-api-key","value":"invalid-key"}],"url":"{{base_url}}/api/v1/external/tickets/{{ticket_number}}"}},
+    {"name":"Idempotent retry test","request":{"method":"POST","header":[{"key":"x-api-key","value":"{{api_key}}"},{"key":"Content-Type","value":"application/json"}],"url":"{{base_url}}/api/v1/external/tickets","body":{"mode":"raw","raw":"{\n  \"external_employee_id\": \"{{external_employee_id}}\",\n  \"requester_name\": \"Juan Dela Cruz\",\n  \"requester_email\": \"juan@company.com\",\n  \"origin_system\": \"HRIS\",\n  \"origin_module\": \"Attendance\",\n  \"external_reference\": \"{{external_reference}}\",\n  \"priority\": \"High\",\n  \"title\": \"Unable to Time In\",\n  \"description\": \"The attendance page returns an error.\"\n}"}}}
+  ]
+}

@@ -6,7 +6,11 @@
   "scripts": {
     "start": "node init-db.js && node server.js",
     "dev": "node init-db.js && nodemon server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node --check server.js && node --check src/routes/tickets.js && node --check src/routes/integrationGateway.js && node --check src/routes/projectAnalytics.js && node --check src/routes/analyticsCenter.js && node --check src/routes/changeReleaseManagement.js && node --check src/services/serviceDeskTicketService.js",
+    "migrate:phase2": "node scripts/apply-phase2-migration.js",
+    "integration:provision": "node scripts/provision-external-system.js",
+    "integration:revoke": "node scripts/revoke-external-system.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
   },
   "keywords": [],
   "author": "",

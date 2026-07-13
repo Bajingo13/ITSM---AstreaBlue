@@ -285,7 +285,7 @@ const tablesReady = (async () => {
 
 router.use(async (_req, res, next) => {
   if (await tablesReady) return next();
-  return res.status(503).json({ success: false, message: "Endpoint Management storage is unavailable." });
+  return res.status(503).json({ success: false, message: "Laptop monitoring storage is unavailable." });
 });
 
 function safeEqual(value, expected) {
@@ -295,7 +295,7 @@ function safeEqual(value, expected) {
 }
 
 function requireAgent(req, res, next) {
-  const expected = process.env.MONITORING_AGENT_TOKEN || "dev-monitoring-token";
+  const expected = process.env.MONITORING_AGENT_TOKEN;
   const supplied = req.headers["x-agent-token"] || String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   if (!expected) return res.status(503).json({ success: false, message: "Monitoring agent authentication is not configured." });
   if (!safeEqual(supplied, expected)) return res.status(401).json({ success: false, message: "Invalid monitoring agent token." });
@@ -613,6 +613,16 @@ function buildEndpointHealth(row) {
   };
 }
 
+async function findDevice(body) {
+  const deviceUuid = String(body.device_uuid || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) return null;
+  const result = await db.query(
+    `SELECT * FROM monitored_devices WHERE device_uuid=$1::uuid LIMIT 1`,
+    [deviceUuid]
+  );
+  return result.rows[0] || null;
+}
+
 async function loadEndpointHealthRows(req, deviceLookup = null) {
   const params = [];
   const conditions = [];
@@ -684,39 +694,8 @@ function normalizeSoftwareItem(item) {
   };
 }
 
-async function findDevice(body) {
-  let deviceUuid = String(body.device_uuid || "").trim().toLowerCase();
-  
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) {
-    const hostname = String(body.hostname || "").trim();
-    if (!hostname) return null;
-    const hash = crypto.createHash('md5').update(hostname.toLowerCase()).digest('hex');
-    deviceUuid = [
-      hash.slice(0, 8), hash.slice(8, 12), '3' + hash.slice(13, 16), 'a' + hash.slice(17, 20), hash.slice(20, 32)
-    ].join('-');
-  }
-
-  const result = await db.query(`SELECT * FROM monitored_devices WHERE device_uuid=$1::uuid LIMIT 1`, [deviceUuid]);
-  
-  if (!result.rows.length) {
-    const hostname = String(body.hostname || "");
-    if (!hostname) return null;
-    const legacyRes = await db.query(
-      `SELECT * FROM monitored_devices WHERE device_uuid IS NULL AND LOWER(hostname)=LOWER($1) ORDER BY last_seen_at DESC NULLS LAST LIMIT 1`,
-      [hostname]
-    );
-    if (legacyRes.rows.length) {
-       await db.query(`UPDATE monitored_devices SET device_uuid=$1 WHERE device_id=$2`, [deviceUuid, legacyRes.rows[0].device_id]);
-       legacyRes.rows[0].device_uuid = deviceUuid;
-       return legacyRes.rows[0];
-    }
-  }
-
-  return result.rows[0] || null;
-}
-
 router.post("/heartbeat", requireAgent, async (req, res) => {
-  let deviceUuid = String(req.body?.device_uuid || "").trim().toLowerCase();
+  const deviceUuid = String(req.body?.device_uuid || "").trim().toLowerCase();
   const hostname = String(req.body?.hostname || req.body?.device_name || "").trim();
   const deviceName = String(req.body?.device_name || hostname).trim().slice(0, 255);
   const loggedInUser = String(req.body?.logged_in_user || "").trim().slice(0, 255) || null;
@@ -724,10 +703,7 @@ router.post("/heartbeat", requireAgent, async (req, res) => {
   if (!hostname) return res.status(400).json({ success: false, message: "Hostname is required." });
 
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceUuid)) {
-    const hash = crypto.createHash('md5').update(hostname.toLowerCase()).digest('hex');
-    deviceUuid = [
-      hash.slice(0, 8), hash.slice(8, 12), '3' + hash.slice(13, 16), 'a' + hash.slice(17, 20), hash.slice(20, 32)
-    ].join('-');
+    return res.status(400).json({ success: false, message: "A valid device_uuid is required." });
   }
   try {
     // One-time adoption preserves activity history for pre-UUID installations.
@@ -807,15 +783,11 @@ router.post("/activity", requireAgent, async (req, res) => {
         for (const admin of admins.rows) {
           if (typeof createNotification === 'function') {
             await createNotification({
-              userId: admin.user_id,
+              user_id: admin.user_id,
               title: "Endpoint Security Alert",
               message: `High severity alert on ${device.hostname}: ${type}`,
               type: "security_alert",
-              ticketId: ticketRes.rows[0].id,
-              relatedEntityType: "endpoint",
-              relatedEntityId: device.device_uuid || device.device_id,
-              metadata: { deviceUuid: device.device_uuid, deviceId: device.device_id, alertType: type },
-              dedupeKey: `endpoint-alert-${device.device_id}-${type}-${ticketRes.rows[0].id}`,
+              related_id: ticketRes.rows[0].id
             }).catch(e => console.error("Notification failed", e));
           }
         }
@@ -871,63 +843,26 @@ router.get("/policy", requireAgent, async (req, res) => {
       } else {
         policy.policy_reason = "Employee consent is pending.";
         const formalConsent = await db.query(
-          `SELECT p.*, cd.status AS consent_status, cd.monitoring_preferences, cd.consent_version
-           FROM endpoint_monitoring_policies p
-           JOIN consent_documents cd ON cd.consent_id = p.consent_id
-           WHERE p.device_uuid=$1::uuid AND p.employee_id=$2 AND p.status='active' AND cd.status IN ('approved','signed')
-           ORDER BY p.effective_at DESC LIMIT 1`,
-          [device.device_uuid, device.assigned_user_id]
-        );
-        const fallbackConsent = formalConsent.rows.length ? { rows: [] } : await db.query(
-          `SELECT status, monitoring_preferences, consent_version, approved_at, signed_at
+          `SELECT status, monitoring_preferences, consent_version, signed_at
            FROM consent_documents
-           WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
-           ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
-          [device.assigned_user_id, device.device_uuid]
+           WHERE employee_id=$1 AND status='signed'
+           ORDER BY signed_at DESC NULLS LAST LIMIT 1`,
+          [device.assigned_user_id]
         );
 
         if (formalConsent.rows.length) {
-          const generatedPolicy = formalConsent.rows[0];
-          
-          policy.consent_status = generatedPolicy.consent_status;
-          policy.consent_version = generatedPolicy.consent_version;
-          policy.policy_reason = "Active consent applied.";
-          policy.applicationMonitoring = generatedPolicy.application_monitoring;
-          policy.screenshotMonitoring = generatedPolicy.screenshot_monitoring;
-          policy.usbMonitoring = generatedPolicy.usb_monitoring;
-          policy.browserMonitoring = generatedPolicy.web_monitoring;
-          policy.deviceTelemetry = generatedPolicy.device_telemetry;
-          policy.emailHeaderMonitoring = generatedPolicy.email_header_monitoring;
-          policy.policy_id = generatedPolicy.policy_id;
-        } else if (fallbackConsent.rows.length) {
-          const consent = fallbackConsent.rows[0];
+          const consent = formalConsent.rows[0];
           const prefs = consent.monitoring_preferences || [];
+
           policy.consent_status = consent.status;
           policy.consent_version = consent.consent_version;
+
           policy.policy_reason = "Active consent applied.";
-          policy.applicationMonitoring = hasPreference(prefs, "application_monitoring", "applications");
-          policy.screenshotMonitoring = hasPreference(prefs, "screenshot_monitoring", "screenshot");
-          policy.usbMonitoring = hasPreference(prefs, "usb_monitoring", "usb");
-          policy.browserMonitoring = hasPreference(prefs, "web_monitoring", "website_monitoring", "browser");
-          policy.emailHeaderMonitoring = hasPreference(prefs, "email_header_monitoring", "email");
-        } else {
-          // Fall back to oldest legacy table (laptop_activity_monitoring)
-          const oldestLegacy = await db.query(
-            `SELECT * FROM laptop_activity_monitoring WHERE user_id=$1 AND consent_status='Consented' ORDER BY created_at DESC LIMIT 1`,
-            [device.assigned_user_id]
-          );
-          if (oldestLegacy.rows.length) {
-            const consent = oldestLegacy.rows[0];
-            policy.consent_status = "approved";
-            policy.consent_version = "1.0 (Legacy)";
-            policy.policy_reason = "Active consent applied (Legacy).";
-            policy.applicationMonitoring = consent.application_monitoring;
-            policy.screenshotMonitoring = false; // Legacy didn't track screenshots
-            policy.usbMonitoring = false; // Legacy didn't track USB
-            policy.browserMonitoring = consent.web_monitoring;
-            policy.deviceTelemetry = consent.device_telemetry;
-            policy.emailHeaderMonitoring = consent.email_header_monitoring;
-          }
+          policy.applicationMonitoring = true;
+          policy.screenshotMonitoring = Array.isArray(prefs) && prefs.includes("screenshot");
+          policy.usbMonitoring = Array.isArray(prefs) && prefs.includes("usb");
+          policy.browserMonitoring = Array.isArray(prefs) && prefs.includes("browser");
+          policy.emailHeaderMonitoring = Array.isArray(prefs) && prefs.includes("email");
         }
       }
     }
@@ -936,9 +871,9 @@ router.get("/policy", requireAgent, async (req, res) => {
     
     // Log policy sync audit
     await db.query(`
-      INSERT INTO consent_audit_logs (employee_id, actor_role, event_type, details)
-      VALUES ($1, 'agent', 'policy_synced', $2)
-    `, [device.assigned_user_id || null, JSON.stringify({ device_uuid: policy.device_uuid, policy_reason: policy.policy_reason })]);
+      INSERT INTO consent_audit_logs (employee_id, action_by, event_type, old_status, new_status, metadata)
+      VALUES ($1, $1, 'policy_synced', null, $2, $3)
+    `, [device.assigned_user_id, policy.consent_status, JSON.stringify({ device_uuid: policy.device_uuid, policy_reason: policy.policy_reason })]);
 
     return res.json({ success: true, data: policy });
   } catch (error) {
@@ -957,13 +892,13 @@ router.get("/screenshot-permission", requireAgent, async (req, res) => {
     if (device.assigned_user_id) {
       const formalConsent = await db.query(
         `SELECT monitoring_preferences FROM consent_documents
-         WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
-         ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
-        [device.assigned_user_id, device.device_uuid]
+         WHERE employee_id=$1 AND status='signed'
+         ORDER BY signed_at DESC NULLS LAST LIMIT 1`,
+        [device.assigned_user_id]
       );
       if (formalConsent.rows.length) {
         const prefs = formalConsent.rows[0].monitoring_preferences || [];
-        allowed = hasPreference(prefs, "screenshot_monitoring", "screenshot");
+        allowed = Array.isArray(prefs) && prefs.includes("screenshot");
       }
     }
 
@@ -1000,16 +935,16 @@ router.post("/screenshot", requireAgent, (req, res) => {
       // Enforce formal Consent
       const formalConsent = await db.query(
         `SELECT monitoring_preferences, department FROM consent_documents
-         WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
-         ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
-        [device.assigned_user_id, device.device_uuid]
+         WHERE employee_id=$1 AND status='signed'
+         ORDER BY signed_at DESC NULLS LAST LIMIT 1`,
+        [device.assigned_user_id]
       );
 
       let allowed = false;
       let department = null;
       if (formalConsent.rows.length) {
         const prefs = formalConsent.rows[0].monitoring_preferences || [];
-        allowed = hasPreference(prefs, "screenshot_monitoring", "screenshot");
+        allowed = Array.isArray(prefs) && prefs.includes("screenshot");
         department = formalConsent.rows[0].department;
       } else {
         // Fallback to legacy
@@ -1068,9 +1003,9 @@ router.post("/screenshot", requireAgent, (req, res) => {
 async function refreshDeviceStatuses() {
   await db.query(
     `UPDATE monitored_devices
-     SET status=CASE WHEN last_seen_at IS NOT NULL AND last_seen_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 second') THEN 'Online' ELSE 'Offline' END,
+     SET status=CASE WHEN last_seen_at IS NOT NULL AND last_seen_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 second') THEN 'Online' ELSE 'Offline' END,
      updated_at=CURRENT_TIMESTAMP
-     WHERE status IS DISTINCT FROM CASE WHEN last_seen_at IS NOT NULL AND last_seen_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 second') THEN 'Online' ELSE 'Offline' END`,
+     WHERE status IS DISTINCT FROM CASE WHEN last_seen_at IS NOT NULL AND last_seen_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 second') THEN 'Online' ELSE 'Offline' END`,
     [ONLINE_THRESHOLD_SECONDS]
   );
 }
@@ -1081,7 +1016,7 @@ router.get("/devices", requireAdmin, async (req, res) => {
     const result = await db.query(
       `SELECT d.*, u.full_name assigned_user, COALESCE(d.department, u.department) as department, b.branch_name,
        COALESCE(
-         (SELECT status FROM consent_documents cd WHERE cd.employee_id = d.assigned_user_id AND (d.device_uuid IS NULL OR cd.device_uuid=d.device_uuid) ORDER BY cd.approved_at DESC NULLS LAST, cd.signed_at DESC NULLS LAST, cd.created_at DESC LIMIT 1),
+         (SELECT status FROM consent_documents cd WHERE cd.employee_id = d.assigned_user_id ORDER BY cd.signed_at DESC NULLS LAST LIMIT 1),
          d.consent_status
        ) as consent_status,
        (SELECT occurred_at FROM laptop_activity_logs al WHERE al.device_id = d.device_id ORDER BY al.occurred_at DESC LIMIT 1) as last_activity,
@@ -1258,17 +1193,14 @@ router.get("/devices/:id/activity", requireAdmin, async (req, res) => {
     const empId = req.monitoringIsEmployee ? req.monitoringUser.userId : null;
     const allowed = await db.query(`SELECT device_id FROM monitored_devices WHERE device_id=$1 AND ($2::int IS NULL OR branch_id=$2) AND ($3::int IS NULL OR assigned_user_id=$3)`, [req.params.id, req.monitoringBranchId, empId]);
     if (!allowed.rows.length) return res.status(404).json({ success: false, message: "Device not found or access denied." });
-    const [activity, screenshots, alerts, consents, assignments, hardware, software, policy] = await Promise.all([
+    const [activity, screenshots, alerts, consents, assignments] = await Promise.all([
       db.query(`SELECT * FROM laptop_activity_logs WHERE device_id=$1 ORDER BY occurred_at DESC LIMIT 200`, [req.params.id]),
       db.query(`SELECT * FROM laptop_screenshots WHERE device_id=$1 ORDER BY captured_at DESC LIMIT 50`, [req.params.id]),
       db.query(`SELECT * FROM laptop_alerts WHERE device_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.params.id]),
       db.query(`SELECT id,device_id,user_id,consent_type,consent_status,consented_at,created_at FROM monitoring_consents WHERE device_id=$1 ORDER BY created_at DESC`, [req.params.id]),
-      db.query(`SELECT a.*, ou.full_name as old_user_name, nu.full_name as new_user_name FROM monitored_device_assignments a LEFT JOIN users ou ON a.old_user_id=ou.user_id LEFT JOIN users nu ON a.new_user_id=nu.user_id WHERE device_id=$1 ORDER BY changed_at DESC`, [req.params.id]),
-      db.query(`SELECT * FROM endpoint_hardware_inventory WHERE device_id=$1 ORDER BY scanned_at DESC LIMIT 1`, [req.params.id]),
-      db.query(`SELECT * FROM endpoint_software_inventory WHERE device_id=$1 ORDER BY status ASC, software_name ASC LIMIT 500`, [req.params.id]),
-      db.query(`SELECT * FROM endpoint_effective_policies WHERE device_uuid=(SELECT device_uuid FROM monitored_devices WHERE device_id=$1)`, [req.params.id])
+      db.query(`SELECT a.*, ou.full_name as old_user_name, nu.full_name as new_user_name FROM monitored_device_assignments a LEFT JOIN users ou ON a.old_user_id=ou.user_id LEFT JOIN users nu ON a.new_user_id=nu.user_id WHERE device_id=$1 ORDER BY changed_at DESC`, [req.params.id])
     ]);
-    return res.json({ success: true, data: { activity: activity.rows, screenshots: screenshots.rows, alerts: alerts.rows, consents: consents.rows, assignments: assignments.rows, hardware: hardware.rows[0] || null, software: software.rows, policy: policy.rows[0]?.policy_json || null } });
+    return res.json({ success: true, data: { activity: activity.rows, screenshots: screenshots.rows, alerts: alerts.rows, consents: consents.rows, assignments: assignments.rows } });
   } catch (error) {
     console.error("[laptop-monitoring:device-activity]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load device activity." });
@@ -1344,7 +1276,7 @@ router.put("/devices/:id/assign", requireAdmin, async (req, res) => {
 
     const consentRequest = await ensureConsentRequestForDevice(updated.rows[0], req.monitoringUserId);
 
-    return res.json({ success: true, message: "Device assignment updated.", data: updated.rows[0], consent_request: consentRequest });
+    return res.json({ success: true, message: "Device assignment updated.", data: updated.rows[0] });
   } catch (error) {
     console.error("[laptop-monitoring:assign]", error.message);
     return res.status(500).json({ success: false, message: "Failed to assign device." });
@@ -1370,19 +1302,10 @@ router.get("/summary", requireAdmin, async (req, res) => {
     const alerts = await db.query(
       `SELECT a.*,d.hostname FROM laptop_alerts a JOIN monitored_devices d ON d.device_id=a.device_id
        WHERE ($1::int IS NULL OR d.branch_id=$1) AND ($2::int IS NULL OR d.assigned_user_id=$2) ORDER BY a.created_at DESC LIMIT 20`, [req.monitoringBranchId, empId]
-    );
-    const software = await db.query(
-      `SELECT
-         COUNT(*)::int AS total_installed_software_records,
-         COUNT(DISTINCT LOWER(si.software_name))::int AS unique_applications,
-         COUNT(DISTINCT si.device_uuid) FILTER (WHERE si.status='active')::int AS devices_reporting_software,
-         COUNT(*) FILTER (WHERE si.first_seen_at >= CURRENT_TIMESTAMP - INTERVAL '30 days')::int AS recently_installed,
-         COUNT(*) FILTER (WHERE si.status='removed')::int AS removed_missing_software
-       FROM endpoint_software_inventory si
-       WHERE ($1::int IS NULL OR si.branch_id=$1) AND ($2::int IS NULL OR si.assigned_user_id=$2)`,
-      [req.monitoringBranchId, empId]
-    );
-    return res.json({ success: true, data: { ...result.rows[0], ...idle.rows[0], ...software.rows[0], recent_alerts: alerts.rows } });
+
+
+      );
+    return res.json({ success: true, data: { ...result.rows[0], ...idle.rows[0], recent_alerts: alerts.rows } });
   } catch (error) {
     console.error("[laptop-monitoring:summary]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load monitoring summary." });
@@ -1390,8 +1313,8 @@ router.get("/summary", requireAdmin, async (req, res) => {
 });
 
 
-// ─── Policy plumbing: USB & Website monitoring (architecture ready, agent implementation pending) ─
-// USB monitoring permission — checks consent_documents for usb_monitoring preference
+// Policy plumbing: USB & Website monitoring (architecture ready, agent implementation pending)
+// USB monitoring permission checks consent_documents for usb_monitoring preference
 router.get("/usb-monitoring-permission", requireAgent, async (req, res) => {
   try {
     const device = await findDevice(req.query || {});
@@ -1400,13 +1323,13 @@ router.get("/usb-monitoring-permission", requireAgent, async (req, res) => {
     if (device.assigned_user_id) {
       const formalConsent = await db.query(
         `SELECT monitoring_preferences FROM consent_documents
-         WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
-         ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
-        [device.assigned_user_id, device.device_uuid]
+         WHERE employee_id=$1 AND status='signed'
+         ORDER BY signed_at DESC NULLS LAST LIMIT 1`,
+        [device.assigned_user_id]
       );
       if (formalConsent.rows.length) {
         const prefs = formalConsent.rows[0].monitoring_preferences || [];
-        allowed = hasPreference(prefs, "usb_monitoring", "usb");
+        allowed = Array.isArray(prefs) && prefs.includes("usb_monitoring");
       }
     }
     return res.json({ success: true, data: { allowed, feature: "usb_monitoring" } });
@@ -1416,7 +1339,7 @@ router.get("/usb-monitoring-permission", requireAgent, async (req, res) => {
   }
 });
 
-// Website monitoring permission — checks consent_documents for website_monitoring preference
+// Website monitoring permission checks consent_documents for website_monitoring preference
 router.get("/website-monitoring-permission", requireAgent, async (req, res) => {
   try {
     const device = await findDevice(req.query || {});
@@ -1425,13 +1348,13 @@ router.get("/website-monitoring-permission", requireAgent, async (req, res) => {
     if (device.assigned_user_id) {
       const formalConsent = await db.query(
         `SELECT monitoring_preferences FROM consent_documents
-         WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status IN ('approved','signed')
-         ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST LIMIT 1`,
-        [device.assigned_user_id, device.device_uuid]
+         WHERE employee_id=$1 AND status='signed'
+         ORDER BY signed_at DESC NULLS LAST LIMIT 1`,
+        [device.assigned_user_id]
       );
       if (formalConsent.rows.length) {
         const prefs = formalConsent.rows[0].monitoring_preferences || [];
-        allowed = hasPreference(prefs, "web_monitoring", "website_monitoring", "browser");
+        allowed = Array.isArray(prefs) && prefs.includes("website_monitoring");
       }
     }
     return res.json({ success: true, data: { allowed, feature: "website_monitoring" } });
@@ -1863,7 +1786,7 @@ router.post("/devices/:deviceId/convert-to-asset", requireAdmin, async (req, res
   }
 });
 
-// ─── Endpoint Policy Engine APIs ──────────────────────────────────────────────
+// Endpoint Policy Engine APIs
 
 async function logPolicyAudit(userId, action, targetId, details) {
   try {

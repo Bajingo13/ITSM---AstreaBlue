@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { lazy, Suspense } from "react";
 import Login from "./login";
 import ProtectedRoute from "./context/ProtectedRoute";
 import MainLayout from "./components/layout/MainLayout";
@@ -23,7 +24,6 @@ import Assets from "./views/Assets";
 import AssetDiscovery from "./views/AssetDiscovery";
 import AssetFinancials from "./views/AssetFinancials";
 import CMDB from "./views/CMDB";
-import ChangeManagement from "./views/ChangeManagement";
 import ProblemManagement from "./views/ProblemManagement";
 import Analytics from "./views/Analytics";
 import EndpointPolicies from './views/EndpointPolicies';
@@ -31,6 +31,7 @@ import EndpointMonitoring from "./views/EndpointMonitoring";
 import Settings from "./views/Settings";
 import UserManagement from "./views/UserManagement";
 import BranchManagement from "./views/BranchManagement";
+import Integrations from "./views/Integrations";
 import InviteRegistration from "./views/InviteRegistration";
 import RA10173Compliance from "./views/RA10173Compliance";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -41,6 +42,15 @@ import NotificationTicketDetails from "./views/NotificationTicketDetails";
 import ConsentPage from "./views/ConsentPage";
 import ConsentManagement from "./views/ConsentManagement";
 import ScreenshotCapture from "./views/ScreenshotCapture";
+
+const ChangeManagement = lazy(() => import("./views/ChangeManagement"));
+const ReleasePlanning = lazy(() => import("./views/ReleasePlanning"));
+const RollbackProcedures = lazy(() => import("./views/RollbackProcedures"));
+const AdvancedProjectDashboard = lazy(() => import("./views/AdvancedProjectDashboard"));
+const ExecutiveOperationsDashboard = lazy(() => import("./views/ExecutiveOperationsDashboard"));
+const AnalyticsSection = lazy(() => import("./views/AnalyticsSection"));
+const PredictiveAnalytics = lazy(() => import("./views/PredictiveAnalytics"));
+const CustomReports = lazy(() => import("./views/CustomReports"));
 
 const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
 const ADMIN_ROLES = ["SuperAdmin", "Admin"];
@@ -60,7 +70,7 @@ function Unauthorized() {
 
 export default function App() {
   return (
-    <Routes>
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50"><div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600"/></div>}><Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
 
       <Route path="/login" element={<Login />} />
@@ -270,7 +280,7 @@ export default function App() {
           path="/release-planning"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <ChangeManagement />
+              <ReleasePlanning />
             </ProtectedRoute>
           }
         />
@@ -278,7 +288,7 @@ export default function App() {
           path="/rollback-procedures"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <ModulePlaceholder title="Rollback Procedures" />
+              <RollbackProcedures />
             </ProtectedRoute>
           }
         />
@@ -328,15 +338,23 @@ export default function App() {
           path="/analytics"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <Analytics />
+              <ExecutiveOperationsDashboard />
             </ProtectedRoute>
           }
         />
+        <Route path="/analytics/service-desk" element={<ProtectedRoute allowedRoles={[...ADMIN_ROLES, "Technician"]}><AnalyticsSection section="service_desk" /></ProtectedRoute>} />
+        <Route path="/analytics/problems" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="problems" /></ProtectedRoute>} />
+        <Route path="/analytics/assets" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="assets" /></ProtectedRoute>} />
+        <Route path="/analytics/endpoints" element={<ProtectedRoute allowedRoles={[...ADMIN_ROLES, "Technician"]}><AnalyticsSection section="endpoints" /></ProtectedRoute>} />
+        <Route path="/analytics/sla" element={<ProtectedRoute allowedRoles={[...ADMIN_ROLES, "Technician"]}><AnalyticsSection section="sla" /></ProtectedRoute>} />
+        <Route path="/analytics/change" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="change" /></ProtectedRoute>} />
+        <Route path="/analytics/compliance" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="compliance" /></ProtectedRoute>} />
+        <Route path="/analytics/resources" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="resources" /></ProtectedRoute>} />
         <Route
           path="/report-builder"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <Analytics />
+              <CustomReports />
             </ProtectedRoute>
           }
         />
@@ -344,7 +362,7 @@ export default function App() {
           path="/custom-reports"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <ModulePlaceholder title="Custom Reports" />
+              <CustomReports />
             </ProtectedRoute>
           }
         />
@@ -352,7 +370,7 @@ export default function App() {
           path="/predictive-analytics"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <ModulePlaceholder title="Predictive Analytics" />
+              <PredictiveAnalytics />
             </ProtectedRoute>
           }
         />
@@ -478,6 +496,14 @@ export default function App() {
           }
         />
         <Route
+          path="/employee/consent"
+          element={
+            <ProtectedRoute allowedRoles={["Employee"]}>
+              <ConsentPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/audit-logging"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
@@ -513,8 +539,24 @@ export default function App() {
         <Route
           path="/settings/branches"
           element={
-            <ProtectedRoute allowedRoles={["SuperAdmin"]}>
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
               <BranchManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/analytics/projects"
+          element={
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+              <AdvancedProjectDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/integrations"
+          element={
+            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+              <Integrations />
             </ProtectedRoute>
           }
         />
@@ -523,6 +565,6 @@ export default function App() {
       <Route path="/unauthorized" element={<Unauthorized />} />
 
       <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+    </Routes></Suspense>
   );
 }

@@ -61,6 +61,7 @@ router.post("/login", async (req, res) => {
         success: false,
         message: "Invalid email or password",
       });
+
     }
 
     const user = result.rows[0];

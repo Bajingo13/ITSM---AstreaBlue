@@ -22,10 +22,14 @@ const assetManagementRoutes = require("./src/routes/assetManagement");
 const laptopMonitoringRoutes = require("./src/routes/laptopMonitoring");
 const attachmentRoutes = require("./src/routes/attachments");
 const ticketRoutes = require("./src/routes/tickets");
+const integrationGatewayRoutes = require("./src/routes/integrationGateway");
 const notificationRoutes = require("./src/routes/notifications");
 const ra10173ComplianceRoutes = require("./src/routes/ra10173Compliance");
 const consentRoutes = require("./src/routes/consent");
 const cmdbRoutes = require("./src/routes/cmdb");
+const projectAnalyticsRoutes = require("./src/routes/projectAnalytics");
+const analyticsCenterRoutes = require("./src/routes/analyticsCenter");
+const changeReleaseManagementRoutes = require("./src/routes/changeReleaseManagement");
 const { setSocketServer } = require("./src/services/socketService");
 
 const app = express();
@@ -67,7 +71,7 @@ const corsOptions = {
     return callback(null, false);
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key"],
   credentials: true,
   optionsSuccessStatus: 204,
 };
@@ -773,9 +777,13 @@ app.use("/api/v1/laptop-monitoring", laptopMonitoringRoutes);
 app.use("/api/v1/ra-10173-compliance", ra10173ComplianceRoutes);
 app.use("/api/v1/tickets", attachmentRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
+app.use("/api/v1/external", integrationGatewayRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
 app.use("/api/v1/consent", consentRoutes);
 app.use("/api/v1/cmdb", cmdbRoutes);
+app.use("/api/v1/projects", projectAnalyticsRoutes);
+app.use("/api/v1/analytics", analyticsCenterRoutes);
+app.use("/api/v1/change-release", changeReleaseManagementRoutes);
 
 /* ==========================
    HEALTH CHECK
@@ -3956,128 +3964,6 @@ app.delete("/api/v1/tickets/:id/attachments/:attachmentId", async (req, res) => 
   } catch (err) {
     console.error("Delete attachment error:", err.message);
     res.status(500).json({ success: false, error: "Failed to delete attachment" });
-  }
-});
-
-app.post("/api/v1/tickets", async (req, res) => {
-  try {
-    const {
-      title,
-      description,
-      desc,
-      priority = "P3-Medium",
-      status = "Open Queue",
-      category_id = null,
-      requester_id = null,
-      assigned_to = null,
-      branch_id = null,
-      current_branch_id = null,
-      source = "portal",
-      impact = null,
-      urgency = null,
-    } = req.body;
-
-    const finalDescription = description || desc || "";
-
-    if (!title || !finalDescription) {
-      return res.status(400).json({
-        success: false,
-        error: "Title and description are required",
-      });
-    }
-
-    const countResult = await db.query(`
-      SELECT COUNT(*)::int AS count
-      FROM tickets
-      WHERE DATE(created_at) = CURRENT_DATE
-    `);
-
-    const nextNumber = countResult.rows[0].count + 1;
-
-    const ticketNumber = `TKT-${new Date()
-      .toISOString()
-      .slice(0, 10)
-      .replace(/-/g, "")}-${String(nextNumber).padStart(4, "0")}`;
-
-    const slaDueDate = await calculateSlaDueDate(priority || "P3-Medium");
-    const finalBranchId = current_branch_id || branch_id || null;
-
-    const result = await db.query(
-      `
-      INSERT INTO tickets
-      (
-        ticket_number,
-        title,
-        description,
-        priority,
-        status,
-        category_id,
-        requester_id,
-        assigned_to,
-        branch_id,
-        source,
-        impact,
-        urgency,
-        sla_due_date
-      )
-      VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-      RETURNING
-        id,
-        ticket_number,
-        title,
-        description AS desc,
-        description,
-        priority,
-        status,
-        source,
-        impact,
-        urgency,
-        branch_id,
-        sla_due_date,
-        created_at,
-        updated_at
-      `,
-      [
-        ticketNumber,
-        title,
-        finalDescription,
-        priority,
-        status,
-        category_id,
-        requester_id,
-        assigned_to,
-        finalBranchId,
-        source,
-        impact,
-        urgency,
-        slaDueDate,
-      ]
-    );
-
-    await db.query(
-      `
-      INSERT INTO ticket_history
-      (ticket_id, changed_by, action, old_value, new_value)
-      VALUES ($1, $2, $3, $4, $5)
-      `,
-      [
-        result.rows[0].id,
-        requester_id,
-        "Ticket Created",
-        null,
-        result.rows[0].status,
-      ]
-    );
-
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error("Create ticket error:", err.message);
-
-    res.status(500).json({
-      success: false,
-      error: "Failed to create ticket",
-    });
   }
 });
 

@@ -131,7 +131,7 @@ function NewTicketModal({ categories, branches, user, onClose, onCreated }) {
 
       const res = await fetch(`${API_BASE}/tickets`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(payload),
       });
 
@@ -800,6 +800,20 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 </p>
               </div>
             </section>
+
+            {(item.origin_system || item.created_via || item.external_reference) && (
+              <section className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5">
+                <h3 className="mb-4 font-black text-slate-900">Integration Origin</h3>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <ResolutionDetail label="Created Via" value={item.created_via || item.source || "Integration Gateway"} />
+                  <ResolutionDetail label="Origin System" value={item.origin_system || "Not recorded"} />
+                  <ResolutionDetail label="Module" value={item.origin_module || "Not recorded"} />
+                  <ResolutionDetail label="Feature" value={item.origin_feature || "Not recorded"} />
+                  <ResolutionDetail label="External Reference" value={item.external_reference || "Not recorded"} />
+                  <ResolutionDetail label="External Employee ID" value={item.external_employee_id || "Not recorded"} />
+                </div>
+              </section>
+            )}
 
             {isCancelled && (
               <section className="rounded-2xl border border-red-100 bg-red-50/60 p-5">

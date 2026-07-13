@@ -1,5 +1,4 @@
 import { API_URL } from "../config/api";
-// frontend/src/components/NewTicketForm.jsx
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { buildTicketPayload } from '../utils/ticketAccess';

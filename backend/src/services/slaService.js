@@ -1,8 +1,7 @@
 const db = require("../../config/db");
 
-async function applySlaToNewTicket(ticketPayload) {
-  try {
-    const { priority, category_id } = ticketPayload;
+async function applySlaToNewTicket(ticketPayload, queryable = db) {
+  const { priority, category_id } = ticketPayload;
     
     // Find matching SLA policy. Try priority + category match first, then fallback to priority only
     let query = `
@@ -14,28 +13,24 @@ async function applySlaToNewTicket(ticketPayload) {
         policy_id ASC
       LIMIT 1
     `;
-    const res = await db.query(query, [priority, category_id || null]);
+  const res = await queryable.query(query, [priority, category_id || null]);
     
-    if (res.rows.length === 0) return null;
+  if (res.rows.length === 0) return null;
     
-    const policy = res.rows[0];
+  const policy = res.rows[0];
     
     // Calculate due dates (simplified: ignoring business hours for now)
-    const now = new Date();
-    const responseDueAt = new Date(now.getTime() + policy.response_target_mins * 60000);
-    const resolutionDueAt = new Date(now.getTime() + policy.resolution_target_mins * 60000);
+  const now = new Date();
+  const responseDueAt = new Date(now.getTime() + policy.response_target_mins * 60000);
+  const resolutionDueAt = new Date(now.getTime() + policy.resolution_target_mins * 60000);
     
-    return {
-      sla_policy_id: policy.policy_id,
-      response_due_at: responseDueAt,
-      resolution_due_at: resolutionDueAt,
-      response_sla_status: 'Pending',
-      resolution_sla_status: 'Pending'
-    };
-  } catch (err) {
-    console.error("Error applying SLA to new ticket:", err);
-    return null;
-  }
+  return {
+    sla_policy_id: policy.policy_id,
+    response_due_at: responseDueAt,
+    resolution_due_at: resolutionDueAt,
+    response_sla_status: 'Pending',
+    resolution_sla_status: 'Pending'
+  };
 }
 
 module.exports = {

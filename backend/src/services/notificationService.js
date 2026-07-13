@@ -10,10 +10,11 @@ async function createNotification({
   relatedEntityId = null,
   metadata = {},
   dedupeKey = null,
+  queryable = db,
 }) {
   if (!userId) return null;
 
-  await db.query(`
+  await queryable.query(`
     ALTER TABLE notifications
     ADD COLUMN IF NOT EXISTS related_entity_type VARCHAR(80),
     ADD COLUMN IF NOT EXISTS related_entity_id VARCHAR(120),
@@ -28,7 +29,7 @@ async function createNotification({
     ...(dedupeKey ? { dedupeKey } : {}),
   };
 
-  const result = await db.query(
+  const result = await queryable.query(
     `
     INSERT INTO notifications
       (user_id, title, message, type, related_ticket_id, related_entity_type, related_entity_id, metadata)

@@ -20,6 +20,9 @@ const migrationFiles = [
   "2026-07-07-ra10173-compliance.sql",
   "2026-07-07-user-employee-fields.sql",
   "2026-07-08-laptop-monitoring-asset-department.sql",
+  "2026-07-10-integration-gateway-foundation.sql",
+  "2026-07-13-project-analytics.sql",
+  "2026-07-13-change-release-management.sql",
 ];
 
 const defaultTicketCategories = [

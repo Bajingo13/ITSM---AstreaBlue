@@ -10,7 +10,7 @@ const {
   sendTicketStatusEmail,
 } = require("../services/emailService");
 const { createNotification } = require("../services/notificationService");
-const { applySlaToNewTicket } = require("../services/slaService");
+const { createServiceDeskTicket } = require("../services/serviceDeskTicketService");
 const { emitSlaUpdated } = require("../services/socketService");
 
 function normalizeOptionalInteger(value, fallback = null) {
@@ -46,6 +46,15 @@ const setupTickets = async () => {
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS parts_used TEXT;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS satisfaction_rating INTEGER;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS origin_system VARCHAR(150);
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS origin_module VARCHAR(150);
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS origin_feature VARCHAR(150);
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_reference VARCHAR(150);
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_attachment_metadata JSONB NOT NULL DEFAULT '[]'::jsonb;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_request_fingerprint VARCHAR(64);
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS integration_id INTEGER;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS employee_id INTEGER;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS created_via VARCHAR(100);
     `);
   } catch (err) {
     console.error("Failed to alter tickets table:", err.message);
@@ -154,59 +163,6 @@ async function createInAppNotification(userId, title, message, type = "info", ti
   }
 }
 
-async function runTicketCreatedSideEffects({ ticketId, ticketNumber, requesterId, branchId }) {
-  try {
-    let branchName = "Unassigned Branch";
-
-    if (branchId) {
-      try {
-        const branchResult = await db.query(
-          "SELECT branch_name FROM branches WHERE branch_id = $1",
-          [branchId]
-        );
-        branchName = branchResult.rows[0]?.branch_name || branchName;
-      } catch (branchError) {
-        console.warn("Ticket branch lookup failed:", branchError.message);
-      }
-    }
-
-    try {
-      await db.query(
-        `
-        INSERT INTO ticket_history
-        (ticket_id, changed_by, action, old_value, new_value)
-        VALUES ($1, $2, $3, $4, $5)
-        `,
-        [
-          ticketId,
-          requesterId,
-          "Ticket Created",
-          null,
-          `Ticket filed from ${branchName}`,
-        ]
-      );
-    } catch (historyError) {
-      console.warn("Ticket history creation failed:", historyError.message);
-    }
-
-    try {
-      await sendTicketNotification(ticketId, sendTicketCreatedEmail);
-    } catch (notificationError) {
-      console.warn("Ticket creation notification failed:", notificationError.message);
-    }
-
-    await createInAppNotification(
-      requesterId,
-      "Ticket Created",
-      `Ticket ${ticketNumber || ticketId} was created successfully.`,
-      "success",
-      ticketId
-    );
-  } catch (error) {
-    console.error("Ticket post-save processing failed:", error.message);
-  }
-}
-
 router.get("/", async (req, res) => {
   try {
     const params = [];
@@ -252,6 +208,14 @@ router.get("/", async (req, res) => {
         t.parts_used,
         t.satisfaction_rating,
         t.branch_id,
+        t.origin_system,
+        t.origin_module,
+        t.origin_feature,
+        t.external_reference,
+        t.integration_id,
+        t.employee_id,
+        t.external_employee_id,
+        t.created_via,
         t.created_at,
         t.updated_at,
 
@@ -265,8 +229,8 @@ router.get("/", async (req, res) => {
         b.city_municipality,
 
         requester.user_id AS requester_id,
-        requester.full_name AS requester_name,
-        requester.email AS requester_email,
+        COALESCE(requester.full_name, t.external_requester_name) AS requester_name,
+        COALESCE(requester.email, t.external_requester_email) AS requester_email,
 
         assignee.user_id AS assigned_to,
         assignee.full_name AS assigned_name,
@@ -338,6 +302,14 @@ router.get("/:id", async (req, res) => {
         t.parts_used,
         t.satisfaction_rating,
         t.branch_id,
+        t.origin_system,
+        t.origin_module,
+        t.origin_feature,
+        t.external_reference,
+        t.integration_id,
+        t.employee_id,
+        t.external_employee_id,
+        t.created_via,
         t.created_at,
         t.updated_at,
 
@@ -351,8 +323,8 @@ router.get("/:id", async (req, res) => {
         b.city_municipality,
 
         requester.user_id AS requester_id,
-        requester.full_name AS requester_name,
-        requester.email AS requester_email,
+        COALESCE(requester.full_name, t.external_requester_name) AS requester_name,
+        COALESCE(requester.email, t.external_requester_email) AS requester_email,
 
         assignee.user_id AS assigned_to,
         assignee.full_name AS assigned_name,
@@ -492,134 +464,54 @@ router.post("/", async (req, res) => {
       source = "portal",
       impact = null,
       urgency = null,
-      role_name = null,
-      current_branch_id = null,
-      current_user_id = null,
     } = req.body;
 
     const finalDescription = description || desc || "";
-    const normalizedRole = String(role_name || "").toLowerCase();
-    let finalBranchId =
-      normalizedRole === "superadmin"
-        ? branch_id || null
-        : current_branch_id || branch_id || null;
-
-    if (!finalBranchId && normalizedRole !== "superadmin") {
-      const branchUserId = current_user_id || requester_id || assigned_to;
-
-      if (branchUserId) {
-        const branchResult = await db.query(
-          `SELECT branch_id FROM users WHERE user_id = $1`,
-          [branchUserId]
-        );
-        finalBranchId = branchResult.rows[0]?.branch_id || null;
-      }
+    const context = getRequestContext(req);
+    if (!context.authenticated) {
+      return res.status(401).json({ success: false, error: "Authentication required." });
     }
 
-    if (!title || !finalDescription) {
-      return res.status(400).json({
-        success: false,
-        error: "Title and description are required",
+    const normalizedRole = String(context.roleName || "").toLowerCase();
+    const isSuperAdmin = normalizedRole === "superadmin";
+    const finalBranchId = isSuperAdmin ? branch_id || null : context.branchId;
+    if (!isSuperAdmin && !finalBranchId) {
+      return res.status(403).json({ success: false, error: "An authorized branch is required." });
+    }
+    if (!isSuperAdmin && branch_id && Number(branch_id) !== Number(context.branchId)) {
+      return res.status(403).json({ success: false, error: "You cannot create tickets for another branch." });
+    }
+    if (normalizedRole === "employee" && requester_id && Number(requester_id) !== Number(context.currentUserId)) {
+      return res.status(403).json({ success: false, error: "Employees can only create their own tickets." });
+    }
+
+    const finalRequesterId = normalizedRole === "employee" ? context.currentUserId : requester_id;
+
+    const { ticket: createdTicket } = await createServiceDeskTicket({
+      title,
+      description: finalDescription,
+      priority,
+      status,
+      categoryId: category_id,
+      requesterId: finalRequesterId,
+      assignedTo: assigned_to,
+      branchId: finalBranchId,
+      source,
+      impact,
+      urgency,
+      actorId: context.currentUserId,
+      enforceRequesterBranch: Boolean(finalRequesterId && finalBranchId),
+      auditEvent: "Internal Ticket Created",
+      requestMethod: req.method,
+      requestPath: req.originalUrl,
+      sourceIp: req.ip,
+    });
+
+    if (process.env.NODE_ENV !== "test") {
+      sendTicketNotification(createdTicket.id, sendTicketCreatedEmail).catch((emailError) => {
+        console.warn("Ticket creation email failed:", emailError.message);
       });
     }
-
-    const countResult = await db.query(`
-      SELECT COUNT(*)::int AS count
-      FROM tickets
-      WHERE DATE(created_at) = CURRENT_DATE
-    `);
-
-    const nextNumber = countResult.rows[0].count + 1;
-
-    const ticketNumber = `TKT-${new Date()
-      .toISOString()
-      .slice(0, 10)
-      .replace(/-/g, "")}-${String(nextNumber).padStart(4, "0")}`;
-
-    const slaData = await applySlaToNewTicket({ priority: priority || "P3-Medium", category_id });
-
-    // Fallback if no SLA policy matched
-    const slaPolicyId = slaData ? slaData.sla_policy_id : null;
-    const responseDueAt = slaData ? slaData.response_due_at : null;
-    const resolutionDueAt = slaData ? slaData.resolution_due_at : null;
-    const responseStatus = slaData ? slaData.response_sla_status : 'Pending';
-    const resolutionStatus = slaData ? slaData.resolution_sla_status : 'Pending';
-    // Backwards compatibility with sla_due_date
-    const slaDueDate = resolutionDueAt || (new Date(Date.now() + 24 * 60 * 60 * 1000));
-
-    const result = await db.query(
-      `
-      INSERT INTO tickets
-      (
-        ticket_number,
-        title,
-        description,
-        priority,
-        status,
-        category_id,
-        requester_id,
-        assigned_to,
-        branch_id,
-        source,
-        impact,
-        urgency,
-        sla_due_date,
-        sla_policy_id,
-        response_due_at,
-        resolution_due_at,
-        response_sla_status,
-        resolution_sla_status
-      )
-      VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-      RETURNING
-        id,
-        ticket_number,
-        title,
-        description AS desc,
-        description,
-        priority,
-        status,
-        source,
-        impact,
-        urgency,
-        sla_due_date,
-        branch_id,
-        created_at,
-        updated_at
-      `,
-      [
-        ticketNumber,
-        title,
-        finalDescription,
-        priority,
-        status,
-        category_id,
-        requester_id,
-        assigned_to,
-        finalBranchId,
-        source,
-        impact,
-        urgency,
-        slaDueDate,
-        slaPolicyId,
-        responseDueAt,
-        resolutionDueAt,
-        responseStatus,
-        resolutionStatus,
-      ]
-    );
-
-    const createdTicket = result.rows[0];
-
-    runTicketCreatedSideEffects({
-      ticketId: createdTicket.id,
-      ticketNumber: createdTicket.ticket_number,
-      requesterId: requester_id,
-      branchId: finalBranchId,
-    }).catch((sideEffectError) => {
-      console.error("Ticket post-save processing failed:", sideEffectError.message);
-    });
 
     return res.status(201).json({
       success: true,
@@ -629,7 +521,7 @@ router.post("/", async (req, res) => {
   } catch (err) {
     console.error("Create ticket error:", err.message);
 
-    return res.status(500).json({
+    return res.status(err.statusCode || 500).json({
       success: false,
       error: err.message,
     });
@@ -1032,13 +924,6 @@ router.patch("/:id/assign", async (req, res) => {
 
       const technician = technicianResult.rows[0];
 
-      if (!ticket.branch_id) {
-        return res.status(400).json({
-          success: false,
-          error: "Ticket has no assigned branch",
-        });
-      }
-
       if (!technician.branch_id) {
         return res.status(400).json({
           success: false,
@@ -1057,7 +942,7 @@ router.patch("/:id/assign", async (req, res) => {
         });
       }
 
-      if (Number(ticket.branch_id) !== Number(technician.branch_id)) {
+      if (ticket.branch_id && Number(ticket.branch_id) !== Number(technician.branch_id)) {
         return res.status(403).json({
           success: false,
           error: `Technician must belong to the same branch as the ticket. Ticket branch: ${ticket.branch_name}, Technician branch: ${technician.branch_name}`,
@@ -1102,7 +987,7 @@ router.patch("/:id/assign", async (req, res) => {
     } catch(e) { console.warn("History insert failed:", e.message); }
 
     let emailWarning = null;
-    if (assigned_to) {
+    if (assigned_to && process.env.NODE_ENV !== "test") {
       emailWarning = await sendTicketNotification(id, async (ticketDetails) => {
         const assignedTicket = {
           ...ticketDetails,
@@ -1304,3 +1189,4 @@ router.patch("/:id/cancel", async (req, res) => {
 });
 
 module.exports = router;
+module.exports.ticketSchemaReady = ticketSchemaReady;

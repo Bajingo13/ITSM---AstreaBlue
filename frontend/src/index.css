@@ -53,6 +53,84 @@ body {
 
 .astrea-nav-item {
   position: relative;
+  transition: color 180ms ease, background-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.astrea-nav-item:hover {
+  transform: translateX(4px);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.1);
+}
+
+.astrea-nav-item svg,
+.astrea-nav-child svg {
+  transition: transform 180ms ease, color 180ms ease;
+}
+
+.astrea-nav-item:hover svg {
+  transform: scale(1.12);
+}
+
+.astrea-nav-child {
+  position: relative;
+  transition: color 180ms ease, background-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.astrea-nav-child:hover {
+  transform: translateX(5px);
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.08);
+}
+
+.astrea-nav-child:hover svg {
+  transform: scale(1.14) rotate(-3deg);
+}
+
+.astrea-sidebar-toggle:hover {
+  transform: translateY(-2px);
+  border-color: var(--astrea-primary);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.14);
+}
+
+.astrea-interactive-card {
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease, background-color 200ms ease;
+}
+
+.astrea-interactive-card:hover {
+  transform: translateY(-3px);
+  border-color: #bfd7ff !important;
+  box-shadow: 0 18px 34px rgba(20, 60, 120, 0.14) !important;
+}
+
+.astrea-button,
+.astrea-icon-button {
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+.astrea-button:not(:disabled):hover,
+.astrea-icon-button:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 9px 20px rgba(37, 99, 235, 0.16);
+}
+
+tbody tr {
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+tbody tr:hover {
+  box-shadow: inset 3px 0 0 var(--astrea-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .astrea-nav-item,
+  .astrea-nav-child,
+  .astrea-interactive-card,
+  .astrea-button,
+  .astrea-icon-button,
+  .astrea-sidebar-toggle,
+  .astrea-nav-item svg,
+  .astrea-nav-child svg {
+    transition: none !important;
+    transform: none !important;
+  }
 }
 
 .astrea-nav-active {

@@ -16,11 +16,13 @@ import {
   LayoutDashboard,
   Monitor,
   Package,
+  Plug,
   RotateCcw,
   Settings,
   Shield,
   Ticket,
   UserCog,
+  Users,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
@@ -63,24 +65,23 @@ const coreModuleItems = [
     ],
   },
   {
-    label: "Problem Management",
-    icon: AlertTriangle,
-    children: [
-      { label: "Root Cause Analysis", icon: GitBranch, path: "/root-cause-analysis" },
-      { label: "Known Error Database", icon: Database, path: "/known-errors" },
-      { label: "Trend Analysis", icon: BarChart3, path: "/trend-analysis" },
-    ],
-  },
-  {
     label: "Reporting & Analytics",
     icon: BarChart3,
     children: [
-      { label: "Executive Dashboards", icon: LayoutDashboard, path: "/analytics" },
-      { label: "Custom Reports", icon: FileText, path: "/custom-reports" },
+      { label: "Executive Operations Dashboard", icon: LayoutDashboard, path: "/analytics" },
+      { label: "Service Desk Analytics", icon: Ticket, path: "/analytics/service-desk" },
+      { label: "Problem Analytics", icon: AlertTriangle, path: "/analytics/problems" },
+      { label: "Asset Analytics", icon: HardDrive, path: "/analytics/assets" },
+      { label: "Endpoint Analytics", icon: Monitor, path: "/analytics/endpoints" },
+      { label: "SLA Analytics", icon: Activity, path: "/analytics/sla" },
+      { label: "Change Analytics", icon: GitBranch, path: "/analytics/change" },
+      { label: "Compliance Analytics", icon: Shield, path: "/analytics/compliance" },
+      { label: "Resource Analytics", icon: Users, path: "/analytics/resources" },
+      { label: "Project Analytics", icon: Briefcase, path: "/analytics/projects" },
       { label: "Predictive Analytics", icon: Activity, path: "/predictive-analytics" },
+      { label: "Custom Reports", icon: FileText, path: "/custom-reports" },
     ],
   },
-  { label: "System Configuration", icon: Settings, path: "/system-configuration" },
   {
     label: "Endpoint Management",
     icon: Monitor,
@@ -88,10 +89,7 @@ const coreModuleItems = [
       { label: "Dashboard", icon: LayoutDashboard, path: "/endpoint-management" },
       { label: "Endpoint Policies", icon: Shield, path: "/endpoint-policies" },
       { label: "Devices", icon: Monitor, path: "/endpoint-monitoring?tab=devices" },
-      { label: "Hardware Inventory", icon: HardDrive, path: "/endpoint-monitoring?tab=devices" },
       { label: "Software Inventory", icon: Package, path: "/endpoint-monitoring?tab=software" },
-      { label: "Asset Verification", icon: GitBranch, path: "/endpoint-monitoring?tab=devices" },
-      { label: "Endpoint Policies", icon: Shield, path: "/endpoint-monitoring?tab=policies" },
       { label: "Consent & Privacy / Consent Management", icon: FileText, path: "/consent-management" },
       { label: "Activity Timeline", icon: Activity, path: "/endpoint-monitoring?tab=activity" },
       { label: "Screenshot Capture", icon: Monitor, path: "/screenshot-capture" },
@@ -108,9 +106,8 @@ const coreModuleItems = [
     children: [
       { label: "User & Role Management", icon: UserCog, path: "/settings/users" },
       { label: "Branch Management", icon: GitBranch, path: "/settings/branches" },
+      { label: "Integrations", icon: Plug, path: "/settings/integrations" },
       { label: "System Configuration", icon: Settings, path: "/settings" },
-      { label: "Audit Logging", icon: FileText, path: "/audit-logging" },
-      { label: "Backup & Recovery", icon: RotateCcw, path: "/backup-recovery" },
     ],
   },
 ];
@@ -137,6 +134,15 @@ const technicianNavItems = [
       { label: "Resolved Tickets", icon: Activity, path: "/technician/resolved-tickets" },
       { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
       { label: "SLA Management", icon: Activity, path: "/sla-monitor" },
+    ],
+  },
+  {
+    label: "Reporting & Analytics",
+    icon: BarChart3,
+    children: [
+      { label: "Service Desk Analytics", icon: Ticket, path: "/analytics/service-desk" },
+      { label: "Endpoint Analytics", icon: Monitor, path: "/analytics/endpoints" },
+      { label: "SLA Analytics", icon: Activity, path: "/analytics/sla" },
     ],
   },
 ];
@@ -200,13 +206,14 @@ function getVisibleNavItems(role) {
 
 function NavGroup({ item, collapsed, dashboardPath }) {
   const location = useLocation();
+  const currentLocation = `${location.pathname}${location.search}`;
   const itemPath = item.label === "Dashboard" ? dashboardPath : item.path;
   const [open, setOpen] = useState(
-    item.children?.some((child) => child.path === location.pathname) || false
+    item.children?.some((child) => child.path === currentLocation || child.path === location.pathname) || false
   );
 
   const hasActiveChild =
-    item.children?.some((child) => location.pathname === child.path) || false;
+    item.children?.some((child) => currentLocation === child.path || location.pathname === child.path) || false;
   const isDashboardActive =
     item.label === "Dashboard" &&
     [
@@ -273,13 +280,13 @@ function NavGroup({ item, collapsed, dashboardPath }) {
         <div className="ml-4 mt-1 space-y-1 border-l border-[#BFD7FF] pl-3">
           {item.children.map((child) => {
             const ChildIcon = child.icon;
-            const childActive = location.pathname === child.path;
+            const childActive = currentLocation === child.path || location.pathname === child.path;
 
             return (
               <Link
                 key={child.path}
                 to={child.path}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all ${
+                className={`astrea-nav-child flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all ${
                   childActive
                     ? "bg-[#EEF6FF] text-[#2563EB]"
                     : "text-[#64748B] hover:bg-[#EEF6FF] hover:text-[#2563EB]"
@@ -348,7 +355,7 @@ export default function SideBar({ collapsed, setCollapsed }) {
       <div className="border-t border-[#DCE7F6] p-2.5">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#BFD7FF] bg-white px-3 py-2.5 text-sm text-[#2563EB] transition hover:bg-[#EEF6FF]"
+          className="astrea-sidebar-toggle flex w-full items-center justify-center gap-2 rounded-xl border border-[#BFD7FF] bg-white px-3 py-2.5 text-sm text-[#2563EB] transition hover:bg-[#EEF6FF]"
         >
           {collapsed ? (
             <ChevronRight size={16} />
