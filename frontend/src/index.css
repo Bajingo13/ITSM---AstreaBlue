@@ -702,14 +702,3 @@ html[data-theme="dark"] .astrea-notification-panel {
   color: var(--astrea-text);
 }
 
-/* ─── Branch service volume expand/collapse ─── */
-.branch-list-wrapper {
-  overflow: hidden;
-  transition: max-height 0.35s ease-in-out, opacity 0.25s ease-in-out;
-  max-height: 260px;
-  opacity: 1;
-}
-.branch-list-wrapper.branch-list-expanded {
-  max-height: 2000px;
-  opacity: 1;
-}
