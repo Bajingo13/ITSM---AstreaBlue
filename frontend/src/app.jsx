@@ -271,7 +271,7 @@ export default function App() {
         <Route
           path="/change-management"
           element={
-            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+            <ProtectedRoute allowedRoles={ALL_ROLES}>
               <ChangeManagement />
             </ProtectedRoute>
           }

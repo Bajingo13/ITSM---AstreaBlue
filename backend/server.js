@@ -80,6 +80,17 @@ app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: "3mb" }));
 
+// Catch malformed JSON bodies — return 400, not 500
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.type === "entity.parse.failed") {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid JSON in request body.",
+    });
+  }
+  next(err);
+});
+
 const ticketUploadDir = path.join(__dirname, "uploads", "tickets");
 fs.mkdirSync(ticketUploadDir, { recursive: true });
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));

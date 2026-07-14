@@ -25,6 +25,9 @@ export async function loginUser(email, password) {
 
 export function saveUser(user, token, rememberMe) {
   const storage = rememberMe ? localStorage : sessionStorage;
+  const otherStorage = rememberMe ? sessionStorage : localStorage;
+  otherStorage.removeItem("user");
+  otherStorage.removeItem("token");
   storage.setItem("user", JSON.stringify(user));
   if (token) storage.setItem("token", token);
 }

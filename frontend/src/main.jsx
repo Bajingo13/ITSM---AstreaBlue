@@ -45,12 +45,14 @@ window.fetch = async (...args) => {
         responseBody = { message: body };
       }
     }
-    console.debug("[API]", {
+    const apiLog = {
       url: resource,
       method: config?.method || "GET",
       status: response.status,
       response: redactApiData(responseBody),
-    });
+    };
+    if (response.ok) console.debug("[API]", apiLog);
+    else console.error("[API]", apiLog);
   }
 
   const readText = response.text.bind(response);
