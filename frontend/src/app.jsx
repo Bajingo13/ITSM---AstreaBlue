@@ -42,6 +42,7 @@ import NotificationTicketDetails from "./views/NotificationTicketDetails";
 import ConsentPage from "./views/ConsentPage";
 import ConsentManagement from "./views/ConsentManagement";
 import ScreenshotCapture from "./views/ScreenshotCapture";
+import MandatoryOnboarding from "./views/MandatoryOnboarding";
 
 const ChangeManagement = lazy(() => import("./views/ChangeManagement"));
 const ReleasePlanning = lazy(() => import("./views/ReleasePlanning"));
@@ -78,6 +79,7 @@ export default function App() {
       <Route path="/reset-password/:token" element={<ResetPassword />} />
       <Route path="/invite/:token" element={<ErrorBoundary><InviteRegistration /></ErrorBoundary>} />
       <Route path="/register-invite/:token" element={<ErrorBoundary><InviteRegistration /></ErrorBoundary>} />
+      <Route path="/onboarding" element={<ProtectedRoute allowedRoles={["Employee"]}><MandatoryOnboarding /></ProtectedRoute>} />
 
       <Route
         element={

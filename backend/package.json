@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node init-db.js && node server.js",
     "dev": "node init-db.js && nodemon server.js",
-    "build": "node --check server.js && node --check src/routes/tickets.js && node --check src/routes/integrationGateway.js && node --check src/routes/projectAnalytics.js && node --check src/routes/analyticsCenter.js && node --check src/routes/changeReleaseManagement.js && node --check src/services/serviceDeskTicketService.js",
+    "build": "node --check server.js && node --check src/routes/tickets.js && node --check src/routes/integrationGateway.js && node --check src/routes/projectAnalytics.js && node --check src/routes/analyticsCenter.js && node --check src/routes/changeReleaseManagement.js && node --check src/routes/onboarding.js && node --check src/routes/consent.js && node --check src/services/r2StorageService.js && node --check src/services/serviceDeskTicketService.js",
     "migrate:phase2": "node scripts/apply-phase2-migration.js",
     "integration:provision": "node scripts/provision-external-system.js",
     "integration:revoke": "node scripts/revoke-external-system.js",
@@ -17,6 +17,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1085.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

@@ -44,6 +44,10 @@ router.post("/login", async (req, res) => {
         u.company_name,
         u.branch_id,
         u.mobile_number,
+        COALESCE(u.onboarding_status, 'Completed') AS onboarding_status,
+        COALESCE(u.onboarding_required, FALSE) AS onboarding_required,
+        u.onboarding_completed_at,
+        u.onboarding_consent_id,
         COALESCE(u.is_active, TRUE) AS is_active,
         b.branch_name,
         sr.role_name
@@ -103,6 +107,11 @@ router.post("/login", async (req, res) => {
         mobile_number: user.mobile_number,
         is_active: user.is_active,
         role_name: user.role_name,
+        onboarding_status: user.onboarding_status,
+        onboarding_required: user.onboarding_required,
+        onboarding_completed_at: user.onboarding_completed_at,
+        onboarding_consent_id: user.onboarding_consent_id,
+        must_complete_onboarding: Boolean(user.onboarding_required && user.onboarding_status !== "Completed"),
       },
     });
   } catch (error) {

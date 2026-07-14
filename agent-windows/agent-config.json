@@ -1,6 +1,6 @@
 {
-  "backendUrl": "http://localhost:5000",
-  "agentToken": "dev-monitoring-token",
+  "backendUrl": "https://backend-production-fc059.up.railway.app",
+  "agentToken": "replace-me-with-real-token",
   "deviceName": "",
   "heartbeatIntervalSeconds": 30,
   "activityIntervalSeconds": 30,

@@ -26,11 +26,13 @@ const integrationGatewayRoutes = require("./src/routes/integrationGateway");
 const notificationRoutes = require("./src/routes/notifications");
 const ra10173ComplianceRoutes = require("./src/routes/ra10173Compliance");
 const consentRoutes = require("./src/routes/consent");
+const onboardingRoutes = require("./src/routes/onboarding");
 const cmdbRoutes = require("./src/routes/cmdb");
 const projectAnalyticsRoutes = require("./src/routes/projectAnalytics");
 const analyticsCenterRoutes = require("./src/routes/analyticsCenter");
 const changeReleaseManagementRoutes = require("./src/routes/changeReleaseManagement");
 const { setSocketServer } = require("./src/services/socketService");
+const onboardingAccessGuard = require("./src/middleware/onboardingAccessGuard");
 
 const app = express();
 
@@ -760,6 +762,7 @@ ensureCmdbTables();
 ========================== */
 
 app.use("/api/auth", authRoutes);
+app.use("/api/v1", onboardingAccessGuard);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/sla", slaRoutes);
 app.use("/api/v1/invites", inviteRoutes);
@@ -780,6 +783,7 @@ app.use("/api/v1/tickets", ticketRoutes);
 app.use("/api/v1/external", integrationGatewayRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
 app.use("/api/v1/consent", consentRoutes);
+app.use("/api/v1/onboarding", onboardingRoutes);
 app.use("/api/v1/cmdb", cmdbRoutes);
 app.use("/api/v1/projects", projectAnalyticsRoutes);
 app.use("/api/v1/analytics", analyticsCenterRoutes);

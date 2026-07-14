@@ -46,7 +46,7 @@ $deviceName = $config.deviceName
 if (-not $backendUrl) {
     $backendUrl = Read-Host "Enter Backend URL (e.g. https://backend-production-fc059.up.railway.app)"
 }
-if (-not $agentToken -or $agentToken -eq "replace-me-with-real-token") {
+if (-not $agentToken -or $agentToken -eq "replace-me-with-real-token" -or $agentToken -eq "dev-monitoring-token") {
     $agentToken = Read-Host "Enter Agent Token"
 }
 if (-not $deviceName) {

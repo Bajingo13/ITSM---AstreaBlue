@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { getAuthToken } from "../context/AuthService";
 import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
@@ -36,11 +37,7 @@ I understand that the monitoring activities listed herein are conducted solely f
 This consent document is legally binding and constitutes my informed agreement to the processing activities described above.`;
 
 function getToken() {
-  return (
-    localStorage.getItem("astreablue_token") ||
-    sessionStorage.getItem("astreablue_token") ||
-    ""
-  );
+  return getAuthToken();
 }
 
 function authHeaders() {
@@ -66,6 +63,20 @@ function StatusBadge({ status }) {
       {label}
     </span>
   );
+}
+
+function ProtectedSignature({ consent }) {
+  const [source, setSource] = useState(() => consent.e_signature_image ? (consent.e_signature_image.startsWith("data:") ? consent.e_signature_image : `${API_URL}${consent.e_signature_image}`) : "");
+  useEffect(() => {
+    if (!consent.signature_object_key) return undefined;
+    let objectUrl = "";
+    fetch(`${API_BASE}/consent/${consent.consent_id}/signature`, { headers: authHeaders() })
+      .then((response) => response.ok ? response.blob() : Promise.reject(new Error("Signature unavailable")))
+      .then((blob) => { objectUrl = window.URL.createObjectURL(blob); setSource(objectUrl); })
+      .catch(() => setSource(""));
+    return () => { if (objectUrl) window.URL.revokeObjectURL(objectUrl); };
+  }, [consent.consent_id, consent.signature_object_key]);
+  return source ? <img src={source} alt="Employee E-Signature" className="max-h-24 w-full object-contain" /> : <p className="text-sm italic text-slate-400">Protected signature unavailable.</p>;
 }
 
 // ─── Printable Consent Modal ───────────────────────────────────────────────────
@@ -178,7 +189,7 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
               ["Employee Full Name", consent.employee_full_name],
               ["Employee Email", consent.employee_email],
               ["Employee ID / Number", consent.employee_number || "—"],
-              ["Branch / Department", `${consent.branch_name || "—"} / ${consent.department || "—"}`],
+              ["Branch", consent.branch_name || "—"],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
@@ -223,13 +234,9 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
             <div className="grid grid-cols-2 gap-6">
               <div>
                 <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">E-Signature</p>
-                {consent.e_signature_image ? (
+                {consent.e_signature_image || consent.signature_object_key ? (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                    <img
-                      src={consent.e_signature_image.startsWith("data:") ? consent.e_signature_image : `${API_URL}${consent.e_signature_image}`}
-                      alt="Employee E-Signature"
-                      className="max-h-24 w-full object-contain"
-                    />
+                    <ProtectedSignature consent={consent} />
                   </div>
                 ) : (
                   <p className="text-sm text-slate-400 italic">No signature on file.</p>
@@ -250,6 +257,16 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
                   <p className="mt-1 text-sm font-bold text-slate-700">v{consent.consent_version}</p>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <h3 className="font-black text-slate-900">Private document storage</h3>
+            <div className="mt-3 grid gap-3 text-sm sm:grid-cols-4">
+              <p><span className="block text-xs font-bold uppercase text-slate-400">Onboarding</span><span className="font-black text-slate-800">{consent.onboarding_status || "Unknown"}</span></p>
+              <p><span className="block text-xs font-bold uppercase text-slate-400">R2 status</span><span className="font-black text-slate-800">{consent.storage_status || "not generated"}</span></p>
+              <p><span className="block text-xs font-bold uppercase text-slate-400">Document hash</span><span className="font-mono text-xs text-slate-700">{consent.document_file_hash ? `${consent.document_file_hash.slice(0, 16)}…` : "Unavailable"}</span></p>
+              <p><span className="block text-xs font-bold uppercase text-slate-400">File size</span><span className="font-black text-slate-800">{consent.document_file_size ? `${Math.ceil(Number(consent.document_file_size) / 1024)} KB` : "Unavailable"}</span></p>
             </div>
           </section>
 
@@ -536,7 +553,7 @@ export default function ConsentManagement() {
                       <p className="text-xs text-slate-500">ID: {c.employee_id}</p>
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-600">
-                      {c.branch || "—"} / {c.department || "—"}
+                      {c.branch || "—"}
                     </td>
                     <td className="px-4 py-4 text-sm font-semibold text-slate-600">v{c.consent_version || "1.0"}</td>
                     <td className="px-4 py-4"><StatusBadge status={c.consent_status} /></td>

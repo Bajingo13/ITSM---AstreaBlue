@@ -1225,11 +1225,39 @@ router.put("/devices/:id/assign", requireAdmin, async (req, res) => {
     let assignedName = null;
     
     if (assigned_user_id) {
-      const u = await db.query(`SELECT full_name, department FROM users WHERE user_id=$1`, [assigned_user_id]);
-      if (u.rows.length) {
-        if (!finalDepartment) finalDepartment = u.rows[0].department || null;
-        assignedName = u.rows[0].full_name;
+      const u = await db.query(
+        `SELECT full_name, department, onboarding_status, onboarding_required
+         FROM users WHERE user_id=$1`,
+        [assigned_user_id]
+      );
+      if (!u.rows.length) {
+        return res.status(404).json({ success: false, message: "Employee not found." });
       }
+
+      const employee = u.rows[0];
+      if (employee.onboarding_required || employee.onboarding_status !== "Completed") {
+        return res.status(409).json({
+          success: false,
+          message: "Asset and device assignment is locked until the employee's consent is approved and onboarding is complete.",
+          onboarding_status: employee.onboarding_status,
+        });
+      }
+
+      const approvedConsent = await db.query(
+        `SELECT consent_id FROM consent_documents
+         WHERE employee_id=$1 AND status='approved' AND active=true
+         ORDER BY approved_at DESC NULLS LAST LIMIT 1`,
+        [assigned_user_id]
+      );
+      if (!approvedConsent.rows.length) {
+        return res.status(409).json({
+          success: false,
+          message: "Asset and device assignment is locked until an active approved consent record exists.",
+        });
+      }
+
+      if (!finalDepartment) finalDepartment = employee.department || null;
+      assignedName = employee.full_name;
     }
 
     const oldDevice = check.rows[0];

@@ -1,11 +1,13 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import {
   getSavedUser,
+  getAuthToken,
   hasStaleSavedUser,
   loginUser,
   logoutUser,
   saveUser,
 } from "./AuthService";
+import { API_URL } from "../config/api";
 
 const AuthContext = createContext(null);
 
@@ -35,6 +37,11 @@ export function AuthProvider({ children }) {
       branch_name:   data.user?.branch_name,
       mobile_number: data.user?.mobile_number,
       is_active:     data.user?.is_active,
+      onboarding_status: data.user?.onboarding_status,
+      onboarding_required: data.user?.onboarding_required,
+      onboarding_completed_at: data.user?.onboarding_completed_at,
+      onboarding_consent_id: data.user?.onboarding_consent_id,
+      must_complete_onboarding: data.user?.must_complete_onboarding,
     };
 
     // data.token is the JWT returned from the updated login route
@@ -48,6 +55,28 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const refreshOnboarding = useCallback(async () => {
+    const token = getAuthToken();
+    const response = await fetch(`${API_URL}/api/v1/onboarding/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || "Failed to refresh onboarding status.");
+    setUser((currentUser) => {
+      const nextUser = {
+        ...currentUser,
+        onboarding_status: payload.data.onboarding_status,
+        onboarding_required: payload.data.onboarding_required,
+        onboarding_completed_at: payload.data.onboarding_completed_at,
+        onboarding_consent_id: payload.data.onboarding_consent_id,
+        must_complete_onboarding: payload.data.must_complete_onboarding,
+      };
+      saveUser(nextUser, token, Boolean(localStorage.getItem("user")));
+      return nextUser;
+    });
+    return payload.data;
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -56,6 +85,7 @@ export function AuthProvider({ children }) {
         loading,
         login,
         logout,
+        refreshOnboarding,
         isAuthenticated: !!user,
       }}
     >

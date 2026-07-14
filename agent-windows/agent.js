@@ -45,7 +45,7 @@ const heartbeatEndpoint = `${backendUrl}/api/v1/laptop-monitoring/heartbeat`;
 const activityEndpoint = `${backendUrl}/api/v1/laptop-monitoring/activity`;
 const softwareInventoryEndpoint = `${backendUrl}/api/v1/laptop-monitoring/software-inventory`;
 
-if (!backendUrl || !agentToken || agentToken.startsWith('replace-')) {
+if (!backendUrl || !agentToken || agentToken.startsWith('replace-') || agentToken === 'dev-monitoring-token') {
   console.error('[AstreaBlue Agent] ERROR: Set backendUrl and agentToken in agent-config.json before starting.');
   process.exit(1);
 }

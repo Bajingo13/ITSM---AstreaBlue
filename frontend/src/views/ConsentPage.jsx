@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { getAuthToken } from "../context/AuthService";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -68,11 +69,25 @@ const MONITORING_CATEGORIES = [
     required: false,
   },
   {
-    id: "heartbeat",
-    label: "Device Heartbeat & Connectivity",
+    id: "location_tracking",
+    label: "Location Tracking",
     description:
-      "Sends a periodic signal to confirm the device is online and assigned. This is required for inventory management.",
-    required: true,
+      "Allows an approved endpoint policy to collect device location information for asset recovery and security response.",
+    required: false,
+  },
+  {
+    id: "productivity_analytics",
+    label: "Productivity Analytics",
+    description:
+      "Uses approved activity signals to produce work-pattern and utilization analytics without changing baseline device operations.",
+    required: false,
+  },
+  {
+    id: "activity_alerts",
+    label: "Employee Activity-Based Alerts",
+    description:
+      "Allows approved activity events to create security or policy alerts when the effective endpoint policy also enables them.",
+    required: false,
   },
 ];
 
@@ -90,11 +105,7 @@ const pendingReviewStatuses = ["pending_approval", "submitted"];
 const statusLabel = (status) => String(status || "draft").replaceAll("_", " ");
 
 function getToken() {
-  return (
-    localStorage.getItem("astreablue_token") ||
-    sessionStorage.getItem("astreablue_token") ||
-    ""
-  );
+  return getAuthToken();
 }
 
 function authHeaders() {
@@ -189,6 +200,31 @@ function SignaturePad({ onSigned, disabled }) {
 }
 
 // ─── Read-only Consent View ────────────────────────────────────────────────────
+function ProtectedSignature({ consent, className = "max-h-24 w-full object-contain" }) {
+  const [source, setSource] = useState(() => {
+    if (!consent?.e_signature_image) return "";
+    return consent.e_signature_image.startsWith("data:") ? consent.e_signature_image : `${API_URL}${consent.e_signature_image}`;
+  });
+
+  useEffect(() => {
+    if (!consent?.signature_object_key || !consent?.consent_id) return undefined;
+    let objectUrl = "";
+    fetch(`${API_BASE}/consent/${consent.consent_id}/signature`, { headers: authHeaders() })
+      .then((response) => {
+        if (!response.ok) throw new Error("Signature unavailable.");
+        return response.blob();
+      })
+      .then((blob) => {
+        objectUrl = window.URL.createObjectURL(blob);
+        setSource(objectUrl);
+      })
+      .catch(() => setSource(""));
+    return () => { if (objectUrl) window.URL.revokeObjectURL(objectUrl); };
+  }, [consent?.consent_id, consent?.signature_object_key]);
+
+  return source ? <img src={source} alt="Employee E-Signature" className={className} /> : <p className="text-sm italic text-slate-400">Protected signature unavailable.</p>;
+}
+
 function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) {
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditLoading, setAuditLoading] = useState(false);
@@ -276,7 +312,7 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
               ["Employee Full Name", consent.employee_full_name],
               ["Employee Email", consent.employee_email],
               ["Employee ID / Number", consent.employee_number || "—"],
-              ["Branch / Department", `${consent.branch_name || "—"} / ${consent.department || "—"}`],
+              ["Branch", consent.branch_name || "—"],
               ["Hardware Asset", `${consent.asset_tag || "—"}${consent.model ? ` / ${consent.model}` : ""}`],
               ["Endpoint Hostname", consent.hostname || consent.device_name || "—"],
               ["Device UUID", consent.device_uuid || "—"],
@@ -344,17 +380,9 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
                 <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">
                   E-Signature
                 </p>
-                {consent.e_signature_image ? (
+                {consent.e_signature_image || consent.signature_object_key ? (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                    <img
-                      src={
-                        consent.e_signature_image.startsWith("data:")
-                          ? consent.e_signature_image
-                          : `${API_URL}${consent.e_signature_image}`
-                      }
-                      alt="Employee E-Signature"
-                      className="max-h-24 w-full object-contain"
-                    />
+                    <ProtectedSignature consent={consent} />
                   </div>
                 ) : (
                   <p className="text-sm text-slate-400 italic">Not yet signed.</p>
@@ -609,7 +637,7 @@ export default function ConsentPage() {
   const { user } = useAuth();
   const [consent, setConsent] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [step, setStep] = useState(1); // 1=intro, 2=categories, 3=sign, 4=done
+  const [step, setStep] = useState(1); // 1=intro, 2=categories, 3=sign, 4=review, 5=done
   const [preferences, setPreferences] = useState([]);
   const [signatureData, setSignatureData] = useState(null);
   const [printedName, setPrintedName] = useState("");
@@ -673,11 +701,16 @@ export default function ConsentPage() {
     );
   };
 
-  const handleSign = async () => {
+  const reviewConsent = () => {
     setError("");
     if (!signatureData) { setError("Please draw your e-signature above."); return; }
     if (!printedName.trim()) { setError("Printed name is required."); return; }
     if (!agreed) { setError("You must agree to the consent statement."); return; }
+    setStep(4);
+  };
+
+  const handleSign = async () => {
+    setError("");
     setSigning(true);
     try {
       const allPrefs = [
@@ -689,14 +722,13 @@ export default function ConsentPage() {
         headers: authHeaders(),
         body: JSON.stringify({
           e_signature_image: signatureData,
-          printed_name: printedName.trim(),
           monitoring_preferences: [...new Set(allPrefs)],
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to sign consent.");
       setConsent(data.data);
-      setStep(4);
+      setStep(5);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -919,7 +951,7 @@ export default function ConsentPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {[1, 2, 3].map((s) => (
+          {[1, 2, 3, 4].map((s) => (
             <div
               key={s}
               className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-black transition ${
@@ -980,8 +1012,16 @@ export default function ConsentPage() {
               Step 1 of 2 — Select Monitoring Consent Categories
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Required categories are pre-selected. Choose which optional monitoring activities you
-              agree to.
+              Choose the privacy-sensitive monitoring activities you agree to. Consent alone does not
+              activate them; an assigned endpoint and an effective policy must also permit them.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+            <p className="font-black">Baseline company-device operations</p>
+            <p className="mt-1">
+              Device registration, heartbeat, online/offline status, hardware and software inventory,
+              asset verification, policy synchronization, agent version, and endpoint health are
+              operational functions and are not optional monitoring preferences.
             </p>
           </div>
           <div className="space-y-3">
@@ -1057,13 +1097,12 @@ export default function ConsentPage() {
             </label>
             <input
               value={printedName}
-              onChange={(e) => setPrintedName(e.target.value)}
-              placeholder="Your full name"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+              readOnly
+              className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm font-bold text-slate-900"
               required
             />
             <p className="mt-1 text-xs text-slate-400">
-              Auto-filled from your employee profile. Confirm or correct if needed.
+              Auto-filled from your employee profile. Ask an administrator to correct your profile if this is inaccurate.
             </p>
           </div>
 
@@ -1094,19 +1133,53 @@ export default function ConsentPage() {
               Back
             </button>
             <button
-              onClick={handleSign}
-              disabled={signing}
+              onClick={reviewConsent}
               className="flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg hover:bg-blue-700 disabled:opacity-60"
             >
               <FileText size={16} />
-              {signing ? "Signing..." : "Submit Consent"}
+              Review Consent
             </button>
           </div>
         </section>
       )}
 
-      {/* Step 4: Success */}
+      {/* Step 4: Review */}
       {step === 4 && (
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div>
+            <h2 className="text-xl font-black text-slate-900">Review Before Submission</h2>
+            <p className="mt-1 text-sm text-slate-500">Confirm your approved and declined privacy-sensitive monitoring categories.</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+              <p className="font-black text-emerald-900">Approved categories</p>
+              <ul className="mt-3 space-y-2 text-sm text-emerald-800">
+                {MONITORING_CATEGORIES.filter((category) => category.required || preferences.includes(category.id)).map((category) => <li key={category.id}>✓ {category.label}</li>)}
+              </ul>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <p className="font-black text-slate-900">Declined optional categories</p>
+              <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                {MONITORING_CATEGORIES.filter((category) => !category.required && !preferences.includes(category.id)).map((category) => <li key={category.id}>— {category.label}</li>)}
+              </ul>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+            <p className="text-xs font-black uppercase tracking-wide text-blue-600">Employee printed name</p>
+            <p className="mt-1 text-lg font-black text-blue-950">{printedName}</p>
+            {signatureData && <img src={signatureData} alt="Signature preview" className="mt-4 max-h-28 rounded-xl border border-blue-200 bg-white p-2" />}
+          </div>
+          <div className="flex justify-end gap-3">
+            <button onClick={() => setStep(3)} className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">Back</button>
+            <button onClick={handleSign} disabled={signing} className="rounded-xl bg-blue-700 px-6 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60">
+              {signing ? "Submitting securely..." : "Submit for Approval"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* Step 5: Success */}
+      {step === 5 && (
         <section className="rounded-3xl border border-blue-200 bg-blue-50 p-8 text-center shadow-sm">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white">
             <CheckCircle size={32} />

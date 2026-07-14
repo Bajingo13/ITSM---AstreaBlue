@@ -24,6 +24,11 @@ export default function Login() {
 
       const role = String(user.role_name || user.role || "").toLowerCase();
 
+      if (role === "employee" && user.must_complete_onboarding) {
+        navigate("/onboarding", { replace: true });
+        return;
+      }
+
       if (role === "superadmin") {
         navigate("/superadmin/dashboard");
       } else if (role === "admin") {

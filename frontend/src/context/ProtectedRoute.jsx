@@ -1,9 +1,10 @@
 import React from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 
 export default function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -19,6 +20,10 @@ export default function ProtectedRoute({ children, allowedRoles }) {
 
   const role = (user?.role_name || user?.role || "").toString();
   const normalizedRole = role.trim().toLowerCase();
+
+  if (normalizedRole === "employee" && user.must_complete_onboarding && location.pathname !== "/onboarding") {
+    return <Navigate to="/onboarding" replace state={{ from: location.pathname }} />;
+  }
 
   if (
     allowedRoles &&

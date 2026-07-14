@@ -336,7 +336,11 @@ router.post("/", async (req, res) => {
           invite_expires_at = CURRENT_TIMESTAMP + INTERVAL '48 hours',
           invite_used_at = NULL,
           invited_by = $10,
-          invited_at = CURRENT_TIMESTAMP
+          invited_at = CURRENT_TIMESTAMP,
+          onboarding_status = 'Invited',
+          onboarding_required = TRUE,
+          onboarding_completed_at = NULL,
+          onboarding_consent_id = NULL
         WHERE user_id = $11
         RETURNING
           user_id,
@@ -394,10 +398,12 @@ router.post("/", async (req, res) => {
         invite_token,
         invite_expires_at,
         invited_by,
-        invited_at
+        invited_at,
+        onboarding_status,
+        onboarding_required
       )
       VALUES
-      ($1,$2,$3,$4,'INVITE_PENDING',$5,$6,$7,'Inactive',FALSE,$8,$9,CURRENT_TIMESTAMP + INTERVAL '48 hours',$10,CURRENT_TIMESTAMP)
+      ($1,$2,$3,$4,'INVITE_PENDING',$5,$6,$7,'Inactive',FALSE,$8,$9,CURRENT_TIMESTAMP + INTERVAL '48 hours',$10,CURRENT_TIMESTAMP,'Invited',TRUE)
       RETURNING
         user_id,
         full_name,
@@ -518,7 +524,11 @@ router.post("/:token/complete", async (req, res) => {
         status = 'Active',
         is_active = TRUE,
         invite_status = $2,
-        invite_used_at = CURRENT_TIMESTAMP
+        invite_used_at = CURRENT_TIMESTAMP,
+        invitation_accepted_at = CURRENT_TIMESTAMP,
+        onboarding_status = 'Account Created',
+        onboarding_required = TRUE,
+        onboarding_completed_at = NULL
       WHERE user_id = $3
         AND invite_token = $4
         AND invite_status = $5
@@ -531,6 +541,12 @@ router.post("/:token/complete", async (req, res) => {
         req.params.token,
         INVITE_STATUSES.PENDING,
       ]
+    );
+
+    await db.query(
+      `INSERT INTO user_onboarding_history (user_id,previous_status,new_status,changed_by,reason)
+       VALUES ($1,'Invited','Account Created',$1,'Invitation accepted and account activated.')`,
+      [invite.user_id]
     );
 
     res.json({
