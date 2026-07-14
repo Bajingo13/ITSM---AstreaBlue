@@ -48,13 +48,18 @@ if (Test-Path $configFile) {
 
 $backendUrl = $config.backendUrl
 $agentToken = $config.agentToken
+$enrollmentCode = $config.enrollmentCode
+$deviceCredential = $config.deviceCredential
 $deviceName = $config.deviceName
 
 if (-not $backendUrl) {
     $backendUrl = Read-Host "Enter Backend URL (e.g. https://backend-production-fc059.up.railway.app)"
 }
-if (-not $agentToken -or $agentToken -eq "replace-me-with-real-token" -or $agentToken -eq "dev-monitoring-token") {
-    $agentToken = Read-Host "Enter Agent Token"
+if (-not $deviceCredential -and -not $enrollmentCode -and (-not $agentToken -or $agentToken -eq "replace-me-with-real-token" -or $agentToken -eq "dev-monitoring-token")) {
+    $enrollmentCode = Read-Host "Enter one-time Enrollment Code (recommended; leave blank only for legacy installation)"
+    if (-not $enrollmentCode) {
+        $agentToken = Read-Host "Enter legacy Agent Token"
+    }
 }
 if (-not $deviceName) {
     $deviceName = Read-Host "Enter Optional Device Name (leave blank to use hostname)"
@@ -63,6 +68,8 @@ if (-not $deviceName) {
 $newConfig = @{
     backendUrl = $backendUrl
     agentToken = $agentToken
+    enrollmentCode = $enrollmentCode
+    deviceCredential = $deviceCredential
     deviceName = $deviceName
     heartbeatIntervalSeconds = 30
     activityIntervalSeconds = 30

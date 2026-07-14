@@ -2,9 +2,9 @@
 
 This is the Windows Endpoint Monitoring Agent for AstreaBlue ITSM.
 
-Before production installation, create a strong `MONITORING_AGENT_TOKEN` environment variable in Railway. Enter that exact value when the installer prompts for the Agent Token. The installer stores it in the Git-ignored `agent-config.local.json`; never commit the production token to `agent-config.json`.
+Before installing a laptop, sign in as an Admin or SuperAdmin and open **Endpoint Management → Administration**. Create a short-lived enrollment code and copy it. The full code is displayed only once.
 
-To prepare a new production token securely without printing it, run `prepare-production-token.ps1`. It saves the token in the ignored local configuration and copies it to the Windows clipboard so it can be pasted directly into Railway.
+The installer exchanges that single-use code for a unique device credential. The code cannot be reused, and one laptop's credential cannot authenticate as another laptop. `MONITORING_AGENT_TOKEN` remains supported only while existing pilot agents are migrated; do not distribute it to new laptops.
 
 A device is online only when its heartbeat reaches the same backend and PostgreSQL database used by the web application. A localhost agent reports only to that laptop's local backend.
 
@@ -35,7 +35,8 @@ A device is online only when its heartbeat reaches the same backend and PostgreS
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\install-agent.ps1
    ```
-5. Follow the prompts to enter your `backendUrl` and `agentToken`.
+5. Enter the production backend URL and the one-time enrollment code created in Endpoint Administration.
+6. Confirm the laptop becomes **Online**, then discard the used enrollment code.
 
 ## Testing the Installation
 
@@ -52,6 +53,11 @@ A device is online only when its heartbeat reaches the same backend and PostgreS
 - **`package.json` missing**: Make sure you have extracted the ZIP and navigated into the `agent-windows` folder before running the script.
 - **Wrong folder**: Ensure you are running the script from within the `agent-windows` folder, not outside it.
 - **Localhost vs LAN IP**: If using local development, do not use `http://localhost:5000`. Use your machine's actual LAN IP so the endpoint agent can reach it.
-- **Wrong agent token**: Double-check the token in `agent-config.json`.
+- **Enrollment rejected**: Create a new code if the old one expired or was already used. If the code was restricted to a hostname, confirm the Windows hostname matches exactly.
+- **Credential rejected after rotation/revocation**: Reinstall with a newly issued enrollment code. Device identity and existing history are preserved as long as `C:\ProgramData\AstreaBlue\device.json` is retained.
 - **Windows Firewall**: Make sure your network allows outbound traffic to the backend server.
 - **Node.js missing**: Node.js LTS must be installed. Get it from [nodejs.org](https://nodejs.org).
+
+## Current packaging limitation
+
+This pilot installer still requires Node.js and stores its device credential in the Git-ignored local configuration. The next native-agent milestone is a packaged Windows service with DPAPI/Windows Credential Manager storage, repair/uninstall diagnostics, duplicate-process prevention, and automatic updates.

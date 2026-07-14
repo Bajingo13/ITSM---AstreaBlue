@@ -38,3 +38,4 @@ coverage/
 
 agent/
 agent-windows/agent-config.local.json
+agent-windows/AstreaBlue-Native-Agent-Windows.zip

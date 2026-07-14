@@ -28,6 +28,7 @@ import ProblemManagement from "./views/ProblemManagement";
 import Analytics from "./views/Analytics";
 import EndpointPolicies from './views/EndpointPolicies';
 import EndpointMonitoring from "./views/EndpointMonitoring";
+import EndpointAgentAdministration from "./views/EndpointAgentAdministration";
 import Settings from "./views/Settings";
 import UserManagement from "./views/UserManagement";
 import BranchManagement from "./views/BranchManagement";
@@ -91,6 +92,7 @@ export default function App() {
         <Route path="/ticket/:ticketId" element={<NotificationTicketDetails />} />
         <Route path="/endpoint-management" element={<EndpointMonitoring />} />
         <Route path="/endpoint-policies" element={<EndpointPolicies />} />
+        <Route path="/endpoint-administration" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><EndpointAgentAdministration /></ProtectedRoute>} />
         <Route
           path="/dashboard"
           element={

@@ -24,6 +24,7 @@ const migrationFiles = [
   "2026-07-13-project-analytics.sql",
   "2026-07-13-change-release-management.sql",
   "2026-07-13-onboarding-consent-governance.sql",
+  "2026-07-14-endpoint-agent-enrollment.sql",
 ];
 
 const defaultTicketCategories = [

@@ -1,5 +1,5 @@
 import { API_URL } from "../config/api";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle,
@@ -88,6 +88,10 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
   const [actionType, setActionType] = useState("withdraw");
   const [actionNotes, setActionNotes] = useState("");
   const [approvePrefs, setApprovePrefs] = useState(null);
+  const [footerMessage, setFooterMessage] = useState(null);
+  const [documentAction, setDocumentAction] = useState("");
+  const bodyRef = useRef(null);
+  const actionFormRef = useRef(null);
 
   const initApprovePrefs = () => {
     const cur = Array.isArray(consent.monitoring_preferences) ? consent.monitoring_preferences : [];
@@ -118,12 +122,57 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
 
   const logPrint = async (action) => {
     try {
-      await fetch(`${API_BASE}/consent/${consent.consent_id}/log-print`, {
+      const response = await fetch(`${API_BASE}/consent/${consent.consent_id}/log-print`, {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ action }),
       });
+      if (!response.ok) throw new Error("The audit event could not be recorded.");
     } catch {}
+  };
+
+  const downloadPdf = async () => {
+    setDocumentAction("download");
+    setFooterMessage(null);
+    try {
+      const response = await fetch(`${API_BASE}/consent/${consent.consent_id}/pdf`, { headers: authHeaders() });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.message || "The consent PDF could not be downloaded.");
+      }
+      const blobUrl = window.URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = `AstreaBlue-Consent-${consent.consent_id}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 30000);
+      setFooterMessage({ type: "success", text: "Consent PDF downloaded successfully." });
+    } catch (error) {
+      setFooterMessage({ type: "error", text: error.message });
+    } finally {
+      setDocumentAction("");
+    }
+  };
+
+  const printConsent = async () => {
+    setDocumentAction("print");
+    setFooterMessage({ type: "success", text: "Opening the browser print dialog…" });
+    await logPrint("print");
+    window.setTimeout(() => {
+      window.print();
+      setDocumentAction("");
+    }, 50);
+  };
+
+  const openAdminAction = () => {
+    setShowActionForm(true);
+    setFooterMessage({ type: "success", text: "Admin Action opened. Choose an action and add the required notes." });
+    window.requestAnimationFrame(() => {
+      actionFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      bodyRef.current?.focus({ preventScroll: true });
+    });
   };
 
   const applyAction = async () => {
@@ -175,7 +224,7 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
         </div>
 
         {/* Body */}
-        <div id={`consent-print-${consent.consent_id}`} className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
+        <div ref={bodyRef} tabIndex={-1} id={`consent-print-${consent.consent_id}`} className="flex-1 overflow-y-auto px-8 py-6 space-y-6 outline-none">
           {/* Company header */}
           <div className="text-center border-b border-slate-200 pb-5">
             <p className="text-xs font-black uppercase tracking-widest text-blue-600">AstreaBlue Enterprise ITSM</p>
@@ -299,7 +348,7 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
 
           {/* Admin action form */}
           {showActionForm && (
-            <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 space-y-4">
+            <section ref={actionFormRef} className="scroll-mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 space-y-4">
               <h3 className="font-black text-amber-900">Admin Action</h3>
               <div className="flex flex-wrap gap-2">
                 {[
@@ -371,24 +420,30 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
         </div>
 
         {/* Footer */}
-        <div className="border-t border-slate-200 bg-white/95 px-7 py-4 flex flex-wrap items-center gap-3 justify-end">
+        <div className="relative z-20 border-t border-slate-200 bg-white/95 px-7 py-4 flex flex-wrap items-center gap-3 justify-end">
+          {footerMessage && <p role="status" className={`mr-auto w-full rounded-xl px-3 py-2 text-xs font-bold sm:w-auto ${footerMessage.type === "error" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>{footerMessage.text}</p>}
           {["pending_approval", "approved", "signed"].includes(consent.status) && (
             <>
               <button
-                onClick={() => { logPrint("print"); window.print(); }}
+                type="button"
+                onClick={printConsent}
+                disabled={Boolean(documentAction)}
                 className="flex items-center gap-2 rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
               >
                 <Eye size={16} /> Print
               </button>
               <button
-                onClick={() => logPrint("download")}
+                type="button"
+                onClick={downloadPdf}
+                disabled={Boolean(documentAction)}
                 className="flex items-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800"
               >
-                <Download size={16} /> Download PDF
+                <Download size={16} /> {documentAction === "download" ? "Downloading…" : "Download PDF"}
               </button>
               {!showActionForm && (
                 <button
-                  onClick={() => setShowActionForm(true)}
+                  type="button"
+                  onClick={openAdminAction}
                   className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-5 py-2.5 text-sm font-bold text-amber-800 hover:bg-amber-100"
                 >
                   <PenLine size={16} /> Admin Action
@@ -396,7 +451,7 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
               )}
             </>
           )}
-          <button onClick={onClose} className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
+          <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
             Close
           </button>
         </div>

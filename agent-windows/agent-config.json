@@ -1,5 +1,7 @@
 {
   "backendUrl": "https://backend-production-fc059.up.railway.app",
+  "enrollmentCode": "",
+  "deviceCredential": "",
   "agentToken": "replace-me-with-real-token",
   "deviceName": "",
   "heartbeatIntervalSeconds": 30,

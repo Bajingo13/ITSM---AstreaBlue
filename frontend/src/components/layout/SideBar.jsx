@@ -85,7 +85,7 @@ const coreModuleItems = [
       { label: "Inventory", icon: Package, path: "/endpoint-monitoring?tab=software" },
       { label: "Monitoring", icon: Activity, path: "/endpoint-monitoring?tab=activity" },
       { label: "Security & Compliance", icon: Shield, path: "/consent-management" },
-      { label: "Administration", icon: Settings, path: "/endpoint-policies" },
+      { label: "Administration", icon: Settings, path: "/endpoint-administration" },
     ],
   },
   {

@@ -37,7 +37,9 @@ try {
 }
 
 const backendUrl       = String(config.backendUrl  || '').replace(/\/$/, '');
-const agentToken       = String(config.agentToken  || '');
+const enrollmentCode   = String(config.enrollmentCode || '').trim();
+let deviceCredential   = String(config.deviceCredential || '').trim();
+const legacyAgentToken = String(config.agentToken || '').trim();
 const deviceName       = String(config.deviceName  || '').trim() || os.hostname();
 const heartbeatMs      = Math.max(30, Number(config.heartbeatIntervalSeconds) || 60) * 1000;
 const activityMs       = Math.max(30, Number(config.activityIntervalSeconds)  || 60) * 1000;
@@ -47,8 +49,9 @@ const heartbeatEndpoint = `${backendUrl}/api/v1/laptop-monitoring/heartbeat`;
 const activityEndpoint = `${backendUrl}/api/v1/laptop-monitoring/activity`;
 const softwareInventoryEndpoint = `${backendUrl}/api/v1/laptop-monitoring/software-inventory`;
 
-if (!backendUrl || !agentToken || agentToken.startsWith('replace-') || agentToken === 'dev-monitoring-token') {
-  console.error('[AstreaBlue Agent] ERROR: Set backendUrl and agentToken in agent-config.json before starting.');
+const validLegacyToken = legacyAgentToken && !legacyAgentToken.startsWith('replace-') && legacyAgentToken !== 'dev-monitoring-token';
+if (!backendUrl || (!deviceCredential && !enrollmentCode && !validLegacyToken)) {
+  console.error('[AstreaBlue Agent] ERROR: Set backendUrl and either enrollmentCode, deviceCredential, or a migration agentToken before starting.');
   process.exit(1);
 }
 
@@ -104,7 +107,7 @@ function loadOrCreateDeviceIdentity() {
     device_uuid: crypto.randomUUID(),
     hostname: os.hostname(),
     device_name: deviceName,
-    agent_version: 'astreablue-run-1.3',
+    agent_version: 'astreablue-run-1.4',
     created_at: new Date().toISOString(),
   };
   try {
@@ -125,12 +128,54 @@ try {
 }
 const deviceUuid = deviceIdentity.device_uuid;
 
+function activeAgentToken() {
+  return deviceCredential || (validLegacyToken ? legacyAgentToken : '');
+}
+
+function saveEnrolledCredential(credential) {
+  const privateConfig = {
+    ...config,
+    backendUrl,
+    enrollmentCode: '',
+    deviceCredential: credential,
+    agentToken: '',
+  };
+  fs.writeFileSync(localConfigPath, `${JSON.stringify(privateConfig, null, 2)}\n`, 'utf8');
+  config = privateConfig;
+  deviceCredential = credential;
+}
+
+async function ensureAgentCredential() {
+  if (deviceCredential || validLegacyToken) return true;
+  try {
+    const response = await fetch(`${backendUrl}/api/v1/laptop-monitoring/enroll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enrollment_code: enrollmentCode,
+        device_uuid: deviceUuid,
+        hostname: os.hostname(),
+        device_name: deviceName,
+        agent_version: 'astreablue-run-1.4',
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.data?.device_credential) throw new Error(result.message || `HTTP ${response.status}`);
+    saveEnrolledCredential(result.data.device_credential);
+    log(`Device enrollment SUCCESS | deviceId=${result.data.device_id ?? 'unknown'}`);
+    return true;
+  } catch (error) {
+    err(`Device enrollment FAILURE | error=${error.message}`);
+    return false;
+  }
+}
+
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 async function post(pathname, body, multipart = false) {
   const response = await fetch(`${backendUrl}/api/v1/laptop-monitoring${pathname}`, {
     method:  'POST',
     headers: {
-      'x-agent-token': agentToken,
+      'x-agent-token': activeAgentToken(),
       ...(multipart ? {} : { 'Content-Type': 'application/json' }),
     },
     body: multipart ? body : JSON.stringify(body),
@@ -143,7 +188,7 @@ async function post(pathname, body, multipart = false) {
 
 async function get(pathname) {
   const response = await fetch(`${backendUrl}/api/v1/laptop-monitoring${pathname}`, {
-    headers: { 'x-agent-token': agentToken },
+    headers: { 'x-agent-token': activeAgentToken() },
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
@@ -207,7 +252,7 @@ async function heartbeat() {
       device_uuid: deviceUuid,
       hostname: os.hostname(),
       device_name: deviceName,
-      agent_version: 'astreablue-run-1.3',
+      agent_version: 'astreablue-run-1.4',
       logged_in_user: os.userInfo().username,
       timestamp: new Date().toISOString(),
     });
@@ -421,22 +466,31 @@ log('Privacy:  No keystrokes, passwords, microphone, or camera data collected.')
 if (screenshotEnabled) warn('Screenshot capture ENABLED — requires explicit server-side consent per device.');
 log('='.repeat(60));
 
-// Send immediately on startup, then on intervals
-heartbeat().then(async (registered) => { 
+// Enroll first when a one-time code is present, then start the normal loops.
+let monitoringLoopsStarted = false;
+async function startMonitoringLoops() {
+  if (monitoringLoopsStarted) return;
+  if (!(await ensureAgentCredential())) {
+    setTimeout(startMonitoringLoops, 60 * 1000);
+    return;
+  }
+  monitoringLoopsStarted = true;
+  const registered = await heartbeat();
   if (registered) {
     await fetchPolicy();
     sendActivity();
     sendHardwareInventory();
     sendSoftwareInventory();
   }
-});
-setInterval(heartbeat,    heartbeatMs);
-setInterval(fetchPolicy,  60 * 1000); // 60 seconds
-setInterval(sendActivity, activityMs);
-setInterval(sendHardwareInventory, 24 * 60 * 60 * 1000); // 24 hours
-setInterval(sendSoftwareInventory, 24 * 60 * 60 * 1000); // 24 hours
-
-if (screenshotEnabled) {
-  captureScreenshot();
-  setInterval(captureScreenshot, screenshotMs);
+  setInterval(heartbeat, heartbeatMs);
+  setInterval(fetchPolicy, 60 * 1000);
+  setInterval(sendActivity, activityMs);
+  setInterval(sendHardwareInventory, 24 * 60 * 60 * 1000);
+  setInterval(sendSoftwareInventory, 24 * 60 * 60 * 1000);
+  if (screenshotEnabled) {
+    captureScreenshot();
+    setInterval(captureScreenshot, screenshotMs);
+  }
 }
+
+startMonitoringLoops();
