@@ -2,6 +2,9 @@
 
 -- Extend the status CHECK to include comprehensive workflow statuses
 ALTER TABLE change_requests DROP CONSTRAINT IF EXISTS change_requests_status_check;
+UPDATE change_requests SET status = 'Under Assessment' WHERE status = 'Risk Assessment';
+UPDATE change_requests SET status = 'Pending CAB Review' WHERE status = 'CAB Review';
+UPDATE change_requests SET status = 'Completed' WHERE status = 'Closed';
 ALTER TABLE change_requests ADD CONSTRAINT change_requests_status_check
   CHECK (status IN (
     'Draft','Submitted','Under Assessment','Pending Manager Approval','Pending CAB Review',

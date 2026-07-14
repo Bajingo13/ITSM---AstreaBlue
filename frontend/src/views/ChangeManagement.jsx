@@ -1019,6 +1019,7 @@ export default function ChangeManagement() {
   const [error, setError] = useState("");
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryError, setSummaryError] = useState("");
 
   // Filters
   const [search, setSearch] = useState("");
@@ -1041,23 +1042,38 @@ export default function ChangeManagement() {
   // Load branches & technicians
   useEffect(() => {
     const headers = authHeaders();
+    const technicianParams = new URLSearchParams({
+      role_name: user?.role_name || user?.role || "",
+      current_user_id: String(user?.user_id || ""),
+      current_branch_id: String(user?.branch_id || ""),
+    });
     Promise.all([
-      fetch(`${API_URL}/api/v1/branches`, { headers }).then((r) => r.json()).catch(() => []),
-      fetch(`${API_URL}/api/v1/technicians`, { headers }).then((r) => r.json()).catch(() => []),
+      fetch(`${API_URL}/api/v1/branches`, { headers, cache: "no-store" }).then(async (r) => {
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.message || body.error || "Failed to load branches.");
+        return body;
+      }),
+      fetch(`${API_URL}/api/v1/technicians?${technicianParams}`, { headers, cache: "no-store" }).then(async (r) => {
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.message || body.error || "Failed to load technicians.");
+        return body;
+      }),
     ]).then(([branchData, techData]) => {
-      setBranches(branchData.data || branchData || []);
+      const branchRows = branchData.data || branchData || [];
+      setBranches(Array.isArray(branchRows) ? branchRows : []);
       const techs = techData.data || techData || [];
       setTechnicians(Array.isArray(techs) ? techs : []);
-    });
-  }, []);
+    }).catch((loadError) => setError(loadError.message));
+  }, [user]);
 
   // Load summary
   useEffect(() => {
     setSummaryLoading(true);
+    setSummaryError("");
     changeReleaseApi
       .getSummary()
       .then(setSummary)
-      .catch(() => {})
+      .catch((summaryLoadError) => setSummaryError(summaryLoadError.message))
       .finally(() => setSummaryLoading(false));
   }, []);
 
@@ -1076,7 +1092,7 @@ export default function ChangeManagement() {
       };
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
-      if (isSuperAdmin && branchFilter) params.branch_id = branchFilter;
+      if (isSuperAdmin && branchFilter) params.filter_branch_id = branchFilter;
 
       const result = await changeReleaseApi.listChanges(params);
       setItems(result.data || []);
@@ -1141,6 +1157,12 @@ export default function ChangeManagement() {
           </div>
         }
       />
+
+      {summaryError && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-800">
+          Dashboard summary unavailable: {summaryError}
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

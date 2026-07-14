@@ -5,9 +5,14 @@ export const CHANGE_RELEASE_API = `${API_URL}/api/v1/change-release`;
 async function request(path, options = {}) {
   let response;
   try {
+    const sendsJson = options.body !== undefined && !(options.body instanceof FormData);
     response = await fetch(`${CHANGE_RELEASE_API}${path}`, {
       ...options,
-      headers: { ...authHeaders(), ...(options.headers || {}) },
+      headers: {
+        ...authHeaders(sendsJson ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {}),
+      },
+      cache: options.method && options.method !== "GET" ? options.cache : "no-store",
     });
   } catch (networkError) {
     if (networkError?.name === "TypeError" && networkError?.message?.includes("fetch")) {

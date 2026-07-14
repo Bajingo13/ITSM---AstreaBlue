@@ -35,6 +35,31 @@ test("Change and Release APIs enforce RBAC", async () => {
   // Employee without branch is allowed (owner-scoped), but unauthenticated returns 401
 });
 
+test("Change and Release schema contains every production-critical column", async () => {
+  const required = {
+    change_requests: ["business_justification", "assigned_technician_id", "scheduled_date", "updated_at"],
+    release_plans: ["branch_id", "progress", "validation_notes", "updated_at"],
+    rollback_procedures: ["branch_id", "recovery_plan", "version", "updated_at"],
+  };
+  for (const [table, columns] of Object.entries(required)) {
+    const result = await db.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema=current_schema() AND table_name=$1 AND column_name=ANY($2::text[])`,
+      [table, columns]
+    );
+    assert.deepEqual(new Set(result.rows.map((row) => row.column_name)), new Set(columns));
+  }
+});
+
+test("Malformed mutation requests return a client error instead of crashing", async () => {
+  const response = await fetch(`${baseUrl}/api/v1/change-release/changes`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${tokenFor("Admin", branchId)}`, "content-type": "text/plain" },
+    body: JSON.stringify({ title: "Invalid content type" }),
+  });
+  assert.equal(response.status, 415);
+});
+
 test("admin completes controlled change, release, and rollback workflow steps", async () => {
   const token = tokenFor("Admin", branchId);
   // Create change with all new fields
@@ -57,6 +82,16 @@ test("admin completes controlled change, release, and rollback workflow steps", 
   assert.equal(createdChange.status, 201); const change = (await createdChange.json()).data; changeId = change.id; assert.match(change.change_number, /^CHG\d{5}$/);
   assert.equal(change.business_justification, "Required for acceptance testing");
   assert.equal(change.testing_plan, "Run automated smoke tests");
+
+  const updatedDraft = await request(`/changes/${changeId}`, token, "PUT", {
+    title: "Updated automated workflow acceptance change",
+    description: "Draft edit verified before submission.",
+  });
+  assert.equal(updatedDraft.status, 200);
+  assert.equal((await updatedDraft.json()).data.title, "Updated automated workflow acceptance change");
+
+  assert.equal((await request(`/changes/${changeId}/comments`, token, "POST", { message: "Pre-submission review completed." })).status, 201);
+  assert.equal((await request("/changes?search=Updated%20automated", token)).status, 200);
 
   // Walk the new workflow statuses through to Approval
   assert.equal((await request(`/changes/${changeId}/status`, token, "PATCH", { status: "Submitted" })).status, 200);
@@ -83,6 +118,8 @@ test("admin completes controlled change, release, and rollback workflow steps", 
   const actionsBody = await actions.json();
   assert.equal(actionsBody.data.current_status, "Approved");
   assert.ok(actionsBody.data.valid_transitions.includes("Scheduled"));
+  assert.equal((await request(`/changes/${changeId}/implementation`, token)).status, 200);
+  assert.equal((await request(`/changes/${changeId}/schedule`, token)).status, 200);
 
   // Test schedule update
   assert.equal((await request(`/changes/${changeId}/schedule`, token, "POST", { planned_start: new Date(Date.now() + 86400000).toISOString(), planned_end: new Date(Date.now() + 172800000).toISOString(), reason: "Scheduled for deployment window" })).status, 200);
@@ -100,10 +137,12 @@ test("admin completes controlled change, release, and rollback workflow steps", 
 
   const createdRelease = await request("/releases", token, "POST", { title: "Acceptance release", environment: "Testing", change_ids: [changeId], checklist: [{ label: "Smoke test", complete: false }] });
   assert.equal(createdRelease.status, 201); releaseId = (await createdRelease.json()).data.id;
+  assert.equal((await request("/releases", token)).status, 200);
   assert.equal((await request(`/releases/${releaseId}/status`, token, "PATCH", { status: "Scheduled", progress: 20 })).status, 200);
 
   const createdRollback = await request("/rollbacks", token, "POST", { title: "Acceptance rollback", linked_change_id: changeId, linked_release_id: releaseId, recovery_plan: "Restore the validated baseline.", checklist: [{ label: "Validate recovery", complete: false }] });
   assert.equal(createdRollback.status, 201); rollbackId = (await createdRollback.json()).data.id;
+  assert.equal((await request("/rollbacks", token)).status, 200);
   assert.equal((await request(`/rollbacks/${rollbackId}/status`, token, "PATCH", { status: "Approved" })).status, 200);
   assert.equal((await request(`/rollbacks/${rollbackId}`, token, "PUT", { recovery_plan: "Restore the validated baseline and confirm service health.", checklist: [{ label: "Validate recovery", complete: false }] })).status, 200);
   const history = await request(`/rollbacks/${rollbackId}/history`, token); assert.equal(history.status, 200); const historyBody = await history.json(); assert.equal(historyBody.data.versions.length, 2); assert.ok(historyBody.data.logs.length >= 3);

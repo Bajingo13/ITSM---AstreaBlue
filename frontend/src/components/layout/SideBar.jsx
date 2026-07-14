@@ -265,6 +265,7 @@ function NavGroup({ item, collapsed, dashboardPath }) {
               <Link
                 key={child.path}
                 to={child.path}
+                title={child.label}
                 className={`astrea-nav-child flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all ${
                   childActive
                     ? "bg-[#EEF6FF] text-[#2563EB]"

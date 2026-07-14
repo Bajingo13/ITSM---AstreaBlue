@@ -18,14 +18,25 @@ async function ensureWorkflowSchema() {
       const readiness = await client.query(`SELECT
         EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='change_requests' AND column_name='assigned_technician_id')
         AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='change_requests' AND column_name='business_justification')
+        AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='release_plans' AND column_name='validation_notes')
+        AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='release_plans' AND column_name='progress')
+        AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='rollback_procedures' AND column_name='version')
+        AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='rollback_procedures' AND column_name='updated_at')
         AND to_regclass('change_cab_members') IS NOT NULL
         AND to_regclass('change_cab_reviews') IS NOT NULL
         AND to_regclass('change_implementation_updates') IS NOT NULL
         AND to_regclass('change_schedule_history') IS NOT NULL AS ready`);
       if (!readiness.rows[0]?.ready) {
-        const migrationPath = path.join(__dirname, "../../database/2026-07-14-change-request-workflow.sql");
-        console.warn("[Change Release] workflow schema is behind; applying the workflow migration.");
-        await client.query(fs.readFileSync(migrationPath, "utf8"));
+        const migrations = [
+          "2026-07-13-change-release-management.sql",
+          "2026-07-14-change-request-workflow.sql",
+          "2026-07-14-change-release-schema-hardening.sql",
+        ];
+        console.warn("[Change Release] schema is behind; applying idempotent repair migrations.");
+        for (const fileName of migrations) {
+          const migrationPath = path.join(__dirname, "../../database", fileName);
+          await client.query(fs.readFileSync(migrationPath, "utf8"));
+        }
       }
       await client.query("COMMIT");
     } catch (error) {
@@ -47,6 +58,17 @@ router.use(async (req, res, next) => {
     console.error("Change workflow schema bootstrap error:", error.message);
     res.status(503).json({ success: false, message: "Change Management is waiting for its database migration. Please retry shortly.", data: null });
   }
+});
+
+router.use((req, res, next) => {
+  if (["POST", "PUT", "PATCH"].includes(req.method) && (!req.body || typeof req.body !== "object")) {
+    return res.status(415).json({
+      success: false,
+      message: "This endpoint requires a JSON request body with Content-Type: application/json.",
+      data: null,
+    });
+  }
+  next();
 });
 
 const RELEASE_FLOW = ["Planned", "Scheduled", "Deploying", "Verifying", "Completed", "Closed"];
@@ -106,6 +128,32 @@ const operationScope = (req, alias, params) => {
   return `${alias}.branch_id=$${params.length}`;
 };
 const safeArray = (value) => Array.isArray(value) ? value : [];
+const parsedArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+const normalizeChangeRecord = (record) => record ? ({
+  ...record,
+  linked_assets: parsedArray(record.linked_assets),
+  linked_services: parsedArray(record.linked_services),
+  linked_cis: parsedArray(record.linked_cis),
+  linked_incidents: parsedArray(record.linked_incidents),
+  linked_problems: parsedArray(record.linked_problems),
+}) : record;
+const normalizeOperationalRecord = (record, release) => record ? ({
+  ...record,
+  checklist: parsedArray(record.checklist),
+  ...(release ? {
+    package_details: parsedArray(record.package_details),
+    dependencies: parsedArray(record.dependencies),
+  } : {}),
+}) : record;
 const positiveInt = (value, fallback) => Math.max(1, Number.parseInt(value, 10) || fallback);
 const ensureNextStatus = (flow, current, next) => flow.indexOf(next) === flow.indexOf(current) + 1;
 
@@ -125,7 +173,7 @@ router.get("/summary", requireChangeAccess, async (req, res) => {
     const [changes, releases, rollbacks, trend, recent, openChangesRes, cabQueueRes, emergChangesRes, scheduledRes] = await Promise.all([
       db.query(`SELECT COUNT(*)::int total,
         COUNT(*) FILTER(WHERE c.status NOT IN ('Completed','Closed'))::int pending_changes,
-        COUNT(*) FILTER(WHERE c.status='CAB Review')::int cab_queue,
+        COUNT(*) FILTER(WHERE c.status='Pending CAB Review')::int cab_queue,
         COUNT(*) FILTER(WHERE c.status='In Progress')::int active_changes,
         COUNT(*) FILTER(WHERE c.status='Completed')::int completed_changes,
         COUNT(*) FILTER(WHERE c.status='Closed')::int closed_changes
@@ -182,7 +230,7 @@ router.get("/changes", requireChangeAccess, async (req, res) => {
     const result = await db.query(`SELECT c.*,b.branch_name,u.full_name owner_name,tech.full_name assigned_technician_name,COUNT(*) OVER()::int total_count
       FROM change_requests c LEFT JOIN branches b ON b.branch_id=c.branch_id LEFT JOIN users u ON u.user_id=c.owner_id LEFT JOIN users tech ON tech.user_id=c.assigned_technician_id
       WHERE ${clauses.join(" AND ")} ORDER BY ${safeSort} ${sortOrder} LIMIT $${limitPos} OFFSET $${offsetPos}`, params);
-    res.json({ success: true, message: "Change requests loaded.", data: result.rows, meta: { page, limit, total: result.rows[0]?.total_count || 0 } });
+    res.json({ success: true, message: "Change requests loaded.", data: result.rows.map(normalizeChangeRecord), meta: { page, limit, total: result.rows[0]?.total_count || 0 } });
   } catch (error) { console.error("List changes error:", error.message); res.status(500).json({ success: false, message: "Failed to load change requests.", data: null }); }
 });
 
@@ -217,7 +265,7 @@ router.get("/changes/:id", requireChangeAccess, async (req, res) => {
       db.query("SELECT ci.*,u.full_name performed_by_name FROM change_implementation_updates ci LEFT JOIN users u ON u.user_id=ci.performed_by WHERE ci.change_id=$1 ORDER BY ci.created_at DESC", [req.params.id]),
       db.query("SELECT sh.*,u.full_name changed_by_name FROM change_schedule_history sh LEFT JOIN users u ON u.user_id=sh.changed_by WHERE sh.change_id=$1 ORDER BY sh.created_at DESC", [req.params.id]),
     ]);
-    res.json({ success: true, message: "Change request loaded.", data: { ...change.rows[0], activities: activities.rows, approvals: approvals.rows, releases: releases.rows, attachments: attachments.rows, cab_members: cabMembers.rows, cab_reviews: cabReviews.rows, implementation_updates: implUpdates.rows, schedule_history: schedHistory.rows } });
+    res.json({ success: true, message: "Change request loaded.", data: { ...normalizeChangeRecord(change.rows[0]), activities: activities.rows, approvals: approvals.rows, releases: releases.rows.map((row) => normalizeOperationalRecord(row, true)), attachments: attachments.rows, cab_members: cabMembers.rows, cab_reviews: cabReviews.rows, implementation_updates: implUpdates.rows, schedule_history: schedHistory.rows } });
   } catch (error) { res.status(500).json({ success: false, message: "Failed to load change request.", data: null }); }
 });
 
@@ -498,8 +546,8 @@ async function listOperational(req, res, kind) {
     if (req.query.status) { params.push(req.query.status); clauses.push(`${alias}.status=$${params.length}`); }
     if (req.query.search) { params.push(`%${req.query.search}%`); clauses.push(`(${alias}.${release ? "release_number" : "rollback_number"} ILIKE $${params.length} OR ${alias}.title ILIKE $${params.length})`); }
     const result = await db.query(`SELECT ${alias}.*,b.branch_name,u.full_name owner_name FROM ${table} ${alias} LEFT JOIN branches b ON b.branch_id=${alias}.branch_id LEFT JOIN users u ON u.user_id=${alias}.owner_id WHERE ${clauses.join(" AND ")} ORDER BY ${release ? `${alias}.scheduled_start NULLS LAST,` : ""}${alias}.updated_at DESC`, params);
-    res.json({ success: true, message: `${release ? "Releases" : "Rollback procedures"} loaded.`, data: result.rows });
-  } catch (error) { res.status(500).json({ success: false, message: `Failed to load ${kind}.`, data: null }); }
+    res.json({ success: true, message: `${release ? "Releases" : "Rollback procedures"} loaded.`, data: result.rows.map((row) => normalizeOperationalRecord(row, release)) });
+  } catch (error) { console.error(`List ${kind} error:`, error.message, error.stack); res.status(500).json({ success: false, message: `Failed to load ${kind}.`, data: null }); }
 }
 router.get("/releases", requireChangeAccess, (req, res) => listOperational(req, res, "releases"));
 router.get("/rollbacks", requireChangeAccess, (req, res) => listOperational(req, res, "rollbacks"));
@@ -570,8 +618,8 @@ router.put("/rollbacks/:id", requireChangeAccess, async (req, res) => {
 router.get("/rollbacks/:id/history", requireChangeAccess, async (req, res) => {
   try { const params = [req.params.id]; const scoped = operationScope(req, "rb", params); if (!(await db.query(`SELECT 1 FROM rollback_procedures rb WHERE rb.id=$1 AND ${scoped}`, params)).rows.length) return res.status(404).json({ success: false, message: "Rollback procedure not found.", data: null });
     const [versions, logs] = await Promise.all([db.query("SELECT v.*,u.full_name changed_by_name FROM rollback_versions v LEFT JOIN users u ON u.user_id=v.changed_by WHERE v.rollback_id=$1 ORDER BY v.version DESC", [req.params.id]), db.query("SELECT l.*,u.full_name actor_name FROM rollback_execution_logs l LEFT JOIN users u ON u.user_id=l.actor_id WHERE l.rollback_id=$1 ORDER BY l.created_at DESC", [req.params.id])]);
-    res.json({ success: true, message: "Rollback history loaded.", data: { versions: versions.rows, logs: logs.rows } });
-  } catch (error) { res.status(500).json({ success: false, message: "Failed to load rollback history.", data: null }); }
+    res.json({ success: true, message: "Rollback history loaded.", data: { versions: versions.rows.map((row) => normalizeOperationalRecord(row, false)), logs: logs.rows } });
+  } catch (error) { console.error("Rollback history load error:", error.message, error.stack); res.status(500).json({ success: false, message: "Failed to load rollback history.", data: null }); }
 });
 
 module.exports = router;
