@@ -1119,21 +1119,23 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
   if ((action === "reject" || action === "request_revision") && !reason) {
     return res.status(400).json({ success: false, message: "A reason is required." });
   }
+  const client = await db.rawPool.connect();
+  let doc;
+  let updated;
+  let policy = null;
   try {
-    await db.query("BEGIN");
-    const docRes = await db.query(`SELECT * FROM consent_documents WHERE consent_id=$1 FOR UPDATE`, [req.params.id]);
-    const doc = docRes.rows[0];
+    await client.query("BEGIN");
+    const docRes = await client.query(`SELECT * FROM consent_documents WHERE consent_id=$1 FOR UPDATE`, [req.params.id]);
+    doc = docRes.rows[0];
     if (!doc) {
-      await db.query("ROLLBACK");
+      await client.query("ROLLBACK");
       return res.status(404).json({ success: false, message: "Consent not found." });
     }
     if (!(await assertConsentAccess(req, doc))) {
-      await db.query("ROLLBACK");
+      await client.query("ROLLBACK");
       return res.status(403).json({ success: false, message: "Access denied." });
     }
 
-    let updated;
-    let policy = null;
     if (action === "approve") {
       const verificationCode = doc.verification_code || `AB-CONSENT-${doc.consent_id}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
       const storedSignature = await loadConsentSignature(doc);
@@ -1154,14 +1156,14 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
         metadata: { consentId: doc.consent_id, employeeId: doc.employee_id, verificationCode },
       });
       const documentHash = crypto.createHash("sha256").update(pdfBuffer).digest("hex");
-      await db.query(
+      await client.query(
         `UPDATE consent_documents
          SET status='superseded', active=false, previous_consent_id=COALESCE(previous_consent_id, $1), updated_at=CURRENT_TIMESTAMP
          WHERE employee_id=$2 AND consent_id<>$1 AND status IN ('approved','signed') AND active=true
            AND ($3::uuid IS NULL OR device_uuid=$3::uuid)`,
         [doc.consent_id, doc.employee_id, doc.device_uuid || null]
       );
-      updated = await db.query(
+      updated = await client.query(
         `UPDATE consent_documents
          SET status='approved', active=true, approved_by=$1, approved_at=CURRENT_TIMESTAMP,
              effective_date=COALESCE(effective_date, CURRENT_DATE),
@@ -1172,61 +1174,75 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
          WHERE consent_id=$3 RETURNING *`,
         [actorId(actor), verificationCode, doc.consent_id, documentObjectKey, documentHash, pdfBuffer.length]
       );
-      const onboardingBefore = await db.query(`SELECT onboarding_status FROM users WHERE user_id=$1`, [doc.employee_id]);
-      await db.query(
+      const onboardingBefore = await client.query(`SELECT onboarding_status FROM users WHERE user_id=$1`, [doc.employee_id]);
+      await client.query(
         `UPDATE users SET onboarding_status='Completed',onboarding_required=FALSE,
            onboarding_completed_at=CURRENT_TIMESTAMP,onboarding_consent_id=$1 WHERE user_id=$2`,
         [doc.consent_id, doc.employee_id]
       );
-      await db.query(
+      await client.query(
         `INSERT INTO user_onboarding_history (user_id,previous_status,new_status,consent_id,changed_by,reason)
          VALUES ($1,$2,'Completed',$3,$4,'Consent approved; mandatory onboarding completed.')`,
         [doc.employee_id, onboardingBefore.rows[0]?.onboarding_status || null, doc.consent_id, actorId(actor)]
       );
-      policy = await generateEndpointPolicy(updated.rows[0], actor);
-      if (updated.rows[0].device_uuid) {
-        await regenerateEffectiveEndpointPolicy(updated.rows[0].device_uuid, actor);
-      }
-      await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_approved", "Consent approved.");
-      await notifyConsentEmployee(updated.rows[0], "Consent approved", "Your endpoint monitoring consent was approved. The endpoint policy is ready for agent synchronization.", "approved");
     } else if (action === "reject") {
-      updated = await db.query(
+      updated = await client.query(
         `UPDATE consent_documents SET status='rejected', active=false, rejection_reason=$1, updated_at=CURRENT_TIMESTAMP
          WHERE consent_id=$2 RETURNING *`,
         [reason, doc.consent_id]
       );
-      if (doc.device_uuid) await regenerateEffectiveEndpointPolicy(doc.device_uuid, actor);
-      await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_rejected", reason);
-      await db.query(`UPDATE users SET onboarding_status='Blocked',onboarding_required=TRUE WHERE user_id=$1`, [doc.employee_id]);
-      await db.query(
+      await client.query(`UPDATE users SET onboarding_status='Blocked',onboarding_required=TRUE WHERE user_id=$1`, [doc.employee_id]);
+      await client.query(
         `INSERT INTO user_onboarding_history (user_id,previous_status,new_status,consent_id,changed_by,reason)
          VALUES ($1,'Consent Submitted','Blocked',$2,$3,$4)`,
         [doc.employee_id, doc.consent_id, actorId(actor), reason]
       );
-      await notifyConsentEmployee(updated.rows[0], "Consent rejected", reason, "rejected");
     } else {
-      updated = await db.query(
+      updated = await client.query(
         `UPDATE consent_documents SET status='revision_requested', active=false, revision_reason=$1, updated_at=CURRENT_TIMESTAMP
          WHERE consent_id=$2 RETURNING *`,
         [reason, doc.consent_id]
       );
-      if (doc.device_uuid) await regenerateEffectiveEndpointPolicy(doc.device_uuid, actor);
-      await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "revision_requested", reason);
-      await db.query(`UPDATE users SET onboarding_status='Revision Required',onboarding_required=TRUE WHERE user_id=$1`, [doc.employee_id]);
-      await db.query(
+      await client.query(`UPDATE users SET onboarding_status='Revision Required',onboarding_required=TRUE WHERE user_id=$1`, [doc.employee_id]);
+      await client.query(
         `INSERT INTO user_onboarding_history (user_id,previous_status,new_status,consent_id,changed_by,reason)
          VALUES ($1,'Consent Submitted','Revision Required',$2,$3,$4)`,
         [doc.employee_id, doc.consent_id, actorId(actor), reason]
       );
-      await notifyConsentEmployee(updated.rows[0], "Consent revision requested", reason, "revision-requested");
     }
-    await db.query("COMMIT");
-    return res.json({ success: true, data: updated.rows[0], policy });
+    await client.query("COMMIT");
   } catch (err) {
-    await db.query("ROLLBACK").catch(() => {});
+    await client.query("ROLLBACK").catch(() => {});
     console.error("[consent:review]", err.message);
     return res.status(500).json({ success: false, message: "Failed to review consent." });
+  } finally {
+    client.release();
   }
+
+  // Policy generation, audit logging, and notifications are follow-up work.
+  // They must not undo a legally approved consent or leave onboarding stuck.
+  let followUpWarning = null;
+  try {
+    if (action === "approve") {
+      policy = await generateEndpointPolicy(updated.rows[0], actor);
+      if (updated.rows[0].device_uuid) await regenerateEffectiveEndpointPolicy(updated.rows[0].device_uuid, actor);
+      await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_approved", "Consent approved; mandatory onboarding completed.");
+      await notifyConsentEmployee(updated.rows[0], "Consent approved", "Your endpoint monitoring consent was approved. The endpoint policy is ready for agent synchronization.", "approved");
+    } else if (action === "reject") {
+      if (doc.device_uuid) await regenerateEffectiveEndpointPolicy(doc.device_uuid, actor);
+      await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_rejected", reason);
+      await notifyConsentEmployee(updated.rows[0], "Consent rejected", reason, "rejected");
+    } else {
+      if (doc.device_uuid) await regenerateEffectiveEndpointPolicy(doc.device_uuid, actor);
+      await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "revision_requested", reason);
+      await notifyConsentEmployee(updated.rows[0], "Consent revision requested", reason, "revision-requested");
+    }
+  } catch (error) {
+    followUpWarning = "Consent decision was saved, but endpoint policy follow-up must be retried.";
+    console.error("[consent:review:follow-up]", error.message);
+  }
+
+  return res.json({ success: true, data: updated.rows[0], policy, follow_up_warning: followUpWarning });
 });
 
 // POST /consent/:id/approve-change — admin approves a change request, creates new consent version

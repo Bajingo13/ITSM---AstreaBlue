@@ -92,7 +92,7 @@ test("approved consent reconciles a stuck submitted onboarding state", async () 
   const created = await db.query(
     `INSERT INTO consent_documents (
        employee_id,employee_full_name,employee_email,monitoring_preferences,status,active,signed_at,submitted_at,approved_at
-     ) VALUES ($1,'Onboarding Test Employee','onboarding@example.test','["window_title"]'::jsonb,'approved',TRUE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+     ) VALUES ($1,'Onboarding Test Employee','onboarding@example.test','["window_title"]'::jsonb,'approved',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
      RETURNING consent_id`,
     [userId]
   );

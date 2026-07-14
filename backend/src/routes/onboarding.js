@@ -55,7 +55,7 @@ router.get("/status", async (req, res) => {
     const reconciled = await db.query(
       `WITH approved AS (
          SELECT consent_id FROM consent_documents
-         WHERE employee_id=$1 AND status IN ('approved','signed') AND active IS NOT FALSE
+         WHERE employee_id=$1 AND LOWER(status) IN ('approved','signed')
          ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST, created_at DESC
          LIMIT 1
        )
