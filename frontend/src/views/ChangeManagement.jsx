@@ -46,6 +46,7 @@ import { useAuth } from "../context/AuthContext";
 const FIELDS = Object.freeze({
   BASIC: [
     { key: "title", label: "Change Title", type: "text", wide: true, required: true },
+    { key: "branch_id", label: "Branch", type: "branch_select", required: true },
     { key: "description", label: "Description", type: "textarea", wide: true },
     { key: "business_justification", label: "Business Justification", type: "textarea", wide: true },
     { key: "change_type", label: "Change Type", type: "select", options: ["Standard", "Normal", "Emergency"] },
@@ -122,7 +123,14 @@ function ChangeForm({ branches, technicians, user, editItem, onClose, onSaved })
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.title?.trim()) return;
+    const missingFields = [];
+    if (!form.title?.trim()) missingFields.push("change title");
+    if (!form.branch_id) missingFields.push("branch");
+    if (missingFields.length) {
+      setTab("basic");
+      setError(`Please provide the required ${missingFields.join(" and ")} before creating the change.`);
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -147,7 +155,7 @@ function ChangeForm({ branches, technicians, user, editItem, onClose, onSaved })
     }
   };
 
-  const isSuperAdmin = String(user?.role_name).toLowerCase() === "superadmin";
+  const isSuperAdmin = String(user?.role_name || user?.role || "").toLowerCase() === "superadmin";
 
   const tabs = [
     { id: "basic", label: "Basic Info" },
@@ -162,7 +170,7 @@ function ChangeForm({ branches, technicians, user, editItem, onClose, onSaved })
       subtitle="Fill in the required details across all sections."
       onClose={onClose}
     >
-      <form onSubmit={submit}>
+      <form onSubmit={submit} noValidate>
         {/* Tab navigation */}
         <div className="mb-6 flex gap-1 rounded-xl bg-slate-100 p-1">
           {tabs.map((t) => (
@@ -314,7 +322,7 @@ function ChangeForm({ branches, technicians, user, editItem, onClose, onSaved })
           <button type="button" onClick={onClose} className="astrea-button astrea-button-secondary">
             Cancel
           </button>
-          <button disabled={saving} className="astrea-button astrea-button-primary">
+          <button type="submit" disabled={saving} className="astrea-button astrea-button-primary">
             {saving ? "Saving..." : isEdit ? "Update Change" : "Create Change"}
           </button>
         </div>
