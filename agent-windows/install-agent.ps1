@@ -28,12 +28,19 @@ if ($LASTEXITCODE -ne 0) {
     Exit
 }
 
-# Config
-$configFile = Join-Path $PSScriptRoot "agent-config.json"
+# Store machine credentials outside the tracked configuration template.
+$configFile = Join-Path $PSScriptRoot "agent-config.local.json"
+$templateConfigFile = Join-Path $PSScriptRoot "agent-config.json"
 $config = @{}
 if (Test-Path $configFile) {
     try {
         $config = Get-Content $configFile | ConvertFrom-Json
+    } catch {
+        # Ignore
+    }
+} elseif (Test-Path $templateConfigFile) {
+    try {
+        $config = Get-Content $templateConfigFile | ConvertFrom-Json
     } catch {
         # Ignore
     }
@@ -63,7 +70,7 @@ $newConfig = @{
 }
 
 [System.IO.File]::WriteAllText($configFile, ($newConfig | ConvertTo-Json -Depth 5))
-Write-Host "Config saved."
+Write-Host "Private machine config saved to agent-config.local.json."
 
 # Create invisible launcher script
 Write-Host "Configuring invisible startup..."

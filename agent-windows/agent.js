@@ -25,7 +25,9 @@ const si      = require('systeminformation');
 const execFileAsync = promisify(execFile);
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const configPath = path.join(__dirname, 'agent-config.json');
+const localConfigPath = path.join(__dirname, 'agent-config.local.json');
+const templateConfigPath = path.join(__dirname, 'agent-config.json');
+const configPath = fs.existsSync(localConfigPath) ? localConfigPath : templateConfigPath;
 let config;
 try {
   config = JSON.parse(fs.readFileSync(configPath, 'utf8'));

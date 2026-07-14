@@ -2,7 +2,9 @@
 
 This is the Windows Endpoint Monitoring Agent for AstreaBlue ITSM.
 
-Before production installation, create a strong `MONITORING_AGENT_TOKEN` environment variable in Railway. Enter that exact value when the installer prompts for the Agent Token. Never commit the production token to `agent-config.json`.
+Before production installation, create a strong `MONITORING_AGENT_TOKEN` environment variable in Railway. Enter that exact value when the installer prompts for the Agent Token. The installer stores it in the Git-ignored `agent-config.local.json`; never commit the production token to `agent-config.json`.
+
+To prepare a new production token securely without printing it, run `prepare-production-token.ps1`. It saves the token in the ignored local configuration and copies it to the Windows clipboard so it can be pasted directly into Railway.
 
 A device is online only when its heartbeat reaches the same backend and PostgreSQL database used by the web application. A localhost agent reports only to that laptop's local backend.
 

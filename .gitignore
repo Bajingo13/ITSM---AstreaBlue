@@ -37,3 +37,4 @@ Thumbs.db
 coverage/
 
 agent/
+agent-windows/agent-config.local.json
