@@ -139,6 +139,54 @@ test("endpoint checklist separates signed consent from administrator approval", 
   assert.equal(approved.find((item) => item.step === "Consent Approved").status, "Complete");
 });
 
+test("endpoint health distinguishes disabled activity from stale activity", () => {
+  const now = new Date().toISOString();
+  const base = {
+    device_uuid: crypto.randomUUID(),
+    device_id: 2,
+    hostname: "ACTIVITY-HEALTH-TEST",
+    asset_id: 1,
+    assigned_user_id: 9,
+    consent_id: "101",
+    consent_status: "approved",
+    consent_submitted: true,
+    consent_approved: true,
+    last_seen_at: now,
+    last_activity_at: "2026-01-01T00:00:00.000Z",
+    last_idle_detection_at: "2026-01-01T00:00:00.000Z",
+    last_hardware_inventory_at: now,
+    last_software_inventory_at: now,
+    last_policy_sync_at: now,
+    policy_generated_at: now,
+  };
+
+  const disabled = routes._test.buildEndpointHealth({
+    ...base,
+    policy_json: {
+      features: {
+        activity_monitoring_enabled: { enabled: false, consent_required: true, reason: "Employee consent excludes activity." },
+      },
+    },
+  });
+  assert.equal(disabled.activity.status, "Disabled");
+  assert.equal(disabled.idle_detection.status, "Disabled");
+  assert.equal(disabled.checklist.find((item) => item.step === "Monitoring Active").status, "Not Applicable");
+
+  const enabled = routes._test.buildEndpointHealth({
+    ...base,
+    last_activity_at: now,
+    last_idle_detection_at: now,
+    policy_json: {
+      features: {
+        activity_monitoring_enabled: { enabled: true, consent_required: true },
+      },
+    },
+  });
+  assert.equal(enabled.activity.status, "Healthy");
+  assert.equal(enabled.idle_detection.status, "Healthy");
+  assert.equal(enabled.checklist.find((item) => item.step === "Monitoring Active").status, "Complete");
+});
+
 test("single-use enrollment issues isolated per-device credentials", async () => {
   const firstUuid = crypto.randomUUID();
   const secondUuid = crypto.randomUUID();

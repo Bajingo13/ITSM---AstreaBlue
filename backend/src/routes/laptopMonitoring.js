@@ -858,8 +858,15 @@ function buildEndpointHealth(row) {
   const policyJson = row.policy_json || {};
   const heartbeat = healthItem("Heartbeat", row.last_seen_at, 2, 5, "Offline");
   if (heartbeat.status === "Critical") heartbeat.status = "Critical";
-  const activity = healthItem("Activity", row.last_activity_at, 10, null, "Warning");
-  const idleDetection = healthItem("Idle Detection", row.last_idle_detection_at || row.last_activity_at, 10, null, "Warning");
+  const activityFeature = policyJson.features?.activity_monitoring_enabled;
+  const activityEnabled = activityFeature?.enabled === true || policyJson.activity_monitoring_enabled === true;
+  const disabledActivityReason = activityFeature?.reason || policyJson.reasons?.activity_monitoring_enabled || "Activity monitoring is not enabled by the effective policy.";
+  const activity = activityEnabled
+    ? healthItem("Activity", row.last_activity_at, 10, null, "Warning")
+    : { label: "Activity", status: "Disabled", last_seen_at: row.last_activity_at || null, age_minutes: null, message: disabledActivityReason };
+  const idleDetection = activityEnabled
+    ? healthItem("Idle Detection", row.last_idle_detection_at || row.last_activity_at, 10, null, "Warning")
+    : { label: "Idle Detection", status: "Disabled", last_seen_at: row.last_idle_detection_at || row.last_activity_at || null, age_minutes: null, message: disabledActivityReason };
   const hardwareInventory = healthItem("Hardware Inventory", row.last_hardware_inventory_at, 24 * 60, null, "Warning");
   const softwareInventory = healthItem("Software Inventory", row.last_software_inventory_at, 24 * 60, null, "Warning");
   const policy = healthItem("Policy Sync", row.last_policy_sync_at, 24 * 60, null, "Warning");
@@ -897,11 +904,13 @@ function buildEndpointHealth(row) {
     { event_type: "Software Inventory", occurred_at: row.last_software_inventory_at, status: softwareInventory.status },
     { event_type: "Policy Sync", occurred_at: row.last_policy_sync_at, status: policy.status },
   ];
+  const enabledConsentFeatures = policyJson.features
+    ? Object.values(policyJson.features).filter((feature) => feature?.consent_required && feature.enabled)
+    : [];
   const monitoringActive = !!(
     heartbeat.status === "Healthy" &&
     policy.status === "Healthy" &&
-    policyJson.features &&
-    Object.values(policyJson.features).some((feature) => feature?.consent_required && feature.enabled)
+    enabledConsentFeatures.length
   );
   const checklist = [
     { step: "Asset Linked", status: row.asset_id ? "Complete" : "Pending" },
@@ -911,7 +920,7 @@ function buildEndpointHealth(row) {
     { step: "Consent Approved", status: row.consent_approved ? "Complete" : "Pending" },
     { step: "Effective Policy Generated", status: row.policy_generated_at ? "Complete" : "Pending" },
     { step: "Agent Policy Downloaded", status: row.last_policy_sync_at ? "Complete" : "Pending" },
-    { step: "Monitoring Active", status: monitoringActive ? "Complete" : (consent.status === "Healthy" ? "Pending" : "Not Applicable") },
+    { step: "Monitoring Active", status: monitoringActive ? "Complete" : (consent.status === "Healthy" && enabledConsentFeatures.length ? "Pending" : "Not Applicable") },
   ];
 
   return {
