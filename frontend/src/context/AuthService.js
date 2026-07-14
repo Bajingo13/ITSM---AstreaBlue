@@ -34,6 +34,9 @@ export function saveUser(user, token, rememberMe) {
   sessionStorage.removeItem("token");
 
   const storage = rememberMe ? localStorage : sessionStorage;
+  const otherStorage = rememberMe ? sessionStorage : localStorage;
+  otherStorage.removeItem("user");
+  otherStorage.removeItem("token");
   storage.setItem("user", JSON.stringify(user));
   if (token) storage.setItem("token", token);
 }
