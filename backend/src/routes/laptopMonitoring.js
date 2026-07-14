@@ -2181,6 +2181,48 @@ async function logPolicyAudit(userId, action, targetId, details) {
   }
 }
 
+const policyFeatureMap = {
+  heartbeat: "heartbeat_enabled",
+  activity: "activity_monitoring_enabled",
+  screenshots: "screenshot_monitoring_enabled",
+  hardware_inventory: "hardware_inventory_enabled",
+  software_inventory: "software_inventory_enabled",
+  browser: "browser_monitoring_enabled",
+  usb: "usb_monitoring_enabled",
+  location: "location_tracking_enabled",
+  auto_incident: "auto_incident_enabled",
+};
+
+function normalizePolicyConfig(body = {}) {
+  const suppliedConfig = body.config_json && typeof body.config_json === "object" && !Array.isArray(body.config_json)
+    ? body.config_json
+    : {};
+  const config = { ...suppliedConfig };
+  if (body.features_enabled && typeof body.features_enabled === "object") {
+    for (const [clientKey, enabled] of Object.entries(body.features_enabled)) {
+      const policyKey = policyFeatureMap[clientKey] || clientKey;
+      config[policyKey] = !!enabled;
+    }
+  }
+  if (body.collection_interval_seconds && typeof body.collection_interval_seconds === "object") {
+    config.intervals = { ...(config.intervals || {}), ...body.collection_interval_seconds };
+  }
+  return config;
+}
+
+function policyForClient(row) {
+  const config = row.config_json && typeof row.config_json === "object" ? row.config_json : {};
+  const features = {};
+  for (const [clientKey, policyKey] of Object.entries(policyFeatureMap)) features[clientKey] = !!config[policyKey];
+  return {
+    ...row,
+    policy_name: row.name,
+    features_enabled: features,
+    collection_interval_seconds: config.intervals || {},
+    version: `${row.priority || 0}.${row.id}`,
+  };
+}
+
 router.get("/policies", requireAdmin, async (req, res) => {
   try {
     const scope = [];
@@ -2197,7 +2239,7 @@ router.get("/policies", requireAdmin, async (req, res) => {
       `SELECT * FROM endpoint_policies ${where} ORDER BY priority DESC, created_at DESC`,
       params
     );
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: result.rows.map(policyForClient) });
   } catch (error) {
     console.error("[laptop-monitoring] fetch policies error:", error.message);
     res.status(500).json({ success: false, message: "Failed to fetch policies." });
@@ -2207,19 +2249,22 @@ router.get("/policies", requireAdmin, async (req, res) => {
 router.post("/policies", requireAdmin, async (req, res) => {
   try {
     if (req.monitoringIsEmployee) return res.status(403).json({ success: false, message: "Unauthorized." });
-    const { name, description, priority, is_active, config_json, branch_id } = req.body;
+    const { description, priority, is_active, branch_id } = req.body;
+    const name = String(req.body.name || req.body.policy_name || "").trim();
+    if (!name) return res.status(400).json({ success: false, message: "Policy name is required." });
+    const configJson = normalizePolicyConfig(req.body);
     
     let targetBranch = req.monitoringIsSuperAdmin ? (branch_id || null) : req.monitoringBranchId;
     
     const result = await db.query(
       `INSERT INTO endpoint_policies (name, description, priority, is_active, config_json, created_by, branch_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [name, description, priority || 0, is_active ?? true, JSON.stringify(config_json || {}), req.monitoringUserId, targetBranch]
+      [name, description, priority || 0, is_active ?? true, JSON.stringify(configJson), req.monitoringUserId, targetBranch]
     );
     
     const policy = result.rows[0];
     await logPolicyAudit(req.monitoringUserId, 'policy_created', policy.id, { policy });
-    res.status(201).json({ success: true, data: policy });
+    res.status(201).json({ success: true, data: policyForClient(policy) });
   } catch (error) {
     console.error("[laptop-monitoring] create policy error:", error.message);
     res.status(500).json({ success: false, message: "Failed to create policy." });
@@ -2257,14 +2302,17 @@ router.put("/policies/:id", requireAdmin, async (req, res) => {
       return res.status(403).json({ success: false, message: "Unauthorized." });
     }
     
-    const { name, description, priority, is_active, config_json } = req.body;
+    const name = String(req.body.name || req.body.policy_name || "").trim();
+    if (!name) return res.status(400).json({ success: false, message: "Policy name is required." });
+    const { description, priority, is_active } = req.body;
+    const configJson = normalizePolicyConfig(req.body);
     const result = await db.query(
       `UPDATE endpoint_policies SET name=$1, description=$2, priority=$3, is_active=$4, config_json=$5, updated_at=CURRENT_TIMESTAMP WHERE id=$6 RETURNING *`,
-      [name, description, priority, is_active, JSON.stringify(config_json), req.params.id]
+      [name, description, priority, is_active, JSON.stringify(configJson), req.params.id]
     );
     
     await logPolicyAudit(req.monitoringUserId, is_active === false && check.rows[0].is_active ? 'policy_disabled' : 'policy_updated', req.params.id, { changes: req.body });
-    res.json({ success: true, data: result.rows[0] });
+    res.json({ success: true, data: policyForClient(result.rows[0]) });
   } catch (error) {
     console.error("[laptop-monitoring] update policy error:", error.message);
     res.status(500).json({ success: false, message: "Failed to update policy." });
@@ -2293,7 +2341,9 @@ router.delete("/policies/:id", requireAdmin, async (req, res) => {
 router.post("/policies/:id/assign", requireAdmin, async (req, res) => {
   try {
     if (req.monitoringIsEmployee) return res.status(403).json({ success: false, message: "Unauthorized." });
-    const { target_type, target_id } = req.body;
+    const targetType = String(req.body.target_type || "").trim();
+    const targetId = targetType.toLowerCase() === "global" ? "*" : String(req.body.target_id || "").trim();
+    if (!targetType || !targetId) return res.status(400).json({ success: false, message: "Policy target is required." });
     const check = await db.query(`SELECT * FROM endpoint_policies WHERE id=$1`, [req.params.id]);
     if (!check.rows.length) return res.status(404).json({ success: false, message: "Policy not found." });
     
@@ -2303,9 +2353,9 @@ router.post("/policies/:id/assign", requireAdmin, async (req, res) => {
     
     const result = await db.query(
       `INSERT INTO endpoint_policy_assignments (policy_id, target_type, target_id) VALUES ($1, $2, $3) RETURNING *`,
-      [req.params.id, target_type, target_id]
+      [req.params.id, targetType, targetId]
     );
-    await logPolicyAudit(req.monitoringUserId, 'policy_assigned', req.params.id, { target_type, target_id });
+    await logPolicyAudit(req.monitoringUserId, 'policy_assigned', req.params.id, { target_type: targetType, target_id: targetId });
     res.json({ success: true, data: result.rows[0] });
   } catch (error) {
     console.error("[laptop-monitoring] assign policy error:", error.message);
@@ -2353,22 +2403,24 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
   
   for (const row of assignments.rows) {
     let matches = false;
-    if (row.target_type === 'Device' && row.target_id === String(device.device_uuid)) matches = true;
-    else if (row.target_type === 'Asset' && row.target_id === String(device.asset_id)) matches = true;
-    else if (row.target_type === 'Employee' && row.target_id === String(device.assigned_user_id)) matches = true;
-    else if (row.target_type === 'Department' && (row.target_id === String(device.department) || row.target_id === String(device.employee_department))) matches = true;
-    else if (row.target_type === 'Branch' && row.target_id === String(device.branch_id)) matches = true;
-    else if (row.target_type === 'Global') matches = true;
+    const targetType = String(row.target_type || '').toLowerCase();
+    if (targetType === 'device' && row.target_id === String(device.device_uuid)) matches = true;
+    else if (targetType === 'asset' && row.target_id === String(device.asset_id)) matches = true;
+    else if (targetType === 'employee' && row.target_id === String(device.assigned_user_id)) matches = true;
+    else if (targetType === 'department' && (row.target_id === String(device.department) || row.target_id === String(device.employee_department))) matches = true;
+    else if (targetType === 'branch' && row.target_id === String(device.branch_id)) matches = true;
+    else if (targetType === 'global') matches = true;
 
     if (matches) {
-      const typePriority = targetPriorities[row.target_type] || 0;
+      const canonicalTargetType = targetType.charAt(0).toUpperCase() + targetType.slice(1);
+      const typePriority = targetPriorities[canonicalTargetType] || 0;
       const totalPriority = row.priority * 100 + typePriority;
       if (totalPriority > highestPriority) {
         highestPriority = totalPriority;
         effectiveConfig = { ...effectiveConfig, ...row.config_json };
         effectivePolicyName = `Policy ID ${row.policy_id}`;
         effectivePolicyVersion = `${row.priority}.${row.id}`;
-        for (const key of Object.keys(row.config_json || {})) featureSources[key] = row.target_type;
+        for (const key of Object.keys(row.config_json || {})) featureSources[key] = canonicalTargetType;
       }
     }
   }
@@ -2490,14 +2542,9 @@ router.get("/policy/latest", requireAgent, async (req, res) => {
     const deviceUuid = String(req.query.device_uuid || "").trim();
     if (!deviceUuid) return res.status(400).json({ success: false, message: "device_uuid required" });
 
-    let policyResult = await db.query(`SELECT policy_json FROM endpoint_effective_policies WHERE device_uuid=$1::uuid`, [deviceUuid]);
-    
-    let policyJson = null;
-    if (!policyResult.rows.length) {
-      policyJson = await generateEffectivePolicy(deviceUuid, null);
-    } else {
-      policyJson = policyResult.rows[0].policy_json;
-    }
+    // Recalculate on every agent sync so consent, assignment, and policy changes
+    // cannot leave a stale cached policy active on an endpoint.
+    const policyJson = await generateEffectivePolicy(deviceUuid, null);
 
     if (!policyJson) {
       return res.status(404).json({ success: false, message: "Device not found." });

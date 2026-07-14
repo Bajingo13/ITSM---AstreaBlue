@@ -361,7 +361,7 @@ function PolicyAssignForm({ policies, form, setForm, onCancel, onSave }) {
           case "branch": url = "/api/v1/branches"; idField="branch_id"; nameField="branch_name"; break;
           case "employee": url = "/api/v1/users"; idField="user_id"; nameField="full_name"; break;
           case "asset": url = "/api/v1/hardware-assets"; idField="asset_id"; nameField="asset_tag"; break;
-          case "device": url = "/api/v1/endpoint-management/devices"; idField="device_id"; nameField="hostname"; break;
+          case "device": url = "/api/v1/endpoint-management/devices"; idField="device_uuid"; nameField="hostname"; break;
           default: setTargets([]); return;
         }
         

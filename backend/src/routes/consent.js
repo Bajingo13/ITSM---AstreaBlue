@@ -299,20 +299,22 @@ async function regenerateEffectiveEndpointPolicy(deviceUuid, actor) {
 
   for (const row of assignments.rows) {
     let matches = false;
-    if (row.target_type === "Employee" && row.target_id === String(device.assigned_user_id)) matches = true;
-    else if (row.target_type === "Device" && row.target_id === String(device.device_uuid)) matches = true;
-    else if (row.target_type === "Asset" && row.target_id === String(device.asset_id)) matches = true;
-    else if (row.target_type === "Department" && (row.target_id === String(device.department) || row.target_id === String(device.employee_department))) matches = true;
-    else if (row.target_type === "Branch" && row.target_id === String(device.branch_id)) matches = true;
-    else if (row.target_type === "Global") matches = true;
+    const targetType = String(row.target_type || "").toLowerCase();
+    if (targetType === "employee" && row.target_id === String(device.assigned_user_id)) matches = true;
+    else if (targetType === "device" && row.target_id === String(device.device_uuid)) matches = true;
+    else if (targetType === "asset" && row.target_id === String(device.asset_id)) matches = true;
+    else if (targetType === "department" && (row.target_id === String(device.department) || row.target_id === String(device.employee_department))) matches = true;
+    else if (targetType === "branch" && row.target_id === String(device.branch_id)) matches = true;
+    else if (targetType === "global") matches = true;
     if (!matches) continue;
-    const score = (Number(row.priority) || 0) * 100 + (targetPriorities[row.target_type] || 0);
+    const canonicalTargetType = targetType.charAt(0).toUpperCase() + targetType.slice(1);
+    const score = (Number(row.priority) || 0) * 100 + (targetPriorities[canonicalTargetType] || 0);
     if (score >= highestPriority) {
       highestPriority = score;
       effectiveConfig = { ...effectiveConfig, ...(row.config_json || {}) };
       effectivePolicyName = row.name || `Policy ID ${row.policy_id}`;
       effectivePolicyVersion = `${row.priority || 0}.${row.id}`;
-      for (const key of Object.keys(row.config_json || {})) featureSources[key] = row.target_type;
+      for (const key of Object.keys(row.config_json || {})) featureSources[key] = canonicalTargetType;
     }
   }
 
