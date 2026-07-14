@@ -659,7 +659,14 @@ export default function ConsentPage() {
       setLoading(true);
       const res = await fetch(`${API_BASE}/consent/my`, { headers: authHeaders() });
       const data = await res.json();
-      setConsent(data.data || null);
+      const currentConsent = data.data || null;
+      setConsent(currentConsent);
+      if (Array.isArray(currentConsent?.monitoring_preferences)) {
+        const optionalPreferenceIds = new Set(
+          MONITORING_CATEGORIES.filter((category) => !category.required).map((category) => category.id)
+        );
+        setPreferences(currentConsent.monitoring_preferences.filter((preference) => optionalPreferenceIds.has(preference)));
+      }
     } catch (err) {
       console.error("Failed to load consent:", err);
     } finally {
@@ -947,7 +954,9 @@ export default function ConsentPage() {
           </p>
           <h1 className="mt-1 text-3xl font-black">Monitoring Consent</h1>
           <p className="mt-2 text-blue-100">
-            Please review and sign your data privacy consent document before monitoring begins.
+            {consent?.device_uuid
+              ? `Device-specific agreement for ${consent.hostname || consent.device_name || consent.asset_tag || "your assigned company device"}.`
+              : "Please review and sign your data privacy consent document before monitoring begins."}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -978,13 +987,27 @@ export default function ConsentPage() {
               <Shield size={32} />
             </div>
             <h2 className="text-2xl font-black text-slate-900">
-              Data Privacy Consent Document
+              {consent?.device_uuid ? "Assigned Device Monitoring Agreement" : "Data Privacy Consent Document"}
             </h2>
             <p className="mt-3 text-slate-600">
               AstreaBlue is required by <strong>RA 10173 (Data Privacy Act of 2012)</strong> to
               obtain your informed consent before collecting any personal data through endpoint
               monitoring. This is a formal, legally binding document.
             </p>
+            {consent?.device_uuid && (
+              <div className="mt-5 grid gap-3 text-left sm:grid-cols-3">
+                {[
+                  ["Request", `Consent #${consent.consent_id}`],
+                  ["Device", consent.hostname || consent.device_name || "Assigned device"],
+                  ["Asset", consent.asset_tag || "Linked company asset"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</p>
+                    <p className="mt-1 text-sm font-black text-slate-900">{value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-5 text-left text-sm text-blue-900">
               <p className="font-black mb-2">What you'll do:</p>
               <ul className="space-y-1 list-disc pl-5">

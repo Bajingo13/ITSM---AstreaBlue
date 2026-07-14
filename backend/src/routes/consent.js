@@ -487,11 +487,52 @@ router.get("/my", requireAuth, async (req, res) => {
   }
 });
 
-// POST /consent/draft — employee starts a new draft (only if no active signed doc)
+// POST /consent/draft — resume an assigned request, or start a draft when no approved consent exists
 router.post("/draft", requireAuth, async (req, res) => {
   const employeeId = req.actor.userId || req.actor.user_id;
   try {
-    // Check for existing signed consent
+    // Device assignment can legitimately create a new pending request even when
+    // the employee already has an approved consent for another device/version.
+    // Always resume that explicit request before applying the general duplicate guard.
+    const pendingRequest = await db.query(
+      `SELECT * FROM consent_documents
+       WHERE employee_id=$1 AND status IN ('pending_employee','revision_requested','draft','pending')
+       ORDER BY
+         CASE WHEN device_uuid IS NOT NULL THEN 0 ELSE 1 END,
+         requested_at DESC NULLS LAST,
+         created_at DESC
+       LIMIT 1`,
+      [employeeId]
+    );
+
+    if (pendingRequest.rows.length) {
+      const resumed = await db.query(
+        `UPDATE consent_documents
+         SET monitoring_preferences=CASE
+               WHEN $1::jsonb = '[]'::jsonb THEN monitoring_preferences
+               ELSE $1::jsonb
+             END,
+             status=CASE WHEN status='draft' THEN 'draft' ELSE status END,
+             updated_at=CURRENT_TIMESTAMP
+         WHERE consent_id=$2
+         RETURNING *`,
+        [JSON.stringify(req.body.monitoring_preferences || []), pendingRequest.rows[0].consent_id]
+      );
+      await audit(
+        resumed.rows[0].consent_id,
+        employeeId,
+        employeeId,
+        req.actor.role,
+        "consent_resumed",
+        resumed.rows[0].device_uuid
+          ? "Employee opened the assigned device-monitoring consent request."
+          : "Employee resumed the existing consent request."
+      );
+      return res.json({ success: true, data: resumed.rows[0], resumed: true });
+    }
+
+    // Without an explicit pending request, an approved document must be changed
+    // through the audited consent-change workflow rather than replaced silently.
     const existing = await db.query(
       `SELECT consent_id, status FROM consent_documents
        WHERE employee_id=$1 AND status IN ('approved','signed') LIMIT 1`,
@@ -517,17 +558,7 @@ router.post("/draft", requireAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "Employee profile not found." });
     const emp = userRes.rows[0];
 
-    const pendingRequest = await db.query(
-      `SELECT * FROM consent_documents
-       WHERE employee_id=$1 AND status IN ('pending_employee','revision_requested')
-       ORDER BY requested_at DESC NULLS LAST, created_at DESC LIMIT 1`,
-      [employeeId]
-    );
-    const draft = pendingRequest.rows.length ? await db.query(
-      `UPDATE consent_documents SET monitoring_preferences=$1, updated_at=CURRENT_TIMESTAMP
-       WHERE consent_id=$2 RETURNING *`,
-      [JSON.stringify(req.body.monitoring_preferences || []), pendingRequest.rows[0].consent_id]
-    ) : await db.query(
+    const draft = await db.query(
       `INSERT INTO consent_documents
          (employee_id,employee_full_name,employee_email,employee_number,
           branch_id,branch_name,department,form_title,consent_version,

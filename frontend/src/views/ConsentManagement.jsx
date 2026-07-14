@@ -9,6 +9,7 @@ import {
   FileText,
   Lock,
   PenLine,
+  RefreshCw,
   Search,
   Shield,
   X,
@@ -80,7 +81,8 @@ function ProtectedSignature({ consent }) {
 }
 
 // ─── Printable Consent Modal ───────────────────────────────────────────────────
-function ConsentPrintModal({ consent, onClose, onAction }) {
+function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
+  const [consent, setConsent] = useState(initialConsent);
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditLoading, setAuditLoading] = useState(true);
   const [actioning, setActioning] = useState(false);
@@ -90,6 +92,7 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
   const [approvePrefs, setApprovePrefs] = useState(null);
   const [footerMessage, setFooterMessage] = useState(null);
   const [documentAction, setDocumentAction] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const bodyRef = useRef(null);
   const actionFormRef = useRef(null);
 
@@ -110,7 +113,27 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
       .finally(() => setAuditLoading(false));
   }, [consent.consent_id]);
 
+  const refreshConsent = async () => {
+    setRefreshing(true);
+    setFooterMessage(null);
+    try {
+      const response = await fetch(`${API_BASE}/consent/${consent.consent_id}`, { headers: authHeaders() });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || "The consent status could not be refreshed.");
+      setConsent((current) => ({ ...current, ...payload.data }));
+      setFooterMessage({ type: "success", text: "Consent status refreshed." });
+    } catch (error) {
+      setFooterMessage({ type: "error", text: error.message });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const prefs = Array.isArray(consent.monitoring_preferences) ? consent.monitoring_preferences : [];
+  const status = String(consent.status || "draft").toLowerCase();
+  const waitingForEmployee = ["draft", "pending", "pending_employee", "revision_requested"].includes(status);
+  const waitingForAdmin = status === "pending_approval";
+  const isApproved = ["approved", "signed"].includes(status);
   const signedAt = consent.signed_at
     ? new Date(consent.signed_at).toLocaleString("en-PH", {
         timeZone: "Asia/Manila",
@@ -204,7 +227,7 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4">
-      <div className="flex max-h-[93vh] w-full max-w-3xl flex-col rounded-3xl bg-white shadow-2xl overflow-hidden">
+      <div className="flex max-h-[93vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-blue-50 to-slate-50 px-7 py-5">
           <div className="flex items-center gap-3">
@@ -225,23 +248,58 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
         </div>
 
         {/* Body */}
-        <div ref={bodyRef} tabIndex={-1} id={`consent-print-${consent.consent_id}`} className="flex-1 overflow-y-auto px-8 py-6 space-y-6 outline-none">
+        <div ref={bodyRef} tabIndex={-1} id={`consent-print-${consent.consent_id}`} className="flex-1 space-y-5 overflow-y-auto px-6 py-5 outline-none sm:px-8">
+          <section className={`rounded-2xl border p-4 ${waitingForEmployee ? "border-amber-200 bg-amber-50" : waitingForAdmin ? "border-blue-200 bg-blue-50" : isApproved ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 rounded-xl p-2 ${waitingForEmployee ? "bg-amber-100 text-amber-700" : waitingForAdmin ? "bg-blue-100 text-blue-700" : isApproved ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                  {waitingForEmployee ? <Lock size={18} /> : <CheckCircle size={18} />}
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900">
+                    {waitingForEmployee ? "Waiting for employee signature" : waitingForAdmin ? "Ready for admin approval" : isApproved ? "Consent approved" : "Consent action required"}
+                  </h3>
+                  <p className="mt-1 max-w-2xl text-sm font-medium leading-6 text-slate-600">
+                    {waitingForEmployee
+                      ? `${consent.employee_full_name || "The employee"} must open Employee → Endpoint Management → RA 10173 Consent and sign Consent #${consent.consent_id}. Approval is locked until the signature is submitted.`
+                      : waitingForAdmin
+                        ? "The employee has signed this record. Use Approve & Complete Onboarding below to finalize consent and activate the effective policy."
+                        : isApproved
+                          ? "The employee signature and administrator approval are complete."
+                          : "Review the record status and audit trail before taking further action."}
+                  </p>
+                </div>
+              </div>
+              <button type="button" onClick={refreshConsent} disabled={refreshing} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-60">
+                <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} /> {refreshing ? "Refreshing..." : "Refresh status"}
+              </button>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black sm:grid-cols-4">
+              {["Requested", "Employee signature", "Admin approval", "Policy active"].map((step, index) => {
+                const activeIndex = waitingForEmployee ? 1 : waitingForAdmin ? 2 : isApproved ? 4 : 0;
+                const completed = index < activeIndex;
+                const current = index === activeIndex;
+                return <div key={step} className={`rounded-xl px-3 py-2 text-center ${completed ? "bg-emerald-100 text-emerald-700" : current ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300" : "bg-white/80 text-slate-400"}`}>{completed ? "✓ " : current ? "● " : "○ "}{step}</div>;
+              })}
+            </div>
+          </section>
+
           {/* Company header */}
-          <div className="text-center border-b border-slate-200 pb-5">
+          <div className="border-b border-slate-200 pb-4 text-center">
             <p className="text-xs font-black uppercase tracking-widest text-blue-600">AstreaBlue Enterprise ITSM</p>
-            <h1 className="mt-1 text-2xl font-black text-slate-900">{consent.form_title}</h1>
+            <h1 className="mt-1 text-xl font-black text-slate-900">{consent.form_title}</h1>
             <p className="mt-1 text-sm text-slate-500">Pursuant to Republic Act No. 10173 — Data Privacy Act of 2012</p>
           </div>
 
           {/* Employee info */}
-          <section className="grid grid-cols-2 gap-4">
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {[
               ["Employee Full Name", consent.employee_full_name],
               ["Employee Email", consent.employee_email],
               ["Employee ID / Number", consent.employee_number || "—"],
               ["Branch", consent.branch_name || "—"],
             ].map(([label, value]) => (
-              <div key={label} className="rounded-2xl bg-slate-50 p-4">
+              <div key={label} className="rounded-2xl bg-slate-50 p-3.5">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
                 <p className="mt-1 text-sm font-black text-slate-900">{value}</p>
               </div>
@@ -254,7 +312,7 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
               <Shield size={16} className="text-blue-600" />
               Selected Monitoring Consent Categories
             </h3>
-            <div className="space-y-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               {MONITORING_CATEGORIES.map((cat) => {
                 const selected = prefs.includes(cat.id) || cat.required;
                 return (
@@ -422,9 +480,14 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
         </div>
 
         {/* Footer */}
-        <div className="relative z-20 border-t border-slate-200 bg-white/95 px-7 py-4 flex flex-wrap items-center gap-3 justify-end">
+        <div className="relative z-20 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 bg-white/95 px-5 py-4 sm:px-7">
           {footerMessage && <p role="status" className={`mr-auto w-full rounded-xl px-3 py-2 text-xs font-bold sm:w-auto ${footerMessage.type === "error" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>{footerMessage.text}</p>}
-          {["pending_approval", "approved", "signed"].includes(consent.status) && (
+          {waitingForEmployee && (
+            <button type="button" disabled title="The employee must sign this consent before an administrator can approve it." className="mr-auto flex cursor-not-allowed items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-700 opacity-90">
+              <Lock size={16} /> Approval locked — awaiting employee signature
+            </button>
+          )}
+          {["pending_approval", "approved", "signed"].includes(status) && (
             <>
               <button
                 type="button"
@@ -442,7 +505,7 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
               >
                 <Download size={16} /> {documentAction === "download" ? "Downloading…" : "Download PDF"}
               </button>
-              {consent.status === "pending_approval" && (
+              {waitingForAdmin && (
                 <button
                   type="button"
                   onClick={() => {
@@ -529,7 +592,7 @@ export default function ConsentManagement() {
 
   const handleAction = (consentId, newStatus) => {
     setConsents((prev) =>
-      prev.map((c) => (c.consent_id === consentId ? { ...c, consent_status: newStatus } : c))
+      prev.map((c) => (c.consent_id === consentId ? { ...c, consent_status: newStatus, status: newStatus } : c))
     );
   };
 
@@ -600,13 +663,14 @@ export default function ConsentManagement() {
         ) : filtered.length === 0 ? (
           <p className="py-10 text-center text-slate-400 font-semibold">No consent documents found.</p>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-slate-200">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
             <table className="w-full text-left">
               <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                 <tr>
                   <th className="px-4 py-3">ID</th>
                   <th className="px-4 py-3">Employee</th>
                   <th className="px-4 py-3">Branch / Dept</th>
+                  <th className="px-4 py-3">Applies To</th>
                   <th className="px-4 py-3">Version</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Signed At</th>
@@ -623,6 +687,18 @@ export default function ConsentManagement() {
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-600">
                       {c.branch || "—"}
+                    </td>
+                    <td className="px-4 py-4">
+                      {c.device_uuid ? (
+                        <div>
+                          <span className="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-[11px] font-black uppercase text-blue-700">Device-specific</span>
+                          <p className="mt-1 max-w-40 truncate text-xs font-semibold text-slate-600" title={c.hostname || c.device_name || c.asset_tag || c.device_uuid}>
+                            {c.hostname || c.device_name || c.asset_tag || c.device_uuid}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black uppercase text-slate-600">General consent</span>
+                      )}
                     </td>
                     <td className="px-4 py-4 text-sm font-semibold text-slate-600">v{c.consent_version || "1.0"}</td>
                     <td className="px-4 py-4"><StatusBadge status={c.consent_status} /></td>

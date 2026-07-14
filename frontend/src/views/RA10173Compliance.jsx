@@ -1011,8 +1011,8 @@ function EmployeeView({ user }) {
       <div className="mx-auto max-w-4xl space-y-6">
         <PageHero
           eyebrow="Employee Portal"
-          title="RA 10173 Compliance"
-          subtitle="Complete the consent and monitoring preferences wizard"
+          title="General Privacy Record"
+          subtitle="Company-wide RA 10173 privacy acknowledgment. Device-specific agreements are completed under Device Monitoring Consent."
         />
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <StepIndicator currentStep={step} />
@@ -1065,8 +1065,8 @@ function EmployeeView({ user }) {
 
       <PageHero
         eyebrow="Employee Portal"
-        title="RA 10173 Compliance"
-        subtitle="Your consent and monitoring preferences"
+        title="General Privacy Record"
+        subtitle="Your company-wide RA 10173 acknowledgment. This is separate from consent requests for an assigned device."
       />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_2fr]">
