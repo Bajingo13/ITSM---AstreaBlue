@@ -1428,8 +1428,8 @@ function TicketCard({ ticket, onClick }) {
             <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-black text-red-700">
               Cancelled
             </span>
-            <span className="rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-500 border border-red-100">
-              Auto-delete in 3 days
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-600">
+              Retained for audit
             </span>
           </>
         )}

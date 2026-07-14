@@ -101,6 +101,37 @@ test("Employee can create a ticket in their own branch with an integer category"
   ticketIds.push(payload.data.id);
 });
 
+test("Loading tickets never deletes an old cancelled ticket", async () => {
+  const response = await createTicket(superAdmin, "SuperAdmin", {
+    title: "Cancelled ticket retention test",
+    description: "Verifies that ticket reads are non-destructive and preserve the audit record.",
+    priority: "P3-Medium",
+    category_id: categoryId,
+    requester_id: superAdmin.user_id,
+    branch_id: alternateBranchId,
+  });
+  const created = await response.json();
+  assert.equal(response.status, 201, created.error || JSON.stringify(created));
+  ticketIds.push(created.data.id);
+
+  await db.query(
+    `UPDATE tickets
+     SET status = 'Cancelled', cancelled_at = NOW() - INTERVAL '4 days'
+     WHERE id = $1`,
+    [created.data.id]
+  );
+
+  const listResponse = await fetch(`${baseUrl}/api/v1/tickets`, {
+    headers: { authorization: `Bearer ${tokenFor(superAdmin, "SuperAdmin")}` },
+  });
+  const listedTickets = await listResponse.json();
+  assert.equal(listResponse.status, 200, JSON.stringify(listedTickets));
+  assert.ok(listedTickets.some((ticket) => Number(ticket.id) === Number(created.data.id)));
+
+  const persisted = await db.query("SELECT status FROM tickets WHERE id = $1", [created.data.id]);
+  assert.equal(persisted.rows[0]?.status, "Cancelled");
+});
+
 test("Employee remains blocked from creating a ticket for another branch", async () => {
   const response = await createTicket(employee, "Employee", {
     title: "Forbidden cross-branch ticket test",

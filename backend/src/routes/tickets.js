@@ -167,13 +167,6 @@ router.get("/", async (req, res) => {
   try {
     const params = [];
 
-    // Auto-delete cancelled tickets older than 3 days
-    try {
-      await db.query(
-        `DELETE FROM tickets WHERE status = 'Cancelled' AND cancelled_at IS NOT NULL AND cancelled_at < NOW() - INTERVAL '3 days'`
-      );
-    } catch(e) { console.warn("Auto-delete cancelled tickets failed:", e.message); }
-
     const accessClauses = addTicketAccessFilter(req, params, "t");
     const whereSql = accessClauses.length
       ? `WHERE ${accessClauses.join(" AND ")}`
