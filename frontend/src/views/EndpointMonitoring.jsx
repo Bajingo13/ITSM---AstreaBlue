@@ -699,8 +699,8 @@ export default function EndpointMonitoring() {
                 <li className={`flex items-center gap-2 ${selectedDevice.assigned_user_id ? 'text-green-600' : 'text-amber-600'}`}>
                   {selectedDevice.assigned_user_id ? '✓ Employee Assigned' : '⚠ Unassigned'}
                 </li>
-                <li className={`flex items-center gap-2 ${selectedDevice.consent_status === 'signed' ? 'text-green-600' : 'text-amber-600'}`}>
-                  {selectedDevice.consent_status === 'signed' ? '✓ Consent Confirmed' : '⚠ Consent Pending'}
+                <li className={`flex items-center gap-2 ${['approved', 'signed', 'consented'].includes(String(selectedDevice.consent_status || '').toLowerCase()) ? 'text-green-600' : 'text-amber-600'}`}>
+                  {['approved', 'signed', 'consented'].includes(String(selectedDevice.consent_status || '').toLowerCase()) ? '✓ Consent Approved' : `⚠ Consent ${String(selectedDevice.consent_status || 'Pending').replaceAll('_', ' ')}`}
                 </li>
               </ul>
             </div>

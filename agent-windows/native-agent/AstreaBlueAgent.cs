@@ -614,7 +614,7 @@ namespace AstreaBlue.Agent
             AgentConfig config = AgentRuntime.LoadConfig();
             heartbeatTimer = new Timer(delegate { RunHeartbeat(); }, null, TimeSpan.Zero, TimeSpan.FromSeconds(config.HeartbeatSeconds));
             policyTimer = new Timer(delegate { RunPolicySync(); }, null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
-            inventoryTimer = new Timer(delegate { RunInventory(); }, null, TimeSpan.FromSeconds(15), TimeSpan.FromHours(24));
+            inventoryTimer = new Timer(delegate { RunInventory(); }, null, TimeSpan.FromSeconds(15), Timeout.InfiniteTimeSpan);
             updateTimer = new Timer(delegate { RunUpdateCheck(); }, null, TimeSpan.FromMinutes(5), TimeSpan.FromHours(6));
             StartActivityPipe();
             AgentRuntime.Log("INFO", "Native Windows service started.");
@@ -639,11 +639,16 @@ namespace AstreaBlue.Agent
         private void RunInventory()
         {
             if (Interlocked.Exchange(ref inventoryRunning, 1) == 1) return;
+            bool succeeded = true;
             try { AgentRuntime.SendHardwareInventory(); }
-            catch (Exception error) { AgentRuntime.Log("ERROR", "Hardware inventory failed: " + error.Message); }
+            catch (Exception error) { succeeded = false; AgentRuntime.Log("ERROR", "Hardware inventory failed: " + error.Message); }
             try { AgentRuntime.SendSoftwareInventory(); }
-            catch (Exception error) { AgentRuntime.Log("ERROR", "Software inventory failed: " + error.Message); }
-            finally { Interlocked.Exchange(ref inventoryRunning, 0); }
+            catch (Exception error) { succeeded = false; AgentRuntime.Log("ERROR", "Software inventory failed: " + error.Message); }
+            finally
+            {
+                Interlocked.Exchange(ref inventoryRunning, 0);
+                if (inventoryTimer != null) inventoryTimer.Change(succeeded ? TimeSpan.FromHours(24) : TimeSpan.FromMinutes(5), Timeout.InfiniteTimeSpan);
+            }
         }
 
         private void RunUpdateCheck()

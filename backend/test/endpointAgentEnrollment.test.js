@@ -217,6 +217,35 @@ test("single-use enrollment issues isolated per-device credentials", async () =>
   });
   assert.equal(activityWithoutConsent.status, 403);
 
+  const hardwareUpload = await agentRequest("/hardware-inventory", second.body.data.device_credential, "POST", {
+    device_uuid: secondUuid,
+    hostname: "ENROLLMENT-TEST-TWO",
+    manufacturer: "AstreaBlue Test",
+    model: "Inventory Endpoint",
+    serial_number: "AB-INV-001",
+    cpu_name: "Test CPU",
+    total_ram_gb: 16,
+    os_name: "Windows",
+    os_version: "11",
+    os_build: "26100",
+    architecture: "64-bit",
+    disk_total_gb: 512,
+    disk_free_gb: 256,
+    scanned_at: new Date().toISOString(),
+  });
+  assert.equal(hardwareUpload.status, 200);
+  const softwareUpload = await agentRequest("/software-inventory", second.body.data.device_credential, "POST", {
+    device_uuid: secondUuid,
+    hostname: "ENROLLMENT-TEST-TWO",
+    software: [{ software_name: "AstreaBlue Test App", version: "1.0", publisher: "AstreaBlue" }],
+  });
+  assert.equal(softwareUpload.status, 201);
+  const deviceDetails = await adminRequest(`/devices/${second.body.data.device_id}/activity`);
+  assert.equal(deviceDetails.status, 200);
+  const deviceDetailsBody = await deviceDetails.json();
+  assert.equal(deviceDetailsBody.data.hardware.serial_number, "AB-INV-001");
+  assert.equal(deviceDetailsBody.data.software.some((item) => item.software_name === "AstreaBlue Test App"), true);
+
   const crossDevice = await agentRequest("/heartbeat", second.body.data.device_credential, "POST", heartbeatBody(firstUuid, "ENROLLMENT-TEST-ONE"));
   assert.equal(crossDevice.status, 403);
   const missingIdentity = await agentRequest("/heartbeat", first.body.data.device_credential, "POST", { hostname: "ENROLLMENT-TEST-ONE" });

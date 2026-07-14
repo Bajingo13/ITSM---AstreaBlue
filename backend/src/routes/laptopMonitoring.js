@@ -1566,16 +1566,26 @@ router.get("/devices/:deviceUuid/health", requireAdmin, async (req, res) => {
 router.get("/devices/:id/activity", requireAdmin, async (req, res) => {
   try {
     const empId = req.monitoringIsEmployee ? req.monitoringUser.userId : null;
-    const allowed = await db.query(`SELECT device_id FROM monitored_devices WHERE device_id=$1 AND ($2::int IS NULL OR branch_id=$2) AND ($3::int IS NULL OR assigned_user_id=$3)`, [req.params.id, req.monitoringBranchId, empId]);
+    const allowed = await db.query(`SELECT device_id,device_uuid,assigned_user_id FROM monitored_devices WHERE device_id=$1 AND ($2::int IS NULL OR branch_id=$2) AND ($3::int IS NULL OR assigned_user_id=$3)`, [req.params.id, req.monitoringBranchId, empId]);
     if (!allowed.rows.length) return res.status(404).json({ success: false, message: "Device not found or access denied." });
-    const [activity, screenshots, alerts, consents, assignments] = await Promise.all([
+    const device = allowed.rows[0];
+    const [activity, screenshots, alerts, consents, assignments, hardware, software] = await Promise.all([
       db.query(`SELECT * FROM laptop_activity_logs WHERE device_id=$1 ORDER BY occurred_at DESC LIMIT 200`, [req.params.id]),
       db.query(`SELECT * FROM laptop_screenshots WHERE device_id=$1 ORDER BY captured_at DESC LIMIT 50`, [req.params.id]),
       db.query(`SELECT * FROM laptop_alerts WHERE device_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.params.id]),
-      db.query(`SELECT id,device_id,user_id,consent_type,consent_status,consented_at,created_at FROM monitoring_consents WHERE device_id=$1 ORDER BY created_at DESC`, [req.params.id]),
-      db.query(`SELECT a.*, ou.full_name as old_user_name, nu.full_name as new_user_name FROM monitored_device_assignments a LEFT JOIN users ou ON a.old_user_id=ou.user_id LEFT JOIN users nu ON a.new_user_id=nu.user_id WHERE device_id=$1 ORDER BY changed_at DESC`, [req.params.id])
+      db.query(
+        `SELECT consent_id AS id,device_id,employee_id AS user_id,form_title AS consent_type,
+                status AS consent_status,COALESCE(approved_at,signed_at,submitted_at) AS consented_at,created_at
+         FROM consent_documents
+         WHERE (device_uuid=$1::uuid OR (device_uuid IS NULL AND employee_id=$2))
+         ORDER BY created_at DESC`,
+        [device.device_uuid, device.assigned_user_id]
+      ),
+      db.query(`SELECT a.*, ou.full_name as old_user_name, nu.full_name as new_user_name FROM monitored_device_assignments a LEFT JOIN users ou ON a.old_user_id=ou.user_id LEFT JOIN users nu ON a.new_user_id=nu.user_id WHERE device_id=$1 ORDER BY changed_at DESC`, [req.params.id]),
+      db.query(`SELECT * FROM endpoint_hardware_inventory WHERE device_id=$1 ORDER BY scanned_at DESC LIMIT 1`, [req.params.id]),
+      db.query(`SELECT * FROM endpoint_software_inventory WHERE device_id=$1 ORDER BY last_seen_at DESC,software_name ASC LIMIT 200`, [req.params.id])
     ]);
-    return res.json({ success: true, data: { activity: activity.rows, screenshots: screenshots.rows, alerts: alerts.rows, consents: consents.rows, assignments: assignments.rows } });
+    return res.json({ success: true, data: { activity: activity.rows, screenshots: screenshots.rows, alerts: alerts.rows, consents: consents.rows, assignments: assignments.rows, hardware: hardware.rows[0] || null, software: software.rows } });
   } catch (error) {
     console.error("[laptop-monitoring:device-activity]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load device activity." });
