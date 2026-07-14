@@ -9,7 +9,7 @@ async function applySlaToNewTicket(ticketPayload, queryable = db) {
       WHERE is_active = true 
       AND priority = $1 
       ORDER BY 
-        CASE WHEN category_id = $2::uuid THEN 0 ELSE 1 END,
+        CASE WHEN category_id::text = $2::text THEN 0 ELSE 1 END,
         policy_id ASC
       LIMIT 1
     `;

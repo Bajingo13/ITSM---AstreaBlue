@@ -500,7 +500,11 @@ router.post("/", async (req, res) => {
       impact,
       urgency,
       actorId: context.currentUserId,
-      enforceRequesterBranch: Boolean(finalRequesterId && finalBranchId),
+      // SuperAdmin has enterprise-wide authority and may file a ticket for any
+      // valid requester/branch combination. Branch-bound roles retain the
+      // existing same-branch validation.
+      enforceRequesterBranch: Boolean(!isSuperAdmin && finalRequesterId && finalBranchId),
+      enforceRequesterExists: Boolean(isSuperAdmin && finalRequesterId),
       auditEvent: "Internal Ticket Created",
       requestMethod: req.method,
       requestPath: req.originalUrl,
