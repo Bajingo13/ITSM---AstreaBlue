@@ -11,7 +11,7 @@ const {
 } = require("../services/emailService");
 const { createNotification } = require("../services/notificationService");
 const { createServiceDeskTicket } = require("../services/serviceDeskTicketService");
-const { emitSlaUpdated } = require("../services/socketService");
+const { emitSlaUpdated, emitTicketChanged } = require("../services/socketService");
 
 function normalizeOptionalInteger(value, fallback = null) {
   if (value === undefined || value === "") return fallback;
@@ -788,6 +788,16 @@ router.put("/:id", async (req, res) => {
         );
       } catch(e) { console.warn("Notification failed:", e.message); }
 
+    emitTicketChanged({
+      action: "updated",
+      ticket_id: Number(id),
+      ticket_number: existing.ticket_number,
+      branch_id: existing.branch_id,
+      requester_id: existing.requester_id,
+      assigned_to: finalAssignedTo,
+      status: finalStatus,
+    });
+
     res.json({
       success: true,
       message: "Ticket updated successfully.",
@@ -851,6 +861,7 @@ router.patch("/:id/assign", async (req, res) => {
       `
       SELECT
         t.id,
+        t.ticket_number,
         t.assigned_to,
         t.branch_id,
         t.status,
@@ -1002,6 +1013,15 @@ router.patch("/:id/assign", async (req, res) => {
       } catch(e) { console.warn("Notification failed:", e.message); }
     }
 
+    emitTicketChanged({
+      action: "assigned",
+      ticket_id: Number(id),
+      ticket_number: ticket.ticket_number,
+      branch_id: ticket.branch_id,
+      assigned_to: assigned_to || null,
+      status: ticket.status,
+    });
+
     res.json({
       success: true,
       message: "Ticket assigned successfully.",
@@ -1067,6 +1087,14 @@ router.post("/:id/comments", async (req, res) => {
         { event: "comment_added" }
       );
     }
+
+    emitTicketChanged({
+      action: "commented",
+      ticket_id: Number(id),
+      ticket_number: ticket?.ticket_number,
+      requester_id: ticket?.requester_id,
+      assigned_to: ticket?.assigned_to,
+    });
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -1167,6 +1195,14 @@ router.patch("/:id/cancel", async (req, res) => {
     try {
       await createInAppNotification(existing.requester_id, "Ticket Cancelled", `Your ticket ${existing.ticket_number || id} was cancelled.`, "error", id, { event: "cancelled" });
     } catch(e) { console.warn("Notification failed:", e.message); }
+
+    emitTicketChanged({
+      action: "cancelled",
+      ticket_id: Number(id),
+      ticket_number: existing.ticket_number,
+      requester_id: existing.requester_id,
+      status: "Cancelled",
+    });
 
     res.json({
       success: true,

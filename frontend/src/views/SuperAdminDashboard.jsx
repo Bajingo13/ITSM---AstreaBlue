@@ -20,6 +20,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import DashboardHero from "../components/DashboardHero";
+import { subscribeToTicketChanges } from "../services/realtimeTickets";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -514,10 +515,10 @@ export default function SuperAdminDashboard() {
       const ticketQuery = buildTicketQuery(user);
 
       const [branchesRes, usersRes, ticketsRes, assetsRes] = await Promise.all([
-        fetch(`${API_BASE}/branches`),
-        fetch(`${API_BASE}/users`),
-        fetch(`${API_BASE}/tickets${ticketQuery}`),
-        fetch(`${API_BASE}/hardware-assets${ticketQuery}`),
+        fetch(`${API_BASE}/branches`, { cache: "no-store" }),
+        fetch(`${API_BASE}/users`, { cache: "no-store" }),
+        fetch(`${API_BASE}/tickets${ticketQuery}`, { cache: "no-store" }),
+        fetch(`${API_BASE}/hardware-assets${ticketQuery}`, { cache: "no-store" }),
       ]);
 
       if (!branchesRes.ok) throw new Error("Failed to fetch branches");
@@ -547,9 +548,25 @@ export default function SuperAdminDashboard() {
   }, [fetchData]);
 
   useEffect(() => {
-    const refresh = () => fetchData();
+    const refresh = (event) => {
+      const refreshPromise = fetchData();
+      event?.detail?.waitUntil?.(refreshPromise);
+      return refreshPromise;
+    };
     window.addEventListener("astreablue:refresh-dashboard", refresh);
     return () => window.removeEventListener("astreablue:refresh-dashboard", refresh);
+  }, [fetchData]);
+
+  useEffect(() => {
+    let timeoutId;
+    const unsubscribe = subscribeToTicketChanges(() => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => void fetchData(), 150);
+    });
+    return () => {
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
   }, [fetchData]);
 
   const activeUsers = useMemo(() => users.filter((u) => u.is_active !== false), [users]);

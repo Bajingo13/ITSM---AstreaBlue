@@ -6,6 +6,7 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const db = require("../config/db");
 const ticketRoutes = require("../src/routes/tickets");
+const { setSocketServer } = require("../src/services/socketService");
 
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 let server;
@@ -16,6 +17,7 @@ let categoryId;
 let alternateBranchId;
 let createdBranchId;
 const ticketIds = [];
+const socketEvents = [];
 
 function tokenFor(user, role) {
   return jwt.sign({ userId: user.user_id, role, branchId: user.branch_id || null }, secret, { expiresIn: "5m" });
@@ -56,6 +58,11 @@ test.before(async () => {
   server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
+  setSocketServer({
+    emit(eventName, payload) {
+      socketEvents.push({ eventName, payload });
+    },
+  });
 });
 
 test.after(async () => {
@@ -67,6 +74,7 @@ test.after(async () => {
   }
   if (createdBranchId) await db.query(`DELETE FROM branches WHERE branch_id=$1`, [createdBranchId]);
   if (server) await new Promise((resolve) => server.close(resolve));
+  setSocketServer(null);
   await db.rawPool.end();
 });
 
@@ -83,6 +91,7 @@ test("SuperAdmin can create a ticket across branches without weakening branch-bo
   assert.equal(response.status, 201, payload.error || JSON.stringify(payload));
   assert.equal(Number(payload.data.branch_id), Number(alternateBranchId));
   ticketIds.push(payload.data.id);
+  assert.ok(socketEvents.some((event) => event.eventName === "ticket_changed" && event.payload.action === "created"));
 });
 
 test("Employee can create a ticket in their own branch with an integer category", async () => {
@@ -130,6 +139,32 @@ test("Loading tickets never deletes an old cancelled ticket", async () => {
 
   const persisted = await db.query("SELECT status FROM tickets WHERE id = $1", [created.data.id]);
   assert.equal(persisted.rows[0]?.status, "Cancelled");
+});
+
+test("Ticket status updates broadcast a real-time dashboard refresh", async () => {
+  const createResponse = await createTicket(superAdmin, "SuperAdmin", {
+    title: "Real-time ticket update test",
+    description: "Verifies that dashboard clients are invalidated after a status update.",
+    priority: "P3-Medium",
+    category_id: categoryId,
+    requester_id: superAdmin.user_id,
+    branch_id: alternateBranchId,
+  });
+  const created = await createResponse.json();
+  assert.equal(createResponse.status, 201, created.error || JSON.stringify(created));
+  ticketIds.push(created.data.id);
+
+  const updateResponse = await fetch(`${baseUrl}/api/v1/tickets/${created.data.id}`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${tokenFor(superAdmin, "SuperAdmin")}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ status: "In Progress" }),
+  });
+  const updated = await updateResponse.json();
+  assert.equal(updateResponse.status, 200, updated.error || JSON.stringify(updated));
+  assert.ok(socketEvents.some((event) => event.eventName === "ticket_changed" && event.payload.action === "updated"));
 });
 
 test("Employee remains blocked from creating a ticket for another branch", async () => {

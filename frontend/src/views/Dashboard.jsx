@@ -13,6 +13,7 @@ import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
 import DashboardHero from "../components/DashboardHero";
+import { subscribeToTicketChanges } from "../services/realtimeTickets";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -74,8 +75,8 @@ const { user } = useAuth();
 
       const query = buildTicketQuery(user);
       const [res, assetsRes] = await Promise.all([
-        fetch(`${API_BASE}/dashboard/summary${query}`),
-        fetch(`${API_BASE}/hardware-assets${query}`),
+        fetch(`${API_BASE}/dashboard/summary${query}`, { cache: "no-store" }),
+        fetch(`${API_BASE}/hardware-assets${query}`, { cache: "no-store" }),
       ]);
       const data = await res.json();
 
@@ -107,9 +108,25 @@ const { user } = useAuth();
   }, [fetchSummary]);
 
   useEffect(() => {
-    const refresh = () => fetchSummary();
+    const refresh = (event) => {
+      const refreshPromise = fetchSummary();
+      event?.detail?.waitUntil?.(refreshPromise);
+      return refreshPromise;
+    };
     window.addEventListener("astreablue:refresh-dashboard", refresh);
     return () => window.removeEventListener("astreablue:refresh-dashboard", refresh);
+  }, [fetchSummary]);
+
+  useEffect(() => {
+    let timeoutId;
+    const unsubscribe = subscribeToTicketChanges(() => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => void fetchSummary(), 150);
+    });
+    return () => {
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
   }, [fetchSummary]);
 
   const stats = useMemo(

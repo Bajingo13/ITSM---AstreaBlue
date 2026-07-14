@@ -28,6 +28,7 @@ import {
 import { API_URL } from "../config/api";
 import PageHero from "../components/layout/PageHero";
 import { authHeaders } from "../services/authHeaders";
+import { subscribeToTicketChanges } from "../services/realtimeTickets";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -476,6 +477,21 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   useEffect(() => {
     fetchDetails();
     fetchTechnicians();
+  }, [fetchDetails, fetchTechnicians]);
+
+  useEffect(() => {
+    let timeoutId;
+    const unsubscribe = subscribeToTicketChanges(() => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        void fetchDetails();
+        void fetchTechnicians();
+      }, 150);
+    });
+    return () => {
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
   }, [fetchDetails, fetchTechnicians]);
 
   useEffect(() => {
@@ -1492,7 +1508,7 @@ export default function Tickets() {
         `${API_BASE}/tickets${buildTicketQuery(user, {
           filter_branch_id: branchFilter,
         })}`,
-        { headers: authHeaders() }
+        { headers: authHeaders(), cache: "no-store" }
       );
       const data = await res.json();
       if (!res.ok || data.success === false) {
@@ -1534,6 +1550,28 @@ export default function Tickets() {
     fetchCategories();
     fetchBranches();
   }, [fetchTickets, fetchCategories, fetchBranches]);
+
+  useEffect(() => {
+    const refresh = (event) => {
+      const refreshPromise = fetchTickets();
+      event?.detail?.waitUntil?.(refreshPromise);
+      return refreshPromise;
+    };
+    window.addEventListener("astreablue:refresh-dashboard", refresh);
+    return () => window.removeEventListener("astreablue:refresh-dashboard", refresh);
+  }, [fetchTickets]);
+
+  useEffect(() => {
+    let timeoutId;
+    const unsubscribe = subscribeToTicketChanges(() => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => void fetchTickets(), 150);
+    });
+    return () => {
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
+  }, [fetchTickets]);
 
   useEffect(() => {
     if (!pageMessage) return;

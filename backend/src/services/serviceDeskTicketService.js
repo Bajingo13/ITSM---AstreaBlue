@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const { rawPool } = require("../../config/db");
 const { applySlaToNewTicket } = require("./slaService");
 const { createNotification } = require("./notificationService");
+const { emitTicketChanged } = require("./socketService");
 
 function httpError(statusCode, message) {
   const error = new Error(message);
@@ -187,6 +188,15 @@ async function createServiceDeskTicket(input) {
 
     if (input.failBeforeCommit) throw new Error("Injected ticket creation failure");
     await client.query("COMMIT");
+    emitTicketChanged({
+      action: "created",
+      ticket_id: ticket.id,
+      ticket_number: ticket.ticket_number,
+      branch_id: ticket.branch_id,
+      requester_id: ticket.requester_id,
+      assigned_to: ticket.assigned_to,
+      status: ticket.status,
+    });
     return { ticket, idempotentReplay: false };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});

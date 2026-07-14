@@ -15,6 +15,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import DashboardHero from "../components/DashboardHero";
+import { subscribeToTicketChanges } from "../services/realtimeTickets";
 import {
   getPriorityBadgeClass, formatPriority,
   getSeverityOptionStyle,
@@ -48,8 +49,11 @@ export default function EmployeeDashboard({ view = "dashboard" }) {
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`);
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`, { cache: "no-store" });
       const data = await res.json();
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to refresh employee tickets.");
+      }
       setTickets(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Fetch employee tickets failed:", err);
@@ -74,13 +78,26 @@ export default function EmployeeDashboard({ view = "dashboard" }) {
   }, [fetchTickets, fetchCategories]);
 
   useEffect(() => {
-    const refresh = () => {
-      fetchTickets();
-      fetchCategories();
+    const refresh = (event) => {
+      const refreshPromise = Promise.all([fetchTickets(), fetchCategories()]);
+      event?.detail?.waitUntil?.(refreshPromise);
+      return refreshPromise;
     };
     window.addEventListener("astreablue:refresh-dashboard", refresh);
     return () => window.removeEventListener("astreablue:refresh-dashboard", refresh);
   }, [fetchCategories, fetchTickets]);
+
+  useEffect(() => {
+    let timeoutId;
+    const unsubscribe = subscribeToTicketChanges(() => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => void fetchTickets(), 150);
+    });
+    return () => {
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
+  }, [fetchTickets]);
 
   useEffect(() => {
     if (showCreate) setTicketModalOpen(true);
@@ -463,6 +480,18 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
 
   useEffect(() => {
     fetchDetails();
+  }, [fetchDetails]);
+
+  useEffect(() => {
+    let timeoutId;
+    const unsubscribe = subscribeToTicketChanges(() => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => void fetchDetails(), 150);
+    });
+    return () => {
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
   }, [fetchDetails]);
 
   const item = details || ticket;

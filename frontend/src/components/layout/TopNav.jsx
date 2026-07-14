@@ -21,6 +21,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { subscribeToTicketChanges } from "../../services/realtimeTickets";
 
 import { useEffect } from "react";
 import { API_URL } from "../../config/api";
@@ -111,6 +112,18 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
     return () => clearInterval(interval);
   }, [user]);
 
+  useEffect(() => {
+    let timeoutId;
+    const unsubscribe = subscribeToTicketChanges(() => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => void fetchNotifications(), 150);
+    });
+    return () => {
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
+  }, [user]);
+
   const handleMarkAsRead = async (id) => {
     try {
       const res = await fetch(`${API_URL}/api/v1/notifications/${id}/read`, {
@@ -161,8 +174,15 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
   const refreshDashboard = async () => {
     setRefreshing(true);
     try {
-      await fetchNotifications();
-      window.dispatchEvent(new CustomEvent("astreablue:refresh-dashboard"));
+      const pendingRefreshes = [];
+      window.dispatchEvent(new CustomEvent("astreablue:refresh-dashboard", {
+        detail: {
+          waitUntil(promise) {
+            pendingRefreshes.push(Promise.resolve(promise));
+          },
+        },
+      }));
+      await Promise.allSettled([fetchNotifications(), ...pendingRefreshes]);
     } finally {
       window.setTimeout(() => setRefreshing(false), 450);
     }
