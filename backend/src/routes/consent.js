@@ -1225,7 +1225,16 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
   try {
     if (action === "approve") {
       policy = await generateEndpointPolicy(updated.rows[0], actor);
-      if (updated.rows[0].device_uuid) await regenerateEffectiveEndpointPolicy(updated.rows[0].device_uuid, actor);
+      const assignedDevices = updated.rows[0].device_uuid
+        ? { rows: [{ device_uuid: updated.rows[0].device_uuid }] }
+        : await db.query(
+          `SELECT device_uuid FROM monitored_devices
+           WHERE assigned_user_id=$1 AND device_uuid IS NOT NULL`,
+          [updated.rows[0].employee_id]
+        );
+      for (const device of assignedDevices.rows) {
+        await regenerateEffectiveEndpointPolicy(device.device_uuid, actor);
+      }
       await audit(doc.consent_id, doc.employee_id, actorId(actor), actor.role, "consent_approved", "Consent approved; mandatory onboarding completed.");
       await notifyConsentEmployee(updated.rows[0], "Consent approved", "Your endpoint monitoring consent was approved. The endpoint policy is ready for agent synchronization.", "approved");
     } else if (action === "reject") {

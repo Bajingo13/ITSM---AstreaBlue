@@ -110,6 +110,35 @@ test("enrollment management requires an administrator", async () => {
   assert.equal((await adminRequest("/enrollment-codes")).status, 200);
 });
 
+test("endpoint checklist separates signed consent from administrator approval", () => {
+  const now = new Date().toISOString();
+  const base = {
+    device_uuid: crypto.randomUUID(),
+    device_id: 1,
+    hostname: "CHECKLIST-TEST",
+    asset_id: 1,
+    assigned_user_id: 9,
+    consent_id: "100",
+    consent_status: "pending_employee",
+    consent_submitted: true,
+    consent_approved: false,
+    last_seen_at: now,
+    last_activity_at: now,
+    last_idle_detection_at: now,
+    last_hardware_inventory_at: now,
+    last_software_inventory_at: now,
+    last_policy_sync_at: now,
+    policy_generated_at: now,
+    policy_json: { features: {} },
+  };
+  const submitted = routes._test.buildEndpointHealth(base).checklist;
+  assert.equal(submitted.find((item) => item.step === "Consent Submitted").status, "Complete");
+  assert.equal(submitted.find((item) => item.step === "Consent Approved").status, "Pending");
+
+  const approved = routes._test.buildEndpointHealth({ ...base, consent_approved: true }).checklist;
+  assert.equal(approved.find((item) => item.step === "Consent Approved").status, "Complete");
+});
+
 test("single-use enrollment issues isolated per-device credentials", async () => {
   const firstUuid = crypto.randomUUID();
   const secondUuid = crypto.randomUUID();

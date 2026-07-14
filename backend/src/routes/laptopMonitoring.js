@@ -868,7 +868,7 @@ function buildEndpointHealth(row) {
   policy.policy_name = policyJson.policy_name || "Unknown";
   policy.feature_permissions = policyJson.features || {};
   policy.disabled_reasons = policyJson.reasons || {};
-  const consent = consentHealth(row.consent_status);
+  const consent = consentHealth(row.consent_approved ? "approved" : row.consent_status);
 
   const components = [heartbeat, activity, idleDetection, hardwareInventory, softwareInventory, policy, consent];
   let overall = "Healthy";
@@ -907,8 +907,8 @@ function buildEndpointHealth(row) {
     { step: "Asset Linked", status: row.asset_id ? "Complete" : "Pending" },
     { step: "Employee Assigned", status: row.assigned_user_id ? "Complete" : "Pending" },
     { step: "Consent Requested", status: row.consent_id ? "Complete" : "Pending" },
-    { step: "Consent Submitted", status: ["pending_approval", "approved", "signed"].includes(String(row.consent_status || "").toLowerCase()) ? "Complete" : "Pending" },
-    { step: "Consent Approved", status: consent.status === "Healthy" ? "Complete" : "Pending" },
+    { step: "Consent Submitted", status: row.consent_submitted ? "Complete" : "Pending" },
+    { step: "Consent Approved", status: row.consent_approved ? "Complete" : "Pending" },
     { step: "Effective Policy Generated", status: row.policy_generated_at ? "Complete" : "Pending" },
     { step: "Agent Policy Downloaded", status: row.last_policy_sync_at ? "Complete" : "Pending" },
     { step: "Monitoring Active", status: monitoringActive ? "Complete" : (consent.status === "Healthy" ? "Pending" : "Not Applicable") },
@@ -1006,6 +1006,18 @@ async function loadEndpointHealthRows(req, deviceLookup = null) {
        (SELECT cd.consent_version FROM consent_documents cd
         WHERE cd.employee_id=d.assigned_user_id AND (d.device_uuid IS NULL OR cd.device_uuid=d.device_uuid OR cd.device_uuid IS NULL)
         ORDER BY cd.approved_at DESC NULLS LAST, cd.signed_at DESC NULLS LAST, cd.created_at DESC LIMIT 1) AS consent_version,
+       EXISTS (
+         SELECT 1 FROM consent_documents cd
+         WHERE cd.employee_id=d.assigned_user_id
+           AND cd.status IN ('pending_approval','approved','signed')
+           AND cd.submitted_at IS NOT NULL
+       ) AS consent_submitted,
+       EXISTS (
+         SELECT 1 FROM consent_documents cd
+         WHERE cd.employee_id=d.assigned_user_id
+           AND (d.device_uuid IS NULL OR cd.device_uuid=d.device_uuid OR cd.device_uuid IS NULL)
+           AND cd.status IN ('approved','signed') AND cd.active IS NOT FALSE
+       ) AS consent_approved,
        (SELECT al.occurred_at FROM laptop_activity_logs al WHERE al.device_id=d.device_id AND al.event_type IS DISTINCT FROM 'system_audit' ORDER BY al.occurred_at DESC LIMIT 1) AS last_activity_at,
        (SELECT al.occurred_at FROM laptop_activity_logs al WHERE al.device_id=d.device_id AND al.event_type IS DISTINCT FROM 'system_audit' AND al.idle_seconds IS NOT NULL ORDER BY al.occurred_at DESC LIMIT 1) AS last_idle_detection_at,
        (SELECT hi.scanned_at FROM endpoint_hardware_inventory hi WHERE hi.device_id=d.device_id ORDER BY hi.scanned_at DESC LIMIT 1) AS last_hardware_inventory_at,
@@ -2578,4 +2590,5 @@ router.get("/audit", requireAdmin, async (req, res) => {
   }
 });
 
+router._test = { buildEndpointHealth };
 module.exports = router;
