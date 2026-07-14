@@ -346,11 +346,11 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/analytics/service-desk" element={<ProtectedRoute allowedRoles={[...ADMIN_ROLES, "Technician"]}><AnalyticsSection section="service_desk" /></ProtectedRoute>} />
+        <Route path="/analytics/service-desk" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="service_desk" /></ProtectedRoute>} />
         <Route path="/analytics/problems" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="problems" /></ProtectedRoute>} />
         <Route path="/analytics/assets" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="assets" /></ProtectedRoute>} />
-        <Route path="/analytics/endpoints" element={<ProtectedRoute allowedRoles={[...ADMIN_ROLES, "Technician"]}><AnalyticsSection section="endpoints" /></ProtectedRoute>} />
-        <Route path="/analytics/sla" element={<ProtectedRoute allowedRoles={[...ADMIN_ROLES, "Technician"]}><AnalyticsSection section="sla" /></ProtectedRoute>} />
+        <Route path="/analytics/endpoints" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="endpoints" /></ProtectedRoute>} />
+        <Route path="/analytics/sla" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="sla" /></ProtectedRoute>} />
         <Route path="/analytics/change" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="change" /></ProtectedRoute>} />
         <Route path="/analytics/compliance" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="compliance" /></ProtectedRoute>} />
         <Route path="/analytics/resources" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><AnalyticsSection section="resources" /></ProtectedRoute>} />

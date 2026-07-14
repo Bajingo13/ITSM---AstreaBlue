@@ -124,15 +124,6 @@ const technicianNavItems = [
       { label: "SLA Management", icon: Activity, path: "/sla-monitor" },
     ],
   },
-  {
-    label: "Reporting & Analytics",
-    icon: BarChart3,
-    children: [
-      { label: "Service Desk Analytics", icon: Ticket, path: "/analytics/service-desk" },
-      { label: "Endpoint Analytics", icon: Monitor, path: "/analytics/endpoints" },
-      { label: "SLA Analytics", icon: Activity, path: "/analytics/sla" },
-    ],
-  },
 ];
 
 const employeeNavItems = [

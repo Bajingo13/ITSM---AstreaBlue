@@ -35,6 +35,22 @@ export default function MandatoryOnboarding() {
     const timer = window.setInterval(load, 15000);
     return () => window.clearInterval(timer);
   }, [load]);
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", load);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", load);
+    };
+  }, [load]);
+  useEffect(() => {
+    if (status?.onboarding_status === "Completed" && user?.must_complete_onboarding === false) {
+      navigate("/employee/dashboard", { replace: true });
+    }
+  }, [navigate, status?.onboarding_status, user?.must_complete_onboarding]);
 
   const acknowledgePrivacy = async () => {
     setError("");

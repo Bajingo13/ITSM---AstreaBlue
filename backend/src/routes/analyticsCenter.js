@@ -12,18 +12,13 @@ function requireAnalytics(req, res, next) {
   const context = getRequestContext(req);
   const role = String(context.roleName || "").toLowerCase();
   if (!context.authenticated) return res.status(401).json({ success: false, message: "Authentication required.", data: null });
-  if (!["superadmin", "admin", "technician"].includes(role)) return res.status(403).json({ success: false, message: "Analytics access denied.", data: null });
+  if (!["superadmin", "admin"].includes(role)) return res.status(403).json({ success: false, message: "Analytics access is limited to administrators.", data: null });
   if (role !== "superadmin" && !context.branchId) return res.status(403).json({ success: false, message: "An assigned branch is required.", data: null });
   req.analyticsContext = { ...context, role };
   return next();
 }
 
-function requireManagerAnalytics(req, res, next) {
-  if (req.analyticsContext.role === "technician") {
-    return res.status(403).json({ success: false, message: "Custom reports are limited to administrators.", data: null });
-  }
-  return next();
-}
+function requireManagerAnalytics(_req, _res, next) { return next(); }
 
 const n = (value) => Number(value || 0);
 function scope(role, branchId, alias, column = "branch_id") {
@@ -128,7 +123,6 @@ router.get("/summary", requireAnalytics, async (req, res) => {
       change:{available:true,pending_changes:n(changeData.pending_changes),cab_queue:n(changeData.cab_queue),upcoming_releases:n(changeData.upcoming_releases),rollback_readiness_pct:n(changeData.rollback_total)?Math.round(n(changeData.rollback_ready)/n(changeData.rollback_total)*100):0,deployment_success_pct:n(changeData.deployments_total)?Math.round(n(changeData.deployments_completed)/n(changeData.deployments_total)*100):0,trend:changeData.trend||[],recent_activity:changeRecent.rows},
       generated_at:new Date().toISOString()
     };
-    if(role==='technician') { const operational={service_desk:data.service_desk,endpoints:data.endpoints,sla:data.sla,resources:data.resources,generated_at:data.generated_at}; summaryCache.set(cacheKey,{createdAt:Date.now(),data:operational}); return res.json({success:true,message:"Operational analytics loaded.",data:operational,meta:{cached:false}}); }
     summaryCache.set(cacheKey,{createdAt:Date.now(),data}); return res.json({success:true,message:"Enterprise analytics loaded.",data,meta:{cached:false}});
   } catch(error) { console.error("Enterprise analytics error:",error.message); return res.status(500).json({success:false,message:"Failed to load enterprise analytics.",data:null}); }
 });

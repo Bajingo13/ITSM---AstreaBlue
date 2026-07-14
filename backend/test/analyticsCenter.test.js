@@ -48,12 +48,11 @@ test("enterprise summary enforces authentication and returns complete manager an
   assert.ok(Object.hasOwn(body.data.change, "cab_queue"));
 });
 
-test("technicians receive only branch-scoped operational analytics and cannot run reports", async () => {
+test("technicians cannot access reporting and analytics", async () => {
   const headers = { authorization: `Bearer ${tokenFor("Technician", branchId)}` };
   const response = await fetch(`${baseUrl}/api/v1/analytics/summary`, { headers });
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  assert.deepEqual(Object.keys(body.data).sort(), ["endpoints", "generated_at", "resources", "service_desk", "sla"].sort());
+  assert.equal(response.status, 403);
+  assert.match((await response.json()).message, /administrators/i);
   assert.equal((await fetch(`${baseUrl}/api/v1/analytics/custom-report`, { headers })).status, 403);
 });
 
