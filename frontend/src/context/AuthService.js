@@ -24,6 +24,15 @@ export async function loginUser(email, password) {
 }
 
 export function saveUser(user, token, rememberMe) {
+  // A login must replace the entire previous session. Otherwise an old
+  // remembered token in localStorage can take precedence over a newly logged-in
+  // user saved in sessionStorage, making the UI and API authenticate as two
+  // different people.
+  localStorage.removeItem("user");
+  localStorage.removeItem("token");
+  sessionStorage.removeItem("user");
+  sessionStorage.removeItem("token");
+
   const storage = rememberMe ? localStorage : sessionStorage;
   storage.setItem("user", JSON.stringify(user));
   if (token) storage.setItem("token", token);
