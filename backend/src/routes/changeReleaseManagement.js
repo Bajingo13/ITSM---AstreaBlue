@@ -1,9 +1,54 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
 const db = require("../../config/db");
 const { getRequestContext } = require("./_ticketAccess");
 const { uploadTicketAttachments } = require("./_uploads");
 
 const router = express.Router();
+let workflowSchemaReady;
+
+async function ensureWorkflowSchema() {
+  if (workflowSchemaReady) return workflowSchemaReady;
+  workflowSchemaReady = (async () => {
+    const client = await db.rawPool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["astreablue_change_request_workflow_v1"]);
+      const readiness = await client.query(`SELECT
+        EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='change_requests' AND column_name='assigned_technician_id')
+        AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='change_requests' AND column_name='business_justification')
+        AND to_regclass('change_cab_members') IS NOT NULL
+        AND to_regclass('change_cab_reviews') IS NOT NULL
+        AND to_regclass('change_implementation_updates') IS NOT NULL
+        AND to_regclass('change_schedule_history') IS NOT NULL AS ready`);
+      if (!readiness.rows[0]?.ready) {
+        const migrationPath = path.join(__dirname, "../../database/2026-07-14-change-request-workflow.sql");
+        console.warn("[Change Release] workflow schema is behind; applying the workflow migration.");
+        await client.query(fs.readFileSync(migrationPath, "utf8"));
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      workflowSchemaReady = null;
+      throw error;
+    } finally {
+      client.release();
+    }
+  })();
+  return workflowSchemaReady;
+}
+
+router.use(async (req, res, next) => {
+  try {
+    await ensureWorkflowSchema();
+    next();
+  } catch (error) {
+    console.error("Change workflow schema bootstrap error:", error.message);
+    res.status(503).json({ success: false, message: "Change Management is waiting for its database migration. Please retry shortly.", data: null });
+  }
+});
+
 const RELEASE_FLOW = ["Planned", "Scheduled", "Deploying", "Verifying", "Completed", "Closed"];
 const ROLLBACK_FLOW = ["Draft", "Approved", "Available", "Executed", "Verified"];
 
@@ -343,7 +388,7 @@ router.post("/changes/:id/cab-review", requireChangeAccess, async (req, res) => 
       VALUES($1,$2,$3,$4,$5,$6,NOW()) RETURNING *`, [req.params.id, req.body.meeting_ref || null, req.body.review_status, req.body.decision_notes || null, req.body.quorum_met || false, req.changeContext.currentUserId]);
     await db.query("INSERT INTO change_activities(change_id,actor_id,event_type,message,metadata) VALUES($1,$2,'cab_review',$3,$4)", [req.params.id, req.changeContext.currentUserId, `CAB review recorded: ${req.body.review_status}.`, JSON.stringify({ review_status: req.body.review_status, decision_notes: req.body.decision_notes || null })]);
     res.status(201).json({ success: true, message: "CAB review recorded.", data: result.rows[0] });
-  } catch (error) { res.status(500).json({ success: false, message: "Failed to record CAB review.", data: null }); }
+  } catch (error) { console.error("CAB review error:", error.message, error.stack); res.status(500).json({ success: false, message: "Failed to record CAB review.", data: null }); }
 });
 
 router.get("/changes/:id/implementation", requireChangeAccess, async (req, res) => {
@@ -352,7 +397,7 @@ router.get("/changes/:id/implementation", requireChangeAccess, async (req, res) 
     if (!(await db.query(`SELECT 1 FROM change_requests c WHERE c.id=$1 AND ${scoped}`, params)).rows.length) return res.status(404).json({ success: false, message: "Change request not found.", data: null });
     const updates = await db.query("SELECT ci.*,u.full_name performed_by_name FROM change_implementation_updates ci LEFT JOIN users u ON u.user_id=ci.performed_by WHERE ci.change_id=$1 ORDER BY ci.created_at DESC", [req.params.id]);
     res.json({ success: true, message: "Implementation updates loaded.", data: updates.rows });
-  } catch (error) { res.status(500).json({ success: false, message: "Failed to load implementation updates.", data: null }); }
+  } catch (error) { console.error("Implementation updates load error:", error.message, error.stack); res.status(500).json({ success: false, message: "Failed to load implementation updates.", data: null }); }
 });
 
 router.post("/changes/:id/implementation", requireChangeAccess, async (req, res) => {
@@ -368,7 +413,7 @@ router.post("/changes/:id/implementation", requireChangeAccess, async (req, res)
     await db.query("INSERT INTO change_activities(change_id,actor_id,event_type,message,metadata) VALUES($1,$2,'implementation_update',$3,$4)",
       [req.params.id, req.changeContext.currentUserId, `Implementation update: ${req.body.action.trim()}.`, JSON.stringify({ action: req.body.action, notes: req.body.notes || null })]);
     res.status(201).json({ success: true, message: "Implementation update recorded.", data: result.rows[0] });
-  } catch (error) { res.status(500).json({ success: false, message: "Failed to record implementation update.", data: null }); }
+  } catch (error) { console.error("Implementation update record error:", error.message, error.stack); res.status(500).json({ success: false, message: "Failed to record implementation update.", data: null }); }
 });
 
 router.get("/changes/:id/schedule", requireChangeAccess, async (req, res) => {
@@ -378,7 +423,7 @@ router.get("/changes/:id/schedule", requireChangeAccess, async (req, res) => {
     if (!change.rows.length) return res.status(404).json({ success: false, message: "Change request not found.", data: null });
     const history = await db.query("SELECT sh.*,u.full_name changed_by_name FROM change_schedule_history sh LEFT JOIN users u ON u.user_id=sh.changed_by WHERE sh.change_id=$1 ORDER BY sh.created_at DESC", [req.params.id]);
     res.json({ success: true, message: "Schedule loaded.", data: { current: change.rows[0], history: history.rows } });
-  } catch (error) { res.status(500).json({ success: false, message: "Failed to load schedule.", data: null }); }
+  } catch (error) { console.error("Schedule load error:", error.message, error.stack); res.status(500).json({ success: false, message: "Failed to load schedule.", data: null }); }
 });
 
 router.post("/changes/:id/schedule", requireChangeAccess, async (req, res) => {
@@ -404,7 +449,7 @@ router.post("/changes/:id/schedule", requireChangeAccess, async (req, res) => {
     await client.query("INSERT INTO change_activities(change_id,actor_id,event_type,message,metadata) VALUES($1,$2,'schedule_updated',$3,$4)",
       [req.params.id, req.changeContext.currentUserId, `Schedule updated for ${change.change_number}.`, JSON.stringify({ reason: req.body.reason || null, new_start: newStart, new_end: newEnd })]);
     await client.query("COMMIT"); res.json({ success: true, message: "Schedule updated.", data: { planned_start: newStart, planned_end: newEnd, scheduled_date: newScheduled } });
-  } catch (error) { await client.query("ROLLBACK").catch(() => {}); res.status(500).json({ success: false, message: "Failed to update schedule.", data: null }); } finally { client.release(); }
+  } catch (error) { await client.query("ROLLBACK").catch(() => {}); console.error("Schedule update error:", error.message, error.stack); res.status(500).json({ success: false, message: "Failed to update schedule.", data: null }); } finally { client.release(); }
 });
 
 router.post("/changes/:id/approvals", requireChangeAccess, async (req, res) => {
@@ -415,7 +460,7 @@ router.post("/changes/:id/approvals", requireChangeAccess, async (req, res) => {
     const result = await db.query("INSERT INTO change_approvals(change_id,approver_id,decision,comments,decided_at) VALUES($1,$2,$3,$4,NOW()) RETURNING *", [req.params.id, req.changeContext.currentUserId, req.body.decision, req.body.comments || null]);
     await db.query("INSERT INTO change_activities(change_id,actor_id,event_type,message) VALUES($1,$2,'cab_decision',$3)", [req.params.id, req.changeContext.currentUserId, `CAB decision recorded: ${req.body.decision}.`]);
     res.status(201).json({ success: true, message: "CAB decision recorded.", data: result.rows[0] });
-  } catch (error) { res.status(500).json({ success: false, message: "Failed to record CAB decision.", data: null }); }
+  } catch (error) { console.error("CAB decision record error:", error.message, error.stack); res.status(500).json({ success: false, message: "Failed to record CAB decision.", data: null }); }
 });
 
 router.post("/changes/:id/comments", requireChangeAccess, async (req, res) => {
@@ -425,7 +470,7 @@ router.post("/changes/:id/comments", requireChangeAccess, async (req, res) => {
     if (!(await db.query(`SELECT 1 FROM change_requests c WHERE c.id=$1 AND ${scoped}`, params)).rows.length) return res.status(404).json({ success: false, message: "Change request not found.", data: null });
     const result = await db.query("INSERT INTO change_activities(change_id,actor_id,event_type,message) VALUES($1,$2,'comment',$3) RETURNING *", [req.params.id, req.changeContext.currentUserId, req.body.message.trim()]);
     res.status(201).json({ success: true, message: "Comment added.", data: result.rows[0] });
-  } catch (error) { res.status(500).json({ success: false, message: "Failed to add comment.", data: null }); }
+  } catch (error) { console.error("Comment add error:", error.message, error.stack); res.status(500).json({ success: false, message: "Failed to add comment.", data: null }); }
 });
 
 router.post("/changes/:id/attachments", requireChangeAccess, (req, res) => {
