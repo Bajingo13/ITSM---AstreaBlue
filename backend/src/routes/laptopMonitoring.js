@@ -858,8 +858,15 @@ function buildEndpointHealth(row) {
   const policyJson = row.policy_json || {};
   const heartbeat = healthItem("Heartbeat", row.last_seen_at, 2, 5, "Offline");
   if (heartbeat.status === "Critical") heartbeat.status = "Critical";
-  const activity = healthItem("Activity", row.last_activity_at, 10, null, "Warning");
-  const idleDetection = healthItem("Idle Detection", row.last_idle_detection_at || row.last_activity_at, 10, null, "Warning");
+  const activityFeature = policyJson.features?.activity_monitoring_enabled;
+  const activityEnabled = activityFeature?.enabled === true || policyJson.activity_monitoring_enabled === true;
+  const disabledActivityReason = activityFeature?.reason || policyJson.reasons?.activity_monitoring_enabled || "Activity monitoring is not enabled by the effective policy.";
+  const activity = activityEnabled
+    ? healthItem("Activity", row.last_activity_at, 10, null, "Warning")
+    : { label: "Activity", status: "Disabled", last_seen_at: row.last_activity_at || null, age_minutes: null, message: disabledActivityReason };
+  const idleDetection = activityEnabled
+    ? healthItem("Idle Detection", row.last_idle_detection_at || row.last_activity_at, 10, null, "Warning")
+    : { label: "Idle Detection", status: "Disabled", last_seen_at: row.last_idle_detection_at || row.last_activity_at || null, age_minutes: null, message: disabledActivityReason };
   const hardwareInventory = healthItem("Hardware Inventory", row.last_hardware_inventory_at, 24 * 60, null, "Warning");
   const softwareInventory = healthItem("Software Inventory", row.last_software_inventory_at, 24 * 60, null, "Warning");
   const policy = healthItem("Policy Sync", row.last_policy_sync_at, 24 * 60, null, "Warning");
@@ -897,11 +904,13 @@ function buildEndpointHealth(row) {
     { event_type: "Software Inventory", occurred_at: row.last_software_inventory_at, status: softwareInventory.status },
     { event_type: "Policy Sync", occurred_at: row.last_policy_sync_at, status: policy.status },
   ];
+  const enabledConsentFeatures = policyJson.features
+    ? Object.values(policyJson.features).filter((feature) => feature?.consent_required && feature.enabled)
+    : [];
   const monitoringActive = !!(
     heartbeat.status === "Healthy" &&
     policy.status === "Healthy" &&
-    policyJson.features &&
-    Object.values(policyJson.features).some((feature) => feature?.consent_required && feature.enabled)
+    enabledConsentFeatures.length
   );
   const checklist = [
     { step: "Asset Linked", status: row.asset_id ? "Complete" : "Pending" },
@@ -911,7 +920,7 @@ function buildEndpointHealth(row) {
     { step: "Consent Approved", status: row.consent_approved ? "Complete" : "Pending" },
     { step: "Effective Policy Generated", status: row.policy_generated_at ? "Complete" : "Pending" },
     { step: "Agent Policy Downloaded", status: row.last_policy_sync_at ? "Complete" : "Pending" },
-    { step: "Monitoring Active", status: monitoringActive ? "Complete" : (consent.status === "Healthy" ? "Pending" : "Not Applicable") },
+    { step: "Monitoring Active", status: monitoringActive ? "Complete" : (consent.status === "Healthy" && enabledConsentFeatures.length ? "Pending" : "Not Applicable") },
   ];
 
   return {
@@ -1557,16 +1566,26 @@ router.get("/devices/:deviceUuid/health", requireAdmin, async (req, res) => {
 router.get("/devices/:id/activity", requireAdmin, async (req, res) => {
   try {
     const empId = req.monitoringIsEmployee ? req.monitoringUser.userId : null;
-    const allowed = await db.query(`SELECT device_id FROM monitored_devices WHERE device_id=$1 AND ($2::int IS NULL OR branch_id=$2) AND ($3::int IS NULL OR assigned_user_id=$3)`, [req.params.id, req.monitoringBranchId, empId]);
+    const allowed = await db.query(`SELECT device_id,device_uuid,assigned_user_id FROM monitored_devices WHERE device_id=$1 AND ($2::int IS NULL OR branch_id=$2) AND ($3::int IS NULL OR assigned_user_id=$3)`, [req.params.id, req.monitoringBranchId, empId]);
     if (!allowed.rows.length) return res.status(404).json({ success: false, message: "Device not found or access denied." });
-    const [activity, screenshots, alerts, consents, assignments] = await Promise.all([
+    const device = allowed.rows[0];
+    const [activity, screenshots, alerts, consents, assignments, hardware, software] = await Promise.all([
       db.query(`SELECT * FROM laptop_activity_logs WHERE device_id=$1 ORDER BY occurred_at DESC LIMIT 200`, [req.params.id]),
       db.query(`SELECT * FROM laptop_screenshots WHERE device_id=$1 ORDER BY captured_at DESC LIMIT 50`, [req.params.id]),
       db.query(`SELECT * FROM laptop_alerts WHERE device_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.params.id]),
-      db.query(`SELECT id,device_id,user_id,consent_type,consent_status,consented_at,created_at FROM monitoring_consents WHERE device_id=$1 ORDER BY created_at DESC`, [req.params.id]),
-      db.query(`SELECT a.*, ou.full_name as old_user_name, nu.full_name as new_user_name FROM monitored_device_assignments a LEFT JOIN users ou ON a.old_user_id=ou.user_id LEFT JOIN users nu ON a.new_user_id=nu.user_id WHERE device_id=$1 ORDER BY changed_at DESC`, [req.params.id])
+      db.query(
+        `SELECT consent_id AS id,device_id,employee_id AS user_id,form_title AS consent_type,
+                status AS consent_status,COALESCE(approved_at,signed_at,submitted_at) AS consented_at,created_at
+         FROM consent_documents
+         WHERE (device_uuid=$1::uuid OR (device_uuid IS NULL AND employee_id=$2))
+         ORDER BY created_at DESC`,
+        [device.device_uuid, device.assigned_user_id]
+      ),
+      db.query(`SELECT a.*, ou.full_name as old_user_name, nu.full_name as new_user_name FROM monitored_device_assignments a LEFT JOIN users ou ON a.old_user_id=ou.user_id LEFT JOIN users nu ON a.new_user_id=nu.user_id WHERE device_id=$1 ORDER BY changed_at DESC`, [req.params.id]),
+      db.query(`SELECT * FROM endpoint_hardware_inventory WHERE device_id=$1 ORDER BY scanned_at DESC LIMIT 1`, [req.params.id]),
+      db.query(`SELECT * FROM endpoint_software_inventory WHERE device_id=$1 ORDER BY last_seen_at DESC,software_name ASC LIMIT 200`, [req.params.id])
     ]);
-    return res.json({ success: true, data: { activity: activity.rows, screenshots: screenshots.rows, alerts: alerts.rows, consents: consents.rows, assignments: assignments.rows } });
+    return res.json({ success: true, data: { activity: activity.rows, screenshots: screenshots.rows, alerts: alerts.rows, consents: consents.rows, assignments: assignments.rows, hardware: hardware.rows[0] || null, software: software.rows } });
   } catch (error) {
     console.error("[laptop-monitoring:device-activity]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load device activity." });

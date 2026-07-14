@@ -240,8 +240,8 @@ async function generateEndpointPolicy(doc, actor) {
       doc.device_uuid || null,
       doc.branch_id || null,
       doc.department_id || null,
-      prefs.includes("application_monitoring") || prefs.includes("applications"),
-      prefs.includes("web_monitoring") || prefs.includes("website_monitoring"),
+      hasPreference(prefs, "application_monitoring", "applications", "activity_monitoring", "app_usage", "window_title", "idle_time"),
+      hasPreference(prefs, "web_monitoring", "website_monitoring", "network_domains", "browser"),
       prefs.includes("screenshot_monitoring") || prefs.includes("screenshot"),
       prefs.includes("usb_monitoring"),
       prefs.includes("location_tracking"),
@@ -329,9 +329,9 @@ async function regenerateEffectiveEndpointPolicy(deviceUuid, actor) {
   const consent = consentResult.rows[0] || null;
   const prefs = consent?.monitoring_preferences || [];
   const consentGated = [
-    ["activity_monitoring_enabled", ["application_monitoring", "applications", "activity_monitoring"], "Application/window activity"],
+    ["activity_monitoring_enabled", ["application_monitoring", "applications", "activity_monitoring", "app_usage", "window_title", "idle_time"], "Application/window activity and idle detection"],
     ["screenshot_monitoring_enabled", ["screenshot_monitoring", "screenshot"], "Screenshot Monitoring"],
-    ["browser_monitoring_enabled", ["web_monitoring", "website_monitoring", "browser"], "Browser/domain monitoring"],
+    ["browser_monitoring_enabled", ["web_monitoring", "website_monitoring", "network_domains", "browser"], "Browser/domain monitoring"],
     ["usb_monitoring_enabled", ["usb_monitoring", "usb"], "USB activity monitoring"],
     ["location_tracking_enabled", ["location_tracking"], "Location tracking"],
   ];

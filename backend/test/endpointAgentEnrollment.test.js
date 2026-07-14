@@ -139,6 +139,54 @@ test("endpoint checklist separates signed consent from administrator approval", 
   assert.equal(approved.find((item) => item.step === "Consent Approved").status, "Complete");
 });
 
+test("endpoint health distinguishes disabled activity from stale activity", () => {
+  const now = new Date().toISOString();
+  const base = {
+    device_uuid: crypto.randomUUID(),
+    device_id: 2,
+    hostname: "ACTIVITY-HEALTH-TEST",
+    asset_id: 1,
+    assigned_user_id: 9,
+    consent_id: "101",
+    consent_status: "approved",
+    consent_submitted: true,
+    consent_approved: true,
+    last_seen_at: now,
+    last_activity_at: "2026-01-01T00:00:00.000Z",
+    last_idle_detection_at: "2026-01-01T00:00:00.000Z",
+    last_hardware_inventory_at: now,
+    last_software_inventory_at: now,
+    last_policy_sync_at: now,
+    policy_generated_at: now,
+  };
+
+  const disabled = routes._test.buildEndpointHealth({
+    ...base,
+    policy_json: {
+      features: {
+        activity_monitoring_enabled: { enabled: false, consent_required: true, reason: "Employee consent excludes activity." },
+      },
+    },
+  });
+  assert.equal(disabled.activity.status, "Disabled");
+  assert.equal(disabled.idle_detection.status, "Disabled");
+  assert.equal(disabled.checklist.find((item) => item.step === "Monitoring Active").status, "Not Applicable");
+
+  const enabled = routes._test.buildEndpointHealth({
+    ...base,
+    last_activity_at: now,
+    last_idle_detection_at: now,
+    policy_json: {
+      features: {
+        activity_monitoring_enabled: { enabled: true, consent_required: true },
+      },
+    },
+  });
+  assert.equal(enabled.activity.status, "Healthy");
+  assert.equal(enabled.idle_detection.status, "Healthy");
+  assert.equal(enabled.checklist.find((item) => item.step === "Monitoring Active").status, "Complete");
+});
+
 test("single-use enrollment issues isolated per-device credentials", async () => {
   const firstUuid = crypto.randomUUID();
   const secondUuid = crypto.randomUUID();
@@ -168,6 +216,35 @@ test("single-use enrollment issues isolated per-device credentials", async () =>
     idle_seconds: 0,
   });
   assert.equal(activityWithoutConsent.status, 403);
+
+  const hardwareUpload = await agentRequest("/hardware-inventory", second.body.data.device_credential, "POST", {
+    device_uuid: secondUuid,
+    hostname: "ENROLLMENT-TEST-TWO",
+    manufacturer: "AstreaBlue Test",
+    model: "Inventory Endpoint",
+    serial_number: "AB-INV-001",
+    cpu_name: "Test CPU",
+    total_ram_gb: 16,
+    os_name: "Windows",
+    os_version: "11",
+    os_build: "26100",
+    architecture: "64-bit",
+    disk_total_gb: 512,
+    disk_free_gb: 256,
+    scanned_at: new Date().toISOString(),
+  });
+  assert.equal(hardwareUpload.status, 200);
+  const softwareUpload = await agentRequest("/software-inventory", second.body.data.device_credential, "POST", {
+    device_uuid: secondUuid,
+    hostname: "ENROLLMENT-TEST-TWO",
+    software: [{ software_name: "AstreaBlue Test App", version: "1.0", publisher: "AstreaBlue" }],
+  });
+  assert.equal(softwareUpload.status, 201);
+  const deviceDetails = await adminRequest(`/devices/${second.body.data.device_id}/activity`);
+  assert.equal(deviceDetails.status, 200);
+  const deviceDetailsBody = await deviceDetails.json();
+  assert.equal(deviceDetailsBody.data.hardware.serial_number, "AB-INV-001");
+  assert.equal(deviceDetailsBody.data.software.some((item) => item.software_name === "AstreaBlue Test App"), true);
 
   const crossDevice = await agentRequest("/heartbeat", second.body.data.device_credential, "POST", heartbeatBody(firstUuid, "ENROLLMENT-TEST-ONE"));
   assert.equal(crossDevice.status, 403);
