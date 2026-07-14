@@ -32,6 +32,8 @@ if ($BackendUrl -notmatch '^https://') { throw "Production enrollment requires a
 
 Write-Host "Installing the AstreaBlue native Windows agent..." -ForegroundColor Cyan
 Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name='AstreaBlue.ActivityCompanion.exe'" -ErrorAction SilentlyContinue |
+    ForEach-Object { Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null }
 
 New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null

@@ -19,6 +19,8 @@ if (-not (Test-Path $sourceUpdater)) { throw "AstreaBlue.Agent.Updater.exe is mi
 if (-not (Test-Path (Join-Path $dataDirectory "credential.bin"))) { throw "No enrolled credential exists. Use native-install.ps1 with a new enrollment code." }
 
 Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name='AstreaBlue.ActivityCompanion.exe'" -ErrorAction SilentlyContinue |
+    ForEach-Object { Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null }
 New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
 Copy-Item $sourceExe $targetExe -Force
 Copy-Item $sourceCompanion $targetCompanion -Force
@@ -39,4 +41,5 @@ Start-Service -Name $serviceName
 Start-Sleep -Seconds 3
 & $targetExe --diagnostics
 if ($LASTEXITCODE -ne 0) { throw "Repair completed but diagnostics failed." }
+Start-Process -FilePath $targetCompanion
 Write-Host "AstreaBlue agent repair completed successfully." -ForegroundColor Green
