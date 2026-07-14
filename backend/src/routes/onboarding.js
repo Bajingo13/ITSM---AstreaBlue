@@ -49,6 +49,31 @@ router.use(async (_req, res, next) => {
 router.get("/status", async (req, res) => {
   try {
     const userId = req.actor.userId || req.actor.user_id;
+    // Self-heal legacy/partial approval records. An active approved consent is
+    // authoritative for mandatory onboarding, even if an older deployment
+    // failed after approving the document but before updating the user row.
+    const reconciled = await db.query(
+      `WITH approved AS (
+         SELECT consent_id FROM consent_documents
+         WHERE employee_id=$1 AND status IN ('approved','signed') AND active IS NOT FALSE
+         ORDER BY approved_at DESC NULLS LAST, signed_at DESC NULLS LAST, created_at DESC
+         LIMIT 1
+       )
+       UPDATE users u SET onboarding_status='Completed',onboarding_required=FALSE,
+         onboarding_completed_at=COALESCE(u.onboarding_completed_at,CURRENT_TIMESTAMP),
+         onboarding_consent_id=approved.consent_id
+       FROM approved
+       WHERE u.user_id=$1 AND (u.onboarding_status<>'Completed' OR u.onboarding_required IS TRUE OR u.onboarding_consent_id IS DISTINCT FROM approved.consent_id)
+       RETURNING u.user_id,approved.consent_id`,
+      [userId]
+    );
+    if (reconciled.rows.length) {
+      await db.query(
+        `INSERT INTO user_onboarding_history (user_id,previous_status,new_status,consent_id,changed_by,reason)
+         VALUES ($1,NULL,'Completed',$2,NULL,'Reconciled from active approved consent during status refresh.')`,
+        [userId, reconciled.rows[0].consent_id]
+      );
+    }
     const result = await db.query(
       `SELECT u.user_id,u.full_name,u.email,u.branch_id,b.branch_name,sr.role_name,
               u.onboarding_status,u.onboarding_required,u.invitation_accepted_at,

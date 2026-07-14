@@ -11,6 +11,7 @@ const onboardingAccessGuard = require("../src/middleware/onboardingAccessGuard")
 let server;
 let baseUrl;
 let userId;
+let consentId;
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 
 test.before(async () => {
@@ -34,6 +35,11 @@ test.before(async () => {
 
 test.after(async () => {
   await db.query(`DELETE FROM user_onboarding_history WHERE user_id=$1`, [userId]);
+  if (consentId) {
+    await db.query(`DELETE FROM endpoint_monitoring_policies WHERE consent_id=$1`, [consentId]);
+    await db.query(`DELETE FROM consent_audit_logs WHERE consent_id=$1`, [consentId]);
+    await db.query(`DELETE FROM consent_documents WHERE consent_id=$1`, [consentId]);
+  }
   await db.query(`DELETE FROM users WHERE user_id=$1`, [userId]);
   if (server) await new Promise((resolve) => server.close(resolve));
   await db.rawPool.end();
@@ -59,4 +65,28 @@ test("mandatory onboarding state cannot be bypassed", async () => {
 
   await db.query(`UPDATE users SET onboarding_status='Completed',onboarding_required=FALSE,onboarding_completed_at=CURRENT_TIMESTAMP WHERE user_id=$1`, [userId]);
   assert.equal((await fetch(`${baseUrl}/api/v1/private`, { headers: headers() })).status, 200);
+});
+
+test("approved consent reconciles a stuck submitted onboarding state", async () => {
+  const created = await db.query(
+    `INSERT INTO consent_documents (
+       employee_id,employee_full_name,employee_email,monitoring_preferences,status,active,signed_at,submitted_at,approved_at
+     ) VALUES ($1,'Onboarding Test Employee','onboarding@example.test','["window_title"]'::jsonb,'approved',TRUE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+     RETURNING consent_id`,
+    [userId]
+  );
+  consentId = created.rows[0].consent_id;
+  await db.query(
+    `UPDATE users SET onboarding_status='Consent Submitted',onboarding_required=TRUE,
+       onboarding_completed_at=NULL,onboarding_consent_id=$2 WHERE user_id=$1`,
+    [userId, consentId]
+  );
+
+  const response = await fetch(`${baseUrl}/api/v1/onboarding/status`, { headers: headers() });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.data.onboarding_status, "Completed");
+  assert.equal(payload.data.onboarding_required, false);
+  assert.equal(payload.data.must_complete_onboarding, false);
+  assert.equal(payload.data.consent_status, "approved");
 });

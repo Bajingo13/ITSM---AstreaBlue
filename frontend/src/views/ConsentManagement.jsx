@@ -175,24 +175,25 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
     });
   };
 
-  const applyAction = async () => {
+  const applyAction = async (requestedAction = actionType) => {
+    const selectedAction = typeof requestedAction === "string" ? requestedAction : actionType;
     setActioning(true);
     try {
       let url, body;
-      if (["approve", "reject", "request_revision"].includes(actionType)) {
+      if (["approve", "reject", "request_revision"].includes(selectedAction)) {
         url = `${API_BASE}/consent/${consent.consent_id}/review`;
-        body = JSON.stringify({ action: actionType, reason: actionNotes });
-      } else if (actionType === "approve_change") {
+        body = JSON.stringify({ action: selectedAction, reason: actionNotes });
+      } else if (selectedAction === "approve_change") {
         url = `${API_BASE}/consent/${consent.consent_id}/approve-change`;
         body = JSON.stringify({ new_preferences: approvePrefs, notes: actionNotes });
       } else {
         url = `${API_BASE}/consent/${consent.consent_id}/admin-action`;
-        body = JSON.stringify({ action: actionType, notes: actionNotes });
+        body = JSON.stringify({ action: selectedAction, notes: actionNotes });
       }
-      const res = await fetch(url, { method: ["approve_change", "approve", "reject", "request_revision"].includes(actionType) ? "POST" : "PUT", headers: authHeaders(), body });
+      const res = await fetch(url, { method: ["approve_change", "approve", "reject", "request_revision"].includes(selectedAction) ? "POST" : "PUT", headers: authHeaders(), body });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Action failed.");
-      onAction(consent.consent_id, data.data?.status || (actionType === "approve_change" ? "approved" : data.new_status));
+      onAction(consent.consent_id, data.data?.status || (selectedAction === "approve_change" ? "approved" : data.new_status));
       onClose();
     } catch (err) {
       alert("Error: " + err.message);
@@ -409,10 +410,11 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
                 rows={3}
                 className="w-full rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none focus:border-amber-400 resize-none"
               />
+              {actionType === "approve" && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">Approval completes the employee's mandatory onboarding immediately. The employee can press Refresh Status and enter AstreaBlue.</p>}
               <div className="flex gap-3">
                 <button onClick={() => setShowActionForm(false)} className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-bold text-slate-600 hover:bg-white">Cancel</button>
                 <button onClick={applyAction} disabled={actioning} className="flex-1 rounded-xl bg-amber-500 py-2 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-60">
-                  {actioning ? "Applying..." : actionType === "approve_change" ? "Approve & Create New Version" : "Apply Action"}
+                  {actioning ? "Applying..." : actionType === "approve" ? "Confirm Consent Approval" : actionType === "approve_change" ? "Approve & Create New Version" : "Apply Action"}
                 </button>
               </div>
             </section>
@@ -440,6 +442,18 @@ function ConsentPrintModal({ consent, onClose, onAction }) {
               >
                 <Download size={16} /> {documentAction === "download" ? "Downloading…" : "Download PDF"}
               </button>
+              {consent.status === "pending_approval" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm("Approve this consent and complete the employee's onboarding?")) applyAction("approve");
+                  }}
+                  disabled={actioning}
+                  className="flex items-center gap-2 rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-60"
+                >
+                  <CheckCircle size={16} /> {actioning ? "Approving..." : "Approve & Complete Onboarding"}
+                </button>
+              )}
               {!showActionForm && (
                 <button
                   type="button"
