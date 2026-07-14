@@ -32,7 +32,6 @@ if ($BackendUrl -notmatch '^https://') { throw "Production enrollment requires a
 
 Write-Host "Installing the AstreaBlue native Windows agent..." -ForegroundColor Cyan
 Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
-& sc.exe delete $serviceName 2>$null | Out-Null
 
 New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
@@ -60,8 +59,13 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyCon
 # Device identity and DPAPI credential must be readable only by LocalSystem and local Administrators.
 & icacls.exe $dataDirectory /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 
-& sc.exe create $serviceName "binPath= `"$targetExe`"" "start= auto" "obj= LocalSystem" "DisplayName= AstreaBlue Monitoring Agent" | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "Windows service creation failed." }
+$existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if ($existingService) {
+    $serviceOutput = & sc.exe config $serviceName "binPath= `"$targetExe`"" "start= auto" "obj= LocalSystem" "DisplayName= AstreaBlue Monitoring Agent" 2>&1
+} else {
+    $serviceOutput = & sc.exe create $serviceName "binPath= `"$targetExe`"" "start= auto" "obj= LocalSystem" "DisplayName= AstreaBlue Monitoring Agent" 2>&1
+}
+if ($LASTEXITCODE -ne 0) { throw "Windows service registration failed: $($serviceOutput -join ' ')" }
 & sc.exe description $serviceName "AstreaBlue ITSM consent-aware endpoint monitoring agent." | Out-Null
 & sc.exe failure $serviceName "reset= 86400" "actions= restart/60000/restart/60000/restart/300000" | Out-Null
 & sc.exe failureflag $serviceName 1 | Out-Null

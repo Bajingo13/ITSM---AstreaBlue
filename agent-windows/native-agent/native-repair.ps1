@@ -27,12 +27,13 @@ if (Test-Path "$sourceExe.config") { Copy-Item "$sourceExe.config" "$targetExe.c
 & icacls.exe $dataDirectory /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "AstreaBlueActivityCompanion" -Value "`"$targetCompanion`""
 
-& sc.exe query $serviceName 2>$null | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    & sc.exe create $serviceName "binPath= `"$targetExe`"" "start= auto" "obj= LocalSystem" "DisplayName= AstreaBlue Monitoring Agent" | Out-Null
+$existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if (-not $existingService) {
+    $serviceOutput = & sc.exe create $serviceName "binPath= `"$targetExe`"" "start= auto" "obj= LocalSystem" "DisplayName= AstreaBlue Monitoring Agent" 2>&1
 } else {
-    & sc.exe config $serviceName "binPath= `"$targetExe`"" "start= auto" "obj= LocalSystem" | Out-Null
+    $serviceOutput = & sc.exe config $serviceName "binPath= `"$targetExe`"" "start= auto" "obj= LocalSystem" 2>&1
 }
+if ($LASTEXITCODE -ne 0) { throw "Windows service registration failed: $($serviceOutput -join ' ')" }
 & sc.exe failure $serviceName "reset= 86400" "actions= restart/60000/restart/60000/restart/300000" | Out-Null
 Start-Service -Name $serviceName
 Start-Sleep -Seconds 3
