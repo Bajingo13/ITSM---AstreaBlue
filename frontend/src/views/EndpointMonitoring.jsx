@@ -689,22 +689,6 @@ export default function EndpointMonitoring() {
             )}
           </section>
           
-          {selectedDevice && (
-            <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h4 className="font-black text-slate-900 flex items-center gap-2">Setup Checklist</h4>
-              <ul className="mt-3 space-y-2 text-sm font-semibold">
-                <li className={`flex items-center gap-2 ${selectedDevice.asset_id ? 'text-green-600' : 'text-amber-600'}`}>
-                  {selectedDevice.asset_id ? '✓ Hardware Asset Linked' : '⚠ Unlinked'}
-                </li>
-                <li className={`flex items-center gap-2 ${selectedDevice.assigned_user_id ? 'text-green-600' : 'text-amber-600'}`}>
-                  {selectedDevice.assigned_user_id ? '✓ Employee Assigned' : '⚠ Unassigned'}
-                </li>
-                <li className={`flex items-center gap-2 ${['approved', 'signed', 'consented'].includes(String(selectedDevice.consent_status || '').toLowerCase()) ? 'text-green-600' : 'text-amber-600'}`}>
-                  {['approved', 'signed', 'consented'].includes(String(selectedDevice.consent_status || '').toLowerCase()) ? '✓ Consent Approved' : `⚠ Consent ${String(selectedDevice.consent_status || 'Pending').replaceAll('_', ' ')}`}
-                </li>
-              </ul>
-            </div>
-          )}
         </section>
           <div className="mt-6 grid gap-6 lg:grid-cols-2"><div><h3 className="font-black text-slate-900">Activity Timeline</h3><div className="mt-3 max-h-80 space-y-3 overflow-y-auto">
             {(()=>{
