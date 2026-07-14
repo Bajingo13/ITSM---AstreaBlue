@@ -24,14 +24,23 @@ module.exports = async function onboardingAccessGuard(req, res, next) {
     // The route's normal authentication middleware owns invalid-token responses.
     return next();
   }
-  if (String(actor.role || "").toLowerCase().replace(/[\s_-]/g, "") !== "employee") return next();
-
   try {
     const result = await db.query(
-      `SELECT onboarding_required,onboarding_status FROM users WHERE user_id=$1`,
+      `SELECT u.onboarding_required,u.onboarding_status,r.role_name
+       FROM users u
+       LEFT JOIN system_roles r ON r.role_id=u.role_id
+       WHERE u.user_id=$1`,
       [actor.userId || actor.user_id]
     );
     const user = result.rows[0];
+
+    // Authorization must use the current database role. JWT role claims can be
+    // stale after an administrator changes a user's role, but must never cause
+    // a SuperAdmin/Admin to inherit the Employee-only onboarding restriction.
+    if (!user || String(user.role_name || "").toLowerCase().replace(/[\s_-]/g, "") !== "employee") {
+      return next();
+    }
+
     if (user?.onboarding_required && user.onboarding_status !== "Completed") {
       return res.status(428).json({
         success: false,

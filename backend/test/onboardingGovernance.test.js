@@ -11,6 +11,7 @@ const onboardingAccessGuard = require("../src/middleware/onboardingAccessGuard")
 let server;
 let baseUrl;
 let userId;
+let superAdminUserId;
 let consentId;
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 
@@ -23,6 +24,14 @@ test.before(async () => {
     [`onboarding-${Date.now()}@example.test`, role.rows[0].role_id]
   );
   userId = created.rows[0].user_id;
+  const superAdminRole = await db.query(`SELECT role_id FROM system_roles WHERE LOWER(role_name)='superadmin' LIMIT 1`);
+  assert.ok(superAdminRole.rows[0]?.role_id);
+  const createdSuperAdmin = await db.query(
+    `INSERT INTO users (full_name,email,password_hash,role_id,company_name,status,is_active,onboarding_status,onboarding_required,onboarding_version)
+     VALUES ('Onboarding Test SuperAdmin',$1,'test',$2,'AstreaBlue','Active',TRUE,'Account Created',TRUE,'1.0') RETURNING user_id`,
+    [`onboarding-superadmin-${Date.now()}@example.test`, superAdminRole.rows[0].role_id]
+  );
+  superAdminUserId = createdSuperAdmin.rows[0].user_id;
   const app = express();
   app.use(express.json());
   app.use("/api/v1/onboarding", onboardingRoutes);
@@ -41,6 +50,7 @@ test.after(async () => {
     await db.query(`DELETE FROM consent_documents WHERE consent_id=$1`, [consentId]);
   }
   await db.query(`DELETE FROM users WHERE user_id=$1`, [userId]);
+  await db.query(`DELETE FROM users WHERE user_id=$1`, [superAdminUserId]);
   if (server) await new Promise((resolve) => server.close(resolve));
   await db.rawPool.end();
 });
@@ -49,6 +59,17 @@ function headers() {
   const token = jwt.sign({ userId, role: "Employee", branchId: null }, secret, { expiresIn: "5m" });
   return { authorization: `Bearer ${token}`, "content-type": "application/json" };
 }
+
+function superAdminHeadersWithStaleRoleClaim() {
+  const token = jwt.sign({ userId: superAdminUserId, role: "Employee", branchId: null }, secret, { expiresIn: "5m" });
+  return { authorization: `Bearer ${token}`, "content-type": "application/json" };
+}
+
+test("database SuperAdmin role bypasses employee onboarding even with a stale JWT role", async () => {
+  const response = await fetch(`${baseUrl}/api/v1/private`, { headers: superAdminHeadersWithStaleRoleClaim() });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { success: true });
+});
 
 test("mandatory onboarding state cannot be bypassed", async () => {
   const status = await fetch(`${baseUrl}/api/v1/onboarding/status`, { headers: headers() });
