@@ -29,6 +29,7 @@ const priorities = [
 const emptySystem = { system_name: "", system_code: "", description: "", status: "Active" };
 const emptyConsole = {
   integration_id: "",
+  api_key: "",
   external_employee_id: "",
   requester_name: "",
   requester_email: "",
@@ -217,18 +218,21 @@ export default function Integrations() {
 
   const createTestTicket = async (event) => {
     event.preventDefault();
-    const apiKey = revealedKeys[consoleForm.integration_id];
+    const system = systems.find((item) => String(item.integration_id) === String(consoleForm.integration_id));
+    if (String(system?.status || "").toLowerCase() !== "active") {
+      setMessage("The selected system is disabled. Activate it under Registered Systems before testing.");
+      return;
+    }
+
+    const apiKey = String(consoleForm.api_key || revealedKeys[consoleForm.integration_id] || "").trim();
     if (!apiKey) {
-      setMessage("Generate an API key for the selected system first. Keys are shown once only.");
-      setActiveTab(tabs[1]);
-      setSelectedSystemId(consoleForm.integration_id);
+      setMessage("Paste the selected system's secret API key, or generate a new key under API Keys first.");
       return;
     }
 
     try {
       setSaving(true);
       setCreatedTicket(null);
-      const system = systems.find((item) => String(item.integration_id) === String(consoleForm.integration_id));
       const payload = {
         title: consoleForm.title,
         description: consoleForm.description,
@@ -249,7 +253,9 @@ export default function Integrations() {
         body: JSON.stringify(payload),
       });
       const body = await res.json();
-      if (!res.ok || body.success === false) throw new Error(body.message || "Failed to create test ticket.");
+      if (!res.ok || body.success === false) {
+        throw new Error(`HTTP ${res.status}: ${body.message || "Failed to create test ticket."}`);
+      }
       setCreatedTicket(body.data);
       setMessage("Ticket Created Successfully");
       await load();
@@ -379,7 +385,8 @@ export default function Integrations() {
               This sends a real test ticket to the centralized Service Desk. System-specific module details belong to the external system and are not part of this test form.
             </div>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <label className="astrea-field-label sm:col-span-2">Registered System<select value={consoleForm.integration_id} onChange={(e) => setConsoleForm({ ...consoleForm, integration_id: e.target.value })} className="astrea-control mt-2">{systems.map((system) => <option key={system.integration_id} value={system.integration_id}>{system.system_name}</option>)}</select></label>
+              <label className="astrea-field-label sm:col-span-2">Registered System<select value={consoleForm.integration_id} onChange={(e) => setConsoleForm({ ...consoleForm, integration_id: e.target.value, api_key: "" })} className="astrea-control mt-2">{systems.map((system) => <option key={system.integration_id} value={system.integration_id}>{system.system_name} ({system.status})</option>)}</select></label>
+              <label className="astrea-field-label sm:col-span-2">Secret API Key<input type="password" autoComplete="off" value={consoleForm.api_key} onChange={(e) => setConsoleForm({ ...consoleForm, api_key: e.target.value })} className="astrea-control mt-2 font-mono" placeholder="Paste the selected system's generated secret" /><span className="mt-1 block text-xs font-semibold text-slate-500">Used only for this test and never saved by the console. A key generated in this browser session is used automatically.</span></label>
               <label className="astrea-field-label">External Employee ID<input required value={consoleForm.external_employee_id} onChange={(e) => setConsoleForm({ ...consoleForm, external_employee_id: e.target.value })} className="astrea-control mt-2" placeholder="INV-EMP-001" /></label>
               <label className="astrea-field-label">Requester Name<input required value={consoleForm.requester_name} onChange={(e) => setConsoleForm({ ...consoleForm, requester_name: e.target.value })} className="astrea-control mt-2" placeholder="Employee name" /></label>
               <label className="astrea-field-label sm:col-span-2">Requester Email<input required type="email" value={consoleForm.requester_email} onChange={(e) => setConsoleForm({ ...consoleForm, requester_email: e.target.value })} className="astrea-control mt-2" placeholder="employee@company.com" /></label>
