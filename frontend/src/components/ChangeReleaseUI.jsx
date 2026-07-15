@@ -97,11 +97,11 @@ export function ChangeTypeBadge({ type }) {
 
 export function MetricCard({ icon: Icon, label, value, detail, tone = "bg-blue-50 text-blue-700" }) {
   return (
-    <section className={panelClass}>
+    <section className={`${panelClass} astrea-premium-card astrea-dashboard-enter group`}>
       <div
         className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}
       >
-        <Icon size={19} />
+        <Icon size={19} className="transition duration-300 group-hover:scale-110" />
       </div>
       <p className="mt-4 text-2xl font-black text-slate-900">{value}</p>
       <p className="mt-1 text-sm font-bold text-slate-700">{label}</p>

@@ -780,3 +780,51 @@ html[data-theme="dark"] .astrea-notification-panel {
   color: var(--astrea-text);
 }
 
+@keyframes astrea-dashboard-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes astrea-dashboard-glow {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(1.08); }
+}
+
+.astrea-dashboard-enter {
+  animation: astrea-dashboard-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.astrea-premium-card {
+  position: relative;
+  overflow: hidden;
+  transition: transform 260ms ease, box-shadow 260ms ease, border-color 260ms ease;
+}
+
+.astrea-premium-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(125deg, transparent 20%, rgba(255,255,255,0.42) 48%, transparent 72%);
+  transform: translateX(-120%);
+  transition: transform 650ms ease;
+}
+
+.astrea-premium-card:hover {
+  transform: translateY(-5px);
+  border-color: #93c5fd;
+  box-shadow: 0 22px 48px rgba(30, 64, 175, 0.16);
+}
+
+.astrea-premium-card:hover::after { transform: translateX(120%); }
+
+.astrea-dashboard-glow { animation: astrea-dashboard-glow 5s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .astrea-dashboard-enter,
+  .astrea-dashboard-glow { animation: none; }
+  .astrea-premium-card,
+  .astrea-premium-card::after { transition: none; }
+  .astrea-premium-card:hover { transform: none; }
+}
+

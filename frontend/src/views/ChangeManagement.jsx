@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  BarChart3,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -21,6 +22,15 @@ import {
   Users,
   X,
 } from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import PageHero from "../components/layout/PageHero";
 import {
   ChangeTypeBadge,
@@ -85,6 +95,7 @@ const STATUS_OPTIONS = [
 
 const ALL_CHANGE_TYPES = ["Standard", "Normal", "Emergency"];
 const RISK_LEVELS = ["", "Low", "Medium", "High", "Critical"];
+const analyticsCardClass = "astrea-premium-card rounded-[24px] border border-blue-100 bg-white p-5 shadow-[0_12px_35px_rgba(30,64,175,0.08)]";
 
 /* ─── Multi-section new/edit form ─── */
 function ChangeForm({ branches, technicians, user, editItem, onClose, onSaved }) {
@@ -1017,6 +1028,63 @@ function ChangeDetail({ id, onClose, onChanged, user, branches, technicians }) {
   );
 }
 
+function ChangeAnalyticsOverview({ summary, loading }) {
+  const trend = Array.isArray(summary?.trend) ? summary.trend : [];
+  const success = Number(summary?.deployment_success_pct || 0);
+  const readiness = Number(summary?.rollback_readiness_pct || 0);
+  const workflow = [
+    ["Open", Number(summary?.open_changes || 0), "bg-blue-600"],
+    ["CAB Review", Number(summary?.cab_queue_count ?? summary?.cab_queue ?? 0), "bg-violet-500"],
+    ["Emergency", Number(summary?.emergency_changes || 0), "bg-rose-500"],
+    ["Scheduled", Number(summary?.scheduled || 0), "bg-cyan-500"],
+  ];
+  const maxWorkflow = Math.max(1, ...workflow.map((item) => item[1]));
+
+  if (loading) {
+    return <div className="grid animate-pulse gap-4 lg:grid-cols-3"><div className="h-80 rounded-3xl bg-slate-100 lg:col-span-2" /><div className="h-80 rounded-3xl bg-slate-100" /></div>;
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-3">
+      <section className={`${analyticsCardClass} astrea-dashboard-enter lg:col-span-2`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">Change volume</p><h2 className="mt-1 text-lg font-black text-slate-900">Six-month workflow trend</h2><p className="text-xs font-semibold text-slate-400">Created versus successfully completed changes</p></div>
+          <div className="flex gap-2"><span className="rounded-full bg-blue-50 px-3 py-1 text-[11px] font-black text-blue-700">Total changes</span><span className="rounded-full bg-cyan-50 px-3 py-1 text-[11px] font-black text-cyan-700">Successful</span></div>
+        </div>
+        {trend.length ? <ResponsiveContainer width="100%" height={245}>
+          <AreaChart data={trend} margin={{ top: 24, right: 12, left: -22, bottom: 0 }}>
+            <defs><linearGradient id="changeCountFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2563eb" stopOpacity={0.32} /><stop offset="95%" stopColor="#2563eb" stopOpacity={0.02} /></linearGradient></defs>
+            <CartesianGrid strokeDasharray="4 4" stroke="#dbeafe" vertical={false} />
+            <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={{ borderRadius: 14, border: "1px solid #dbeafe", boxShadow: "0 12px 30px rgba(30,64,175,.12)" }} />
+            <Area type="monotone" dataKey="count" name="Created" stroke="#2563eb" strokeWidth={3} fill="url(#changeCountFill)" />
+            <Area type="monotone" dataKey="successful" name="Successful" stroke="#06b6d4" strokeWidth={3} fill="transparent" />
+          </AreaChart>
+        </ResponsiveContainer> : <div className="flex h-[245px] items-center justify-center text-sm font-semibold text-slate-400">Trend data will appear as changes are created.</div>}
+      </section>
+
+      <section className={`${analyticsCardClass} astrea-dashboard-enter`} style={{ animationDelay: "80ms" }}>
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">Delivery posture</p><h2 className="mt-1 text-lg font-black text-slate-900">Deployment success</h2><p className="text-xs font-semibold text-slate-400">Completed release performance</p>
+        <div className="relative mx-auto mt-7 flex h-44 w-44 items-center justify-center rounded-full" style={{ background: `conic-gradient(#2563eb 0 ${success * 3.6}deg, #dbeafe ${success * 3.6}deg 360deg)` }}>
+          <div className="flex h-32 w-32 flex-col items-center justify-center rounded-full bg-white shadow-inner"><span className="text-4xl font-black text-slate-950">{success}%</span><span className="mt-1 text-[10px] font-black uppercase tracking-widest text-slate-400">Success rate</span></div>
+        </div>
+        <div className="mt-6 grid grid-cols-2 gap-3"><div className="rounded-2xl bg-blue-50 p-3 text-center"><p className="text-xl font-black text-blue-700">{readiness}%</p><p className="text-[10px] font-black uppercase text-slate-400">Rollback ready</p></div><div className="rounded-2xl bg-cyan-50 p-3 text-center"><p className="text-xl font-black text-cyan-700">{summary?.upcoming_releases || 0}</p><p className="text-[10px] font-black uppercase text-slate-400">Upcoming</p></div></div>
+      </section>
+
+      <section className={`${analyticsCardClass} astrea-dashboard-enter lg:col-span-2`} style={{ animationDelay: "130ms" }}>
+        <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-50 text-violet-700"><BarChart3 size={19} /></div><div><h2 className="font-black text-slate-900">Workflow distribution</h2><p className="text-xs font-semibold text-slate-400">Current operational queue</p></div></div>
+        <div className="mt-6 space-y-4">{workflow.map(([label, value, color]) => <div key={label} className="group"><div className="mb-1.5 flex items-center justify-between text-xs font-black"><span className="text-slate-600">{label}</span><span className="text-slate-900">{value}</span></div><div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${color} transition-all duration-700 group-hover:brightness-110`} style={{ width: `${Math.max(value ? 8 : 0, value / maxWorkflow * 100)}%` }} /></div></div>)}</div>
+      </section>
+
+      <section className={`${analyticsCardClass} astrea-dashboard-enter`} style={{ animationDelay: "180ms" }}>
+        <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><Clock size={19} /></div><div><h2 className="font-black text-slate-900">Recent activity</h2><p className="text-xs font-semibold text-slate-400">Latest workflow events</p></div></div>
+        <div className="mt-5 space-y-2">{summary?.recent_activity?.length ? summary.recent_activity.slice(0, 4).map((activity, index) => <div key={`${activity.change_number}-${index}`} className="rounded-2xl border border-transparent bg-slate-50 p-3 transition duration-300 hover:translate-x-1 hover:border-blue-100 hover:bg-blue-50"><p className="truncate text-xs font-black text-slate-700">{activity.change_number} · {activity.event_type}</p><p className="mt-1 line-clamp-2 text-[11px] font-semibold text-slate-400">{activity.message}</p></div>) : <p className="py-12 text-center text-sm font-semibold text-slate-400">No recent activity.</p>}</div>
+      </section>
+    </div>
+  );
+}
+
 /* ─── Main page ─── */
 export default function ChangeManagement() {
   const { user } = useAuth();
@@ -1202,6 +1270,8 @@ export default function ChangeManagement() {
           detail="Ready for implementation"
         />
       </div>
+
+      <ChangeAnalyticsOverview summary={summary} loading={summaryLoading} />
 
       {/* Filter toolbar */}
       <section className={panelClass}>
