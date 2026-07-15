@@ -259,7 +259,7 @@ export default function Integrations() {
         test_mode: true,
         created_via: "Integration Hub",
       };
-      const res = await fetch(`${API_BASE}/integration/tickets`, {
+      const res = await fetch(`${API_BASE}/external/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
         body: JSON.stringify(payload),
