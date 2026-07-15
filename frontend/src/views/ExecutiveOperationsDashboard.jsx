@@ -122,7 +122,7 @@ export default function ExecutiveOperationsDashboard() {
   ] : [];
 
   return (
-    <div className="space-y-6">
+    <div className="astrea-module-page space-y-6">
       <PageHero eyebrow="Reporting & Analytics" title="Executive Operations Dashboard" subtitle="A unified command center for service delivery, assets, endpoints, governance, and change performance." />
 
       <section className="astrea-dashboard-enter flex flex-col gap-3 rounded-3xl border border-blue-100 bg-white p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
@@ -146,16 +146,16 @@ export default function ExecutiveOperationsDashboard() {
           <div className="relative z-10 grid gap-4 xl:grid-cols-[300px_1fr]">
             <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-3 backdrop-blur-xl">
               <div className="px-3 pb-3 pt-2"><p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-200">Operations Center</p><p className="mt-1 text-sm font-semibold text-blue-100/70">Select a module to inspect</p></div>
-              <div className="max-h-[470px] space-y-1 overflow-y-auto pr-1">{sections.map((section) => {
+              <div className="astrea-dark-scrollbar max-h-[470px] space-y-1 overflow-y-auto pr-2">{sections.map((section) => {
                 const Icon = section.icon; const active = section.title === selected?.title;
                 return <button key={section.title} onClick={() => setActiveModule(section.title)} className={`group flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition duration-300 ${active ? "bg-white text-blue-950 shadow-xl" : "text-blue-50 hover:translate-x-1 hover:bg-white/10"}`}><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${active ? "bg-blue-50 text-blue-700" : "bg-white/10 text-cyan-200 group-hover:bg-white/15"}`}><Icon size={18} /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-black">{section.title}</span><span className={`block truncate text-[11px] font-semibold ${active ? "text-slate-400" : "text-blue-200/60"}`}>{section.subtitle}</span></span><ArrowUpRight size={15} className={active ? "text-blue-500" : "opacity-0 transition group-hover:opacity-100"} /></button>;
               })}</div>
             </div>
 
             {selected && <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${selected.accent} p-[1px]`}>
-              <div className="h-full rounded-[23px] bg-white/95 p-5 backdrop-blur-xl lg:p-7">
+              <div className="h-full rounded-[23px] bg-gradient-to-br from-white via-[#f7fbff] to-[#edf6ff] p-5 backdrop-blur-xl lg:p-7">
                 <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Module intelligence</p><h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">{selected.title}</h2><p className="mt-1 text-sm font-semibold text-slate-500">{selected.subtitle}</p></div><Link to={selected.path} className="group inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-xl">Open analytics <ArrowUpRight size={16} className="transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" /></Link></div>
-                <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{selected.metrics.map(([label, value], index) => <div key={label} className="group rounded-2xl border border-blue-100 bg-gradient-to-br from-white to-blue-50/70 p-4 transition duration-300 hover:-translate-y-1 hover:border-blue-300 hover:shadow-lg" style={{ transitionDelay: `${index * 15}ms` }}><p className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</p><p className="mt-3 text-2xl font-black text-slate-950">{value ?? "-"}</p><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-blue-100"><div className={`h-full rounded-full bg-gradient-to-r ${selected.accent}`} style={{ width: `${Math.max(20, Math.min(100, Number.parseFloat(value) || 58))}%` }} /></div></div>)}</div>
+                <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{selected.metrics.map(([label, value], index) => <div key={label} className="astrea-intelligence-tile group rounded-2xl p-4" style={{ transitionDelay: `${index * 15}ms` }}><p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p><p className="mt-3 text-2xl font-black text-slate-950">{value ?? "-"}</p><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-blue-100"><div className={`h-full rounded-full bg-gradient-to-r ${selected.accent}`} style={{ width: `${Math.max(20, Math.min(100, Number.parseFloat(value) || 58))}%` }} /></div></div>)}</div>
               </div>
             </div>}
           </div>

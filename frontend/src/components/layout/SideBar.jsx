@@ -57,7 +57,7 @@ const coreModuleItems = [
     ],
   },
   {
-    label: "Change & Release Management",
+    label: "Change & Release",
     icon: GitBranch,
     children: [
       { label: "Change Request Workflow", icon: ClipboardList, path: "/change-management" },

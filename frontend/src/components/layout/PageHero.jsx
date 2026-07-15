@@ -1,4 +1,5 @@
 import { Activity, BarChart3, ShieldCheck } from "lucide-react";
+import ModuleContextNav from "./ModuleContextNav";
 
 export default function PageHero({
   eyebrow,
@@ -13,7 +14,13 @@ export default function PageHero({
   compact = false,
 }) {
   const greeting = returning ? "Welcome back" : "Welcome";
+  const contextGroup = eyebrow === "Change & Release Management"
+    ? "change"
+    : ["Reporting & Analytics", "Project Analytics"].includes(eyebrow)
+      ? "analytics"
+      : null;
   return (
+    <>
     <section className={`astrea-page-hero relative overflow-hidden rounded-[28px] border border-white/15 px-7 text-white shadow-[var(--astrea-hero-shadow)] ${compact ? "py-6 lg:px-8" : "py-8 lg:px-10 lg:py-10"}`}>
       <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full border-[34px] border-cyan-200/10" />
       <div className="pointer-events-none absolute bottom-[-110px] right-24 h-56 w-56 rounded-full bg-cyan-300/10 blur-2xl" />
@@ -36,5 +43,7 @@ export default function PageHero({
         </div>
       )}
     </section>
+    {contextGroup && <ModuleContextNav group={contextGroup} />}
+    </>
   );
 }

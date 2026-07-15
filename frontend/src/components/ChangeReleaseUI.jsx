@@ -1,7 +1,7 @@
 import { X, FileText } from "lucide-react";
 import { API_URL } from "../config/api";
 
-export const panelClass = "astrea-interactive-card rounded-2xl border border-slate-100 bg-white p-5 shadow-sm";
+export const panelClass = "astrea-workspace-panel astrea-interactive-card rounded-2xl border bg-white p-5";
 
 const statusColors = {
   Draft: "bg-slate-200 text-slate-700",
