@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
 import {
   CheckCircle,
   Copy,
@@ -10,6 +9,7 @@ import {
   RotateCcw,
   Send,
   ShieldOff,
+  Trash2,
   ToggleLeft,
   ToggleRight,
 } from "lucide-react";
@@ -27,11 +27,12 @@ const priorities = [
   ["P2-High", "High"],
   ["P1-Critical", "Critical"],
 ];
-const emptySystem = { system_name: "", system_code: "", description: "", status: "Active", allowed_branches: [] };
+const emptySystem = { system_name: "", system_code: "", description: "", status: "Active" };
 const emptyConsole = {
   integration_id: "",
-  branch_id: "",
-  employee_id: "",
+  external_employee_id: "",
+  requester_name: "",
+  requester_email: "",
   origin_module: "Attendance",
   feature: "",
   priority: "P3-Medium",
@@ -50,14 +51,11 @@ function formatDate(value) {
 
 export default function Integrations() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const role = user?.role_name || user?.role;
   const isSuperAdmin = role === "SuperAdmin";
   const [activeTab, setActiveTab] = useState(isSuperAdmin ? tabs[0] : tabs[3]);
   const [systems, setSystems] = useState([]);
   const [keysBySystem, setKeysBySystem] = useState({});
-  const [branches, setBranches] = useState([]);
-  const [employees, setEmployees] = useState([]);
   const [logs, setLogs] = useState([]);
   const [dashboard, setDashboard] = useState(null);
   const [systemForm, setSystemForm] = useState(emptySystem);
@@ -72,46 +70,46 @@ export default function Integrations() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const branchById = useMemo(() => new Map(branches.map((b) => [Number(b.branch_id), b.branch_name])), [branches]);
-  const selectedSystem = systems.find((item) => String(item.integration_id) === String(selectedSystemId || consoleForm.integration_id));
-  const visibleEmployees = useMemo(() => {
-    if (!consoleForm.branch_id) return employees;
-    return employees.filter((employee) => Number(employee.branch_id) === Number(consoleForm.branch_id));
-  }, [consoleForm.branch_id, employees]);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       setMessage("");
-      const [systemsRes, dashboardRes, logsRes, branchesRes, usersRes] = await Promise.all([
-        fetch(`${API_BASE}/integrations`, { headers: authHeaders() }),
-        fetch(`${API_BASE}/integrations/dashboard`, { headers: authHeaders() }),
-        fetch(`${API_BASE}/integrations/logs`, { headers: authHeaders() }),
-        fetch(`${API_BASE}/branches`, { headers: authHeaders() }),
-        fetch(`${API_BASE}/users`, { headers: authHeaders() }),
-      ]);
-      const [systemsBody, dashboardBody, logsBody, branchesBody, usersBody] = await Promise.all([
-        systemsRes.json(),
-        dashboardRes.json(),
-        logsRes.json(),
-        branchesRes.json(),
-        usersRes.json(),
+      const loadResource = async (path) => {
+        try {
+          const response = await fetch(`${API_BASE}${path}`, { headers: authHeaders() });
+          const body = await response.json();
+          return { response, body };
+        } catch (error) {
+          return { error };
+        }
+      };
+      const [systemsResult, dashboardResult, logsResult] = await Promise.all([
+        loadResource("/integrations"),
+        loadResource("/integrations/dashboard"),
+        loadResource("/integrations/logs"),
       ]);
 
-      if (!systemsRes.ok || systemsBody.success === false) throw new Error(systemsBody.message || "Failed to load registered systems.");
-      if (!dashboardRes.ok || dashboardBody.success === false) throw new Error(dashboardBody.message || "Failed to load dashboard.");
-      if (!logsRes.ok || logsBody.success === false) throw new Error(logsBody.message || "Failed to load API logs.");
-
-      const loadedSystems = dataOf(systemsBody) || [];
-      setSystems(loadedSystems);
-      setDashboard(dataOf(dashboardBody));
-      setLogs(dataOf(logsBody) || []);
-      setBranches(Array.isArray(branchesBody) ? branchesBody : dataOf(branchesBody) || []);
-      setEmployees(Array.isArray(usersBody) ? usersBody : dataOf(usersBody) || []);
-      if (!selectedSystemId && loadedSystems[0]) setSelectedSystemId(String(loadedSystems[0].integration_id));
-      if (!consoleForm.integration_id && loadedSystems[0]) {
-        setConsoleForm((current) => ({ ...current, integration_id: String(loadedSystems[0].integration_id) }));
+      if (systemsResult.error || !systemsResult.response?.ok || systemsResult.body?.success === false) {
+        throw new Error(systemsResult.body?.message || systemsResult.error?.message || "Failed to load registered systems.");
       }
+
+      const loadedSystems = dataOf(systemsResult.body) || [];
+      setSystems(loadedSystems);
+      const warnings = [];
+      if (dashboardResult.response?.ok && dashboardResult.body?.success !== false) {
+        setDashboard(dataOf(dashboardResult.body));
+      } else {
+        warnings.push(dashboardResult.body?.message || "Dashboard metrics are temporarily unavailable.");
+      }
+      if (logsResult.response?.ok && logsResult.body?.success !== false) {
+        setLogs(dataOf(logsResult.body) || []);
+      } else {
+        warnings.push(logsResult.body?.message || "API logs are temporarily unavailable.");
+      }
+      if (warnings.length) setMessage(warnings.join(" "));
+      setSelectedSystemId((current) => current || (loadedSystems[0] ? String(loadedSystems[0].integration_id) : ""));
+      setConsoleForm((current) => ({ ...current, integration_id: current.integration_id || (loadedSystems[0] ? String(loadedSystems[0].integration_id) : "") }));
 
       if (isSuperAdmin && loadedSystems.length) {
         const keyPairs = await Promise.all(
@@ -128,21 +126,11 @@ export default function Integrations() {
     } finally {
       setLoading(false);
     }
-  }, [consoleForm.integration_id, isSuperAdmin, selectedSystemId]);
+  }, [isSuperAdmin]);
 
   useEffect(() => {
     load();
   }, [load]);
-
-  const toggleBranch = (branchId) => {
-    const id = Number(branchId);
-    setSystemForm((current) => ({
-      ...current,
-      allowed_branches: current.allowed_branches.includes(id)
-        ? current.allowed_branches.filter((item) => item !== id)
-        : [...current.allowed_branches, id],
-    }));
-  };
 
   const saveSystem = async (event) => {
     event.preventDefault();
@@ -175,7 +163,6 @@ export default function Integrations() {
       system_code: system.system_code || "",
       description: system.description || "",
       status: system.status || "Active",
-      allowed_branches: Array.isArray(system.allowed_branches) ? system.allowed_branches.map(Number) : [],
     });
     setActiveTab(tabs[0]);
   };
@@ -245,19 +232,17 @@ export default function Integrations() {
       setSaving(true);
       setCreatedTicket(null);
       const system = systems.find((item) => String(item.integration_id) === String(consoleForm.integration_id));
-      const employee = employees.find((item) => String(item.user_id) === String(consoleForm.employee_id));
       const payload = {
         title: consoleForm.title,
         description: consoleForm.description,
         priority: consoleForm.priority,
-        branch_id: consoleForm.branch_id ? Number(consoleForm.branch_id) : null,
-        employee_id: consoleForm.employee_id ? Number(consoleForm.employee_id) : null,
+        external_employee_id: consoleForm.external_employee_id,
+        requester_name: consoleForm.requester_name,
+        requester_email: consoleForm.requester_email,
         origin_system: system?.system_name || null,
         origin_module: consoleForm.origin_module,
-        external_reference: consoleForm.external_reference || null,
-        feature: consoleForm.feature || null,
-        test_mode: true,
-        created_via: "Integration Hub",
+        external_reference: consoleForm.external_reference,
+        origin_feature: consoleForm.feature || null,
       };
       const res = await fetch(`${API_BASE}/external/tickets`, {
         method: "POST",
@@ -266,7 +251,7 @@ export default function Integrations() {
       });
       const body = await res.json();
       if (!res.ok || body.success === false) throw new Error(body.message || "Failed to create test ticket.");
-      setCreatedTicket({ ...body.data, employee_name: employee?.full_name });
+      setCreatedTicket(body.data);
       setMessage("Ticket Created Successfully");
       await load();
     } catch (err) {
@@ -348,22 +333,12 @@ export default function Integrations() {
               <label className="astrea-field-label">System Code<input required disabled={Boolean(editingId)} value={systemForm.system_code} onChange={(e) => setSystemForm({ ...systemForm, system_code: e.target.value.toUpperCase() })} className="astrea-control mt-2" placeholder="PAYROLL" /></label>
               <label className="astrea-field-label">Status<select value={systemForm.status} onChange={(e) => setSystemForm({ ...systemForm, status: e.target.value })} className="astrea-control mt-2"><option>Active</option><option>Disabled</option><option>Maintenance</option></select></label>
               <label className="astrea-field-label">Description<textarea value={systemForm.description} onChange={(e) => setSystemForm({ ...systemForm, description: e.target.value })} className="astrea-control mt-2 min-h-24" /></label>
-              <div>
-                <p className="astrea-field-label">Allowed Branches</p>
-                <div className="mt-2 max-h-52 space-y-2 overflow-auto rounded-xl border border-slate-200 p-3">
-                  {branches.map((branch) => (
-                    <label key={branch.branch_id} className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                      <input type="checkbox" checked={systemForm.allowed_branches.includes(Number(branch.branch_id))} onChange={() => toggleBranch(branch.branch_id)} />
-                      {branch.branch_name}
-                    </label>
-                  ))}
-                </div>
-              </div>
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-800">Centralized scope: external tickets are branchless and visible only under the existing centralized Service Desk RBAC.</div>
             </div>
             <button disabled={saving} className="astrea-button astrea-button-primary mt-5 w-full">{saving ? "Saving..." : editingId ? "Update System" : "Register System"}</button>
           </form>
 
-          <SystemsTable systems={systems} branchById={branchById} loading={loading} onEdit={editSystem} onStatus={updateSystemStatus} />
+          <SystemsTable systems={systems} loading={loading} onEdit={editSystem} onStatus={updateSystemStatus} />
         </section>
       )}
 
@@ -403,14 +378,15 @@ export default function Integrations() {
             </div>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="astrea-field-label sm:col-span-2">Registered System<select value={consoleForm.integration_id} onChange={(e) => setConsoleForm({ ...consoleForm, integration_id: e.target.value })} className="astrea-control mt-2">{systems.map((system) => <option key={system.integration_id} value={system.integration_id}>{system.system_name}</option>)}</select></label>
-              <label className="astrea-field-label">Branch<select required value={consoleForm.branch_id} onChange={(e) => setConsoleForm({ ...consoleForm, branch_id: e.target.value, employee_id: "" })} className="astrea-control mt-2"><option value="">Select branch</option>{branches.map((branch) => <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_name}</option>)}</select></label>
-              <label className="astrea-field-label">Employee<select value={consoleForm.employee_id} onChange={(e) => setConsoleForm({ ...consoleForm, employee_id: e.target.value })} className="astrea-control mt-2"><option value="">No employee</option>{visibleEmployees.map((employee) => <option key={employee.user_id} value={employee.user_id}>{employee.full_name}</option>)}</select></label>
+              <label className="astrea-field-label">External Employee ID<input required value={consoleForm.external_employee_id} onChange={(e) => setConsoleForm({ ...consoleForm, external_employee_id: e.target.value })} className="astrea-control mt-2" placeholder="INV-EMP-001" /></label>
+              <label className="astrea-field-label">Requester Name<input required value={consoleForm.requester_name} onChange={(e) => setConsoleForm({ ...consoleForm, requester_name: e.target.value })} className="astrea-control mt-2" placeholder="Employee name" /></label>
+              <label className="astrea-field-label sm:col-span-2">Requester Email<input required type="email" value={consoleForm.requester_email} onChange={(e) => setConsoleForm({ ...consoleForm, requester_email: e.target.value })} className="astrea-control mt-2" placeholder="employee@company.com" /></label>
               <label className="astrea-field-label">Module<select value={consoleForm.origin_module} onChange={(e) => setConsoleForm({ ...consoleForm, origin_module: e.target.value })} className="astrea-control mt-2">{modules.map((item) => <option key={item}>{item}</option>)}</select></label>
               <label className="astrea-field-label">Priority<select value={consoleForm.priority} onChange={(e) => setConsoleForm({ ...consoleForm, priority: e.target.value })} className="astrea-control mt-2">{priorities.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label className="astrea-field-label sm:col-span-2">Feature<input value={consoleForm.feature} onChange={(e) => setConsoleForm({ ...consoleForm, feature: e.target.value })} className="astrea-control mt-2" placeholder="Time In" /></label>
               <label className="astrea-field-label sm:col-span-2">Title<input required value={consoleForm.title} onChange={(e) => setConsoleForm({ ...consoleForm, title: e.target.value })} className="astrea-control mt-2" /></label>
               <label className="astrea-field-label sm:col-span-2">Description<textarea required value={consoleForm.description} onChange={(e) => setConsoleForm({ ...consoleForm, description: e.target.value })} className="astrea-control mt-2 min-h-32" /></label>
-              <label className="astrea-field-label sm:col-span-2">External Reference<input value={consoleForm.external_reference} onChange={(e) => setConsoleForm({ ...consoleForm, external_reference: e.target.value })} className="astrea-control mt-2" placeholder="ATT-000145" /></label>
+              <label className="astrea-field-label sm:col-span-2">External Reference<input required value={consoleForm.external_reference} onChange={(e) => setConsoleForm({ ...consoleForm, external_reference: e.target.value })} className="astrea-control mt-2" placeholder="INV-HELP-000145" /></label>
             </div>
             <div className="mt-5 flex flex-wrap gap-3">
               <button disabled={saving} className="astrea-button astrea-button-primary"><Send size={16} /> Create Test Ticket</button>
@@ -430,14 +406,9 @@ export default function Integrations() {
                     ["Priority", createdTicket.priority],
                     ["Status", createdTicket.status],
                     ["Created At", formatDate(createdTicket.created_at)],
-                    ["Assigned Branch", branchById.get(Number(createdTicket.branch_id)) || createdTicket.branch_id],
-                    ["Created Via", createdTicket.created_via],
                   ].map(([label, value]) => <InfoCell key={label} label={label} value={value || "-"} />)}
                 </div>
-                <div className="mt-5 flex flex-wrap gap-3">
-                  <button onClick={() => navigate(`/ticket/${createdTicket.id}`)} className="astrea-button astrea-button-primary">View Ticket</button>
-                  <button onClick={() => navigate(`/ticket/${createdTicket.id}`)} className="astrea-button astrea-button-secondary">Open Ticket</button>
-                </div>
+                <p className="mt-5 text-sm font-semibold text-slate-600">Open Service Desk to view this centralized ticket using its ticket number.</p>
               </div>
             ) : (
               <div className="flex h-full min-h-72 flex-col items-center justify-center text-center text-slate-500">
@@ -458,21 +429,20 @@ function InfoCell({ label, value }) {
   return <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-black uppercase text-slate-500">{label}</p><p className="mt-1 font-bold text-slate-900">{value}</p></div>;
 }
 
-function SystemsTable({ systems, branchById, loading, onEdit, onStatus }) {
+function SystemsTable({ systems, loading, onEdit, onStatus }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1100px] text-left">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["System", "Status", "Branches", "Created", "Updated", "Last Used", "Actions"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["System", "Status", "Ticket Scope", "Created", "Updated", "Last Used", "Actions"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
           <tbody>
             {loading ? <tr><td colSpan="7" className="p-8 text-center text-slate-500">Loading systems...</td></tr> : systems.length === 0 ? <tr><td colSpan="7" className="p-8 text-center text-slate-500">No registered systems yet.</td></tr> : systems.map((system) => {
-              const allowed = Array.isArray(system.allowed_branches) ? system.allowed_branches : [];
               const active = system.status === "Active";
               return (
                 <tr key={system.integration_id} className="border-t border-slate-100 align-top">
                   <td className="px-4 py-4"><p className="font-black text-slate-900">{system.system_name}</p><p className="font-mono text-xs font-bold text-slate-500">{system.system_code}</p><p className="mt-1 text-xs text-slate-500">{system.description}</p></td>
                   <td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${active ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"}`}>{system.status}</span></td>
-                  <td className="px-4 py-4 text-sm font-semibold text-slate-600">{allowed.length ? allowed.map((id) => branchById.get(Number(id)) || `Branch #${id}`).join(", ") : "All branches"}</td>
+                  <td className="px-4 py-4 text-sm font-semibold text-slate-600">Centralized / branchless</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{formatDate(system.created_at)}<br />{system.created_by_name || "-"}</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{formatDate(system.updated_at)}</td>
                   <td className="px-4 py-4 text-sm text-slate-600">{formatDate(system.last_used_at)}</td>
@@ -508,6 +478,7 @@ function ApiKeysTable({ keys, confirmRegenerate, setConfirmRegenerate, keyAction
                       <button onClick={() => keyAction(`api-keys/${key.key_id}`, { method: "PATCH", body: { status: key.status === "Active" ? "Disabled" : "Active" } })} className="rounded-lg bg-slate-100 p-2 text-slate-700">{key.status === "Active" ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}</button>
                       <button onClick={() => setConfirmRegenerate(key.key_id)} className="rounded-lg bg-blue-50 p-2 text-blue-700"><KeyRound size={16} /></button>
                       <button onClick={() => keyAction(`api-keys/${key.key_id}/revoke`)} className="rounded-lg bg-rose-50 p-2 text-rose-700"><ShieldOff size={16} /></button>
+                      {key.status !== "Active" && !key.last_used_at && <button title="Delete unused key" aria-label={`Delete ${key.key_name}`} onClick={() => { if (window.confirm(`Delete unused key “${key.key_name}”?`)) keyAction(`api-keys/${key.key_id}`, { method: "DELETE" }); }} className="rounded-lg bg-rose-100 p-2 text-rose-800"><Trash2 size={16} /></button>}
                     </div>
                   )}
                 </td>

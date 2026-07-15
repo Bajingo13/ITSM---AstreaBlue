@@ -69,7 +69,7 @@ export default function SLAMonitor() {
   }, [fetchData]);
 
   useEffect(() => {
-    const socket = io(API_URL, { transports: ["websocket", "polling"], withCredentials: true });
+    const socket = io(API_URL, { transports: ["polling", "websocket"], withCredentials: true });
     const refreshForSlaUpdate = () => { void fetchData(); };
     socket.on("sla_updated", refreshForSlaUpdate);
     return () => {

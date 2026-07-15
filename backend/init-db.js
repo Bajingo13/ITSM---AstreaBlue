@@ -28,6 +28,7 @@ const migrationFiles = [
   "2026-07-14-change-request-workflow.sql",
   "2026-07-14-change-release-schema-hardening.sql",
   "2026-07-15-asset-query-performance.sql",
+  "2026-07-15-integration-hub-centralized-scope.sql",
 ];
 
 const defaultTicketCategories = [

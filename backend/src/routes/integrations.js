@@ -6,7 +6,6 @@ const {
   ensureIntegrationGatewaySchema,
   generateApiKey,
   hashApiKey,
-  parseAllowedBranches,
 } = require("../services/integrationService");
 
 const router = express.Router();
@@ -75,13 +74,15 @@ router.get("/dashboard", async (_req, res) => {
       WITH today_logs AS (
         SELECT *
         FROM integration_audit_logs
-        WHERE request_timestamp::date = CURRENT_DATE
+        WHERE request_timestamp >= CURRENT_DATE
+          AND request_timestamp < CURRENT_DATE + INTERVAL '1 day'
       ),
       today_tickets AS (
         SELECT *
         FROM tickets
         WHERE integration_id IS NOT NULL
-          AND created_at::date = CURRENT_DATE
+          AND created_at >= CURRENT_DATE
+          AND created_at < CURRENT_DATE + INTERVAL '1 day'
       ),
       most_active AS (
         SELECT i.system_name, COUNT(a.audit_id)::int AS request_count
@@ -120,17 +121,15 @@ router.get("/logs", async (_req, res) => {
         a.status_code,
         a.duration_ms,
         a.branch_id,
-        b.branch_name,
+        NULL::text AS branch_name,
         a.employee_id,
-        u.full_name AS employee_name,
+        NULL::text AS employee_name,
         a.source_ip,
         a.success,
         a.event_type,
         a.metadata
       FROM integration_audit_logs a
       LEFT JOIN integration_registry i ON i.integration_id = a.integration_id
-      LEFT JOIN branches b ON b.branch_id = a.branch_id
-      LEFT JOIN users u ON u.user_id = a.employee_id
       ORDER BY a.request_timestamp DESC
       LIMIT 250
     `);
@@ -198,7 +197,7 @@ router.post("/", requireSuperAdmin, async (req, res) => {
         req.body.description || null,
         hashApiKey(generateApiKey(systemCode)),
         req.body.status || "Active",
-        JSON.stringify(parseAllowedBranches(req.body.allowed_branches)),
+        JSON.stringify([]),
         req.user.userId || null,
       ]
     );
@@ -222,10 +221,6 @@ router.post("/", requireSuperAdmin, async (req, res) => {
 
 router.patch("/:id", requireSuperAdmin, async (req, res) => {
   try {
-    const allowedBranches = req.body.allowed_branches === undefined
-      ? null
-      : JSON.stringify(parseAllowedBranches(req.body.allowed_branches));
-
     const before = await db.query(`SELECT status FROM integration_registry WHERE integration_id = $1`, [req.params.id]);
     const result = await db.query(
       `
@@ -234,12 +229,12 @@ router.patch("/:id", requireSuperAdmin, async (req, res) => {
         system_name = COALESCE($1, system_name),
         description = COALESCE($2, description),
         status = COALESCE($3, status),
-        allowed_branches = COALESCE($4::jsonb, allowed_branches),
+        allowed_branches = '[]'::jsonb,
         updated_at = CURRENT_TIMESTAMP
-      WHERE integration_id = $5
+      WHERE integration_id = $4
       RETURNING integration_id, system_name, system_code, description, status, allowed_branches, created_by, created_at, updated_at, last_used_at
       `,
-      [req.body.system_name || null, req.body.description || null, req.body.status || null, allowedBranches, req.params.id]
+      [req.body.system_name || null, req.body.description || null, req.body.status || null, req.params.id]
     );
 
     if (!result.rows.length) {
@@ -371,6 +366,37 @@ router.post("/api-keys/:keyId/revoke", requireSuperAdmin, async (req, res) => {
   } catch (err) {
     console.error("Revoke integration key error:", err.message);
     res.status(500).json({ success: false, message: "Failed to revoke API key.", data: null });
+  }
+});
+
+router.delete("/api-keys/:keyId", requireSuperAdmin, async (req, res) => {
+  try {
+    const existing = await db.query(
+      `SELECT key_id, integration_id, key_name, status, last_used_at
+       FROM integration_api_keys WHERE key_id = $1`,
+      [req.params.keyId]
+    );
+    const key = existing.rows[0];
+    if (!key) {
+      return res.status(404).json({ success: false, message: "API key not found.", data: null });
+    }
+    if (key.status === "Active") {
+      return res.status(409).json({ success: false, message: "Disable or revoke this API key before deleting it.", data: null });
+    }
+    if (key.last_used_at) {
+      return res.status(409).json({ success: false, message: "A key that has been used must be retained for the audit trail. Revoke it instead.", data: null });
+    }
+
+    await db.query(`DELETE FROM integration_api_keys WHERE key_id = $1`, [key.key_id]);
+    await auditIntegrationRequest(req, "unused_api_key_deleted", {
+      integrationId: key.integration_id,
+      statusCode: 200,
+      metadata: { key_id: key.key_id, key_name: key.key_name },
+    });
+    return res.json({ success: true, message: "Unused API key deleted.", data: { key_id: key.key_id } });
+  } catch (err) {
+    console.error("Delete integration key error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to delete API key.", data: null });
   }
 });
 

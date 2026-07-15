@@ -9,7 +9,7 @@ function ensureSocket() {
   if (socket) return socket;
 
   socket = io(API_URL, {
-    transports: ["websocket", "polling"],
+    transports: ["polling", "websocket"],
     withCredentials: true,
   });
 

@@ -1,5 +1,5 @@
 const { rawPool } = require("../config/db");
-const { ensureIntegrationGatewaySchema, generateApiKey, hashApiKey, parseAllowedBranches } = require("../src/services/integrationService");
+const { ensureIntegrationGatewaySchema, generateApiKey, hashApiKey } = require("../src/services/integrationService");
 
 function argument(name) {
   const prefix = `--${name}=`;
@@ -9,7 +9,6 @@ function argument(name) {
 async function main() {
   const systemCode = String(argument("code") || "").trim().toUpperCase().replace(/[^A-Z0-9_]+/g, "_");
   const systemName = String(argument("name") || "").trim();
-  const allowedBranches = parseAllowedBranches(String(argument("branches") || "").split(","));
   const keyName = String(argument("key-name") || "Primary API Key").trim();
   if (!systemCode || !systemName) {
     throw new Error("Usage: npm run integration:provision -- --code=HRIS --name=HRIS [--key-name=Primary]");
@@ -27,7 +26,7 @@ async function main() {
          system_name=EXCLUDED.system_name, allowed_branches=EXCLUDED.allowed_branches,
          status='Active', updated_at=CURRENT_TIMESTAMP
        RETURNING integration_id,system_code,system_name,status,allowed_branches,created_at,last_used_at`,
-      [systemName, systemCode, `Centralized External Ticket API integration for ${systemName}`, hashApiKey(apiKey), JSON.stringify(allowedBranches)]
+      [systemName, systemCode, `Centralized External Ticket API integration for ${systemName}`, hashApiKey(apiKey), JSON.stringify([])]
     );
     await client.query(
       `UPDATE integration_api_keys SET status='Revoked',revoked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP

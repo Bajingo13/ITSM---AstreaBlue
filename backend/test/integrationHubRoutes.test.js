@@ -7,6 +7,7 @@ const http = require("node:http");
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const path = require("node:path");
+const crypto = require("node:crypto");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const db = require("../config/db");
@@ -47,5 +48,45 @@ test("Integration Hub management routes are mounted and protected", async () => 
     assert.equal(response.status, 200, `${route || "/"} should be mounted`);
     const body = await response.json();
     assert.equal(body.success, true);
+  }
+});
+
+test("SuperAdmin can delete only an unused inactive API key", async () => {
+  const marker = crypto.randomBytes(8).toString("hex");
+  let integrationId;
+  let keyId;
+  try {
+    const integration = await db.query(
+      `INSERT INTO integration_registry
+       (system_name, system_code, description, api_key_hash, status, allowed_branches)
+       VALUES ($1,$2,$3,$4,'Active','[]'::jsonb)
+       RETURNING integration_id`,
+      [`Delete Key Test ${marker}`, `DELETE_KEY_${marker.toUpperCase()}`, "Test only", crypto.createHash("sha256").update(`legacy-${marker}`).digest("hex")]
+    );
+    integrationId = integration.rows[0].integration_id;
+    const key = await db.query(
+      `INSERT INTO integration_api_keys (integration_id, key_name, api_key_hash, status)
+       VALUES ($1,'Mistaken key',$2,'Active') RETURNING key_id`,
+      [integrationId, crypto.createHash("sha256").update(`key-${marker}`).digest("hex")]
+    );
+    keyId = key.rows[0].key_id;
+
+    const activeDelete = await fetch(`${baseUrl}/api/v1/integrations/api-keys/${keyId}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(activeDelete.status, 409);
+
+    await db.query(`UPDATE integration_api_keys SET status='Disabled' WHERE key_id=$1`, [keyId]);
+    const deleted = await fetch(`${baseUrl}/api/v1/integrations/api-keys/${keyId}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(deleted.status, 200);
+    assert.equal((await deleted.json()).success, true);
+    assert.equal((await db.query(`SELECT 1 FROM integration_api_keys WHERE key_id=$1`, [keyId])).rowCount, 0);
+  } finally {
+    if (keyId) await db.query(`DELETE FROM integration_audit_logs WHERE event_type='unused_api_key_deleted' AND metadata->>'key_id'=$1`, [String(keyId)]);
+    if (integrationId) await db.query(`DELETE FROM integration_registry WHERE integration_id=$1`, [integrationId]);
   }
 });

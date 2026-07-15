@@ -234,7 +234,13 @@ test("Phase 3 external developer handoff acceptance workflow", async () => {
     headers: { authorization: `Bearer ${token(technicianA, "Technician", branchA)}` },
     body: JSON.stringify({ status: "In Progress", changed_by: technicianA }),
   });
-  assert.equal(statusUpdate.status, 200);
+  assert.equal(statusUpdate.status, 404);
+  const superAdminStatusUpdate = await request(`/api/v1/tickets/${externalTicketId}`, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${token(superAdmin, "SuperAdmin", null)}` },
+    body: JSON.stringify({ status: "In Progress", changed_by: superAdmin }),
+  });
+  assert.equal(superAdminStatusUpdate.status, 200);
   const lookup = await request(`/api/v1/external/tickets/${external.body.data.ticket_number}`, { headers: { "x-api-key": keyA } });
   assert.equal(lookup.status, 200);
   assert.equal(lookup.body.data.status, "In Progress");

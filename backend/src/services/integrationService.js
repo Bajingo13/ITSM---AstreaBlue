@@ -36,8 +36,12 @@ function integrationAllowsBranch(integration, branchId) {
   return allowed.includes(Number.parseInt(branchId, 10));
 }
 
-async function ensureIntegrationGatewaySchema() {
-  await db.query(`
+let integrationSchemaPromise = null;
+
+function ensureIntegrationGatewaySchema() {
+  if (integrationSchemaPromise) return integrationSchemaPromise;
+
+  integrationSchemaPromise = db.query(`
     CREATE TABLE IF NOT EXISTS integration_registry (
       integration_id SERIAL PRIMARY KEY,
       system_name VARCHAR(150) NOT NULL,
@@ -113,7 +117,12 @@ async function ensureIntegrationGatewaySchema() {
     CREATE UNIQUE INDEX IF NOT EXISTS uq_external_comment_reference
       ON ticket_comments(ticket_id, integration_id, external_comment_reference)
       WHERE integration_id IS NOT NULL AND external_comment_reference IS NOT NULL;
-  `);
+  `).catch((error) => {
+    integrationSchemaPromise = null;
+    throw error;
+  });
+
+  return integrationSchemaPromise;
 }
 
 async function auditIntegrationRequest(req, eventType, options = {}) {

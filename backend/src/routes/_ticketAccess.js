@@ -39,6 +39,11 @@ function addTicketAccessFilter(req, params, alias = "t") {
     return clauses;
   }
 
+  // Centralized external-system tickets are enterprise records. They remain
+  // exclusive to SuperAdmin; branch and assignment rules below apply only to
+  // the existing internal Service Desk workflow.
+  clauses.push(`${alias}.integration_id IS NULL`);
+
   if (normalizedRole === "employee" && currentUserId) {
     params.push(currentUserId);
     clauses.push(`${alias}.requester_id = $${params.length}`);
