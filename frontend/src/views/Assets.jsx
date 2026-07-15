@@ -751,18 +751,22 @@ export default function Assets() {
     }
   }, []);
 
-  const fetchAssets = useCallback(async () => {
+  const fetchAssets = useCallback(async ({ background = false } = {}) => {
     try {
-      setLoading(true);
+      if (!background) setLoading(true);
       const query = buildTicketQuery(user, {});
-      const res = await fetch(`${API_BASE}/hardware-assets${query}`);
-      const data = await res.json();
+      const res = await fetch(`${API_BASE}/hardware-assets${query}`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => []);
+      if (!res.ok) throw new Error(data.error || data.message || "Unable to load hardware assets");
       setAssets(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Fetch hardware assets failed:", err);
-      setAssets([]);
+      if (!background) setAssets([]);
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, [user, isSuperAdmin]);
 
@@ -1135,7 +1139,7 @@ export default function Assets() {
         assetId ? `${API_BASE}/hardware-assets/${assetId}` : `${API_BASE}/hardware-assets`,
         {
           method: assetId ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify(body),
         }
       );
@@ -1145,8 +1149,18 @@ export default function Assets() {
         throw new Error(data.error || data.message || "Unable to save asset");
       }
 
-      await fetchAssets();
+      const branch = branches.find((item) => Number(item.branch_id) === Number(data.branch_id));
+      const savedAsset = {
+        ...data,
+        branch_name: data.branch_name || branch?.branch_name || "Unassigned Branch",
+      };
+      setAssets((current) => assetId
+        ? current.map((item) => Number(item.asset_id) === Number(assetId) ? { ...item, ...savedAsset } : item)
+        : [savedAsset, ...current]
+      );
       closeAssetModal();
+      showToast(assetId ? "Hardware asset updated successfully." : "Hardware asset added successfully.", "success");
+      void fetchAssets({ background: true });
     } catch (err) {
       console.error("Save hardware asset failed:", err);
       setModalError(err.message || "Unable to save asset");

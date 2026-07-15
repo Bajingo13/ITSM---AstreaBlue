@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Search,
@@ -22,9 +22,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { subscribeToTicketChanges } from "../../services/realtimeTickets";
-
-import { useEffect } from "react";
 import { API_URL } from "../../config/api";
+import { authHeaders } from "../../services/authHeaders";
 
 function NotifIcon({ type, title }) {
   const base = "flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-sm border";
@@ -88,29 +87,45 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
   const [quickOpen, setQuickOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [notifications, setNotifications] = useState([]);
-  
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+  const notificationAuthFailed = useRef(false);
 
-  const fetchNotifications = async () => {
-    if (!user?.user_id) return;
+  const fetchNotifications = useCallback(async () => {
+    if (!user?.user_id || notificationAuthFailed.current) return [];
+    const headers = authHeaders();
+    if (!headers.Authorization) {
+      notificationAuthFailed.current = true;
+      return [];
+    }
     try {
       const res = await fetch(`${API_URL}/api/v1/notifications`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers,
+        cache: "no-store",
       });
+      if (res.status === 401 || res.status === 403) {
+        notificationAuthFailed.current = true;
+        setNotifications([]);
+        return [];
+      }
       if (res.ok) {
         const data = await res.json();
-        setNotifications(data || []);
+        const rows = Array.isArray(data) ? data : [];
+        setNotifications(rows);
+        return rows;
       }
     } catch (err) {
       console.error("Failed to fetch notifications:", err);
     }
-  };
+    return [];
+  }, [user?.user_id]);
 
   useEffect(() => {
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000); // refresh every 30s
+    notificationAuthFailed.current = false;
+    void fetchNotifications();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void fetchNotifications();
+    }, 60000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [fetchNotifications]);
 
   useEffect(() => {
     let timeoutId;
@@ -122,17 +137,15 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
       window.clearTimeout(timeoutId);
       unsubscribe();
     };
-  }, [user]);
+  }, [fetchNotifications]);
 
   const handleMarkAsRead = async (id) => {
     try {
       const res = await fetch(`${API_URL}/api/v1/notifications/${id}/read`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        }
+        headers: authHeaders({ "Content-Type": "application/json" }),
       });
+      if (res.status === 401 || res.status === 403) notificationAuthFailed.current = true;
       if (res.ok) {
         setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
       }

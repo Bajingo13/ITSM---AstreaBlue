@@ -27,6 +27,7 @@ const migrationFiles = [
   "2026-07-14-endpoint-agent-enrollment.sql",
   "2026-07-14-change-request-workflow.sql",
   "2026-07-14-change-release-schema-hardening.sql",
+  "2026-07-15-asset-query-performance.sql",
 ];
 
 const defaultTicketCategories = [

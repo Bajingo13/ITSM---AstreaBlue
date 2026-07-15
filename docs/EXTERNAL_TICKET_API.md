@@ -26,7 +26,7 @@ Provisioning the same code rotates its credential and revokes older keys.
 ## 4. Base URLs
 
 - Local: `http://localhost:5000/api/v1/external`
-- Production: `https://<astreablue-host>/api/v1/external`
+- Production: `https://backend-production-fc059.up.railway.app/api/v1/external`
 
 Production integrations must use HTTPS.
 
