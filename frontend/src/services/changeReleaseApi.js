@@ -115,4 +115,45 @@ export const changeReleaseApi = {
 
   // --- Audit ---
   getAuditLog: (id) => request(`/changes/${id}/audit`).then((r) => r.data || []),
+  // --- Releases ---
+  listReleases: (params = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") p.set(k, v); });
+    return request(`/releases?${p}`);
+  },
+
+  getRelease: (id) => request(`/releases/${id}`).then((r) => r.data),
+
+  createRelease: (data) => request("/releases", { method: "POST", body: JSON.stringify(data) }).then((r) => r.data),
+
+  updateRelease: (id, data) => request(`/releases/${id}`, { method: "PUT", body: JSON.stringify(data) }).then((r) => r.data),
+
+  transitionRelease: (id, status, payload = {}) =>
+    request(`/releases/${id}/status`, { method: "PATCH", body: JSON.stringify({ status, ...payload }) }).then((r) => r.data),
+
+  // --- Release comments ---
+  getReleaseComments: (id) => request(`/releases/${id}/comments`).then((r) => r.data || []),
+  addReleaseComment: (id, message) =>
+    request(`/releases/${id}/comments`, { method: "POST", body: JSON.stringify({ message }) }).then((r) => r.data),
+
+  // --- Release attachments ---
+  uploadReleaseAttachments: (id, files) => changeReleaseApi.upload(`/releases/${id}/attachments`, files),
+
+  // --- Release audit ---
+  getReleaseAudit: (id) => request(`/releases/${id}/audit`).then((r) => r.data || []),
+
+  // --- Release environments ---
+  updateReleaseEnvironment: (releaseId, envId, data) =>
+    request(`/releases/${releaseId}/environments/${envId}`, { method: "PUT", body: JSON.stringify(data) }).then((r) => r.data),
+
+  // --- Release steps ---
+  updateReleaseStep: (releaseId, stepId, data) =>
+    request(`/releases/${releaseId}/steps/${stepId}`, { method: "PUT", body: JSON.stringify(data) }).then((r) => r.data),
+
+  // --- Rollback procedures (for linking) ---
+  listRollbacks: (params = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") p.set(k, v); });
+    return request(`/rollbacks?${p}`);
+  },
 };

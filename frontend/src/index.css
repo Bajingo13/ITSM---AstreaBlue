@@ -436,6 +436,16 @@ label:has(> textarea[required]):not(:has(> span))::before {
   font-weight: 900;
 }
 
+.astrea-control,
+.astrea-control option {
+  font-weight: 400;
+}
+
+.astrea-control::placeholder {
+  font-weight: 400;
+  opacity: 0.65;
+}
+
 .astrea-control {
   width: 100%;
   min-height: 2.875rem;
