@@ -17,7 +17,6 @@ import {
   Monitor,
   Package,
   Plug,
-  RotateCcw,
   Settings,
   Shield,
   Ticket,
@@ -61,8 +60,6 @@ const coreModuleItems = [
     icon: GitBranch,
     children: [
       { label: "Change Request Workflow", icon: ClipboardList, path: "/change-management" },
-      { label: "Release Planning", icon: Briefcase, path: "/release-planning" },
-      { label: "Rollback Procedures", icon: RotateCcw, path: "/rollback-procedures" },
     ],
   },
   {

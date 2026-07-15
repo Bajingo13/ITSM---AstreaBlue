@@ -120,4 +120,18 @@ export const changeReleaseApi = {
 
   // --- Audit ---
   getAuditLog: (id) => request(`/changes/${id}/audit`).then((r) => r.data || []),
+
+  // --- Release plans ---
+  listReleases: (params = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") p.set(k, v); });
+    return request(`/releases?${p}`);
+  },
+
+  // --- Rollback procedures ---
+  listRollbacks: (params = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") p.set(k, v); });
+    return request(`/rollbacks?${p}`);
+  },
 };
