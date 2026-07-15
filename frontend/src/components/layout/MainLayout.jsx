@@ -1,5 +1,5 @@
 import { Outlet } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import SideBar from "./SideBar";
 import TopNav from "./TopNav";
 import AIAssistant from "./AIAssistant";
@@ -27,7 +27,9 @@ export default function MainLayout() {
         style={{ marginLeft: sidebarCollapsed ? 68 : 260 }}
       >
         <div className="p-5">
-          <Outlet />
+          <Suspense fallback={<div className="flex min-h-[45vh] items-center justify-center"><div className="h-9 w-9 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600" /></div>}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
 

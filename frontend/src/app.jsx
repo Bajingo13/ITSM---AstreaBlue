@@ -1,58 +1,58 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 import Login from "./login";
 import ProtectedRoute from "./context/ProtectedRoute";
 import MainLayout from "./components/layout/MainLayout";
 
-import Dashboard from "./views/Dashboard";
-import SoftwareLicenses from "./views/SoftwareLicenses";
-import AdminDashboard from "./views/AdminDashboard";
-import TechnicianDashboard from "./views/TechnicianDashboard";
-import EmployeeDashboard from "./views/EmployeeDashboard";
-import SuperAdminDashboard from "./views/SuperAdminDashboard";
-import AvailableTickets from "./views/AvailableTickets";
-import MyAssignedTickets from "./views/MyAssignedTickets";
-import ResolvedTickets from "./views/ResolvedTickets";
-import CreateTicket from "./views/CreateTicket";
-import MyTickets from "./views/MyTickets";
-
-import Tickets from "./views/Tickets";
-import ServiceCatalog from "./views/ServiceCatalog";
-import KnowledgeBase from "./views/KnowledgeBase";
-import SLAMonitor from "./views/SLAMonitor";
-import Assets from "./views/Assets";
-import AssetDiscovery from "./views/AssetDiscovery";
-import AssetFinancials from "./views/AssetFinancials";
-import CMDB from "./views/CMDB";
-import ProblemManagement from "./views/ProblemManagement";
-import Analytics from "./views/Analytics";
-import EndpointPolicies from './views/EndpointPolicies';
-import EndpointMonitoring from "./views/EndpointMonitoring";
-import EndpointAgentAdministration from "./views/EndpointAgentAdministration";
-import Settings from "./views/Settings";
-import UserManagement from "./views/UserManagement";
-import BranchManagement from "./views/BranchManagement";
-import Integrations from "./views/Integrations";
-import InviteRegistration from "./views/InviteRegistration";
-import RA10173Compliance from "./views/RA10173Compliance";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import ModulePlaceholder from "./views/ModulePlaceholder";
 import ForgotPassword from "./ForgotPassword";
 import ResetPassword from "./ResetPassword";
-import NotificationTicketDetails from "./views/NotificationTicketDetails";
-import ConsentPage from "./views/ConsentPage";
-import ConsentManagement from "./views/ConsentManagement";
-import ScreenshotCapture from "./views/ScreenshotCapture";
-import MandatoryOnboarding from "./views/MandatoryOnboarding";
-
-const ChangeManagement = lazy(() => import("./views/ChangeManagement"));
-const ReleasePlanning = lazy(() => import("./views/ReleasePlanning"));
-const RollbackProcedures = lazy(() => import("./views/RollbackProcedures"));
-const AdvancedProjectDashboard = lazy(() => import("./views/AdvancedProjectDashboard"));
-const ExecutiveOperationsDashboard = lazy(() => import("./views/ExecutiveOperationsDashboard"));
-const AnalyticsSection = lazy(() => import("./views/AnalyticsSection"));
-const PredictiveAnalytics = lazy(() => import("./views/PredictiveAnalytics"));
-const CustomReports = lazy(() => import("./views/CustomReports"));
+import {
+  AdminDashboard,
+  AdvancedProjectDashboard,
+  Analytics,
+  AnalyticsSection,
+  AssetDiscovery,
+  AssetFinancials,
+  Assets,
+  AvailableTickets,
+  BranchManagement,
+  ChangeManagement,
+  CMDB,
+  ConsentManagement,
+  ConsentPage,
+  CreateTicket,
+  CustomReports,
+  Dashboard,
+  EmployeeDashboard,
+  EndpointAgentAdministration,
+  EndpointMonitoring,
+  EndpointPolicies,
+  ExecutiveOperationsDashboard,
+  Integrations,
+  InviteRegistration,
+  KnowledgeBase,
+  MandatoryOnboarding,
+  ModulePlaceholder,
+  MyAssignedTickets,
+  MyTickets,
+  NotificationTicketDetails,
+  PredictiveAnalytics,
+  ProblemManagement,
+  RA10173Compliance,
+  ReleasePlanning,
+  ResolvedTickets,
+  RollbackProcedures,
+  ScreenshotCapture,
+  ServiceCatalog,
+  Settings,
+  SLAMonitor,
+  SoftwareLicenses,
+  SuperAdminDashboard,
+  TechnicianDashboard,
+  Tickets,
+  UserManagement,
+} from "./routes/lazyViews";
 
 const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
 const ADMIN_ROLES = ["SuperAdmin", "Admin"];

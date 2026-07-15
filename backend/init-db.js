@@ -29,6 +29,7 @@ const migrationFiles = [
   "2026-07-14-change-release-schema-hardening.sql",
   "2026-07-15-asset-query-performance.sql",
   "2026-07-15-integration-hub-centralized-scope.sql",
+  "2026-07-15-core-query-performance.sql",
 ];
 
 const defaultTicketCategories = [
@@ -73,7 +74,23 @@ async function runMigrations() {
   const client = await rawPool.connect();
 
   try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        migration_name TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     for (const fileName of migrationFiles) {
+      const applied = await client.query(
+        "SELECT 1 FROM schema_migrations WHERE migration_name = $1",
+        [fileName]
+      );
+      if (applied.rowCount) {
+        console.log(`[AstreaBlue DB] already applied ${fileName}`);
+        continue;
+      }
+
       const filePath = path.join(__dirname, "database", fileName);
       const sql = fs.readFileSync(filePath, "utf8");
 
@@ -82,6 +99,10 @@ async function runMigrations() {
 
       try {
         await client.query(sql);
+        await client.query(
+          "INSERT INTO schema_migrations (migration_name) VALUES ($1)",
+          [fileName]
+        );
         await client.query("COMMIT");
       } catch (error) {
         await client.query("ROLLBACK");

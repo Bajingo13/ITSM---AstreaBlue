@@ -170,8 +170,6 @@ async function ensureUserStatusColumn() {
   }
 }
 
-ensureUserStatusColumn();
-
 async function ensureTicketWorkflowColumns() {
   try {
     await db.query(`
@@ -254,10 +252,6 @@ async function ensureRoleBranchManagement() {
     console.error("Role/branch setup error:", err.message);
   }
 }
-
-ensureRoleBranchManagement();
-ensureKnowledgeBaseTable();
-ensureTicketWorkflowColumns();
 
 async function ensureAttachmentsAndInvites() {
   try {
@@ -704,9 +698,6 @@ async function ensureCmdbTables() {
   }
 }
 
-ensureAttachmentsAndInvites();
-const hardwareAssetTablesReady = ensureHardwareAssetTables();
-
 async function ensureRa10173Tables() {
   try {
     await db.query(`
@@ -765,8 +756,26 @@ async function ensureRa10173Tables() {
   }
 }
 
-ensureRa10173Tables();
-ensureCmdbTables();
+// Legacy inline routes still depend on these compatibility checks. Run them in
+// one sequence to avoid concurrent ALTER TABLE locks during application boot.
+// Normal schema evolution is handled by init-db.js migrations.
+const legacySchemaReady = (async () => {
+  await ensureUserStatusColumn();
+  await ensureRoleBranchManagement();
+  await ensureKnowledgeBaseTable();
+  await ensureTicketWorkflowColumns();
+  await ensureAttachmentsAndInvites();
+  const hardwareReady = await ensureHardwareAssetTables();
+  await ensureRa10173Tables();
+  await ensureCmdbTables();
+  await ensureSoftwareLicensesTable();
+  return hardwareReady !== false;
+})().catch((error) => {
+  console.error("Legacy schema compatibility setup failed:", error.message);
+  return false;
+});
+
+const hardwareAssetTablesReady = legacySchemaReady;
 
 
 /* ==========================
@@ -774,6 +783,10 @@ ensureCmdbTables();
 ========================== */
 
 app.use("/api/auth", authRoutes);
+app.use("/api/v1", async (_req, res, next) => {
+  if (await legacySchemaReady) return next();
+  return res.status(503).json({ success: false, message: "Database initialization is still unavailable." });
+});
 app.use("/api/v1", onboardingAccessGuard);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/sla", slaRoutes);
@@ -3119,8 +3132,6 @@ async function ensureSoftwareLicensesTable() {
     console.error("Software licenses table setup error:", err.message);
   }
 }
-ensureSoftwareLicensesTable();
-
 function parseBranchId(value) {
   if (value === undefined || value === null || value === "") return null;
   if (["all", "undefined", "null"].includes(String(value).toLowerCase())) return null;

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { preloadRoute } from "../../routes/lazyViews";
 
 const coreModuleItems = [
   {
@@ -210,6 +211,8 @@ function NavGroup({ item, collapsed, dashboardPath }) {
     return (
       <Link
         to={itemPath}
+        onMouseEnter={() => void preloadRoute(itemPath)}
+        onFocus={() => void preloadRoute(itemPath)}
         title={collapsed ? item.label : undefined}
         className={`astrea-nav-item flex items-center gap-3 rounded-xl px-3 py-3 transition-all ${
           isActive
@@ -265,6 +268,8 @@ function NavGroup({ item, collapsed, dashboardPath }) {
               <Link
                 key={child.path}
                 to={child.path}
+                onMouseEnter={() => void preloadRoute(child.path)}
+                onFocus={() => void preloadRoute(child.path)}
                 title={child.label}
                 className={`astrea-nav-child flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all ${
                   childActive
