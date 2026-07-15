@@ -17,6 +17,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   ShieldCheck,
   Trash2,
@@ -25,7 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
+import { buildTicketPayload } from "../utils/ticketAccess";
 import { API_URL } from "../config/api";
 
 import { authHeaders } from "../services/authHeaders";
@@ -690,6 +691,7 @@ export default function Assets() {
   const [branches, setBranches] = useState([]);
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [assetLoadError, setAssetLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilters, setStatusFilters] = useState([]);
@@ -719,6 +721,7 @@ export default function Assets() {
   const [deletingAsset, setDeletingAsset] = useState(null);
   const [toast, setToast] = useState(null); // { message, type } where type is "success" | "error"
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
+  const assetRequestIdRef = useRef(0);
 
   const changeViewMode = (mode) => {
     setViewMode(mode);
@@ -752,23 +755,41 @@ export default function Assets() {
   }, []);
 
   const fetchAssets = useCallback(async ({ background = false } = {}) => {
+    const requestId = ++assetRequestIdRef.current;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+
     try {
-      if (!background) setLoading(true);
-      const query = buildTicketQuery(user, {});
-      const res = await fetch(`${API_BASE}/hardware-assets${query}`, {
+      if (!background) {
+        setLoading(true);
+        setAssetLoadError("");
+      }
+      const res = await fetch(`${API_BASE}/hardware-assets`, {
         headers: authHeaders(),
         cache: "no-store",
+        signal: controller.signal,
       });
       const data = await res.json().catch(() => []);
       if (!res.ok) throw new Error(data.error || data.message || "Unable to load hardware assets");
-      setAssets(Array.isArray(data) ? data : []);
+      if (requestId === assetRequestIdRef.current) {
+        setAssets(Array.isArray(data) ? data : []);
+        setAssetLoadError("");
+      }
     } catch (err) {
       console.error("Fetch hardware assets failed:", err);
-      if (!background) setAssets([]);
+      if (!background && requestId === assetRequestIdRef.current) {
+        setAssets([]);
+        setAssetLoadError(
+          err?.name === "AbortError"
+            ? "The asset server took too long to respond. Please retry."
+            : err?.message || "Unable to load hardware assets."
+        );
+      }
     } finally {
-      if (!background) setLoading(false);
+      window.clearTimeout(timeoutId);
+      if (!background && requestId === assetRequestIdRef.current) setLoading(false);
     }
-  }, [user, isSuperAdmin]);
+  }, []);
 
 
 
@@ -1557,6 +1578,8 @@ export default function Assets() {
             <div className="flex min-h-56 items-center justify-center rounded-3xl border border-slate-200 bg-white text-slate-400 shadow-sm">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading assets...
             </div>
+          ) : assetLoadError ? (
+            <AssetLoadFailure message={assetLoadError} onRetry={() => fetchAssets()} />
           ) : visibleAssets.length === 0 ? (
             <div className="flex min-h-56 items-center justify-center rounded-3xl border border-slate-200 bg-white text-slate-400 shadow-sm">No hardware assets found.</div>
           ) : (
@@ -1604,6 +1627,12 @@ export default function Assets() {
                   <div className="inline-flex items-center gap-2 text-sm font-semibold">
                     <Loader2 className="h-4 w-4 animate-spin" /> Loading assets...
                   </div>
+                </td>
+              </tr>
+            ) : assetLoadError ? (
+              <tr>
+                <td colSpan="16" className="px-4 py-12">
+                  <AssetLoadFailure message={assetLoadError} onRetry={() => fetchAssets()} compact />
                 </td>
               </tr>
             ) : visibleAssets.length === 0 ? (
@@ -1861,6 +1890,22 @@ export default function Assets() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function AssetLoadFailure({ message, onRetry, compact = false }) {
+  return (
+    <div className={`flex flex-col items-center justify-center text-center ${compact ? "py-2" : "min-h-56 rounded-3xl border border-rose-200 bg-rose-50 px-6 shadow-sm"}`}>
+      <AlertTriangle className="mb-3 h-7 w-7 text-rose-500" />
+      <p className="text-sm font-bold text-rose-700">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-600/20"
+      >
+        <RefreshCw size={16} /> Retry loading assets
+      </button>
     </div>
   );
 }

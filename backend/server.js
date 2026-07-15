@@ -1440,6 +1440,9 @@ async function createBorrowRecord(assetId, record) {
 app.get("/api/v1/hardware-assets", async (req, res) => {
   try {
     await requireHardwareAssetTables();
+    if (!getAuthFromRequest(req)) {
+      return res.status(401).json({ success: false, error: "Authentication required." });
+    }
     const accessFilter = getHardwareAssetAccessFilter(req);
     const params = [...accessFilter.params];
     const filters = [];

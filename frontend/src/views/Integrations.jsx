@@ -20,7 +20,6 @@ import { authHeaders } from "../services/authHeaders";
 
 const API_BASE = `${API_URL}/api/v1`;
 const tabs = ["Registered Systems", "API Keys", "Integration Console", "API Logs"];
-const modules = ["Attendance", "Payroll", "Leave", "Recruitment", "Reports", "Settings", "Other"];
 const priorities = [
   ["P4-Low", "Low"],
   ["P3-Medium", "Medium"],
@@ -33,8 +32,6 @@ const emptyConsole = {
   external_employee_id: "",
   requester_name: "",
   requester_email: "",
-  origin_module: "Attendance",
-  feature: "",
   priority: "P3-Medium",
   title: "",
   description: "",
@@ -240,9 +237,11 @@ export default function Integrations() {
         requester_name: consoleForm.requester_name,
         requester_email: consoleForm.requester_email,
         origin_system: system?.system_name || null,
-        origin_module: consoleForm.origin_module,
+        // The console is an API connectivity test, not a second ticket form.
+        // Keep gateway metadata valid without exposing system-specific module
+        // choices that belong to the originating application's own UI.
+        origin_module: "API Test Console",
         external_reference: consoleForm.external_reference,
-        origin_feature: consoleForm.feature || null,
       };
       const res = await fetch(`${API_BASE}/external/tickets`, {
         method: "POST",
@@ -374,19 +373,20 @@ export default function Integrations() {
           <form onSubmit={createTestTicket} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-3">
               <div className="rounded-xl bg-blue-50 p-3 text-blue-700"><MonitorCog size={20} /></div>
-              <div><h2 className="text-lg font-black text-slate-900">Integration Console</h2><p className="text-sm text-slate-500">Safe external-system simulation</p></div>
+              <div><h2 className="text-lg font-black text-slate-900">External API Test</h2><p className="text-sm text-slate-500">Verify a system and newly generated key</p></div>
+            </div>
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+              This sends a real test ticket to the centralized Service Desk. System-specific module details belong to the external system and are not part of this test form.
             </div>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="astrea-field-label sm:col-span-2">Registered System<select value={consoleForm.integration_id} onChange={(e) => setConsoleForm({ ...consoleForm, integration_id: e.target.value })} className="astrea-control mt-2">{systems.map((system) => <option key={system.integration_id} value={system.integration_id}>{system.system_name}</option>)}</select></label>
               <label className="astrea-field-label">External Employee ID<input required value={consoleForm.external_employee_id} onChange={(e) => setConsoleForm({ ...consoleForm, external_employee_id: e.target.value })} className="astrea-control mt-2" placeholder="INV-EMP-001" /></label>
               <label className="astrea-field-label">Requester Name<input required value={consoleForm.requester_name} onChange={(e) => setConsoleForm({ ...consoleForm, requester_name: e.target.value })} className="astrea-control mt-2" placeholder="Employee name" /></label>
               <label className="astrea-field-label sm:col-span-2">Requester Email<input required type="email" value={consoleForm.requester_email} onChange={(e) => setConsoleForm({ ...consoleForm, requester_email: e.target.value })} className="astrea-control mt-2" placeholder="employee@company.com" /></label>
-              <label className="astrea-field-label">Module<select value={consoleForm.origin_module} onChange={(e) => setConsoleForm({ ...consoleForm, origin_module: e.target.value })} className="astrea-control mt-2">{modules.map((item) => <option key={item}>{item}</option>)}</select></label>
-              <label className="astrea-field-label">Priority<select value={consoleForm.priority} onChange={(e) => setConsoleForm({ ...consoleForm, priority: e.target.value })} className="astrea-control mt-2">{priorities.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-              <label className="astrea-field-label sm:col-span-2">Feature<input value={consoleForm.feature} onChange={(e) => setConsoleForm({ ...consoleForm, feature: e.target.value })} className="astrea-control mt-2" placeholder="Time In" /></label>
+              <label className="astrea-field-label sm:col-span-2">Priority<select value={consoleForm.priority} onChange={(e) => setConsoleForm({ ...consoleForm, priority: e.target.value })} className="astrea-control mt-2">{priorities.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label className="astrea-field-label sm:col-span-2">Title<input required value={consoleForm.title} onChange={(e) => setConsoleForm({ ...consoleForm, title: e.target.value })} className="astrea-control mt-2" /></label>
               <label className="astrea-field-label sm:col-span-2">Description<textarea required value={consoleForm.description} onChange={(e) => setConsoleForm({ ...consoleForm, description: e.target.value })} className="astrea-control mt-2 min-h-32" /></label>
-              <label className="astrea-field-label sm:col-span-2">External Reference<input required value={consoleForm.external_reference} onChange={(e) => setConsoleForm({ ...consoleForm, external_reference: e.target.value })} className="astrea-control mt-2" placeholder="INV-HELP-000145" /></label>
+              <label className="astrea-field-label sm:col-span-2">Unique Test Reference<input required value={consoleForm.external_reference} onChange={(e) => setConsoleForm({ ...consoleForm, external_reference: e.target.value })} className="astrea-control mt-2" placeholder="INV-TEST-000145" /><span className="mt-1 block text-xs font-semibold text-slate-500">Use a new value for each new test. Reusing it safely returns the same ticket.</span></label>
             </div>
             <div className="mt-5 flex flex-wrap gap-3">
               <button disabled={saving} className="astrea-button astrea-button-primary"><Send size={16} /> Create Test Ticket</button>
@@ -402,7 +402,7 @@ export default function Integrations() {
                   {[
                     ["Ticket Number", createdTicket.ticket_number],
                     ["Origin System", createdTicket.origin_system],
-                    ["Module", createdTicket.origin_module],
+                    ["Test Source", createdTicket.origin_module],
                     ["Priority", createdTicket.priority],
                     ["Status", createdTicket.status],
                     ["Created At", formatDate(createdTicket.created_at)],
