@@ -15,6 +15,7 @@ let branchId;
 let actorId;
 const deviceIds = [];
 const codeIds = [];
+const consentIds = [];
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 
 function managerToken(role = "Admin") {
@@ -99,6 +100,7 @@ test.after(async () => {
     );
   }
   if (codeIds.length) await db.query(`DELETE FROM endpoint_enrollment_codes WHERE enrollment_code_id=ANY($1::bigint[])`, [codeIds]);
+  if (consentIds.length) await db.query(`DELETE FROM consent_documents WHERE consent_id=ANY($1::bigint[])`, [consentIds]);
   if (deviceIds.length) await db.query(`DELETE FROM monitored_devices WHERE device_id=ANY($1::bigint[])`, [deviceIds]);
   if (server) await new Promise((resolve) => server.close(resolve));
   await db.rawPool.end();
@@ -288,4 +290,56 @@ test("legacy global token remains available during migration", async () => {
   const response = await agentRequest("/heartbeat", process.env.MONITORING_AGENT_TOKEN, "POST", heartbeatBody(deviceUuid, hostname));
   assert.equal(response.status, 200);
   deviceIds.push((await response.json()).data.device_id);
+});
+
+test("approved consent policy becomes the agent baseline without a manual policy assignment", async () => {
+  const deviceUuid = crypto.randomUUID();
+  const hostname = "CONSENT-POLICY-BASELINE";
+  const code = await createEnrollmentCode(hostname);
+  const enrolled = await enroll(code, deviceUuid, hostname);
+  assert.equal(enrolled.response.status, 201);
+  const credential = enrolled.body.data.device_credential;
+
+  await db.query(
+    `UPDATE monitored_devices SET assigned_user_id=$1, branch_id=$2 WHERE device_uuid=$3::uuid`,
+    [actorId, branchId, deviceUuid]
+  );
+  const consent = await db.query(
+    `INSERT INTO consent_documents
+       (employee_id,employee_full_name,employee_email,form_title,consent_version,
+        monitoring_preferences,status,active,approved_at)
+     VALUES ($1,'Consent Policy Test','consent-policy-test@astreablue.test',
+       'Endpoint Monitoring Consent','1.0',$2::jsonb,'approved',true,CURRENT_TIMESTAMP)
+     RETURNING consent_id`,
+    [actorId, JSON.stringify(["app_usage", "idle_time", "window_title", "screenshot", "usb_monitoring", "website_monitoring"])]
+  );
+  const consentId = consent.rows[0].consent_id;
+  consentIds.push(consentId);
+  await db.query(
+    `INSERT INTO endpoint_monitoring_policies
+       (consent_id,consent_version,employee_id,device_uuid,application_monitoring,
+        web_monitoring,screenshot_monitoring,usb_monitoring,location_tracking,status)
+     VALUES ($1,'1.0',$2,NULL,true,true,true,true,false,'active')`,
+    [consentId, actorId]
+  );
+
+  const policyResponse = await agentRequest(`/policy/latest?device_uuid=${encodeURIComponent(deviceUuid)}`, credential);
+  assert.equal(policyResponse.status, 200);
+  const policy = (await policyResponse.json()).data;
+  assert.equal(policy.policy_name, "Approved Consent Policy");
+  assert.equal(policy.activity_monitoring_enabled, true);
+  assert.equal(policy.screenshot_monitoring_enabled, true);
+  assert.equal(policy.browser_monitoring_enabled, true);
+  assert.equal(policy.usb_monitoring_enabled, true);
+  assert.equal(policy.location_tracking_enabled, false);
+
+  const activity = await agentRequest("/activity", credential, "POST", {
+    device_uuid: deviceUuid,
+    hostname,
+    app_name: "Consent Policy Test",
+    window_title: "Approved activity",
+    idle_seconds: 5,
+    occurred_at: new Date().toISOString(),
+  });
+  assert.equal(activity.status, 201);
 });
