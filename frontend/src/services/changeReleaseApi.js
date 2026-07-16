@@ -71,7 +71,8 @@ export const changeReleaseApi = {
   listChanges: (params = {}) => {
     const p = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") p.set(k, v); });
-    return request(`/changes?${p}`);
+    const qs = p.toString();
+    return request(`/changes${qs ? "?" + qs : ""}`);
   },
 
   getChange: (id) => request(`/changes/${id}`).then((r) => r.data),
@@ -125,13 +126,15 @@ export const changeReleaseApi = {
   listReleases: (params = {}) => {
     const p = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") p.set(k, v); });
-    return request(`/releases?${p}`);
+    const qs = p.toString();
+    return request(`/releases${qs ? "?" + qs : ""}`);
   },
 
   // --- Rollback procedures ---
   listRollbacks: (params = {}) => {
     const p = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") p.set(k, v); });
-    return request(`/rollbacks?${p}`);
+    const qs = p.toString();
+    return request(`/rollbacks${qs ? "?" + qs : ""}`);
   },
 };
