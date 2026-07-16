@@ -251,6 +251,30 @@ test("single-use enrollment issues isolated per-device credentials", async () =>
   const policyBody = await policyDownload.json();
   assert.equal(policyBody.data.policy_name, "Default (Safe)");
   assert.equal(policyBody.data.applicationMonitoring, false);
+  assert.equal(policyBody.data.screenshot_interval_minutes, 15);
+  assert.equal(policyBody.data.screenshot_retention_days, 30);
+
+  const screenshotWithoutConsent = await agentRequest(
+    `/screenshot-permission?device_uuid=${encodeURIComponent(secondUuid)}`,
+    second.body.data.device_credential
+  );
+  assert.equal(screenshotWithoutConsent.status, 200);
+  const screenshotWithoutConsentBody = await screenshotWithoutConsent.json();
+  assert.equal(screenshotWithoutConsentBody.data.allowed, false);
+  assert.match(screenshotWithoutConsentBody.data.reason, /assigned to an employee/i);
+
+  const usbWithoutConsent = await agentRequest(
+    `/usb-monitoring-permission?device_uuid=${encodeURIComponent(secondUuid)}`,
+    second.body.data.device_credential
+  );
+  assert.equal(usbWithoutConsent.status, 200);
+  assert.equal((await usbWithoutConsent.json()).data.allowed, false);
+
+  const crossDevicePermission = await agentRequest(
+    `/screenshot-permission?device_uuid=${encodeURIComponent(firstUuid)}`,
+    second.body.data.device_credential
+  );
+  assert.equal(crossDevicePermission.status, 403);
 
   const deviceDetails = await adminRequest(`/devices/${second.body.data.device_id}/activity`);
   assert.equal(deviceDetails.status, 200);
@@ -333,6 +357,24 @@ test("approved consent policy becomes the agent baseline without a manual policy
   assert.equal(policy.browser_monitoring_enabled, true);
   assert.equal(policy.usb_monitoring_enabled, true);
   assert.equal(policy.location_tracking_enabled, false);
+  assert.equal(policy.screenshot_interval_minutes, 15);
+  assert.equal(policy.screenshot_retention_days, 30);
+
+  const screenshotPermission = await agentRequest(
+    `/screenshot-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
+    credential
+  );
+  assert.equal(screenshotPermission.status, 200);
+  const screenshotPermissionBody = await screenshotPermission.json();
+  assert.equal(screenshotPermissionBody.data.allowed, true);
+  assert.equal(String(screenshotPermissionBody.data.consent_id), String(consentId));
+
+  const usbPermission = await agentRequest(
+    `/usb-monitoring-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
+    credential
+  );
+  assert.equal(usbPermission.status, 200);
+  assert.equal((await usbPermission.json()).data.allowed, true);
 
   const activity = await agentRequest("/activity", credential, "POST", {
     device_uuid: deviceUuid,
@@ -343,4 +385,40 @@ test("approved consent policy becomes the agent baseline without a manual policy
     occurred_at: new Date().toISOString(),
   });
   assert.equal(activity.status, 201);
+
+  await db.query(
+    `UPDATE consent_documents SET monitoring_preferences=$1::jsonb WHERE consent_id=$2`,
+    [JSON.stringify(["app_usage", "usb_monitoring"]), consentId]
+  );
+  const categoryExcluded = await agentRequest(
+    `/screenshot-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
+    credential
+  );
+  assert.equal(categoryExcluded.status, 200);
+  const categoryExcludedBody = await categoryExcluded.json();
+  assert.equal(categoryExcludedBody.data.allowed, false);
+  assert.match(categoryExcludedBody.data.reason, /excludes Screenshot Monitoring/i);
+
+  await db.query(
+    `UPDATE consent_documents
+     SET status='submitted',active=false,monitoring_preferences=$1::jsonb
+     WHERE consent_id=$2`,
+    [JSON.stringify(["screenshot", "usb_monitoring"]), consentId]
+  );
+  const awaitingApproval = await agentRequest(
+    `/screenshot-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
+    credential
+  );
+  assert.equal(awaitingApproval.status, 200);
+  const awaitingApprovalBody = await awaitingApproval.json();
+  assert.equal(awaitingApprovalBody.data.allowed, false);
+  assert.match(awaitingApprovalBody.data.reason, /No active approved consent/i);
+
+  await db.query(`UPDATE consent_documents SET status='withdrawn',active=false WHERE consent_id=$1`, [consentId]);
+  const withdrawnUsb = await agentRequest(
+    `/usb-monitoring-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
+    credential
+  );
+  assert.equal(withdrawnUsb.status, 200);
+  assert.equal((await withdrawnUsb.json()).data.allowed, false);
 });

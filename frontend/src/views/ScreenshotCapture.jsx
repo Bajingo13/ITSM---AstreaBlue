@@ -8,6 +8,33 @@ const API_BASE = `${API_URL}/api/v1/endpoint-management`;
 
 const formatDate = (value) => value ? new Date(value).toLocaleString() : "Never";
 
+function ProtectedScreenshot({ screenshot, className, onClick }) {
+  const [source, setSource] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    const load = async () => {
+      try {
+        const response = await fetch(`${API_URL}${screenshot.content_url}`, { headers: authHeaders() });
+        if (!response.ok) throw new Error("Protected screenshot is unavailable.");
+        objectUrl = URL.createObjectURL(await response.blob());
+        if (active) setSource(objectUrl);
+      } catch {
+        if (active) setSource("");
+      }
+    };
+    load();
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [screenshot.content_url]);
+
+  if (!source) return <div className={`${className} flex items-center justify-center bg-slate-100 text-xs font-semibold text-slate-400`}>Protected image</div>;
+  return <img src={source} alt="Consent-approved endpoint screenshot" className={className} onClick={onClick} />;
+}
+
 export default function ScreenshotCapture() {
   const [stats, setStats] = useState(null);
   const [screenshots, setScreenshots] = useState([]);
@@ -103,14 +130,14 @@ export default function ScreenshotCapture() {
           <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {screenshots.map((s) => (
               <div key={s.id} className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 hover:shadow-lg transition">
-                <div 
-                  className="aspect-video w-full cursor-pointer bg-slate-200 bg-cover bg-center"
-                  style={{ backgroundImage: `url(${s.thumbnail_url || s.file_url || ""})` }}
+                <div
+                  className="relative aspect-video w-full cursor-pointer overflow-hidden bg-slate-200"
                   onClick={() => {
                     setFullImage(s);
                     fetch(`${API_BASE}/screenshots/${s.id}/audit-view`, { method: "POST", headers: authHeaders() }).catch(console.error);
                   }}
                 >
+                  <ProtectedScreenshot screenshot={s} className="h-full w-full object-cover" />
                   <div className="absolute inset-0 flex items-center justify-center bg-slate-900/0 text-transparent transition group-hover:bg-slate-900/40 group-hover:text-white">
                     <Maximize2 size={24} />
                   </div>
@@ -148,15 +175,7 @@ export default function ScreenshotCapture() {
               </p>
             </div>
             <div className="flex-1 overflow-hidden rounded-xl bg-black">
-              {fullImage.file_url ? (
-                <img 
-                  src={fullImage.file_url} 
-                  alt="Screenshot" 
-                  className="h-full w-full object-contain"
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-slate-500">Image file not available (Metadata only)</div>
-              )}
+              <ProtectedScreenshot screenshot={fullImage} className="h-full w-full object-contain" />
             </div>
           </div>
         </div>

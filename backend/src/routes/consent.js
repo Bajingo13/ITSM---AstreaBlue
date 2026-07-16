@@ -288,6 +288,8 @@ async function regenerateEffectiveEndpointPolicy(deviceUuid, actor) {
     browser_monitoring_enabled: false,
     location_tracking_enabled: false,
     auto_incident_enabled: false,
+    screenshot_interval_minutes: 15,
+    screenshot_retention_days: 30,
     intervals: { heartbeat: 60, activity: 60 },
     retention: { logs_days: 30 },
   };

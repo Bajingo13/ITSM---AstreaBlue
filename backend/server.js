@@ -32,9 +32,11 @@ const analyticsCenterRoutes = require("./src/routes/analyticsCenter");
 const changeReleaseManagementRoutes = require("./src/routes/changeReleaseManagement");
 const calendarRoutes = require("./src/routes/calendar");
 const { setSocketServer } = require("./src/services/socketService");
+const { startScreenshotRetentionJob } = require("./src/services/screenshotRetentionService");
 const onboardingAccessGuard = require("./src/middleware/onboardingAccessGuard");
 
 const app = express();
+startScreenshotRetentionJob();
 
 const allowedOrigins = new Set(
   [

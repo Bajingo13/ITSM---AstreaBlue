@@ -16,7 +16,8 @@ $updaterOutput = Join-Path $OutputDirectory "AstreaBlue.Agent.Updater.exe"
 if ($LASTEXITCODE -ne 0) { throw "Native agent compilation failed." }
 
 & $compiler /nologo /target:winexe /optimize+ /platform:anycpu /out:$companionOutput `
-  /reference:System.dll /reference:System.Core.dll /reference:System.Web.Extensions.dll `
+  /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll `
+  /reference:System.Web.Extensions.dll /reference:System.Windows.Forms.dll `
   (Join-Path $PSScriptRoot "AstreaBlueActivityCompanion.cs")
 if ($LASTEXITCODE -ne 0) { throw "Activity companion compilation failed." }
 

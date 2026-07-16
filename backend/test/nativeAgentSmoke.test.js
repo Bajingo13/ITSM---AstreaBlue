@@ -69,6 +69,10 @@ test("native agent enrolls, protects its credential, and sends a bound heartbeat
     deviceId = device.rows[0].device_id;
     const policy = JSON.parse(fs.readFileSync(path.join(dataDirectory, "policy.json"), "utf8").replace(/^\uFEFF/, ""));
     assert.equal(policy.activity_monitoring_enabled, false);
+    assert.equal(policy.screenshot_monitoring_enabled, false);
+    assert.equal(policy.usb_monitoring_enabled, false);
+    assert.equal(policy.screenshot_interval_minutes, 15);
+    assert.equal(policy.screenshot_retention_days, 30);
     assert.equal((await db.query(`SELECT COUNT(*)::int AS count FROM endpoint_hardware_inventory WHERE device_id=$1`, [deviceId])).rows[0].count > 0, true);
     assert.equal((await db.query(`SELECT COUNT(*)::int AS count FROM endpoint_software_scan_runs WHERE device_id=$1`, [deviceId])).rows[0].count > 0, true);
   } finally {

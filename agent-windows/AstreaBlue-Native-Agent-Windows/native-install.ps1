@@ -73,6 +73,7 @@ if ($existingService) {
 & sc.exe failureflag $serviceName 1 | Out-Null
 Start-Service -Name $serviceName
 Start-Sleep -Seconds 3
+Start-Process -FilePath $targetCompanion
 
 & $targetExe --diagnostics
 if ($LASTEXITCODE -ne 0) { throw "The service was installed, but its first diagnostics check failed." }

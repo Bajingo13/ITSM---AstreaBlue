@@ -63,6 +63,10 @@ namespace AstreaBlue.Agent
         public bool hardware_inventory_enabled { get; set; }
         public bool software_inventory_enabled { get; set; }
         public bool activity_monitoring_enabled { get; set; }
+        public bool screenshot_monitoring_enabled { get; set; }
+        public bool usb_monitoring_enabled { get; set; }
+        public int screenshot_interval_minutes { get; set; }
+        public int screenshot_retention_days { get; set; }
     }
 
     internal sealed class UpdateManifest
@@ -77,7 +81,7 @@ namespace AstreaBlue.Agent
 
     internal static class AgentRuntime
     {
-        internal const string Version = "native-1.1.0";
+        internal const string Version = "native-1.2.0";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
         private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("AstreaBlue.Endpoint.DeviceCredential.v1");
 
@@ -209,13 +213,20 @@ namespace AstreaBlue.Agent
                 policy_sync_enabled = true,
                 hardware_inventory_enabled = true,
                 software_inventory_enabled = true,
-                activity_monitoring_enabled = false
+                activity_monitoring_enabled = false,
+                screenshot_monitoring_enabled = false,
+                usb_monitoring_enabled = false,
+                screenshot_interval_minutes = 15,
+                screenshot_retention_days = 30
             };
             try
             {
                 if (!File.Exists(AgentPaths.Policy)) return fallback;
                 EffectivePolicy saved = Json.Deserialize<EffectivePolicy>(File.ReadAllText(AgentPaths.Policy));
-                return saved ?? fallback;
+                if (saved == null) return fallback;
+                if (saved.screenshot_interval_minutes <= 0) saved.screenshot_interval_minutes = fallback.screenshot_interval_minutes;
+                if (saved.screenshot_retention_days <= 0) saved.screenshot_retention_days = fallback.screenshot_retention_days;
+                return saved;
             }
             catch (Exception error)
             {
@@ -234,6 +245,9 @@ namespace AstreaBlue.Agent
             Dictionary<string, object> data = GetDictionary(response, "data");
             if (data == null) throw new InvalidOperationException("The backend returned no effective policy.");
             EffectivePolicy policy = Json.Deserialize<EffectivePolicy>(Json.Serialize(data));
+            if (policy == null) throw new InvalidOperationException("The backend returned an invalid effective policy.");
+            if (policy.screenshot_interval_minutes <= 0) policy.screenshot_interval_minutes = 15;
+            if (policy.screenshot_retention_days <= 0) policy.screenshot_retention_days = 30;
             File.WriteAllText(AgentPaths.Policy, Json.Serialize(policy), Encoding.UTF8);
             Log("INFO", "Policy synchronized. Version=" + (policy.policy_version ?? "unknown") + ".");
             return policy;
@@ -304,6 +318,35 @@ namespace AstreaBlue.Agent
             body["occurred_at"] = DateTime.UtcNow.ToString("o");
             SendJson(config.BackendUrl + "/api/v1/laptop-monitoring/activity", body, LoadCredential());
             Log("INFO", "Consent-approved activity sample synchronized.");
+        }
+
+        internal static void SubmitScreenshot(Dictionary<string, object> message)
+        {
+            EffectivePolicy policy = LoadPolicy();
+            if (!policy.screenshot_monitoring_enabled) throw new InvalidOperationException("Screenshot capture is disabled by the effective policy/consent.");
+
+            string file = Path.GetFullPath(Convert.ToString(Value(message, "file_path")) ?? "");
+            string normalized = file.Replace('/', '\\');
+            string expectedSegment = "\\AstreaBlue\\MonitoringAgent\\screenshot-spool\\";
+            if (normalized.IndexOf(expectedSegment, StringComparison.OrdinalIgnoreCase) < 0)
+                throw new InvalidOperationException("Screenshot handoff path is outside the protected AstreaBlue spool.");
+            if (!File.Exists(file)) throw new FileNotFoundException("Screenshot handoff file does not exist.", file);
+
+            FileInfo details = new FileInfo(file);
+            if (details.Length <= 0 || details.Length > 5 * 1024 * 1024) throw new InvalidOperationException("Screenshot file size is invalid.");
+            byte[] signature = new byte[3];
+            using (FileStream input = File.OpenRead(file)) input.Read(signature, 0, signature.Length);
+            if (signature[0] != 0xFF || signature[1] != 0xD8 || signature[2] != 0xFF) throw new InvalidOperationException("Screenshot handoff is not a valid JPEG image.");
+
+            AgentConfig config = LoadConfig();
+            DeviceIdentity identity = LoadOrCreateIdentity();
+            Dictionary<string, string> fields = new Dictionary<string, string>();
+            fields["device_uuid"] = identity.device_uuid;
+            fields["hostname"] = Environment.MachineName;
+            fields["captured_at"] = Convert.ToString(Value(message, "captured_at")) ?? DateTime.UtcNow.ToString("o");
+            fields["reason"] = Truncate(Convert.ToString(Value(message, "reason")), 255);
+            SendMultipart(config.BackendUrl + "/api/v1/laptop-monitoring/screenshot", fields, file, "screenshot", "image/jpeg", LoadCredential());
+            Log("INFO", "Consent-approved screenshot synchronized for encrypted private storage.");
         }
 
         internal static void ConfigureUpdates(string manifestUrl, string thumbprint, string channel)
@@ -570,6 +613,42 @@ namespace AstreaBlue.Agent
             }
         }
 
+        private static Dictionary<string, object> SendMultipart(string url, Dictionary<string, string> fields, string file, string fieldName, string contentType, string credential)
+        {
+            string boundary = "----------------AstreaBlue" + Guid.NewGuid().ToString("N");
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+            request.Method = "POST";
+            request.ContentType = "multipart/form-data; boundary=" + boundary;
+            request.Accept = "application/json";
+            request.Timeout = 120000;
+            request.ReadWriteTimeout = 120000;
+            request.UserAgent = "AstreaBlue-Agent/" + Version;
+            request.SendChunked = true;
+            request.Headers["x-agent-token"] = credential;
+
+            byte[] newline = Encoding.UTF8.GetBytes("\r\n");
+            using (Stream output = request.GetRequestStream())
+            {
+                foreach (KeyValuePair<string, string> field in fields)
+                {
+                    byte[] header = Encoding.UTF8.GetBytes("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + field.Key + "\"\r\n\r\n" + (field.Value ?? ""));
+                    output.Write(header, 0, header.Length);
+                    output.Write(newline, 0, newline.Length);
+                }
+                byte[] fileHeader = Encoding.UTF8.GetBytes("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + fieldName + "\"; filename=\"screenshot.jpg\"\r\nContent-Type: " + contentType + "\r\n\r\n");
+                output.Write(fileHeader, 0, fileHeader.Length);
+                using (FileStream input = File.OpenRead(file)) input.CopyTo(output);
+                byte[] footer = Encoding.UTF8.GetBytes("\r\n--" + boundary + "--\r\n");
+                output.Write(footer, 0, footer.Length);
+            }
+            try
+            {
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream())) return Json.Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+            }
+            catch (WebException error) { throw BackendException(error); }
+        }
+
         private static Exception BackendException(WebException error)
         {
             string detail = error.Message;
@@ -682,16 +761,35 @@ namespace AstreaBlue.Agent
                         new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
                         PipeAccessRights.ReadWrite,
                         AccessControlType.Allow));
-                    using (NamedPipeServerStream pipe = new NamedPipeServerStream("AstreaBlueActivityV1", PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.None, 4096, 4096, security))
+                    using (NamedPipeServerStream pipe = new NamedPipeServerStream("AstreaBlueActivityV1", PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.None, 4096, 4096, security))
                     {
                         pipe.WaitForConnection();
-                        using (StreamReader reader = new StreamReader(pipe, Encoding.UTF8))
+                        using (StreamReader reader = new StreamReader(pipe, Encoding.UTF8, false, 4096, true))
                         {
                             string line = reader.ReadLine();
                             if (!pipeRunning || String.IsNullOrWhiteSpace(line)) continue;
                             JavaScriptSerializer json = new JavaScriptSerializer();
-                            Dictionary<string, object> activity = json.Deserialize<Dictionary<string, object>>(line);
-                            AgentRuntime.SubmitActivity(activity);
+                            Dictionary<string, object> message = json.Deserialize<Dictionary<string, object>>(line);
+                            string messageType = Convert.ToString(message.ContainsKey("message_type") ? message["message_type"] : "activity");
+                            Dictionary<string, object> response = new Dictionary<string, object>();
+                            if (String.Equals(messageType, "screenshot", StringComparison.OrdinalIgnoreCase))
+                            {
+                                AgentRuntime.SubmitScreenshot(message);
+                                response["accepted"] = true;
+                            }
+                            else
+                            {
+                                AgentRuntime.SubmitActivity(message);
+                                EffectivePolicy policy = AgentRuntime.LoadPolicy();
+                                response["accepted"] = true;
+                                response["screenshot_enabled"] = policy.screenshot_monitoring_enabled;
+                                response["screenshot_interval_minutes"] = Math.Max(1, policy.screenshot_interval_minutes);
+                            }
+                            using (StreamWriter writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, true))
+                            {
+                                writer.WriteLine(json.Serialize(response));
+                                writer.Flush();
+                            }
                         }
                     }
                 }
