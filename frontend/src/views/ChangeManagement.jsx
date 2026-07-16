@@ -15,6 +15,7 @@ import {
   Paperclip,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldAlert,
   SlidersHorizontal,
@@ -406,6 +407,8 @@ function ChangeDetail({ id, onClose, onChanged, user, branches, technicians }) {
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState("");
   const [technicianList, setTechnicianList] = useState(technicians || []);
+  const [linkedReleases, setLinkedReleases] = useState([]);
+  const [linkedRollbacks, setLinkedRollbacks] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -415,6 +418,18 @@ function ChangeDetail({ id, onClose, onChanged, user, branches, technicians }) {
         changeReleaseApi.getChange(id),
         changeReleaseApi.getActions(id).catch(() => []),
       ]);
+      // Fetch linked releases and rollbacks
+      changeReleaseApi.listReleases({}).then((r) => {
+        const all = r.data || r || [];
+        setLinkedReleases(Array.isArray(all) ? all.filter((rel) => {
+          const cids = rel.change_ids || (rel.change_requests || []).map((c) => c.id);
+          return cids.includes(id);
+        }) : []);
+      }).catch(() => {});
+      changeReleaseApi.listRollbacks({}).then((r) => {
+        const all = r.data || r || [];
+        setLinkedRollbacks(Array.isArray(all) ? all.filter((rb) => Number(rb.linked_change_id) === Number(id)) : []);
+      }).catch(() => {});
       setItem(changeData);
       setActions(allowedActions);
     } catch (e) {
@@ -544,19 +559,21 @@ function ChangeDetail({ id, onClose, onChanged, user, branches, technicians }) {
   };
 
   const sections = [
-    { id: "overview", label: "Overview" },
+    { id: "overview", label: "Change Details" },
+    { id: "approval", label: "Approval Workflow" },
+    { id: "release_planning", label: "Release Plan" },
+    { id: "linked_rollback", label: "Rollback Procedure" },
+    { id: "timeline", label: "Activity History" },
     { id: "risk", label: "Risk Assessment" },
     { id: "cis", label: "Affected CIs" },
     { id: "planning", label: "Implementation Plan" },
     { id: "testing", label: "Testing Plan" },
-    { id: "rollback", label: "Rollback Procedure" },
-    { id: "approval", label: "Approval Workflow" },
+    { id: "backout", label: "Backout Plan" },
     { id: "cab", label: "CAB Review" },
     { id: "schedule", label: "Schedule" },
     { id: "impl_updates", label: "Implementation" },
     { id: "pir", label: "Post-Implementation Review" },
     { id: "attachments", label: "Attachments" },
-    { id: "timeline", label: "Activity Timeline" },
   ];
 
   if (loading) return <Modal wide title="Change Request" onClose={onClose}><LoadingSkeleton rows={4} /></Modal>;
@@ -702,11 +719,59 @@ function ChangeDetail({ id, onClose, onChanged, user, branches, technicians }) {
         </SectionCard>
       )}
 
-      {/* ── ROLLBACK ── */}
-      {activeSection === "rollback" && (
-        <SectionCard title="Rollback Procedure" icon={<Clock size={16} />}>
-          <InfoRow label="Rollback Plan" value={item.backout_plan} />
+      {/* ── BACKOUT ── */}
+      {activeSection === "backout" && (
+        <SectionCard title="Backout Plan" icon={<Clock size={16} />}>
+          <InfoRow label="Backout Plan" value={item.backout_plan} />
           {item.rollback_reason && <InfoRow label="Rollback Reason" value={item.rollback_reason} />}
+        </SectionCard>
+      )}
+
+      {/* ── RELEASE PLAN ── */}
+      {activeSection === "release_planning" && (
+        <SectionCard title="Linked Releases" icon={<CalendarDays size={16} />}>
+          {linkedReleases.length ? (
+            <div className="space-y-3">
+              {linkedReleases.map((rel) => (
+                <div key={rel.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-slate-800">{rel.release_number || "REL-" + rel.id} · {rel.title}</p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      <StatusBadge status={rel.status} />
+                      <span className="text-slate-400">{rel.environment}</span>
+                      <span className="text-slate-400">{rel.release_type || "—"}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">No release plans linked to this change request.</p>
+          )}
+        </SectionCard>
+      )}
+
+      {/* ── ROLLBACK PROCEDURE ── */}
+      {activeSection === "linked_rollback" && (
+        <SectionCard title="Linked Rollback Procedures" icon={<RotateCcw size={16} />}>
+          {linkedRollbacks.length ? (
+            <div className="space-y-3">
+              {linkedRollbacks.map((rb) => (
+                <div key={rb.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-slate-800">{rb.rollback_number || "RB-" + rb.id} · {rb.title}</p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      <StatusBadge status={rb.status} />
+                      <span className="text-slate-400">v{rb.version || 1}</span>
+                      <span className="text-slate-400">{rb.affected_system || "—"}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">No rollback procedures linked to this change request.</p>
+          )}
         </SectionCard>
       )}
 
