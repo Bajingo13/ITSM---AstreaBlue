@@ -1569,7 +1569,14 @@ router.get("/devices/:id/activity", requireAdmin, async (req, res) => {
     const device = allowed.rows[0];
     const [activity, screenshots, alerts, consents, assignments, hardware, software, policy] = await Promise.all([
       db.query(`SELECT * FROM laptop_activity_logs WHERE device_id=$1 ORDER BY occurred_at DESC LIMIT 200`, [req.params.id]),
-      db.query(`SELECT * FROM laptop_screenshots WHERE device_id=$1 ORDER BY captured_at DESC LIMIT 50`, [req.params.id]),
+      db.query(
+        `SELECT id,device_id,assigned_user_id,branch_id,department,captured_at,reason,file_size_bytes,expires_at,
+                CASE WHEN object_key IS NOT NULL THEN $2 || '/screenshots/' || id || '/content' ELSE NULL END AS content_url
+         FROM laptop_screenshots
+         WHERE device_id=$1
+         ORDER BY captured_at DESC LIMIT 50`,
+        [req.params.id, req.baseUrl]
+      ),
       db.query(`SELECT * FROM laptop_alerts WHERE device_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.params.id]),
       db.query(
         `SELECT consent_id AS id,device_id,employee_id AS user_id,form_title AS consent_type,
