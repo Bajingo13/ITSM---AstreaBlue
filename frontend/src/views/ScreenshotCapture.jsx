@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import { Camera, ChevronLeft, ChevronRight, HardDrive, MonitorPlay, Maximize2, X, ShieldCheck } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, HardDrive, MonitorPlay, Maximize2, ShieldCheck } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
+import ProtectedScreenshotViewer from "../components/ProtectedScreenshotViewer";
 import { API_URL } from "../config/api";
 import { authHeaders } from "../services/authHeaders";
 
@@ -75,20 +75,6 @@ export default function ScreenshotCapture() {
     return () => clearInterval(timer);
   }, [loadData]);
 
-  useEffect(() => {
-    if (!fullImage) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") setFullImage(null);
-    };
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [fullImage]);
-
   const cards = [
     ["Today's Screenshots", stats?.todays_screenshots || 0, Camera],
     ["Devices Reporting", stats?.devices_reporting || 0, MonitorPlay],
@@ -154,10 +140,7 @@ export default function ScreenshotCapture() {
               <div key={s.id} className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 hover:shadow-lg transition">
                 <div
                   className="relative aspect-video w-full cursor-pointer overflow-hidden bg-slate-200"
-                  onClick={() => {
-                    setFullImage(s);
-                    fetch(`${API_BASE}/screenshots/${s.id}/audit-view`, { method: "POST", headers: authHeaders() }).catch(console.error);
-                  }}
+                  onClick={() => setFullImage(s)}
                 >
                   <ProtectedScreenshot screenshot={s} className="h-full w-full object-cover" />
                   <div className="absolute inset-0 flex items-center justify-center bg-slate-900/0 text-transparent transition group-hover:bg-slate-900/40 group-hover:text-white">
@@ -191,24 +174,7 @@ export default function ScreenshotCapture() {
         )}
       </section>
 
-      {fullImage && createPortal((
-        <div className="fixed inset-0 z-[120] flex h-[100dvh] w-screen bg-black" role="dialog" aria-modal="true" aria-label="Protected screenshot viewer">
-          <div className="relative flex h-full w-full flex-col overflow-hidden bg-black">
-            <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 bg-slate-900 px-4 py-3 text-white sm:px-5">
-              <div className="min-w-0">
-                <h3 className="truncate font-black">{fullImage.assigned_user || fullImage.hostname}</h3>
-                <p className="truncate text-xs text-slate-300">{fullImage.hostname} · {fullImage.branch_name || "Unassigned"} · {formatDate(fullImage.captured_at)}</p>
-              </div>
-              <button type="button" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-slate-950 shadow-lg transition hover:scale-105 hover:bg-blue-50 focus:outline-none focus:ring-4 focus:ring-blue-400/50" onClick={() => setFullImage(null)} aria-label="Close screenshot viewer" title="Close (Esc)">
-                <X size={24} strokeWidth={3} />
-              </button>
-            </div>
-            <div className="min-h-0 flex flex-1 items-center justify-center overflow-auto bg-black p-2">
-              <ProtectedScreenshot screenshot={fullImage} className="h-full w-full object-contain" />
-            </div>
-          </div>
-        </div>
-      ), document.body)}
+      {fullImage && <ProtectedScreenshotViewer screenshot={fullImage} items={screenshots} onSelect={setFullImage} onClose={() => setFullImage(null)} />}
     </div>
   );
 }

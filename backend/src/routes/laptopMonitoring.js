@@ -1596,11 +1596,15 @@ router.get("/devices/:id/activity", requireAdmin, async (req, res) => {
     const [activity, screenshots, alerts, consents, assignments, hardware, software, policy] = await Promise.all([
       db.query(`SELECT * FROM laptop_activity_logs WHERE device_id=$1 ORDER BY occurred_at DESC LIMIT 200`, [req.params.id]),
       db.query(
-        `SELECT id,device_id,assigned_user_id,branch_id,department,captured_at,reason,file_size_bytes,expires_at,
-                CASE WHEN object_key IS NOT NULL THEN $2 || '/screenshots/' || id || '/content' ELSE NULL END AS content_url
-         FROM laptop_screenshots
-         WHERE device_id=$1
-         ORDER BY captured_at DESC LIMIT 4`,
+        `SELECT s.id,s.device_id,s.assigned_user_id,s.branch_id,s.department,s.captured_at,s.reason,s.file_size_bytes,s.expires_at,
+                d.hostname,u.full_name AS assigned_user,b.branch_name,
+                CASE WHEN s.object_key IS NOT NULL THEN $2 || '/screenshots/' || s.id || '/content' ELSE NULL END AS content_url
+         FROM laptop_screenshots s
+         JOIN monitored_devices d ON d.device_id=s.device_id
+         LEFT JOIN users u ON u.user_id=s.assigned_user_id
+         LEFT JOIN branches b ON b.branch_id=s.branch_id
+         WHERE s.device_id=$1
+         ORDER BY s.captured_at DESC LIMIT 4`,
         [req.params.id, req.baseUrl]
       ),
       db.query(`SELECT * FROM laptop_alerts WHERE device_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.params.id]),
@@ -2139,6 +2143,30 @@ router.post("/screenshots/:id/audit-view", requireAdmin, async (req, res) => {
     return res.json({ success: true });
   } catch (error) {
     console.error("[laptop-monitoring:screenshot-audit]", error.message);
+    return res.status(500).json({ success: false });
+  }
+});
+
+router.post("/screenshots/:id/audit-download", requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employeeId = req.monitoringIsEmployee ? req.monitoringUser.userId : null;
+    const shot = await db.query(
+      `SELECT s.device_id FROM laptop_screenshots s
+       JOIN monitored_devices d ON d.device_id=s.device_id
+       WHERE s.id=$1 AND ($2::int IS NULL OR d.branch_id=$2) AND ($3::int IS NULL OR d.assigned_user_id=$3)`,
+      [id, req.monitoringBranchId, employeeId]
+    );
+    if (!shot.rows.length) return res.status(404).json({ success: false, message: "Screenshot not found." });
+
+    await db.query(
+      `INSERT INTO laptop_activity_logs (device_id, event_type, app_name, window_title)
+       VALUES ($1, 'system_audit', 'Screenshot downloaded', 'Admin downloaded a decrypted screenshot copy.')`,
+      [shot.rows[0].device_id]
+    );
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("[laptop-monitoring:screenshot-download-audit]", error.message);
     return res.status(500).json({ success: false });
   }
 });
