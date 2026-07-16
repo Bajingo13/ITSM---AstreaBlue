@@ -44,6 +44,7 @@ import {
   ResolvedTickets,
   RollbackProcedures,
   ScreenshotCapture,
+  UsbDlpMonitoring,
   ServiceCatalog,
   Settings,
   SLAMonitor,
@@ -456,7 +457,7 @@ export default function App() {
           path="/usb-dlp-monitoring"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <ModulePlaceholder title="USB & Device Control" />
+              <UsbDlpMonitoring />
             </ProtectedRoute>
           }
         />
@@ -488,7 +489,7 @@ export default function App() {
           path="/dlp-security"
           element={
             <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-              <EndpointMonitoring />
+              <UsbDlpMonitoring />
             </ProtectedRoute>
           }
         />

@@ -38,6 +38,7 @@ export const NotificationTicketDetails = lazy(() => import("../views/Notificatio
 export const ConsentPage = lazy(() => import("../views/ConsentPage"));
 export const ConsentManagement = lazy(() => import("../views/ConsentManagement"));
 export const ScreenshotCapture = lazy(() => import("../views/ScreenshotCapture"));
+export const UsbDlpMonitoring = lazy(() => import("../views/UsbDlpMonitoring"));
 export const MandatoryOnboarding = lazy(() => import("../views/MandatoryOnboarding"));
 export const ChangeManagement = lazy(() => import("../views/ChangeManagement"));
 export const ReleasePlanning = lazy(() => import("../views/ReleasePlanning"));

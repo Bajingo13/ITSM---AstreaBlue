@@ -26,6 +26,7 @@ async function monitoringRequest(path, options = {}) {
 
 export default function EndpointMonitoring() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { role } = useAuth();
   const isSuperAdmin = String(role || "").toLowerCase().replace(/[\s_-]/g, "") === "superadmin";
 
@@ -66,12 +67,38 @@ export default function EndpointMonitoring() {
       const objectUrl = URL.createObjectURL(await response.blob());
       setScreenshotViewer((current) => {
         if (current?.url) URL.revokeObjectURL(current.url);
-        return { url: objectUrl, capturedAt: screenshot.captured_at };
+        return {
+          url: objectUrl,
+          capturedAt: screenshot.captured_at,
+          hostname: screenshot.hostname,
+          employee: screenshot.assigned_user,
+        };
       });
     } catch (requestError) {
       setError(requestError.message || "Protected screenshot could not be loaded.");
     }
   }, []);
+
+  const closeScreenshotViewer = useCallback(() => {
+    setScreenshotViewer((current) => {
+      if (current?.url) URL.revokeObjectURL(current.url);
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!screenshotViewer) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") closeScreenshotViewer();
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [closeScreenshotViewer, screenshotViewer]);
 
   const setActiveTab = (tab) => {
     setActiveTabState(tab);
@@ -966,21 +993,13 @@ export default function EndpointMonitoring() {
           />
         )}
         {screenshotViewer && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 p-6">
-            <button
-              type="button"
-              onClick={() => {
-                URL.revokeObjectURL(screenshotViewer.url);
-                setScreenshotViewer(null);
-              }}
-              className="absolute right-6 top-6 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
-              aria-label="Close screenshot"
-            >
-              <X size={28} />
-            </button>
-            <div className="flex max-h-full max-w-full flex-col gap-3">
-              <p className="text-sm font-semibold text-white">Protected screenshot · {formatDate(screenshotViewer.capturedAt)}</p>
-              <img src={screenshotViewer.url} alt="Consent-approved endpoint screenshot" className="max-h-[85vh] max-w-[92vw] rounded-xl object-contain shadow-2xl" />
+          <div className="fixed inset-0 z-[120] flex h-[100dvh] w-screen bg-black" role="dialog" aria-modal="true" aria-label="Protected screenshot viewer">
+            <div className="relative flex h-full w-full flex-col overflow-hidden bg-black">
+              <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 bg-slate-900 px-4 py-3 text-white sm:px-5">
+                <div className="min-w-0"><p className="truncate font-black">{screenshotViewer.employee || screenshotViewer.hostname || "Protected screenshot"}</p><p className="truncate text-xs text-slate-300">{screenshotViewer.hostname || "Managed endpoint"} · {formatDate(screenshotViewer.capturedAt)}</p></div>
+                <button type="button" onClick={closeScreenshotViewer} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-slate-950 shadow-lg transition hover:scale-105 hover:bg-blue-50 focus:outline-none focus:ring-4 focus:ring-blue-400/50" aria-label="Close screenshot viewer" title="Close (Esc)"><X size={24} strokeWidth={3} /></button>
+              </div>
+              <div className="min-h-0 flex flex-1 items-center justify-center overflow-auto bg-black p-2"><img src={screenshotViewer.url} alt="Consent-approved endpoint screenshot" className="h-full w-full object-contain" /></div>
             </div>
           </div>
         )}

@@ -290,6 +290,8 @@ async function regenerateEffectiveEndpointPolicy(deviceUuid, actor) {
     auto_incident_enabled: false,
     screenshot_interval_minutes: 15,
     screenshot_retention_days: 30,
+    usb_scan_interval_seconds: 15,
+    dlp_large_transfer_mb: 100,
     intervals: { heartbeat: 60, activity: 60 },
     retention: { logs_days: 30 },
   };

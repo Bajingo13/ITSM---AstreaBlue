@@ -84,6 +84,8 @@ const coreModuleItems = [
       { label: "Devices", icon: Monitor, path: "/endpoint-monitoring?tab=devices" },
       { label: "Inventory", icon: Package, path: "/endpoint-monitoring?tab=software" },
       { label: "Monitoring", icon: Activity, path: "/endpoint-monitoring?tab=activity" },
+      { label: "Screenshot Gallery", icon: Monitor, path: "/screenshot-capture" },
+      { label: "USB & DLP", icon: HardDrive, path: "/usb-dlp-monitoring" },
       { label: "Security & Compliance", icon: Shield, path: "/consent-management" },
       { label: "Administration", icon: Settings, path: "/endpoint-administration" },
     ],

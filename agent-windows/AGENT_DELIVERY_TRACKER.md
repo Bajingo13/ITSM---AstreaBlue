@@ -38,8 +38,14 @@ Updated: 2026-07-16
 - [x] Configurable screenshot interval and automatic retention deletion
 - [ ] Validate screenshot notification, capture, encrypted storage, and viewing on the first pilot laptop
 - [ ] Validate screenshot capture across restart and repair on the second pilot laptop
-- [ ] Native USB insertion/removal collector
-- [ ] USB file-transfer metadata and DLP risk rules
+- [x] Consent/policy-gated native USB insertion/removal collector
+- [x] USB write-transfer metadata collector (file contents are never collected)
+- [x] Server-authoritative DLP risk scoring and matched-rule audit data
+- [x] RBAC/branch-scoped USB and DLP operations dashboard
+- [x] High/Critical DLP alerts and policy-controlled automatic incident creation
+- [x] Offline-safe USB event queue with idempotent batch ingestion
+- [ ] Validate USB insertion, removal, file-write detection, and restart on the first pilot laptop
+- [ ] Validate DLP alert and optional automatic incident creation on the testing laptop
 
 ## P2 — Installation and support lifecycle
 

@@ -359,6 +359,8 @@ test("approved consent policy becomes the agent baseline without a manual policy
   assert.equal(policy.location_tracking_enabled, false);
   assert.equal(policy.screenshot_interval_minutes, 15);
   assert.equal(policy.screenshot_retention_days, 30);
+  assert.equal(policy.usb_scan_interval_seconds, 15);
+  assert.equal(policy.dlp_large_transfer_mb, 100);
 
   const screenshotPermission = await agentRequest(
     `/screenshot-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
@@ -385,6 +387,35 @@ test("approved consent policy becomes the agent baseline without a manual policy
     occurred_at: new Date().toISOString(),
   });
   assert.equal(activity.status, 201);
+
+  const usbReference = crypto.randomUUID();
+  const usbBatch = await agentRequest("/usb-events/batch", credential, "POST", {
+    device_uuid: deviceUuid,
+    hostname,
+    events: [{
+      event_reference: usbReference,
+      event_type: "file_written",
+      drive_letter: "E:",
+      volume_label: "PILOT USB",
+      volume_serial: "TEST-USB-001",
+      filesystem: "NTFS",
+      file_name: "confidential-payroll.sql",
+      relative_path: "exports/confidential-payroll.sql",
+      extension: ".sql",
+      file_size_bytes: 4096,
+      file_last_write_at: new Date().toISOString(),
+      occurred_at: new Date().toISOString(),
+    }],
+  });
+  assert.equal(usbBatch.status, 201);
+  const usbBatchBody = await usbBatch.json();
+  assert.equal(usbBatchBody.data.accepted, 1);
+  assert.equal(usbBatchBody.data.events[0].risk_level, "Critical");
+  assert.equal(usbBatchBody.data.events[0].dlp_action, "alerted");
+
+  const usbList = await adminRequest("/usb-events?risk_level=Critical");
+  assert.equal(usbList.status, 200);
+  assert.equal((await usbList.json()).data.some((event) => event.event_reference === usbReference), true);
 
   await db.query(
     `UPDATE consent_documents SET monitoring_preferences=$1::jsonb WHERE consent_id=$2`,

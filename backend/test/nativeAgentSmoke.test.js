@@ -73,6 +73,8 @@ test("native agent enrolls, protects its credential, and sends a bound heartbeat
     assert.equal(policy.usb_monitoring_enabled, false);
     assert.equal(policy.screenshot_interval_minutes, 15);
     assert.equal(policy.screenshot_retention_days, 30);
+    assert.equal(policy.usb_scan_interval_seconds, 15);
+    assert.equal(policy.dlp_large_transfer_mb, 100);
     assert.equal((await db.query(`SELECT COUNT(*)::int AS count FROM endpoint_hardware_inventory WHERE device_id=$1`, [deviceId])).rows[0].count > 0, true);
     assert.equal((await db.query(`SELECT COUNT(*)::int AS count FROM endpoint_software_scan_runs WHERE device_id=$1`, [deviceId])).rows[0].count > 0, true);
   } finally {

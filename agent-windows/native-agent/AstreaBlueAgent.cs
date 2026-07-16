@@ -65,8 +65,20 @@ namespace AstreaBlue.Agent
         public bool activity_monitoring_enabled { get; set; }
         public bool screenshot_monitoring_enabled { get; set; }
         public bool usb_monitoring_enabled { get; set; }
+        public bool auto_incident_enabled { get; set; }
         public int screenshot_interval_minutes { get; set; }
         public int screenshot_retention_days { get; set; }
+        public int usb_scan_interval_seconds { get; set; }
+        public int dlp_large_transfer_mb { get; set; }
+    }
+
+    internal sealed class UsbDriveState
+    {
+        public string DriveLetter { get; set; }
+        public string VolumeLabel { get; set; }
+        public string VolumeSerial { get; set; }
+        public string FileSystem { get; set; }
+        public Dictionary<string, string> Files { get; set; }
     }
 
     internal sealed class UpdateManifest
@@ -81,9 +93,12 @@ namespace AstreaBlue.Agent
 
     internal static class AgentRuntime
     {
-        internal const string Version = "native-1.2.0";
+        internal const string Version = "native-1.3.0";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
         private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("AstreaBlue.Endpoint.DeviceCredential.v1");
+        private static readonly Dictionary<string, UsbDriveState> UsbDrives = new Dictionary<string, UsbDriveState>(StringComparer.OrdinalIgnoreCase);
+        private static readonly List<object> PendingUsbEvents = new List<object>();
+        private static readonly object UsbLock = new object();
 
         internal static void EnsureDirectories()
         {
@@ -216,8 +231,11 @@ namespace AstreaBlue.Agent
                 activity_monitoring_enabled = false,
                 screenshot_monitoring_enabled = false,
                 usb_monitoring_enabled = false,
+                auto_incident_enabled = false,
                 screenshot_interval_minutes = 15,
-                screenshot_retention_days = 30
+                screenshot_retention_days = 30,
+                usb_scan_interval_seconds = 15,
+                dlp_large_transfer_mb = 100
             };
             try
             {
@@ -226,6 +244,8 @@ namespace AstreaBlue.Agent
                 if (saved == null) return fallback;
                 if (saved.screenshot_interval_minutes <= 0) saved.screenshot_interval_minutes = fallback.screenshot_interval_minutes;
                 if (saved.screenshot_retention_days <= 0) saved.screenshot_retention_days = fallback.screenshot_retention_days;
+                if (saved.usb_scan_interval_seconds < 10) saved.usb_scan_interval_seconds = fallback.usb_scan_interval_seconds;
+                if (saved.dlp_large_transfer_mb <= 0) saved.dlp_large_transfer_mb = fallback.dlp_large_transfer_mb;
                 return saved;
             }
             catch (Exception error)
@@ -248,6 +268,8 @@ namespace AstreaBlue.Agent
             if (policy == null) throw new InvalidOperationException("The backend returned an invalid effective policy.");
             if (policy.screenshot_interval_minutes <= 0) policy.screenshot_interval_minutes = 15;
             if (policy.screenshot_retention_days <= 0) policy.screenshot_retention_days = 30;
+            if (policy.usb_scan_interval_seconds < 10) policy.usb_scan_interval_seconds = 15;
+            if (policy.dlp_large_transfer_mb <= 0) policy.dlp_large_transfer_mb = 100;
             File.WriteAllText(AgentPaths.Policy, Json.Serialize(policy), Encoding.UTF8);
             Log("INFO", "Policy synchronized. Version=" + (policy.policy_version ?? "unknown") + ".");
             return policy;
@@ -347,6 +369,145 @@ namespace AstreaBlue.Agent
             fields["reason"] = Truncate(Convert.ToString(Value(message, "reason")), 255);
             SendMultipart(config.BackendUrl + "/api/v1/laptop-monitoring/screenshot", fields, file, "screenshot", "image/jpeg", LoadCredential());
             Log("INFO", "Consent-approved screenshot synchronized for encrypted private storage.");
+        }
+
+        internal static void ScanUsbDevices()
+        {
+            EffectivePolicy policy = LoadPolicy();
+            lock (UsbLock)
+            {
+                if (!policy.usb_monitoring_enabled)
+                {
+                    UsbDrives.Clear();
+                    PendingUsbEvents.Clear();
+                    return;
+                }
+
+                Dictionary<string, DriveInfo> connected = new Dictionary<string, DriveInfo>(StringComparer.OrdinalIgnoreCase);
+                foreach (DriveInfo drive in DriveInfo.GetDrives())
+                {
+                    try
+                    {
+                        if (drive.DriveType == DriveType.Removable && drive.IsReady) connected[drive.Name.TrimEnd('\\')] = drive;
+                    }
+                    catch { }
+                }
+
+                foreach (string previousLetter in new List<string>(UsbDrives.Keys))
+                {
+                    if (connected.ContainsKey(previousLetter)) continue;
+                    UsbDriveState removed = UsbDrives[previousLetter];
+                    PendingUsbEvents.Add(UsbEvent("device_disconnected", removed, null));
+                    UsbDrives.Remove(previousLetter);
+                }
+
+                foreach (KeyValuePair<string, DriveInfo> current in connected)
+                {
+                    UsbDriveState previous;
+                    if (!UsbDrives.TryGetValue(current.Key, out previous))
+                    {
+                        UsbDriveState added = ReadUsbDrive(current.Value);
+                        UsbDrives[current.Key] = added;
+                        PendingUsbEvents.Add(UsbEvent("device_connected", added, null));
+                        continue;
+                    }
+
+                    UsbDriveState latest = ReadUsbDrive(current.Value);
+                    int reported = 0;
+                    foreach (KeyValuePair<string, string> file in latest.Files)
+                    {
+                        string oldSignature;
+                        if (previous.Files.TryGetValue(file.Key, out oldSignature) && oldSignature == file.Value) continue;
+                        if (reported++ >= 100) break;
+                        PendingUsbEvents.Add(UsbEvent("file_written", latest, file.Key));
+                    }
+                    UsbDrives[current.Key] = latest;
+                }
+
+                if (PendingUsbEvents.Count > 500) PendingUsbEvents.RemoveRange(0, PendingUsbEvents.Count - 500);
+                if (PendingUsbEvents.Count == 0) return;
+                List<object> batch = PendingUsbEvents.GetRange(0, Math.Min(100, PendingUsbEvents.Count));
+                Dictionary<string, object> body = new Dictionary<string, object>();
+                body["device_uuid"] = LoadOrCreateIdentity().device_uuid;
+                body["hostname"] = Environment.MachineName;
+                body["events"] = batch;
+                AgentConfig config = LoadConfig();
+                SendJson(config.BackendUrl + "/api/v1/laptop-monitoring/usb-events/batch", body, LoadCredential());
+                PendingUsbEvents.RemoveRange(0, batch.Count);
+                Log("INFO", "Consent-approved USB events synchronized. Records=" + batch.Count + ".");
+            }
+        }
+
+        private static UsbDriveState ReadUsbDrive(DriveInfo drive)
+        {
+            UsbDriveState state = new UsbDriveState();
+            state.DriveLetter = drive.Name.TrimEnd('\\');
+            try { state.VolumeLabel = drive.VolumeLabel; } catch { state.VolumeLabel = null; }
+            try { state.FileSystem = drive.DriveFormat; } catch { state.FileSystem = null; }
+            Dictionary<string, object> disk = WmiFirst("SELECT VolumeSerialNumber FROM Win32_LogicalDisk WHERE DeviceID='" + state.DriveLetter.Replace("'", "''") + "'");
+            state.VolumeSerial = Convert.ToString(Value(disk, "VolumeSerialNumber"));
+            state.Files = SnapshotUsbFiles(drive.RootDirectory.FullName, 5000);
+            return state;
+        }
+
+        private static Dictionary<string, string> SnapshotUsbFiles(string root, int limit)
+        {
+            Dictionary<string, string> files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            Stack<string> pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count > 0 && files.Count < limit)
+            {
+                string directory = pending.Pop();
+                try
+                {
+                    foreach (string file in Directory.GetFiles(directory))
+                    {
+                        if (files.Count >= limit) break;
+                        try
+                        {
+                            FileInfo info = new FileInfo(file);
+                            string relative = file.Substring(root.Length).TrimStart('\\');
+                            files[relative] = info.Length + "|" + info.LastWriteTimeUtc.Ticks;
+                        }
+                        catch { }
+                    }
+                    foreach (string child in Directory.GetDirectories(directory))
+                    {
+                        try
+                        {
+                            DirectoryInfo info = new DirectoryInfo(child);
+                            if ((info.Attributes & FileAttributes.ReparsePoint) == 0) pending.Push(child);
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+            }
+            return files;
+        }
+
+        private static Dictionary<string, object> UsbEvent(string eventType, UsbDriveState drive, string relativePath)
+        {
+            Dictionary<string, object> item = new Dictionary<string, object>();
+            item["event_reference"] = Guid.NewGuid().ToString();
+            item["event_type"] = eventType;
+            item["drive_letter"] = drive.DriveLetter;
+            item["volume_label"] = drive.VolumeLabel;
+            item["volume_serial"] = drive.VolumeSerial;
+            item["filesystem"] = drive.FileSystem;
+            item["occurred_at"] = DateTime.UtcNow.ToString("o");
+            if (!String.IsNullOrWhiteSpace(relativePath))
+            {
+                string root = drive.DriveLetter + "\\";
+                string fullPath = Path.Combine(root, relativePath);
+                FileInfo file = new FileInfo(fullPath);
+                item["file_name"] = Truncate(file.Name, 500);
+                item["relative_path"] = Truncate(relativePath, 2000);
+                item["extension"] = Truncate(file.Extension, 50);
+                try { item["file_size_bytes"] = file.Length; } catch { item["file_size_bytes"] = 0; }
+                try { item["file_last_write_at"] = file.LastWriteTimeUtc.ToString("o"); } catch { item["file_last_write_at"] = null; }
+            }
+            return item;
         }
 
         internal static void ConfigureUpdates(string manifestUrl, string thumbprint, string channel)
@@ -675,11 +836,13 @@ namespace AstreaBlue.Agent
         private Timer heartbeatTimer;
         private Timer policyTimer;
         private Timer inventoryTimer;
+        private Timer usbTimer;
         private Timer updateTimer;
         private Semaphore instanceLock;
         private int heartbeatRunning;
         private int policyRunning;
         private int inventoryRunning;
+        private int usbRunning;
         private volatile bool pipeRunning;
         private Thread pipeThread;
 
@@ -694,6 +857,7 @@ namespace AstreaBlue.Agent
             heartbeatTimer = new Timer(delegate { RunHeartbeat(); }, null, TimeSpan.Zero, TimeSpan.FromSeconds(config.HeartbeatSeconds));
             policyTimer = new Timer(delegate { RunPolicySync(); }, null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
             inventoryTimer = new Timer(delegate { RunInventory(); }, null, TimeSpan.FromSeconds(15), Timeout.InfiniteTimeSpan);
+            usbTimer = new Timer(delegate { RunUsbScan(); }, null, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan);
             updateTimer = new Timer(delegate { RunUpdateCheck(); }, null, TimeSpan.FromMinutes(5), TimeSpan.FromHours(6));
             StartActivityPipe();
             AgentRuntime.Log("INFO", "Native Windows service started.");
@@ -727,6 +891,19 @@ namespace AstreaBlue.Agent
             {
                 Interlocked.Exchange(ref inventoryRunning, 0);
                 if (inventoryTimer != null) inventoryTimer.Change(succeeded ? TimeSpan.FromHours(24) : TimeSpan.FromMinutes(5), Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        private void RunUsbScan()
+        {
+            if (Interlocked.Exchange(ref usbRunning, 1) == 1) return;
+            try { AgentRuntime.ScanUsbDevices(); }
+            catch (Exception error) { AgentRuntime.Log("ERROR", "USB monitoring failed; queued events will retry: " + error.Message); }
+            finally
+            {
+                Interlocked.Exchange(ref usbRunning, 0);
+                EffectivePolicy policy = AgentRuntime.LoadPolicy();
+                if (usbTimer != null) usbTimer.Change(TimeSpan.FromSeconds(Math.Max(10, policy.usb_scan_interval_seconds)), Timeout.InfiniteTimeSpan);
             }
         }
 
@@ -806,6 +983,7 @@ namespace AstreaBlue.Agent
             if (heartbeatTimer != null) { heartbeatTimer.Dispose(); heartbeatTimer = null; }
             if (policyTimer != null) { policyTimer.Dispose(); policyTimer = null; }
             if (inventoryTimer != null) { inventoryTimer.Dispose(); inventoryTimer = null; }
+            if (usbTimer != null) { usbTimer.Dispose(); usbTimer = null; }
             if (updateTimer != null) { updateTimer.Dispose(); updateTimer = null; }
             pipeRunning = false;
             try
