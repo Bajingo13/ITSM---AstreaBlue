@@ -39,7 +39,7 @@ function StatCard({ icon: Icon, label, value, description, accent = "blue", onCl
     <button
       type="button"
       onClick={onClick}
-      className="group relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 text-left shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5"
+      className="astrea-command-stat group relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 text-left shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5"
     >
       <div className="flex items-start justify-between">
         <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${bgGradients[accent]}`}>
@@ -60,7 +60,7 @@ function StatCard({ icon: Icon, label, value, description, accent = "blue", onCl
    HeroBanner — compact gradient banner with decorative shapes
    ───────────────────────────────────────────── */
 function HeroBanner() {
-  return <DashboardHero title="Operations Command Center" subtitle="Monitor service activity, asset movement, user access, and branch performance in one place." />;
+  return <div className="astrea-command-hero"><DashboardHero title="Operations Command Center" subtitle="Monitor service activity, asset movement, user access, and branch performance in one place." /></div>;
 }
 
 /* ─────────────────────────────────────────────
@@ -89,7 +89,7 @@ function TicketsPerBranchCard({ branches, tickets, loading }) {
   const totalTickets = data.reduce((sum, b) => sum + b.count, 0);
   const topFive = data.slice(0, 5);
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+    <div className="astrea-command-section rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
@@ -259,7 +259,7 @@ function RoleDistributionCard({ users, loading }) {
   ], [roleCounts]);
 
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+    <div className="astrea-command-section flex flex-col rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-50 text-purple-600">
           <BarChart3 size={20} />
@@ -339,7 +339,7 @@ function QuickActions() {
   const navigate = useNavigate();
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+    <div className="astrea-command-section rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
           <Activity size={20} />
@@ -411,7 +411,7 @@ function UserListCard({ title, icon: Icon, users, accent = "blue", loading, empt
   };
 
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-100 bg-white shadow-sm">
+    <div className="astrea-command-section flex flex-col rounded-2xl border border-slate-100 bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
         <div className="flex items-center gap-2.5">
           <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${accentBg[accent] || accentBg.blue}`}>
@@ -619,7 +619,7 @@ export default function SuperAdminDashboard() {
   ], [branches, activeUsers, tickets, admins, assets]);
 
   return (
-    <div className="space-y-4">
+    <div className="astrea-command-dashboard space-y-5">
       {/* Hero Banner */}
       <HeroBanner />
 
@@ -639,7 +639,7 @@ export default function SuperAdminDashboard() {
       )}
 
       {/* KPI Cards */}
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <section className="astrea-command-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {loading
           ? Array.from({ length: 5 }).map((_, i) => (
               <div
@@ -657,7 +657,7 @@ export default function SuperAdminDashboard() {
       </section>
 
       {/* Charts Row */}
-      <section className="mt-0.5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <section className="astrea-command-insight-grid mt-0.5 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <TicketsPerBranchCard branches={branches} tickets={tickets} loading={loading} />
         <RoleDistributionCard users={activeUsers} loading={loading} />
       </section>
@@ -665,7 +665,7 @@ export default function SuperAdminDashboard() {
       {/* Quick Actions */}
       <QuickActions />
 
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <section className="astrea-command-directory grid grid-cols-1 gap-4 lg:grid-cols-3">
         <UserListCard
           title="All Admins"
           icon={UserCog}
