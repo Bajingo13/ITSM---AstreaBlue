@@ -4,14 +4,13 @@ const fs = require("fs");
 const path = require("path");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
-const sharp = require("sharp");
 const db = require("../../config/db");
 const { createNotification } = require("../services/notificationService");
 const { reconcileDevice } = require("../services/reconciliationService");
+const { deletePrivateObject, getPrivateObject, putPrivateObject } = require("../services/r2StorageService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
-const screenshotDirectory = String(process.env.MONITORING_SCREENSHOT_DIR || "").trim();
 const ONLINE_THRESHOLD_SECONDS = 120;
 const excessiveIdleSeconds = Math.max(60, Number(process.env.MONITORING_IDLE_ALERT_SECONDS) || 3600);
 
@@ -19,21 +18,44 @@ const normalizeList = (value) => String(value || "").split(",").map((item) => it
 const prohibitedApps = normalizeList(process.env.MONITORING_PROHIBITED_APPS);
 const prohibitedDomains = normalizeList(process.env.MONITORING_PROHIBITED_DOMAINS);
 
-if (screenshotDirectory) fs.mkdirSync(screenshotDirectory, { recursive: true });
-const screenshotStorage = screenshotDirectory
-  ? multer.diskStorage({
-      destination: (_req, _file, callback) => callback(null, screenshotDirectory),
-      filename: (_req, file, callback) => {
-        const extension = file.mimetype === "image/png" ? ".png" : ".jpg";
-        callback(null, `${Date.now()}-${crypto.randomBytes(12).toString("hex")}${extension}`);
-      },
-    })
-  : multer.memoryStorage();
 const uploadScreenshot = multer({
-  storage: screenshotStorage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, callback) => callback(null, ["image/png", "image/jpeg"].includes(file.mimetype)),
 }).single("screenshot");
+
+function screenshotEncryptionKey() {
+  const configured = String(process.env.SCREENSHOT_ENCRYPTION_KEY || "").trim();
+  let key = null;
+  if (/^[0-9a-f]{64}$/i.test(configured)) key = Buffer.from(configured, "hex");
+  else if (configured) {
+    try { key = Buffer.from(configured, "base64"); } catch { key = null; }
+  }
+  if (!key || key.length !== 32) {
+    const error = new Error("SCREENSHOT_ENCRYPTION_KEY must be a base64 or hexadecimal 32-byte key.");
+    error.code = "SCREENSHOT_ENCRYPTION_NOT_CONFIGURED";
+    throw error;
+  }
+  return key;
+}
+
+function encryptScreenshot(bytes) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", screenshotEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(bytes), cipher.final()]);
+  return {
+    ciphertext,
+    iv: iv.toString("base64"),
+    authTag: cipher.getAuthTag().toString("base64"),
+    sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+function decryptScreenshot(bytes, iv, authTag) {
+  const decipher = crypto.createDecipheriv("aes-256-gcm", screenshotEncryptionKey(), Buffer.from(iv, "base64"));
+  decipher.setAuthTag(Buffer.from(authTag, "base64"));
+  return Buffer.concat([decipher.update(bytes), decipher.final()]);
+}
 
 const tablesReady = (async () => {
   try {
@@ -166,6 +188,14 @@ const tablesReady = (async () => {
       ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER;
       ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS branch_id INTEGER;
       ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS department VARCHAR(255);
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS object_key TEXT;
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS encryption_algorithm VARCHAR(50);
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS encryption_iv TEXT;
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS encryption_auth_tag TEXT;
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS plaintext_sha256 VARCHAR(64);
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS content_type VARCHAR(100);
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT;
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
 
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS device_uuid UUID;
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS asset_id INTEGER;
@@ -219,6 +249,14 @@ const tablesReady = (async () => {
       ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER;
       ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS branch_id INTEGER;
       ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS department VARCHAR(255);
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS object_key TEXT;
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS encryption_algorithm VARCHAR(50);
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS encryption_iv TEXT;
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS encryption_auth_tag TEXT;
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS plaintext_sha256 VARCHAR(64);
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS content_type VARCHAR(100);
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT;
+      ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
 
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS device_uuid UUID;
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS asset_id INTEGER;
@@ -1205,37 +1243,44 @@ router.get("/policy", requireAgent, async (req, res) => {
   }
 });
 
+async function resolveConsentGatedFeature(device, featureFlag) {
+  if (!device?.assigned_user_id) {
+    return {
+      allowed: false,
+      policy: null,
+      reason: "Device must be assigned to an employee before monitoring.",
+    };
+  }
+
+  const policy = await generateEffectivePolicy(device.device_uuid, null);
+  if (!policy) {
+    return { allowed: false, policy: null, reason: "Effective endpoint policy is unavailable." };
+  }
+
+  const feature = policy.features?.[featureFlag];
+  const allowed = Boolean(policy[featureFlag]) && feature?.enabled !== false;
+  return {
+    allowed,
+    policy,
+    reason: allowed ? null : (feature?.reason || policy.reasons?.[featureFlag] || "Feature is disabled by the effective endpoint policy."),
+  };
+}
+
 router.get("/screenshot-permission", requireAgent, async (req, res) => {
   try {
     const device = await findDevice(req.query || {});
     if (!device) return res.status(404).json({ success: false, message: "Device is not registered. Send a heartbeat first." });
-
-    // Check formal RA 10173 consent document first (authoritative source)
-    let allowed = false;
-    if (device.assigned_user_id) {
-      const formalConsent = await db.query(
-        `SELECT monitoring_preferences FROM consent_documents
-         WHERE employee_id=$1 AND status='signed'
-         ORDER BY signed_at DESC NULLS LAST LIMIT 1`,
-        [device.assigned_user_id]
-      );
-      if (formalConsent.rows.length) {
-        const prefs = formalConsent.rows[0].monitoring_preferences || [];
-        allowed = Array.isArray(prefs) && prefs.includes("screenshot");
-      }
-    }
-
-    // Fall back to legacy monitoring_consents for devices not yet migrated
-    if (!allowed) {
-      const legacyConsent = await db.query(
-        `SELECT id FROM monitoring_consents WHERE device_id=$1 AND LOWER(consent_type)='screenshot'
-         AND LOWER(consent_status) IN ('granted','approved','consented') ORDER BY consented_at DESC NULLS LAST LIMIT 1`,
-        [device.device_id]
-      );
-      allowed = legacyConsent.rows.length > 0;
-    }
-
-    return res.json({ success: true, data: { allowed } });
+    const permission = await resolveConsentGatedFeature(device, "screenshot_monitoring_enabled");
+    return res.json({
+      success: true,
+      data: {
+        allowed: permission.allowed,
+        feature: "screenshot_monitoring",
+        policy_version: permission.policy?.policy_version || null,
+        consent_id: permission.policy?.consent_id || null,
+        reason: permission.reason,
+      },
+    });
   } catch (error) {
     console.error("[laptop-monitoring:screenshot-permission]", error.message);
     return res.status(500).json({ success: false, message: "Failed to verify screenshot consent." });
@@ -1245,84 +1290,85 @@ router.get("/screenshot-permission", requireAgent, async (req, res) => {
 router.post("/screenshot", requireAgent, (req, res) => {
   uploadScreenshot(req, res, async (uploadError) => {
     if (uploadError) return res.status(400).json({ success: false, message: uploadError.message || "Invalid screenshot upload." });
+    let uploadedObjectKey = null;
     try {
+      if (!req.file?.buffer?.length) return res.status(400).json({ success: false, message: "A PNG or JPEG screenshot file is required." });
       const device = await findDevice(req.body || {});
       if (!device) return res.status(404).json({ success: false, message: "Device is not registered. Send a heartbeat first." });
       if (req.agentDevice && String(req.agentDevice.device_id) !== String(device.device_id)) {
-        if (req.file?.path) fs.unlink(req.file.path, () => {});
         return res.status(403).json({ success: false, message: "Device credential does not match the screenshot device." });
       }
       
       // Enforce Assignment
       if (!device.assigned_user_id) {
-        if (req.file?.path) fs.unlink(req.file.path, () => {});
         return res.status(403).json({ success: false, message: "Device must be assigned to an employee before monitoring." });
       }
 
-      // Enforce formal Consent
-      const formalConsent = await db.query(
-        `SELECT monitoring_preferences, department FROM consent_documents
-         WHERE employee_id=$1 AND status='signed'
-         ORDER BY signed_at DESC NULLS LAST LIMIT 1`,
-        [device.assigned_user_id]
-      );
+      // The generated policy is the single authority: it combines assignment,
+      // active approved consent, the selected category, and policy overrides.
+      const permission = await resolveConsentGatedFeature(device, "screenshot_monitoring_enabled");
+      if (!permission.allowed) {
+        return res.status(403).json({
+          success: false,
+          message: permission.reason || "Screenshot monitoring is disabled by the effective endpoint policy.",
+        });
+      }
 
-      let allowed = false;
-      let department = null;
-      if (formalConsent.rows.length) {
-        const prefs = formalConsent.rows[0].monitoring_preferences || [];
-        allowed = Array.isArray(prefs) && prefs.includes("screenshot");
-        department = formalConsent.rows[0].department;
-      } else {
-        // Fallback to legacy
-        const legacy = await db.query(
-          `SELECT id FROM monitoring_consents WHERE device_id=$1 AND LOWER(consent_type)='screenshot'
-           AND LOWER(consent_status) IN ('granted','approved','consented') ORDER BY consented_at DESC NULLS LAST LIMIT 1`,
-          [device.device_id]
+      let department = device.department || null;
+      if (permission.policy?.consent_id) {
+        const consentDetails = await db.query(
+          `SELECT department FROM consent_documents WHERE consent_id=$1 LIMIT 1`,
+          [permission.policy.consent_id]
         );
-        allowed = legacy.rows.length > 0;
+        department = consentDetails.rows[0]?.department || department;
       }
 
-      if (!allowed) {
-        if (req.file?.path) fs.unlink(req.file.path, () => {});
-        return res.status(403).json({ success: false, message: "Explicit screenshot consent is required." });
-      }
+      const encrypted = encryptScreenshot(req.file.buffer);
+      const now = new Date();
+      uploadedObjectKey = [
+        "endpoint-screenshots",
+        String(device.device_uuid || device.device_id),
+        String(now.getUTCFullYear()),
+        String(now.getUTCMonth() + 1).padStart(2, "0"),
+        `${crypto.randomUUID()}.abenc`,
+      ].join("/");
+      await putPrivateObject({
+        key: uploadedObjectKey,
+        body: encrypted.ciphertext,
+        contentType: "application/octet-stream",
+        metadata: {
+          algorithm: "AES-256-GCM",
+          device: device.device_uuid || device.device_id,
+          captured: req.body?.captured_at || now.toISOString(),
+        },
+      });
 
-      let filePath = req.file?.path || null;
-      let thumbnailPath = null;
-      const requestedUrl = String(req.body?.file_url || "").trim();
-      const fileUrl = /^https?:\/\//i.test(requestedUrl) ? requestedUrl : null;
-      
-      // Generate thumbnail
-      if (filePath && screenshotDirectory) {
-        try {
-          const thumbName = path.basename(filePath, path.extname(filePath)) + "-thumb.jpg";
-          thumbnailPath = path.join(screenshotDirectory, thumbName);
-          await sharp(filePath)
-            .resize(320, 180, { fit: 'cover' })
-            .jpeg({ quality: 80 })
-            .toFile(thumbnailPath);
-        } catch (thumbErr) {
-          console.error("Thumbnail generation failed:", thumbErr.message);
-          thumbnailPath = null;
-        }
-      }
+      const retentionDays = Math.min(365, Math.max(1, Number(permission.policy?.screenshot_retention_days) || 30));
 
       const result = await db.query(
-        `INSERT INTO laptop_screenshots (device_id,file_url,file_path,thumbnail_path,assigned_user_id,branch_id,department,captured_at,reason)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8::timestamptz,CURRENT_TIMESTAMP),$9) RETURNING *`,
+        `INSERT INTO laptop_screenshots (
+           device_id,file_url,file_path,thumbnail_path,assigned_user_id,branch_id,department,captured_at,reason,
+           object_key,encryption_algorithm,encryption_iv,encryption_auth_tag,plaintext_sha256,content_type,file_size_bytes,expires_at
+         )
+         VALUES ($1,NULL,NULL,NULL,$2,$3,$4,COALESCE($5::timestamptz,CURRENT_TIMESTAMP),$6,
+                 $7,'AES-256-GCM',$8,$9,$10,$11,$12,CURRENT_TIMESTAMP + ($13 * INTERVAL '1 day')) RETURNING *`,
         [
-          device.device_id, fileUrl, filePath, thumbnailPath,
-          device.assigned_user_id, device.branch_id, department,
-          req.body?.captured_at || null, String(req.body?.reason || "Consent-enabled agent capture").slice(0, 255)
+          device.device_id, device.assigned_user_id, device.branch_id, department,
+          req.body?.captured_at || null, String(req.body?.reason || "Consent-enabled agent capture").slice(0, 255),
+          uploadedObjectKey, encrypted.iv, encrypted.authTag, encrypted.sha256,
+          req.file.mimetype, req.file.size, retentionDays,
         ]
       );
-      
-      const warning = !screenshotDirectory ? "File storage is not configured; screenshot bytes were not retained. Metadata was saved." : null;
-      return res.status(201).json({ success: true, message: warning || "Screenshot metadata recorded.", warning, data: result.rows[0] });
+
+      return res.status(201).json({ success: true, message: "Screenshot encrypted and stored privately.", data: result.rows[0] });
     } catch (error) {
+      if (uploadedObjectKey) deletePrivateObject(uploadedObjectKey).catch(() => {});
       console.error("[laptop-monitoring:screenshot]", error.message);
-      return res.status(500).json({ success: false, message: "Failed to record screenshot." });
+      const configurationError = ["R2_NOT_CONFIGURED", "SCREENSHOT_ENCRYPTION_NOT_CONFIGURED"].includes(error.code);
+      return res.status(configurationError ? 503 : 500).json({
+        success: false,
+        message: configurationError ? "Secure screenshot storage is not configured." : "Failed to record screenshot.",
+      });
     }
   });
 });
@@ -1703,26 +1749,22 @@ router.get("/summary", requireAdmin, async (req, res) => {
 });
 
 
-// Policy plumbing: USB & Website monitoring (architecture ready, agent implementation pending)
-// USB monitoring permission checks consent_documents for usb_monitoring preference
+// Policy plumbing: USB & Website monitoring (agent collection remains pending).
 router.get("/usb-monitoring-permission", requireAgent, async (req, res) => {
   try {
     const device = await findDevice(req.query || {});
     if (!device) return res.status(404).json({ success: false, message: "Device not registered. Send a heartbeat first." });
-    let allowed = false;
-    if (device.assigned_user_id) {
-      const formalConsent = await db.query(
-        `SELECT monitoring_preferences FROM consent_documents
-         WHERE employee_id=$1 AND status='signed'
-         ORDER BY signed_at DESC NULLS LAST LIMIT 1`,
-        [device.assigned_user_id]
-      );
-      if (formalConsent.rows.length) {
-        const prefs = formalConsent.rows[0].monitoring_preferences || [];
-        allowed = Array.isArray(prefs) && prefs.includes("usb_monitoring");
-      }
-    }
-    return res.json({ success: true, data: { allowed, feature: "usb_monitoring" } });
+    const permission = await resolveConsentGatedFeature(device, "usb_monitoring_enabled");
+    return res.json({
+      success: true,
+      data: {
+        allowed: permission.allowed,
+        feature: "usb_monitoring",
+        policy_version: permission.policy?.policy_version || null,
+        consent_id: permission.policy?.consent_id || null,
+        reason: permission.reason,
+      },
+    });
   } catch (error) {
     console.error("[laptop-monitoring:usb-monitoring-permission]", error.message);
     return res.status(500).json({ success: false, message: "Failed to verify USB monitoring consent." });
@@ -1762,7 +1804,7 @@ router.get("/screenshots", requireAdmin, async (req, res) => {
 
     const empId = req.monitoringIsEmployee ? req.monitoringUser.userId : null;
     const result = await db.query(
-      `SELECT s.id, s.device_id, s.file_url, s.thumbnail_path, s.captured_at, s.reason,
+      `SELECT s.id, s.device_id, s.captured_at, s.reason, s.file_size_bytes, s.expires_at,
               d.hostname, d.device_name, d.device_uuid,
               u.full_name as assigned_user, b.branch_name, s.department
        FROM laptop_screenshots s
@@ -1776,11 +1818,9 @@ router.get("/screenshots", requireAdmin, async (req, res) => {
       [req.monitoringBranchId, limit, offset, empId]
     );
     
-    // Add thumbnail URL to response
-    const frontendUrl = process.env.API_URL || "";
     const items = result.rows.map(row => ({
       ...row,
-      thumbnail_url: row.thumbnail_path ? `${frontendUrl}/uploads/screenshots/${path.basename(row.thumbnail_path)}` : row.file_url
+      content_url: `${req.baseUrl}/screenshots/${row.id}/content`,
     }));
 
     return res.json({ success: true, data: items });
@@ -1812,14 +1852,13 @@ router.get("/screenshots/stats", requireAdmin, async (req, res) => {
        ORDER BY captured_at DESC LIMIT 1`,
       [req.monitoringBranchId, empId]
     );
-    const totalCount = await db.query(
-      `SELECT COUNT(*)::int as count FROM laptop_screenshots s
+    const storage = await db.query(
+      `SELECT COALESCE(SUM(s.file_size_bytes),0)::bigint as bytes FROM laptop_screenshots s
        JOIN monitored_devices d ON s.device_id = d.device_id
        WHERE ($1::int IS NULL OR d.branch_id = $1) AND ($2::int IS NULL OR d.assigned_user_id = $2)`,
       [req.monitoringBranchId, empId]
     );
-    
-    const storageUsedMB = (totalCount.rows[0].count * 320 / 1024).toFixed(1);
+    const storageUsedMB = (Number(storage.rows[0].bytes || 0) / (1024 * 1024)).toFixed(1);
 
     return res.json({
       success: true,
@@ -1836,10 +1875,58 @@ router.get("/screenshots/stats", requireAdmin, async (req, res) => {
   }
 });
 
+router.get("/screenshots/:id/content", requireAdmin, async (req, res) => {
+  try {
+    const employeeId = req.monitoringIsEmployee ? req.monitoringUser.userId : null;
+    const result = await db.query(
+      `SELECT s.object_key, s.encryption_algorithm, s.encryption_iv, s.encryption_auth_tag,
+              s.plaintext_sha256, s.content_type, s.expires_at
+       FROM laptop_screenshots s
+       JOIN monitored_devices d ON d.device_id=s.device_id
+       WHERE s.id=$1
+         AND ($2::int IS NULL OR d.branch_id=$2)
+         AND ($3::int IS NULL OR d.assigned_user_id=$3)
+       LIMIT 1`,
+      [req.params.id, req.monitoringBranchId, employeeId]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, message: "Screenshot not found." });
+    const screenshot = result.rows[0];
+    if (!screenshot.object_key || screenshot.encryption_algorithm !== "AES-256-GCM") {
+      return res.status(410).json({ success: false, message: "This legacy screenshot has no secure private image object." });
+    }
+    if (screenshot.expires_at && new Date(screenshot.expires_at) <= new Date()) {
+      return res.status(410).json({ success: false, message: "Screenshot retention period has expired." });
+    }
+
+    const stored = await getPrivateObject(screenshot.object_key);
+    const plaintext = decryptScreenshot(stored.body, screenshot.encryption_iv, screenshot.encryption_auth_tag);
+    const digest = crypto.createHash("sha256").update(plaintext).digest("hex");
+    if (screenshot.plaintext_sha256 && digest !== screenshot.plaintext_sha256) {
+      throw new Error("Screenshot integrity verification failed.");
+    }
+    res.set({
+      "Content-Type": screenshot.content_type || "image/jpeg",
+      "Content-Length": plaintext.length,
+      "Cache-Control": "private, no-store, max-age=0",
+      "X-Content-Type-Options": "nosniff",
+    });
+    return res.send(plaintext);
+  } catch (error) {
+    console.error("[laptop-monitoring:screenshot-content]", error.message);
+    return res.status(500).json({ success: false, message: "Failed to load the protected screenshot." });
+  }
+});
+
 router.post("/screenshots/:id/audit-view", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const shot = await db.query(`SELECT device_id FROM laptop_screenshots WHERE id=$1`, [id]);
+    const employeeId = req.monitoringIsEmployee ? req.monitoringUser.userId : null;
+    const shot = await db.query(
+      `SELECT s.device_id FROM laptop_screenshots s
+       JOIN monitored_devices d ON d.device_id=s.device_id
+       WHERE s.id=$1 AND ($2::int IS NULL OR d.branch_id=$2) AND ($3::int IS NULL OR d.assigned_user_id=$3)`,
+      [id, req.monitoringBranchId, employeeId]
+    );
     if (!shot.rows.length) return res.status(404).json({ success: false, message: "Screenshot not found." });
 
     await db.query(
@@ -2400,6 +2487,8 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
     browser_monitoring_enabled: false,
     location_tracking_enabled: false,
     auto_incident_enabled: false,
+    screenshot_interval_minutes: 15,
+    screenshot_retention_days: 30,
     intervals: { heartbeat: 60, activity: 60 },
     retention: { logs_days: 30 }
   };

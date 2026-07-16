@@ -1,4 +1,4 @@
-const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
+const { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 
 function readConfig() {
   const accountId = String(process.env.R2_ACCOUNT_ID || "").trim();
@@ -67,5 +67,10 @@ async function getPrivateObject(key) {
   };
 }
 
-module.exports = { getPrivateObject, getR2Status, putPrivateObject };
+async function deletePrivateObject(key) {
+  const { client, bucket } = clientAndBucket();
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  return { key, bucket };
+}
 
+module.exports = { deletePrivateObject, getPrivateObject, getR2Status, putPrivateObject };
