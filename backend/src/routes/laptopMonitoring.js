@@ -1176,77 +1176,28 @@ router.get("/policy", requireAgent, async (req, res) => {
     const deviceUuid = String(req.query.device_uuid || "").trim();
     if (!deviceUuid) return res.status(400).json({ success: false, message: "device_uuid is required." });
 
-    const deviceResult = await db.query(
-      `SELECT d.*, u.full_name as assigned_employee_name 
-       FROM monitored_devices d
-       LEFT JOIN users u ON u.user_id = d.assigned_user_id
-       WHERE d.device_uuid=$1::uuid LIMIT 1`,
+    const policy = await generateEffectivePolicy(deviceUuid, null);
+    if (!policy) return res.status(404).json({ success: false, message: "Device not found." });
+
+    await db.query(
+      `UPDATE monitored_devices SET last_policy_sync_at=CURRENT_TIMESTAMP WHERE device_uuid=$1::uuid`,
       [deviceUuid]
     );
+    await logPolicyAudit(null, "policy_downloaded", deviceUuid, { agent: true, endpoint: "legacy" });
 
-    if (!deviceResult.rows.length) {
-      return res.status(404).json({ success: false, message: "Device not found." });
-    }
-    const device = deviceResult.rows[0];
-
-    const policy = {
-      device_uuid: device.device_uuid,
-      assigned_user_id: device.assigned_user_id,
-      assigned_employee_name: device.assigned_employee_name,
-      branch_id: device.branch_id,
-      department_id: device.department,
-      asset_id: device.asset_id,
-      consent_status: "Missing",
-      consent_version: null,
-      applicationMonitoring: false,
-      screenshotMonitoring: false,
-      usbMonitoring: false,
-      browserMonitoring: false,
-      deviceTelemetry: true,
-      emailHeaderMonitoring: false,
-      policy_reason: "Device is not linked to a hardware asset.",
-      last_policy_sync_at: new Date()
-    };
-
-    if (device.asset_id) {
-      if (!device.assigned_user_id) {
-        policy.policy_reason = "Device is not assigned to an employee.";
-      } else {
-        policy.policy_reason = "Employee consent is pending.";
-        const formalConsent = await db.query(
-          `SELECT status, monitoring_preferences, consent_version, signed_at
-           FROM consent_documents
-           WHERE employee_id=$1 AND status='signed'
-           ORDER BY signed_at DESC NULLS LAST LIMIT 1`,
-          [device.assigned_user_id]
-        );
-
-        if (formalConsent.rows.length) {
-          const consent = formalConsent.rows[0];
-          const prefs = consent.monitoring_preferences || [];
-
-          policy.consent_status = consent.status;
-          policy.consent_version = consent.consent_version;
-
-          policy.policy_reason = "Active consent applied.";
-          policy.applicationMonitoring = true;
-          policy.screenshotMonitoring = Array.isArray(prefs) && prefs.includes("screenshot");
-          policy.usbMonitoring = Array.isArray(prefs) && prefs.includes("usb");
-          policy.browserMonitoring = Array.isArray(prefs) && prefs.includes("browser");
-          policy.emailHeaderMonitoring = Array.isArray(prefs) && prefs.includes("email");
-        }
-      }
-    }
-
-    await db.query(`UPDATE monitored_devices SET last_policy_sync_at=CURRENT_TIMESTAMP WHERE device_id=$1`, [device.device_id]);
-    
-    // Log policy sync audit
-    await db.query(`
-      INSERT INTO consent_audit_logs (employee_id, action_by, event_type, old_status, new_status, metadata)
-      VALUES ($1, $1, 'policy_synced', null, $2, $3)
-    `, [device.assigned_user_id, policy.consent_status, JSON.stringify({ device_uuid: policy.device_uuid, policy_reason: policy.policy_reason })]);
-
-    return res.json({ success: true, data: policy });
+    // Preserve the original camelCase properties for older agents while also
+    // returning the canonical effective-policy contract used by native agents.
+    return res.json({
+      success: true,
+      data: {
+        ...policy,
+        applicationMonitoring: Boolean(policy.activity_monitoring_enabled),
+        screenshotMonitoring: Boolean(policy.screenshot_monitoring_enabled),
+        usbMonitoring: Boolean(policy.usb_monitoring_enabled),
+        browserMonitoring: Boolean(policy.browser_monitoring_enabled),
+        deviceTelemetry: Boolean(policy.telemetry_enabled),
+      },
+    });
   } catch (error) {
     console.error("[laptop-monitoring:policy]", error.message);
     return res.status(500).json({ success: false, message: "Failed to fetch policy." });
@@ -1396,7 +1347,7 @@ router.get("/devices", requireAdmin, async (req, res) => {
        ) as consent_status,
        (SELECT occurred_at FROM laptop_activity_logs al WHERE al.device_id = d.device_id ORDER BY al.occurred_at DESC LIMIT 1) as last_activity,
        (SELECT captured_at FROM laptop_screenshots ls WHERE ls.device_id = d.device_id ORDER BY ls.captured_at DESC LIMIT 1) as last_screenshot,
-       (SELECT created_at FROM consent_audit_logs cal WHERE cal.employee_id = d.assigned_user_id AND event_type='policy_synced' ORDER BY created_at DESC LIMIT 1) as policy_synced_at,
+       d.last_policy_sync_at AS policy_synced_at,
        a.asset_tag, a.serial_number, a.model
        FROM monitored_devices d
        LEFT JOIN users u ON u.user_id=d.assigned_user_id
@@ -1569,7 +1520,7 @@ router.get("/devices/:id/activity", requireAdmin, async (req, res) => {
     const allowed = await db.query(`SELECT device_id,device_uuid,assigned_user_id FROM monitored_devices WHERE device_id=$1 AND ($2::int IS NULL OR branch_id=$2) AND ($3::int IS NULL OR assigned_user_id=$3)`, [req.params.id, req.monitoringBranchId, empId]);
     if (!allowed.rows.length) return res.status(404).json({ success: false, message: "Device not found or access denied." });
     const device = allowed.rows[0];
-    const [activity, screenshots, alerts, consents, assignments, hardware, software] = await Promise.all([
+    const [activity, screenshots, alerts, consents, assignments, hardware, software, policy] = await Promise.all([
       db.query(`SELECT * FROM laptop_activity_logs WHERE device_id=$1 ORDER BY occurred_at DESC LIMIT 200`, [req.params.id]),
       db.query(`SELECT * FROM laptop_screenshots WHERE device_id=$1 ORDER BY captured_at DESC LIMIT 50`, [req.params.id]),
       db.query(`SELECT * FROM laptop_alerts WHERE device_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.params.id]),
@@ -1583,9 +1534,34 @@ router.get("/devices/:id/activity", requireAdmin, async (req, res) => {
       ),
       db.query(`SELECT a.*, ou.full_name as old_user_name, nu.full_name as new_user_name FROM monitored_device_assignments a LEFT JOIN users ou ON a.old_user_id=ou.user_id LEFT JOIN users nu ON a.new_user_id=nu.user_id WHERE device_id=$1 ORDER BY changed_at DESC`, [req.params.id]),
       db.query(`SELECT * FROM endpoint_hardware_inventory WHERE device_id=$1 ORDER BY scanned_at DESC LIMIT 1`, [req.params.id]),
-      db.query(`SELECT * FROM endpoint_software_inventory WHERE device_id=$1 ORDER BY last_seen_at DESC,software_name ASC LIMIT 200`, [req.params.id])
+      db.query(`SELECT * FROM endpoint_software_inventory WHERE device_id=$1 ORDER BY last_seen_at DESC,software_name ASC LIMIT 200`, [req.params.id]),
+      db.query(
+        `SELECT policy_json, generated_at
+         FROM endpoint_effective_policies
+         WHERE device_uuid=$1::uuid
+         LIMIT 1`,
+        [device.device_uuid]
+      )
     ]);
-    return res.json({ success: true, data: { activity: activity.rows, screenshots: screenshots.rows, alerts: alerts.rows, consents: consents.rows, assignments: assignments.rows, hardware: hardware.rows[0] || null, software: software.rows } });
+    const effectivePolicy = policy.rows[0]
+      ? {
+          ...(policy.rows[0].policy_json || {}),
+          generated_at: policy.rows[0].generated_at || policy.rows[0].policy_json?.generated_at || null,
+        }
+      : null;
+    return res.json({
+      success: true,
+      data: {
+        activity: activity.rows,
+        screenshots: screenshots.rows,
+        alerts: alerts.rows,
+        consents: consents.rows,
+        assignments: assignments.rows,
+        hardware: hardware.rows[0] || null,
+        software: software.rows,
+        policy: effectivePolicy,
+      },
+    });
   } catch (error) {
     console.error("[laptop-monitoring:device-activity]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load device activity." });

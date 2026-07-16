@@ -240,11 +240,29 @@ test("single-use enrollment issues isolated per-device credentials", async () =>
     software: [{ software_name: "AstreaBlue Test App", version: "1.0", publisher: "AstreaBlue" }],
   });
   assert.equal(softwareUpload.status, 201);
+  const policyDownload = await agentRequest(
+    `/policy?device_uuid=${encodeURIComponent(secondUuid)}`,
+    second.body.data.device_credential
+  );
+  assert.equal(policyDownload.status, 200);
+  const policyBody = await policyDownload.json();
+  assert.equal(policyBody.data.policy_name, "Default (Safe)");
+  assert.equal(policyBody.data.applicationMonitoring, false);
+
   const deviceDetails = await adminRequest(`/devices/${second.body.data.device_id}/activity`);
   assert.equal(deviceDetails.status, 200);
   const deviceDetailsBody = await deviceDetails.json();
   assert.equal(deviceDetailsBody.data.hardware.serial_number, "AB-INV-001");
   assert.equal(deviceDetailsBody.data.software.some((item) => item.software_name === "AstreaBlue Test App"), true);
+  assert.equal(deviceDetailsBody.data.policy.policy_name, "Default (Safe)");
+  assert.match(deviceDetailsBody.data.policy.policy_version, /^\d+\.\d+$/);
+  assert.ok(deviceDetailsBody.data.policy.generated_at);
+
+  const devicesResponse = await adminRequest("/devices");
+  assert.equal(devicesResponse.status, 200);
+  const devicesBody = await devicesResponse.json();
+  const syncedDevice = devicesBody.data.find((device) => device.device_uuid === secondUuid);
+  assert.ok(syncedDevice.policy_synced_at);
 
   const crossDevice = await agentRequest("/heartbeat", second.body.data.device_credential, "POST", heartbeatBody(firstUuid, "ENROLLMENT-TEST-ONE"));
   assert.equal(crossDevice.status, 403);

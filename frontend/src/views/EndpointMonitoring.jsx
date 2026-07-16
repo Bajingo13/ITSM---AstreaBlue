@@ -196,8 +196,13 @@ export default function EndpointMonitoring() {
         await refreshSelectedHealth();
       }
       if (action === "policy") {
-        await monitoringRequest(`/devices/${selectedDevice.device_uuid}/generate-policy`, { method: "POST" });
-        await refreshSelectedHealth();
+        const generatedPolicy = await monitoringRequest(`/devices/${selectedDevice.device_uuid}/generate-policy`, { method: "POST" });
+        setDetails((current) => ({ ...(current || {}), policy: generatedPolicy }));
+        const [refreshedDetails] = await Promise.all([
+          monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/activity`),
+          refreshSelectedHealth(),
+        ]);
+        setDetails(refreshedDetails);
       }
       if (action === "reconcile") {
         await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconcile`, { method: "POST" });
@@ -581,7 +586,7 @@ export default function EndpointMonitoring() {
                   </div>
                 )}
                 {isSuperAdmin && <div className="mt-3">
-                  <button onClick={() => handleDiagnosticAction("policy")} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Regenerate Effective Policy</button>
+              <button onClick={() => handleDiagnosticAction("policy")} disabled={healthLoading || !selectedDevice?.device_uuid} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Regenerate Effective Policy</button>
                 </div>}
               </div>
             </div>
