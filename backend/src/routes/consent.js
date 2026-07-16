@@ -294,6 +294,39 @@ async function regenerateEffectiveEndpointPolicy(deviceUuid, actor) {
   let effectivePolicyName = "Company Default Safe Policy";
   let effectivePolicyVersion = "1.0";
   const featureSources = {};
+
+  if (device.assigned_user_id) {
+    const consentPolicyResult = await db.query(
+      `SELECT mp.*
+       FROM endpoint_monitoring_policies mp
+       JOIN consent_documents cd ON cd.consent_id=mp.consent_id
+       WHERE mp.employee_id=$1
+         AND (mp.device_uuid=$2::uuid OR mp.device_uuid IS NULL)
+         AND mp.status='active'
+         AND cd.status='approved'
+         AND cd.active=true
+       ORDER BY (mp.device_uuid IS NOT NULL) DESC, mp.effective_at DESC, mp.policy_id DESC
+       LIMIT 1`,
+      [device.assigned_user_id, device.device_uuid]
+    );
+    const consentPolicy = consentPolicyResult.rows[0];
+    if (consentPolicy) {
+      const consentBaseline = {
+        telemetry_enabled: consentPolicy.device_telemetry !== false,
+        activity_monitoring_enabled: !!consentPolicy.application_monitoring,
+        screenshot_monitoring_enabled: !!consentPolicy.screenshot_monitoring,
+        usb_monitoring_enabled: !!consentPolicy.usb_monitoring,
+        browser_monitoring_enabled: !!consentPolicy.web_monitoring,
+        location_tracking_enabled: !!consentPolicy.location_tracking,
+        retention: { logs_days: Number(consentPolicy.retention_days) || 180 },
+      };
+      effectiveConfig = { ...effectiveConfig, ...consentBaseline };
+      effectivePolicyName = "Approved Consent Policy";
+      effectivePolicyVersion = `consent-${consentPolicy.consent_version || consentPolicy.consent_id}`;
+      for (const key of Object.keys(consentBaseline)) featureSources[key] = "Approved Consent";
+    }
+  }
+
   const targetPriorities = { Employee: 6, Device: 5, Asset: 4, Department: 3, Branch: 2, Global: 1 };
   let highestPriority = 0;
 
@@ -1332,8 +1365,15 @@ router.post("/:id/approve-change", requireAdminOrHR, async (req, res) => {
     await audit(newId, old.employee_id, actor.userId || actor.user_id, actor.role,
       "policy_updated", `Monitoring policy updated to consent version ${newVersion}.`);
     await generateEndpointPolicy(newDoc.rows[0], actor);
-    if (newDoc.rows[0].device_uuid) {
-      await regenerateEffectiveEndpointPolicy(newDoc.rows[0].device_uuid, actor);
+    const assignedDevices = newDoc.rows[0].device_uuid
+      ? { rows: [{ device_uuid: newDoc.rows[0].device_uuid }] }
+      : await db.query(
+        `SELECT device_uuid FROM monitored_devices
+         WHERE assigned_user_id=$1 AND device_uuid IS NOT NULL`,
+        [newDoc.rows[0].employee_id]
+      );
+    for (const device of assignedDevices.rows) {
+      await regenerateEffectiveEndpointPolicy(device.device_uuid, actor);
     }
 
     return res.json({

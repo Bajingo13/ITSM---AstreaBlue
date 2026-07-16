@@ -1053,8 +1053,8 @@ router.patch("/:id/assign", async (req, res) => {
     const result = await db.query(
       `
       UPDATE tickets
-      SET assigned_to = $1,
-          assigned_at = CASE WHEN $1 IS NOT NULL AND assigned_at IS NULL THEN CURRENT_TIMESTAMP ELSE assigned_at END
+      SET assigned_to = $1::integer,
+          assigned_at = CASE WHEN $1::integer IS NOT NULL AND assigned_at IS NULL THEN CURRENT_TIMESTAMP ELSE assigned_at END
       WHERE id = $2
       RETURNING
         id,

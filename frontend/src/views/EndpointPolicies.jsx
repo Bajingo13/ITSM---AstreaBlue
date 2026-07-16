@@ -71,7 +71,11 @@ export default function EndpointPolicies() {
         activity: true,
         screenshots: false,
         hardware_inventory: true,
-        software_inventory: true
+        software_inventory: true,
+        browser: false,
+        usb: false,
+        location: false,
+        auto_incident: false
       },
       collection_interval_seconds: {
         heartbeat: 60,
@@ -320,7 +324,7 @@ function PolicyForm({ policy, onCancel, onSave }) {
           <div className="space-y-6">
             <h3 className="font-black text-slate-800 border-b border-slate-100 pb-2">Features & Intervals</h3>
             <div className="space-y-4">
-              {['heartbeat', 'activity', 'hardware_inventory', 'software_inventory', 'screenshots'].map(feature => (
+              {['heartbeat', 'activity', 'hardware_inventory', 'software_inventory', 'screenshots', 'browser', 'usb', 'location', 'auto_incident'].map(feature => (
                 <div key={feature} className="flex items-center justify-between gap-4 p-3 rounded-2xl border border-slate-100 hover:bg-slate-50 transition">
                   <div>
                     <label className="flex items-center gap-3 cursor-pointer">
