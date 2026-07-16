@@ -167,6 +167,7 @@ test("endpoint health distinguishes disabled activity from stale activity", () =
     policy_json: {
       features: {
         activity_monitoring_enabled: { enabled: false, consent_required: true, reason: "Employee consent excludes activity." },
+        screenshot_monitoring_enabled: { enabled: true, consent_required: true },
       },
     },
   });
@@ -319,7 +320,7 @@ test("approved consent policy becomes the agent baseline without a manual policy
     `INSERT INTO endpoint_monitoring_policies
        (consent_id,consent_version,employee_id,device_uuid,application_monitoring,
         web_monitoring,screenshot_monitoring,usb_monitoring,location_tracking,status)
-     VALUES ($1,'1.0',$2,NULL,true,true,true,true,false,'active')`,
+     VALUES ($1,'1.0',$2,NULL,false,false,false,false,false,'active')`,
     [consentId, actorId]
   );
 

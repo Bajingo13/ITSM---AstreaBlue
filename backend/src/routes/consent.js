@@ -294,37 +294,32 @@ async function regenerateEffectiveEndpointPolicy(deviceUuid, actor) {
   let effectivePolicyName = "Company Default Safe Policy";
   let effectivePolicyVersion = "1.0";
   const featureSources = {};
+  const consentResult = device.assigned_user_id ? await db.query(
+    `SELECT consent_id, consent_version, monitoring_preferences
+     FROM consent_documents
+     WHERE employee_id=$1
+       AND (device_uuid=$2::uuid OR device_uuid IS NULL)
+       AND status='approved' AND active=true
+     ORDER BY (device_uuid IS NOT NULL) DESC, approved_at DESC NULLS LAST, consent_id DESC
+     LIMIT 1`,
+    [device.assigned_user_id, device.device_uuid]
+  ) : { rows: [] };
+  const consent = consentResult.rows[0] || null;
+  const prefs = consent?.monitoring_preferences || [];
 
-  if (device.assigned_user_id) {
-    const consentPolicyResult = await db.query(
-      `SELECT mp.*
-       FROM endpoint_monitoring_policies mp
-       JOIN consent_documents cd ON cd.consent_id=mp.consent_id
-       WHERE mp.employee_id=$1
-         AND (mp.device_uuid=$2::uuid OR mp.device_uuid IS NULL)
-         AND mp.status='active'
-         AND cd.status='approved'
-         AND cd.active=true
-       ORDER BY (mp.device_uuid IS NOT NULL) DESC, mp.effective_at DESC, mp.policy_id DESC
-       LIMIT 1`,
-      [device.assigned_user_id, device.device_uuid]
-    );
-    const consentPolicy = consentPolicyResult.rows[0];
-    if (consentPolicy) {
+  if (consent) {
       const consentBaseline = {
-        telemetry_enabled: consentPolicy.device_telemetry !== false,
-        activity_monitoring_enabled: !!consentPolicy.application_monitoring,
-        screenshot_monitoring_enabled: !!consentPolicy.screenshot_monitoring,
-        usb_monitoring_enabled: !!consentPolicy.usb_monitoring,
-        browser_monitoring_enabled: !!consentPolicy.web_monitoring,
-        location_tracking_enabled: !!consentPolicy.location_tracking,
-        retention: { logs_days: Number(consentPolicy.retention_days) || 180 },
+        telemetry_enabled: true,
+        activity_monitoring_enabled: hasPreference(prefs, "application_monitoring", "applications", "activity_monitoring", "app_usage", "window_title", "idle_time"),
+        screenshot_monitoring_enabled: hasPreference(prefs, "screenshot_monitoring", "screenshot"),
+        usb_monitoring_enabled: hasPreference(prefs, "usb_monitoring", "usb"),
+        browser_monitoring_enabled: hasPreference(prefs, "web_monitoring", "website_monitoring", "network_domains", "browser"),
+        location_tracking_enabled: hasPreference(prefs, "location_tracking"),
       };
       effectiveConfig = { ...effectiveConfig, ...consentBaseline };
       effectivePolicyName = "Approved Consent Policy";
-      effectivePolicyVersion = `consent-${consentPolicy.consent_version || consentPolicy.consent_id}`;
+      effectivePolicyVersion = `consent-${consent.consent_version || consent.consent_id}`;
       for (const key of Object.keys(consentBaseline)) featureSources[key] = "Approved Consent";
-    }
   }
 
   const targetPriorities = { Employee: 6, Device: 5, Asset: 4, Department: 3, Branch: 2, Global: 1 };
@@ -352,15 +347,6 @@ async function regenerateEffectiveEndpointPolicy(deviceUuid, actor) {
   }
 
   const reasons = {};
-  const consentResult = device.assigned_user_id ? await db.query(
-    `SELECT consent_id, consent_version, monitoring_preferences
-     FROM consent_documents
-     WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status='approved' AND active=true
-     ORDER BY approved_at DESC NULLS LAST LIMIT 1`,
-    [device.assigned_user_id, device.device_uuid]
-  ) : { rows: [] };
-  const consent = consentResult.rows[0] || null;
-  const prefs = consent?.monitoring_preferences || [];
   const consentGated = [
     ["activity_monitoring_enabled", ["application_monitoring", "applications", "activity_monitoring", "app_usage", "window_title", "idle_time"], "Application/window activity and idle detection"],
     ["screenshot_monitoring_enabled", ["screenshot_monitoring", "screenshot"], "Screenshot Monitoring"],

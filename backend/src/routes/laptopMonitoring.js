@@ -904,13 +904,14 @@ function buildEndpointHealth(row) {
     { event_type: "Software Inventory", occurred_at: row.last_software_inventory_at, status: softwareInventory.status },
     { event_type: "Policy Sync", occurred_at: row.last_policy_sync_at, status: policy.status },
   ];
-  const enabledConsentFeatures = policyJson.features
-    ? Object.values(policyJson.features).filter((feature) => feature?.consent_required && feature.enabled)
-    : [];
+  // "Monitoring Active" must represent fresh activity telemetry, not merely
+  // another enabled consent-gated feature such as screenshots or USB.
   const monitoringActive = !!(
+    activityEnabled &&
     heartbeat.status === "Healthy" &&
     policy.status === "Healthy" &&
-    enabledConsentFeatures.length
+    activity.status === "Healthy" &&
+    idleDetection.status === "Healthy"
   );
   const checklist = [
     { step: "Asset Linked", status: row.asset_id ? "Complete" : "Pending" },
@@ -920,7 +921,7 @@ function buildEndpointHealth(row) {
     { step: "Consent Approved", status: row.consent_approved ? "Complete" : "Pending" },
     { step: "Effective Policy Generated", status: row.policy_generated_at ? "Complete" : "Pending" },
     { step: "Agent Policy Downloaded", status: row.last_policy_sync_at ? "Complete" : "Pending" },
-    { step: "Monitoring Active", status: monitoringActive ? "Complete" : (consent.status === "Healthy" && enabledConsentFeatures.length ? "Pending" : "Not Applicable") },
+    { step: "Monitoring Active", status: monitoringActive ? "Complete" : (activityEnabled ? "Pending" : "Not Applicable") },
   ];
 
   return {
@@ -2405,40 +2406,36 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
   let effectivePolicyName = "Default (Safe)";
   let effectivePolicyVersion = "1.0";
   const featureSources = {};
+  let consentDoc = null;
 
-  // Consent approval creates an employee/device monitoring policy. Use that
-  // approved record as the effective baseline so an endpoint is not left on
-  // Default (Safe) simply because no separate enterprise assignment exists.
-  // Explicit endpoint_policy_assignments are still evaluated below and may
-  // further restrict or override this baseline; consent gating is applied last.
+  // The approved consent document is the canonical source of employee choices.
+  // endpoint_monitoring_policies is a materialized audit record and can be stale
+  // after a preference change, so it must not decide the effective flags.
   if (device.assigned_user_id) {
-    const consentPolicyResult = await db.query(
-      `SELECT mp.*
-       FROM endpoint_monitoring_policies mp
-       JOIN consent_documents cd ON cd.consent_id=mp.consent_id
-       WHERE mp.employee_id=$1
-         AND (mp.device_uuid=$2::uuid OR mp.device_uuid IS NULL)
-         AND mp.status='active'
-         AND cd.status='approved'
-         AND cd.active=true
-       ORDER BY (mp.device_uuid IS NOT NULL) DESC, mp.effective_at DESC, mp.policy_id DESC
+    const consentResult = await db.query(
+      `SELECT consent_id, consent_version, monitoring_preferences
+       FROM consent_documents
+       WHERE employee_id=$1
+         AND (device_uuid=$2::uuid OR device_uuid IS NULL)
+         AND status='approved' AND active=true
+       ORDER BY (device_uuid IS NOT NULL) DESC, approved_at DESC NULLS LAST, consent_id DESC
        LIMIT 1`,
       [device.assigned_user_id, device.device_uuid]
     );
-    const consentPolicy = consentPolicyResult.rows[0];
-    if (consentPolicy) {
+    consentDoc = consentResult.rows[0] || null;
+    if (consentDoc) {
+      const prefs = consentDoc.monitoring_preferences || [];
       const consentBaseline = {
-        telemetry_enabled: consentPolicy.device_telemetry !== false,
-        activity_monitoring_enabled: !!consentPolicy.application_monitoring,
-        screenshot_monitoring_enabled: !!consentPolicy.screenshot_monitoring,
-        usb_monitoring_enabled: !!consentPolicy.usb_monitoring,
-        browser_monitoring_enabled: !!consentPolicy.web_monitoring,
-        location_tracking_enabled: !!consentPolicy.location_tracking,
-        retention: { logs_days: Number(consentPolicy.retention_days) || 180 },
+        telemetry_enabled: true,
+        activity_monitoring_enabled: hasPreference(prefs, "application_monitoring", "applications", "activity_monitoring", "app_usage", "window_title", "idle_time"),
+        screenshot_monitoring_enabled: hasPreference(prefs, "screenshot_monitoring", "screenshot"),
+        usb_monitoring_enabled: hasPreference(prefs, "usb_monitoring", "usb"),
+        browser_monitoring_enabled: hasPreference(prefs, "web_monitoring", "website_monitoring", "network_domains", "browser"),
+        location_tracking_enabled: hasPreference(prefs, "location_tracking"),
       };
       effectiveConfig = { ...effectiveConfig, ...consentBaseline };
       effectivePolicyName = "Approved Consent Policy";
-      effectivePolicyVersion = `consent-${consentPolicy.consent_version || consentPolicy.consent_id}`;
+      effectivePolicyVersion = `consent-${consentDoc.consent_version || consentDoc.consent_id}`;
       for (const key of Object.keys(consentBaseline)) featureSources[key] = "Approved Consent";
     }
   }
@@ -2470,20 +2467,8 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
   }
 
   const reasons = {};
-  let consentDoc = null;
-  
-  // Consent Integration
-  let hasConsent = false;
-  if (device.assigned_user_id) {
-    const formalConsent = await db.query(
-      `SELECT consent_id, consent_version, monitoring_preferences FROM consent_documents
-       WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL) AND status='approved' AND active=true
-       ORDER BY approved_at DESC NULLS LAST LIMIT 1`,
-      [device.assigned_user_id, device.device_uuid]
-    );
-    if (formalConsent.rows.length) {
-      hasConsent = true;
-      consentDoc = formalConsent.rows[0];
+  const hasConsent = !!consentDoc;
+  if (consentDoc) {
       const prefs = consentDoc.monitoring_preferences || [];
       if (!hasPreference(prefs, "application_monitoring", "applications", "activity_monitoring", "app_usage", "window_title", "idle_time")) {
         effectiveConfig.activity_monitoring_enabled = false;
@@ -2503,7 +2488,6 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
         effectiveConfig.usb_monitoring_enabled = false;
         reasons.usb_monitoring_enabled = "Employee consent excludes USB activity monitoring.";
       }
-    }
   }
 
   if (!hasConsent) {
