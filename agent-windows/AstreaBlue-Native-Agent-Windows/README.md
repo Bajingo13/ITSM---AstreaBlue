@@ -26,6 +26,18 @@ The installer defaults to `https://backend-production-fc059.up.railway.app`, con
 
 The service synchronizes the consent-derived endpoint policy every minute and sends hardware/software inventory every 24 hours when allowed. A credential-free user-session companion samples foreground application, window title, and idle time; the service forwards it only when the effective policy and approved employee consent enable activity monitoring.
 
+Version `native-1.2.0` also supports consent-approved periodic screenshots. The interactive companion displays a Windows notification before capture, then hands the JPEG to the authenticated Windows service. The backend independently revalidates current assignment, consent, and policy, encrypts the image with AES-256-GCM, and stores only ciphertext in private Cloudflare R2. Screenshot access remains authenticated and branch-scoped, and expired objects are deleted according to the effective retention policy.
+
+Before enabling screenshot capture in production, configure a unique 32-byte `SCREENSHOT_ENCRYPTION_KEY` in the Railway backend environment. Generate it directly in an administrator terminal with:
+
+```powershell
+$bytes = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+[Convert]::ToBase64String($bytes)
+```
+
+Do not place that key in source control or inside the agent ZIP.
+
 Signed automatic updates remain disabled until a trusted company signing certificate and HTTPS manifest are configured. See `SIGNED_UPDATES.md`.
 
 ## Support

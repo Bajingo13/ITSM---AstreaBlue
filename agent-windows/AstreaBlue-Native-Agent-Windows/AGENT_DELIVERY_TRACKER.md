@@ -1,6 +1,6 @@
 # AstreaBlue Windows Agent Delivery Tracker
 
-Updated: 2026-07-14
+Updated: 2026-07-16
 
 ## P0 — Secure enrollment foundation
 
@@ -30,6 +30,16 @@ Updated: 2026-07-14
 - [x] Native policy synchronization
 - [x] Native hardware and software inventory parity
 - [x] Consent-aware, credential-free user-session companion for activity monitoring
+- [x] Consent/policy-gated native screenshot capture in the interactive companion
+- [x] Visible Windows notification before each screenshot
+- [x] Per-device authenticated screenshot upload through the Windows service
+- [x] AES-256-GCM encryption before private Cloudflare R2 storage
+- [x] Authenticated, RBAC-scoped screenshot viewing with integrity verification
+- [x] Configurable screenshot interval and automatic retention deletion
+- [ ] Validate screenshot notification, capture, encrypted storage, and viewing on the first pilot laptop
+- [ ] Validate screenshot capture across restart and repair on the second pilot laptop
+- [ ] Native USB insertion/removal collector
+- [ ] USB file-transfer metadata and DLP risk rules
 
 ## P2 — Installation and support lifecycle
 
