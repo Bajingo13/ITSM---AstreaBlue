@@ -1,7 +1,7 @@
 import { API_URL } from "../config/api";
 import { useCallback, useEffect, useState } from "react";
 import { io } from "socket.io-client";
-import { AlertTriangle, CheckCircle, Clock, Timer, Activity, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle, Clock, Timer, Activity, Zap, Download, FileText, Printer } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
@@ -32,6 +32,37 @@ export default function SLAMonitor() {
   });
   const [loading, setLoading] = useState(true);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
+  const [exportOpen, setExportOpen] = useState(false);
+
+  const handleExportPdfAll = useCallback(async () => {
+    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+    setExportOpen(false);
+    for (const ticket of tickets) {
+      const id = ticket.id;
+      try {
+        const res = await fetch(`${API_BASE}/sla/reports/export/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = `sla-report-${ticket.ticket_number || id}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(blobUrl);
+      } catch (err) {
+        console.error(`PDF export error for ticket ${id}:`, err);
+      }
+    }
+  }, [tickets]);
+
+  const handlePrintAll = useCallback(() => {
+    setExportOpen(false);
+    window.print();
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
@@ -126,14 +157,43 @@ export default function SLAMonitor() {
           </p>
         </div>
       </section>
-
       {/* SLA Ticket Queue */}
       <section>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-black text-slate-900">SLA Ticket Queue</h2>
-          <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-700">
-            {tickets.length} total
-          </span>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <button
+                onClick={() => setExportOpen(!exportOpen)}
+                className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700"
+              >
+                <Download size={14} />
+                Export
+                <svg className={`h-3 w-3 transition ${exportOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
+              </button>
+              {exportOpen && (
+                <div className="absolute right-0 z-50 mt-1 w-48 rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
+                  <button
+                    onClick={() => { setExportOpen(false); handleExportPdfAll(); }}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <FileText size={16} className="text-slate-400" />
+                    Export PDF
+                  </button>
+                  <button
+                    onClick={() => handlePrintAll()}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <Printer size={16} className="text-slate-400" />
+                    Print Report
+                  </button>
+                </div>
+              )}
+            </div>
+            <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-700">
+              {tickets.length} total
+            </span>
+          </div>
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -142,6 +202,7 @@ export default function SLAMonitor() {
               <tr>
                 <th className="px-6 py-4">Ticket No.</th>
                 <th className="px-6 py-4">Title</th>
+                <th className="px-6 py-4">Assigned Technician</th>
                 <th className="px-6 py-4">Priority</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">SLA Due</th>
@@ -151,13 +212,12 @@ export default function SLAMonitor() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-slate-400">
-                    Loading SLA data...
+                  <td colSpan="7" className="px-6 py-8 text-center text-slate-400">
                   </td>
                 </tr>
               ) : tickets.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-slate-400">
+                  <td colSpan="7" className="px-6 py-8 text-center text-slate-400">
                     No active tickets.
                   </td>
                 </tr>
@@ -180,6 +240,14 @@ export default function SLAMonitor() {
                         <div className="line-clamp-1 max-w-xs text-xs text-slate-500" title={ticket.title}>
                           {ticket.title}
                         </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center gap-1.5 font-medium text-slate-700">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
+                            {(ticket.assigned_name || "U")[0]}
+                          </span>
+                          <span className="text-xs">{ticket.assigned_name || "Unassigned"}</span>
+                        </span>
                       </td>
                       <td className="px-6 py-4">
                         <span className={getPriorityBadgeClass(ticket.priority)}>
