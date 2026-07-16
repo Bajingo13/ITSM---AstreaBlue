@@ -1,7 +1,7 @@
 import { API_URL } from "../config/api";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import { AlertTriangle, CheckCircle, Clock, Timer, Activity, Zap, Download, FileText, Printer } from "lucide-react";
+import { AlertTriangle, CheckCircle, ChevronDown, Clock, Timer, Activity, Zap, Download, FileText, Printer, Filter, CalendarDays, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
@@ -16,6 +16,57 @@ const formatDateTime = (value) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Not set" : dateTimeFormatter.format(date);
 };
+
+const SORT_OPTIONS = [
+  { value: "latest", label: "Latest SLA Tickets" },
+  { value: "oldest", label: "Oldest SLA Tickets" },
+  { value: "updated", label: "Recently Updated" },
+  { value: "priority", label: "Highest Priority First" },
+];
+
+function FilterPanelSection({ title, children }) {
+  return (
+    <div className="border-b border-slate-100 px-4 py-4 last:border-b-0">
+      <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function FilterChip({ selected, children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-[11px] border px-3 py-2 text-xs font-black transition ${
+        selected
+          ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm shadow-blue-600/10"
+          : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FilterSelect({ label, value, options, onChange }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-[11px] border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 outline-none transition hover:border-blue-200 hover:bg-blue-50/40 focus:border-blue-500 focus:ring-4 focus:ring-blue-600/10"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 export default function SLAMonitor() {
   const { user } = useAuth();
@@ -33,6 +84,65 @@ export default function SLAMonitor() {
   const [loading, setLoading] = useState(true);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  // SLA Filter & Sort State
+  const [sortMode, setSortMode] = useState("latest");
+  const [slaStatusFilters, setSlaStatusFilters] = useState([]);
+  const [statusFilters, setStatusFilters] = useState([]);
+  const [priorityFilters, setPriorityFilters] = useState([]);
+  const [dateRange, setDateRange] = useState(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [branchFilter, setBranchFilter] = useState("all");
+  const [technicianFilter, setTechnicianFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
+
+  const buildFilterQuery = useCallback(() => {
+    const q = [];
+    if (sortMode !== "latest") q.push(`sort=${sortMode}`);
+    if (dateRange) q.push(`dateRange=${dateRange}`);
+    if (dateFrom) q.push(`dateFrom=${encodeURIComponent(dateFrom)}`);
+    if (dateTo) q.push(`dateTo=${encodeURIComponent(dateTo)}`);
+    if (slaStatusFilters.length) q.push(`slaStatus=${slaStatusFilters.join(",")}`);
+    if (statusFilters.length) q.push(`status=${statusFilters.map(s => encodeURIComponent(s)).join(",")}`);
+    if (priorityFilters.length) q.push(`priority=${priorityFilters.map(p => encodeURIComponent(p)).join(",")}`);
+    if (branchFilter !== "all") q.push(`branch=${encodeURIComponent(branchFilter)}`);
+    if (technicianFilter !== "all") q.push(`technician=${technicianFilter}`);
+    if (categoryFilter !== "all") q.push(`category=${encodeURIComponent(categoryFilter)}`);
+    if (departmentFilter !== "all") q.push(`department=${encodeURIComponent(departmentFilter)}`);
+    return q.length ? `&${q.join("&")}` : "";
+  }, [sortMode, dateRange, dateFrom, dateTo, slaStatusFilters, statusFilters, priorityFilters, branchFilter, technicianFilter, categoryFilter, departmentFilter]);
+
+  const activeFilterCount = useCallback(() => {
+    let count = 0;
+    if (sortMode !== "latest") count++;
+    if (dateRange) count++;
+    if (dateFrom || dateTo) count++;
+    if (slaStatusFilters.length) count++;
+    if (statusFilters.length) count++;
+    if (priorityFilters.length) count++;
+    if (branchFilter !== "all") count++;
+    if (technicianFilter !== "all") count++;
+    if (categoryFilter !== "all") count++;
+    if (departmentFilter !== "all") count++;
+    return count;
+  }, [sortMode, dateRange, dateFrom, dateTo, slaStatusFilters, statusFilters, priorityFilters, branchFilter, technicianFilter, categoryFilter, departmentFilter]);
+
+  const clearAllFilters = useCallback(() => {
+    setSortMode("latest");
+    setSlaStatusFilters([]);
+    setStatusFilters([]);
+    setPriorityFilters([]);
+    setDateRange(null);
+    setDateFrom("");
+    setDateTo("");
+    setBranchFilter("all");
+    setTechnicianFilter("all");
+    setCategoryFilter("all");
+    setDepartmentFilter("all");
+  }, []);
 
   const handleExportPdfAll = useCallback(async () => {
     const token = localStorage.getItem("token") || sessionStorage.getItem("token");
@@ -68,21 +178,25 @@ export default function SLAMonitor() {
     try {
       setLoading(true);
 
-      // Fetch stats
-      const statsRes = await fetch(`${API_BASE}/sla/dashboard${buildTicketQuery(user)}`);
+      // Build filter query string
+      const filterQuery = buildFilterQuery();
+
+      // Fetch stats with filter params
+      const statsRes = await fetch(`${API_BASE}/sla/dashboard${buildTicketQuery(user)}${filterQuery}`);
       const statsData = await statsRes.json();
       if (statsData.success) {
         setStats(statsData.stats);
       }
 
-      // Fetch active SLA tickets
-      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`);
+      // Fetch tickets with filter params
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}${filterQuery}`);
       const data = await res.json();
       const allTickets = Array.isArray(data) ? data : [];
-      // Filter out completed ones to show what needs attention
-      setTickets(allTickets.filter((t) => t.status !== "Closed" && t.status !== "Cancelled" && t.status !== "Resolved"));
+      // When filters are active, show all matching results; otherwise exclude completed
+      const hasFilters = activeFilterCount() > 0;
+      setTickets(hasFilters ? allTickets : allTickets.filter((t) => t.status !== "Closed" && t.status !== "Cancelled"));
 
-      // Fetch SLA history — backend returns { success, history, data }
+      // Fetch SLA history
       const histRes = await fetch(`${API_BASE}/sla/history${buildTicketQuery(user)}`);
       const histData = await histRes.json();
       setHistory(histData.history || histData.data || []);
@@ -93,7 +207,7 @@ export default function SLAMonitor() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, buildFilterQuery, activeFilterCount]);
 
   useEffect(() => {
     fetchData();
@@ -114,12 +228,20 @@ export default function SLAMonitor() {
       case "Met":      return "bg-emerald-100 text-emerald-800 border-emerald-200";
       case "Breached": return "bg-red-100 text-red-800 border-red-200";
       case "Due Soon": return "bg-amber-100 text-amber-800 border-amber-200";
-      default:         return "bg-blue-100 text-blue-800 border-blue-200"; // Pending / Active
+      default:         return "bg-blue-100 text-blue-800 border-blue-200";
     }
   };
 
+  // Determine SLA state label for stats filtering
+  const slaStateLabel = slaStatusFilters.length
+    ? slaStatusFilters.map(s => `SLA ${s.charAt(0).toUpperCase() + s.slice(1)}`).join(", ")
+    : null;
+
+  const filterButtonLabel = activeFilterCount() > 0
+    ? `Sort & Filter (${activeFilterCount()})`
+    : "Sort & Filter";
+
   return (
-    // Full-width layout — matches Tickets.jsx (no max-w or mx-auto on outer wrapper)
     <div className="space-y-6">
       <PageHero
         icon={Timer}
@@ -157,11 +279,52 @@ export default function SLAMonitor() {
           </p>
         </div>
       </section>
+
       {/* SLA Ticket Queue */}
       <section>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-black text-slate-900">SLA Ticket Queue</h2>
           <div className="flex items-center gap-3">
+            {/* Sort & Filter Button */}
+            <SortFilterDropdown
+              buttonLabel={filterButtonLabel}
+              sortMode={sortMode}
+              onSortChange={setSortMode}
+              slaStatusFilters={slaStatusFilters}
+              onSlaStatusToggle={(val) =>
+                setSlaStatusFilters((prev) =>
+                  prev.includes(val) ? prev.filter((v) => v !== val) : [...prev, val]
+                )
+              }
+              statusFilters={statusFilters}
+              onStatusToggle={(val) =>
+                setStatusFilters((prev) =>
+                  prev.includes(val) ? prev.filter((v) => v !== val) : [...prev, val]
+                )
+              }
+              priorityFilters={priorityFilters}
+              onPriorityToggle={(val) =>
+                setPriorityFilters((prev) =>
+                  prev.includes(val) ? prev.filter((v) => v !== val) : [...prev, val]
+                )
+              }
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+              dateFrom={dateFrom}
+              onDateFromChange={setDateFrom}
+              dateTo={dateTo}
+              onDateToChange={setDateTo}
+              branchFilter={branchFilter}
+              onBranchFilterChange={setBranchFilter}
+              technicianFilter={technicianFilter}
+              onTechnicianFilterChange={setTechnicianFilter}
+              categoryFilter={categoryFilter}
+              onCategoryFilterChange={setCategoryFilter}
+              departmentFilter={departmentFilter}
+              onDepartmentFilterChange={setDepartmentFilter}
+              onClear={clearAllFilters}
+            />
+            {/* Export Button */}
             <div className="relative">
               <button
                 onClick={() => setExportOpen(!exportOpen)}
@@ -363,6 +526,237 @@ function Card({ icon: Icon, label, value, color }) {
           <p className="text-3xl font-black text-slate-900">{value}</p>
           <p className="text-sm font-bold text-slate-500 uppercase tracking-wider mt-1">{label}</p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Sort & Filter Dropdown ── */
+function SortFilterDropdown({
+  buttonLabel,
+  sortMode,
+  onSortChange,
+  slaStatusFilters,
+  onSlaStatusToggle,
+  statusFilters,
+  onStatusToggle,
+  priorityFilters,
+  onPriorityToggle,
+  dateRange,
+  onDateRangeChange,
+  dateFrom,
+  onDateFromChange,
+  dateTo,
+  onDateToChange,
+  branchFilter,
+  onBranchFilterChange,
+  technicianFilter,
+  onTechnicianFilterChange,
+  categoryFilter,
+  onCategoryFilterChange,
+  departmentFilter,
+  onDepartmentFilterChange,
+  onClear,
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectOptions = (items) => items.map((item) => ({ label: item, value: item }));
+
+  const branchOptions = [{ label: "All", value: "all" }, ...selectOptions(["Manila HQ", "Cebu Branch", "Clark Branch"])];
+  const technicianOptions = selectOptions(["All", "Assigned", "Unassigned"]);
+  const categoryOptions = selectOptions(["All", "Incident", "Service Request", "Change Request"]);
+  const departmentOptions = [{ label: "All", value: "all" }, ...selectOptions(["IT", "HR", "Finance", "Operations"])];
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        className={`inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black shadow-sm transition ${
+          open
+            ? "border-blue-300 bg-blue-50 text-blue-700 ring-4 ring-blue-600/10"
+            : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+        }`}
+      >
+        <Filter size={16} />
+        <span className="max-w-[230px] truncate">{buttonLabel}</span>
+        <ChevronDown size={16} className={`shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      <div
+        className={`absolute right-0 top-full z-40 mt-2 w-[min(92vw,440px)] origin-top-right overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/12 transition-all duration-150 ${
+          open ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0 pointer-events-none"
+        }`}
+      >
+        {/* Sorting */}
+        <FilterPanelSection title="Sorting">
+          <div className="space-y-1">
+            {SORT_OPTIONS.map((option) => {
+              const selected = sortMode === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onSortChange(option.value)}
+                  className={`flex w-full items-center justify-between rounded-[11px] px-3 py-2.5 text-left text-sm font-bold transition ${
+                    selected ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-blue-50/60 hover:text-blue-700"
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {selected && <CheckCircle size={16} className="text-blue-600" />}
+                </button>
+              );
+            })}
+          </div>
+        </FilterPanelSection>
+
+        {/* SLA Status */}
+        <FilterPanelSection title="SLA Status">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { key: "active", label: "SLA Active" },
+              { key: "warning", label: "SLA Warning" },
+              { key: "breached", label: "SLA Breached" },
+              { key: "met", label: "SLA Met" },
+            ].map((opt) => (
+              <FilterChip
+                key={opt.key}
+                selected={slaStatusFilters.includes(opt.key)}
+                onClick={() => onSlaStatusToggle(opt.key)}
+              >
+                {opt.label}
+              </FilterChip>
+            ))}
+          </div>
+        </FilterPanelSection>
+
+        {/* Ticket Status */}
+        <FilterPanelSection title="Ticket Status">
+          <div className="flex flex-wrap gap-2">
+            {["Open Queue", "In Progress", "Resolved", "Closed"].map((s) => (
+              <FilterChip
+                key={s}
+                selected={statusFilters.includes(s)}
+                onClick={() => onStatusToggle(s)}
+              >
+                {s}
+              </FilterChip>
+            ))}
+          </div>
+        </FilterPanelSection>
+
+        {/* Priority */}
+        <FilterPanelSection title="Priority">
+          <div className="flex flex-wrap gap-2">
+            {["P1-Critical", "P2-High", "P3-Medium", "P4-Low"].map((p) => (
+              <FilterChip
+                key={p}
+                selected={priorityFilters.includes(p)}
+                onClick={() => onPriorityToggle(p)}
+              >
+                {p}
+              </FilterChip>
+            ))}
+          </div>
+        </FilterPanelSection>
+
+        {/* Date Range */}
+        <FilterPanelSection title="Date Range">
+          <div className="flex flex-wrap gap-2 mb-3">
+            {[
+              { value: "30days", label: "Last 30 Days" },
+              { value: "6months", label: "Last 6 Months" },
+            ].map((opt) => (
+              <FilterChip
+                key={opt.value}
+                selected={dateRange === opt.value}
+                onClick={() => onDateRangeChange(dateRange === opt.value ? null : opt.value)}
+              >
+                {opt.label}
+              </FilterChip>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex items-center">
+              <CalendarDays size={14} className="pointer-events-none absolute left-3 text-slate-400" />
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => { onDateFromChange(e.target.value); onDateRangeChange(null); }}
+                className="w-full min-w-[140px] rounded-[11px] border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs font-bold text-slate-700 transition hover:border-blue-200 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-600/10"
+                placeholder="Start date"
+              />
+            </div>
+            <span className="text-xs text-slate-400">to</span>
+            <div className="relative flex items-center">
+              <CalendarDays size={14} className="pointer-events-none absolute left-3 text-slate-400" />
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => { onDateToChange(e.target.value); onDateRangeChange(null); }}
+                className="w-full min-w-[140px] rounded-[11px] border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs font-bold text-slate-700 transition hover:border-blue-200 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-600/10"
+                placeholder="End date"
+              />
+            </div>
+          </div>
+        </FilterPanelSection>
+
+        {/* More Filters */}
+        <FilterPanelSection title="More Filters">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FilterSelect
+              label="Branch"
+              value={branchFilter}
+              options={branchOptions.map((o) => ({ ...o, value: o.value }))}
+              onChange={onBranchFilterChange}
+            />
+            <FilterSelect
+              label="Assigned Technician"
+              value={technicianFilter}
+              options={[{ label: "All", value: "all" }, { label: "Assigned", value: "assigned" }, { label: "Unassigned", value: "unassigned" }]}
+              onChange={onTechnicianFilterChange}
+            />
+            <FilterSelect
+              label="Category"
+              value={categoryFilter}
+              options={[{ label: "All", value: "all" }, { label: "Incident", value: "Incident" }, { label: "Service Request", value: "Service Request" }, { label: "Change Request", value: "Change Request" }]}
+              onChange={onCategoryFilterChange}
+            />
+            <FilterSelect
+              label="Department"
+              value={departmentFilter}
+              options={[{ label: "All", value: "all" }, { label: "IT", value: "IT" }, { label: "HR", value: "HR" }, { label: "Finance", value: "Finance" }, { label: "Operations", value: "Operations" }]}
+              onChange={onDepartmentFilterChange}
+            />
+          </div>
+        </FilterPanelSection>
+
+        {/* Reset Action */}
+        <FilterPanelSection title="Reset Action">
+          <button
+            type="button"
+            onClick={() => {
+              onClear();
+              setOpen(false);
+            }}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-[11px] border border-rose-200 bg-white px-4 py-2.5 text-sm font-black text-rose-600 transition hover:border-rose-300 hover:bg-rose-50"
+          >
+            <X size={16} />
+            Clear All Filters
+          </button>
+        </FilterPanelSection>
       </div>
     </div>
   );
