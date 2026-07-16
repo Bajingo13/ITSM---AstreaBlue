@@ -7,104 +7,119 @@ const DUE_SOON_MINUTES = 240;
 
 router.get('/dashboard', async (req, res) => {
   try {
-    const { assigned_to, priority } = req.query;
+    const { assigned_to, priority, slaStatus, dateFrom, dateTo, dateRange, status, branch, technician, category, department } = req.query;
     
     // Build filter clauses using shared RBAC logic
     const params = [];
     const accessClauses = addTicketAccessFilter(req, params, "tickets");
     
-    // Status filter
+    // Status filter - only exclude cancelled by default
     accessClauses.push("status != 'Cancelled'");
     
     if (assigned_to) { params.push(assigned_to); accessClauses.push(`assigned_to = $${params.length}`); }
-    if (priority) { params.push(priority); accessClauses.push(`priority = $${params.length}`); }
-
+    
+    if (priority) {
+      const priorities = priority.split(",");
+      const placeholders = priorities.map((_, i) => `$${params.length + i + 1}`);
+      accessClauses.push(`priority IN (${placeholders.join(", ")})`);
+      params.push(...priorities);
+    }
+    
+    if (status) {
+      const statuses = status.split(",");
+      const placeholders = statuses.map((_, i) => `$${params.length + i + 1}`);
+      accessClauses.push(`status IN (${placeholders.join(", ")})`);
+      params.push(...statuses);
+    }
+    
+    if (slaStatus) {
+      const slaStatuses = slaStatus.split(",");
+      const slaConditions = slaStatuses.map((ss) => {
+        switch (ss.toLowerCase()) {
+          case "breached": return "(response_sla_status = 'Breached' OR resolution_sla_status = 'Breached')";
+          case "met": return "(response_sla_status = 'Met' OR resolution_sla_status = 'Met')";
+          case "warning": return `(response_sla_status NOT IN ('Breached','Met','Cancelled') AND resolution_sla_status NOT IN ('Breached','Met','Cancelled') AND resolution_due_at IS NOT NULL AND resolution_due_at <= NOW() + INTERVAL '240 minutes')`;
+          case "active": return `(response_sla_status NOT IN ('Breached','Met','Cancelled') AND resolution_sla_status NOT IN ('Breached','Met','Cancelled') AND (resolution_due_at IS NULL OR resolution_due_at > NOW() + INTERVAL '240 minutes'))`;
+          default: return "1=0";
+        }
+      });
+      accessClauses.push(`(${slaConditions.join(" OR ")})`);
+    }
+    
+    if (dateRange === "30days") accessClauses.push(`created_at >= NOW() - INTERVAL '30 days'`);
+    else if (dateRange === "6months") accessClauses.push(`created_at >= NOW() - INTERVAL '6 months'`);
+    
+    if (dateFrom) { params.push(dateFrom); accessClauses.push(`created_at >= $${params.length}::timestamp`); }
+    if (dateTo) { params.push(dateTo); accessClauses.push(`created_at <= $${params.length}::timestamp`); }
+    
+    if (branch && branch !== "all") { params.push(branch); accessClauses.push(`branch_id = $${params.length}::int`); }
+    if (technician === "assigned") { accessClauses.push(`assigned_to IS NOT NULL`); }
+    else if (technician === "unassigned") { accessClauses.push(`assigned_to IS NULL`); }
+    
     const whereSql = accessClauses.length ? `WHERE ${accessClauses.join(" AND ")}` : "";
-
-    // 1. Fetch tickets to calculate stats
+    
+    // Fetch tickets to calculate stats
     const query = `
       SELECT 
-        id, 
-        status, 
-        response_sla_status, 
-        resolution_sla_status, 
-        first_response_at, 
-        created_at, 
-        resolved_at, 
-        closed_at,
-        response_due_at,
-        resolution_due_at
+        id, status, response_sla_status, resolution_sla_status, first_response_at, 
+        created_at, resolved_at, closed_at, response_due_at, resolution_due_at
       FROM tickets
       ${whereSql}
     `;
     const { rows: tickets } = await db.query(query, params);
-
+    
     let activeSLA = 0, dueSoon = 0, breached = 0, met = 0;
     let totalResponseTime = 0, responseCount = 0;
     let totalResolutionTime = 0, resolutionCount = 0;
-
     const now = new Date();
-
+    
     for (const t of tickets) {
       const isResolved = t.status === 'Resolved' || t.status === 'Closed';
       const isActive = !['Resolved', 'Closed', 'Cancelled'].includes(t.status);
       
-      // Calculate active
       if (isActive) activeSLA++;
-
-      // Calculate Met/Breached
+      
       if (t.resolution_sla_status === 'Met' || t.response_sla_status === 'Met') {
-        // If it's already resolved and met
         if (isResolved && t.resolution_sla_status === 'Met') met++;
         else if (!isResolved && t.response_sla_status === 'Met') met++;
       }
       
       if (t.resolution_sla_status === 'Breached' || t.response_sla_status === 'Breached') breached++;
       
-      // Count an active ticket once when either outstanding SLA target is due within four hours.
       const isBreached = t.resolution_sla_status === 'Breached' || t.response_sla_status === 'Breached';
       if (isActive && !isBreached) {
         const responseMinutes = !t.first_response_at && t.response_due_at
-          ? (new Date(t.response_due_at) - now) / 60000
-          : null;
+          ? (new Date(t.response_due_at) - now) / 60000 : null;
         const resolutionMinutes = !t.resolved_at && t.resolution_due_at
-          ? (new Date(t.resolution_due_at) - now) / 60000
-          : null;
+          ? (new Date(t.resolution_due_at) - now) / 60000 : null;
         const responseDueSoon = responseMinutes !== null && responseMinutes > 0 && responseMinutes <= DUE_SOON_MINUTES;
         const resolutionDueSoon = resolutionMinutes !== null && resolutionMinutes > 0 && resolutionMinutes <= DUE_SOON_MINUTES;
         if (responseDueSoon || resolutionDueSoon) dueSoon++;
       }
-
-      // Calculate avg response time (mins)
+      
       if (t.first_response_at && t.created_at) {
         totalResponseTime += (new Date(t.first_response_at) - new Date(t.created_at)) / 60000;
         responseCount++;
       }
       
-      // Calculate avg resolution time (mins)
       if (isResolved && (t.resolved_at || t.closed_at) && t.created_at) {
         const end = t.resolved_at || t.closed_at;
         totalResolutionTime += (new Date(end) - new Date(t.created_at)) / 60000;
         resolutionCount++;
       }
     }
-
+    
     const totalTracked = met + breached;
     const compliancePercent = totalTracked > 0 ? Math.round((met / totalTracked) * 100) : 100;
     
     res.json({
       success: true,
       stats: {
-        activeSLA,
-        dueSoon,
-        breached,
-        met,
-        compliancePercent,
+        activeSLA, dueSoon, breached, met, compliancePercent,
         avgResponseTimeMins: responseCount > 0 ? Math.round(totalResponseTime / responseCount) : 0,
         avgResolutionTimeMins: resolutionCount > 0 ? Math.round(totalResolutionTime / resolutionCount) : 0
       }
     });
-
   } catch (err) {
     console.error("SLA Dashboard error:", err);
     res.status(500).json({ success: false, error: err.message });

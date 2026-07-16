@@ -170,6 +170,85 @@ router.get("/", async (req, res) => {
     const params = [];
 
     const accessClauses = addTicketAccessFilter(req, params, "t");
+
+    // --- SLA Filter Params ---
+    const { priority, status, slaStatus, dateFrom, dateTo, dateRange, sort, branch, technician, category, department } = req.query;
+
+    if (priority) {
+      const priorities = priority.split(",");
+      const placeholders = priorities.map((_, i) => `$${params.length + i + 1}`);
+      accessClauses.push(`t.priority IN (${placeholders.join(", ")})`);
+      params.push(...priorities);
+    }
+
+    if (status) {
+      const statuses = status.split(",");
+      const placeholders = statuses.map((_, i) => `$${params.length + i + 1}`);
+      accessClauses.push(`t.status IN (${placeholders.join(", ")})`);
+      params.push(...statuses);
+    }
+
+    if (slaStatus) {
+      const slaStatuses = slaStatus.split(",");
+      const slaConditions = slaStatuses.map((ss) => {
+        switch (ss.toLowerCase()) {
+          case "breached":
+            return "(t.response_sla_status = 'Breached' OR t.resolution_sla_status = 'Breached')";
+          case "met":
+            return "(t.response_sla_status = 'Met' OR t.resolution_sla_status = 'Met')";
+          case "warning":
+            return `(t.response_sla_status NOT IN ('Breached','Met','Cancelled') AND t.resolution_sla_status NOT IN ('Breached','Met','Cancelled') AND t.resolution_due_at IS NOT NULL AND t.resolution_due_at <= NOW() + INTERVAL '240 minutes')`;
+          case "active":
+            return `(t.response_sla_status NOT IN ('Breached','Met','Cancelled') AND t.resolution_sla_status NOT IN ('Breached','Met','Cancelled') AND (t.resolution_due_at IS NULL OR t.resolution_due_at > NOW() + INTERVAL '240 minutes'))`;
+          default:
+            return "1=0";
+        }
+      });
+      accessClauses.push(`(${slaConditions.join(" OR ")})`);
+    }
+
+    if (dateRange === "30days") {
+      accessClauses.push(`t.created_at >= NOW() - INTERVAL '30 days'`);
+    } else if (dateRange === "6months") {
+      accessClauses.push(`t.created_at >= NOW() - INTERVAL '6 months'`);
+    }
+
+    if (dateFrom) {
+      params.push(dateFrom);
+      accessClauses.push(`t.created_at >= $${params.length}::timestamp`);
+    }
+    if (dateTo) {
+      params.push(dateTo);
+      accessClauses.push(`t.created_at <= $${params.length}::timestamp`);
+    }
+
+    if (branch && branch !== "all") {
+      params.push(branch);
+      accessClauses.push(`t.branch_id = $${params.length}::int`);
+    }
+
+    if (technician === "assigned") {
+      accessClauses.push(`t.assigned_to IS NOT NULL`);
+    } else if (technician === "unassigned") {
+      accessClauses.push(`t.assigned_to IS NULL`);
+    }
+
+    if (category && category !== "all") {
+      params.push(category);
+      accessClauses.push(`c.category_name ILIKE $${params.length}`);
+    }
+
+    if (department && department !== "all") {
+      params.push(department);
+      accessClauses.push(`b.branch_name ILIKE $${params.length}`);
+    }
+
+    // Sorting
+    let orderBy = "ORDER BY t.created_at DESC";
+    if (sort === "oldest") orderBy = "ORDER BY t.created_at ASC";
+    else if (sort === "updated") orderBy = "ORDER BY t.updated_at DESC";
+    else if (sort === "priority") orderBy = `ORDER BY CASE t.priority WHEN 'P1-Critical' THEN 1 WHEN 'P2-High' THEN 2 WHEN 'P3-Medium' THEN 3 WHEN 'P4-Low' THEN 4 ELSE 5 END ASC`;
+
     const whereSql = accessClauses.length
       ? `WHERE ${accessClauses.join(" AND ")}`
       : "";
@@ -243,7 +322,7 @@ router.get("/", async (req, res) => {
       LEFT JOIN users assignee
         ON t.assigned_to = assignee.user_id
       ${whereSql}
-      ORDER BY t.created_at DESC
+      ${orderBy}
     `, params);
 
     res.json(result.rows);
