@@ -52,6 +52,7 @@ import {
   TechnicianDashboard,
   Tickets,
   UserManagement,
+  Calendar,
 } from "./routes/lazyViews";
 
 const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
@@ -210,6 +211,14 @@ export default function App() {
           element={
             <ProtectedRoute allowedRoles={["SuperAdmin", "Admin", "Technician"]}>
               <SLAMonitor />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/calendar"
+          element={
+            <ProtectedRoute allowedRoles={["SuperAdmin", "Admin", "Technician"]}>
+              <Calendar />
             </ProtectedRoute>
           }
         />
