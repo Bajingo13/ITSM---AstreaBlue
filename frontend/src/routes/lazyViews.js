@@ -1,4 +1,5 @@
 import { lazy } from "react";
+import { recoverFromStaleChunk } from "../services/chunkRecovery";
 
 // Keep page modules out of the initial application bundle. Each page is loaded
 // only when its route is opened, while shared layout/auth code stays warm.
@@ -87,5 +88,11 @@ const routePreloaders = {
 
 export function preloadRoute(path) {
   const pathname = String(path || "").split("?")[0];
-  return routePreloaders[pathname]?.();
+  const preload = routePreloaders[pathname];
+  if (!preload) return Promise.resolve();
+  return preload().catch((error) => {
+    if (!recoverFromStaleChunk(error)) {
+      console.warn("Route preload failed; navigation will retry the module.", error);
+    }
+  });
 }

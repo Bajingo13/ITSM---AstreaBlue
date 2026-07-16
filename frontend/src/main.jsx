@@ -5,7 +5,9 @@ import App from "./app.jsx";
 import "./index.css";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { installFetchClient } from "./services/installFetchClient";
+import { installChunkRecovery } from "./services/chunkRecovery";
 
+installChunkRecovery();
 installFetchClient();
 
 ReactDOM.createRoot(document.getElementById("root")).render(

@@ -85,7 +85,25 @@ export default function EndpointPolicies() {
   };
 
   if (view === "form") {
-    return <PolicyForm policy={editingPolicy} onCancel={() => setView("list")} onSave={() => { setView("list"); fetchPolicies(); }} />;
+    return <PolicyForm
+      policy={editingPolicy}
+      onCancel={() => setView("list")}
+      onSave={(savedPolicy, targetType) => {
+        fetchPolicies();
+        if (editingPolicy?.id) {
+          setView("list");
+          showToast("Endpoint policy updated.");
+          return;
+        }
+        setAssignForm({
+          policy_id: savedPolicy?.id || "",
+          target_type: targetType || "global",
+          target_id: "",
+        });
+        setView("assign");
+        showToast("Policy created. Complete the assignment below to activate it on endpoints.");
+      }}
+    />;
   }
 
   if (view === "assign") {
@@ -240,7 +258,7 @@ function PolicyForm({ policy, onCancel, onSave }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to save policy");
-      onSave();
+      onSave(data.data, form.target_type);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -277,7 +295,7 @@ function PolicyForm({ policy, onCancel, onSave }) {
             {!policy.id && (
               <div className="grid gap-4 grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-bold text-slate-700">Target Type</label>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">First Assignment Target</label>
                   <select name="target_type" value={form.target_type} onChange={handleChange} className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500 bg-slate-50">
                     <option value="global">Global (Priority 1)</option>
                     <option value="branch">Branch (Priority 2)</option>
@@ -295,7 +313,7 @@ function PolicyForm({ policy, onCancel, onSave }) {
             )}
             <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4 text-xs font-semibold text-blue-900 flex gap-3">
               <AlertCircle size={16} className="shrink-0 text-blue-600" />
-              <p>Higher priority policies override lower priority ones when they target the same device. (Device = 6, Global = 1)</p>
+              <p>Saving creates the policy definition. The next screen completes its assignment; an unassigned policy cannot enable monitoring.</p>
             </div>
           </div>
 

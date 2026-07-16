@@ -72,7 +72,7 @@ function Unauthorized() {
 
 export default function App() {
   return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50"><div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600"/></div>}><Routes>
+    <ErrorBoundary><Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50"><div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600"/></div>}><Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
 
       <Route path="/login" element={<Login />} />
@@ -569,6 +569,6 @@ export default function App() {
       <Route path="/unauthorized" element={<Unauthorized />} />
 
       <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes></Suspense>
+    </Routes></Suspense></ErrorBoundary>
   );
 }
