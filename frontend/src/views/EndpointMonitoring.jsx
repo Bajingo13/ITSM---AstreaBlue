@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Activity, AlertTriangle, Clock3, Monitor, Package, RefreshCw, Search, ShieldCheck, Users } from "lucide-react";
+import { Activity, AlertTriangle, Clock3, Monitor, Package, RefreshCw, Search, ShieldCheck, Users, X } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
 import { API_URL } from "../config/api";
 import { useAuth } from "../context/AuthContext";
@@ -52,9 +52,26 @@ export default function EndpointMonitoring() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [debugInfo, setDebugInfo] = useState(null);
+  const [screenshotViewer, setScreenshotViewer] = useState(null);
   
   const activeTab = activeTabState;
   const selectedId = selectedIdState;
+
+  const viewProtectedScreenshot = useCallback(async (screenshot) => {
+    try {
+      setError("");
+      await fetch(`${API_BASE}/screenshots/${screenshot.id}/audit-view`, { method: "POST", headers: authHeaders() });
+      const response = await fetch(`${API_URL}${screenshot.content_url}`, { headers: authHeaders() });
+      if (!response.ok) throw new Error("Protected screenshot could not be loaded.");
+      const objectUrl = URL.createObjectURL(await response.blob());
+      setScreenshotViewer((current) => {
+        if (current?.url) URL.revokeObjectURL(current.url);
+        return { url: objectUrl, capturedAt: screenshot.captured_at };
+      });
+    } catch (requestError) {
+      setError(requestError.message || "Protected screenshot could not be loaded.");
+    }
+  }, []);
 
   const setActiveTab = (tab) => {
     setActiveTabState(tab);
@@ -705,7 +722,7 @@ export default function EndpointMonitoring() {
               if (timeline.length === 0) return <Empty text="No activity reported." />;
               return timeline.map((item, i) => {
                 if (item._type === 'screenshot') return (
-                  <div key={`shot-${item.id}-${i}`} className="rounded-2xl border border-blue-100 bg-blue-50 p-4"><div className="flex justify-between gap-4"><p className="font-bold text-blue-900 flex items-center gap-2"><Monitor size={14}/> Screenshot Captured</p><p className="shrink-0 text-xs text-slate-500">{formatDate(item.captured_at)}</p></div><p className="mt-1 text-sm text-slate-600">Employee: {selectedDevice?.assigned_user || "Unassigned"} · Hostname: {selectedDevice?.hostname}</p>{item.file_url ? <a href={item.file_url} target="_blank" rel="noreferrer" onClick={() => fetch(`${API_URL}/api/v1/endpoint-management/screenshots/${item.id}/audit-view`, { method: "POST", headers: authHeaders() }).catch(console.error)} className="mt-2 inline-block rounded-lg bg-blue-600 px-3 py-1 text-xs font-bold text-white hover:bg-blue-700">Open Screenshot</a> : <p className="mt-1 text-xs text-slate-500">Metadata only</p>}</div>
+                  <div key={`shot-${item.id}-${i}`} className="rounded-2xl border border-blue-100 bg-blue-50 p-4"><div className="flex justify-between gap-4"><p className="font-bold text-blue-900 flex items-center gap-2"><Monitor size={14}/> Screenshot Captured</p><p className="shrink-0 text-xs text-slate-500">{formatDate(item.captured_at)}</p></div><p className="mt-1 text-sm text-slate-600">Employee: {selectedDevice?.assigned_user || "Unassigned"} · Hostname: {selectedDevice?.hostname}</p>{item.content_url ? <button type="button" onClick={() => viewProtectedScreenshot(item)} className="mt-2 inline-block rounded-lg bg-blue-600 px-3 py-1 text-xs font-bold text-white hover:bg-blue-700">Open protected screenshot</button> : <p className="mt-1 text-xs text-slate-500">Legacy metadata record</p>}</div>
                 );
                 if (item._type === 'assignment') return (
                   <div key={`assign-${item.id}-${i}`} className="rounded-2xl border border-violet-200 bg-violet-50 p-4"><div className="flex justify-between gap-4"><p className="font-bold text-violet-900 flex items-center gap-2"><Users size={14}/> Device Assignment</p><p className="shrink-0 text-xs text-slate-500">{formatDate(item.changed_at)}</p></div><p className="mt-1 text-sm text-slate-700"><span className="font-semibold text-slate-500">From:</span> {item.old_user_name || "Unassigned"} → <span className="font-semibold text-slate-500">To:</span> {item.new_user_name || "Unassigned"}</p>{item.reason && <p className="mt-1 text-xs text-slate-500">Reason: {item.reason}</p>}</div>
@@ -748,7 +765,7 @@ export default function EndpointMonitoring() {
             )}
           </div>
         </section>
-        <section className="mt-6 grid gap-6 lg:grid-cols-2"><div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-black text-slate-900">Screenshots</h3><p className="mt-1 text-xs text-slate-500">Available only after explicit screenshot consent.</p><div className="mt-4 grid gap-3 sm:grid-cols-2">{(details?.screenshots || []).length === 0 ? <Empty text="No consent-approved screenshots." /> : details.screenshots.map((shot) => <div key={shot.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><Monitor className="text-blue-600" /><p className="mt-2 text-sm font-bold text-slate-800">{shot.reason || "Agent capture"}</p><p className="text-xs text-slate-500">{formatDate(shot.captured_at)}</p>{shot.file_url ? <a href={shot.file_url} target="_blank" rel="noreferrer" onClick={() => fetch(`${API_URL}/api/v1/endpoint-management/screenshots/${shot.id}/audit-view`, { method: "POST", headers: authHeaders() }).catch(console.error)} className="mt-2 inline-block text-xs font-black text-blue-700">View image</a> : <p className="mt-2 text-xs text-slate-500">Metadata only</p>}</div>)}</div></div><div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-black text-slate-900">Consent Records</h3><div className="mt-4 space-y-3">{(details?.consents || []).length === 0 ? <Empty text="No consent records." /> : details.consents.map((consent) => <div key={consent.id} className="flex items-center justify-between rounded-2xl bg-slate-50 p-4"><div><p className="font-bold text-slate-900">{consent.consent_type}</p><p className="text-xs text-slate-500">{formatDate(consent.consented_at)}</p></div><ConsentBadge status={consent.consent_status} /></div>)}</div></div></section>
+        <section className="mt-6 grid gap-6 lg:grid-cols-2"><div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-black text-slate-900">Screenshots</h3><p className="mt-1 text-xs text-slate-500">Available only after explicit screenshot consent.</p><div className="mt-4 grid gap-3 sm:grid-cols-2">{(details?.screenshots || []).length === 0 ? <Empty text="No consent-approved screenshots." /> : details.screenshots.map((shot) => <div key={shot.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><Monitor className="text-blue-600" /><p className="mt-2 text-sm font-bold text-slate-800">{shot.reason || "Agent capture"}</p><p className="text-xs text-slate-500">{formatDate(shot.captured_at)}</p>{shot.content_url ? <button type="button" onClick={() => viewProtectedScreenshot(shot)} className="mt-2 inline-block text-xs font-black text-blue-700 hover:text-blue-900">View protected image</button> : <p className="mt-2 text-xs text-slate-500">Legacy metadata record</p>}</div>)}</div></div><div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-black text-slate-900">Consent Records</h3><div className="mt-4 space-y-3">{(details?.consents || []).length === 0 ? <Empty text="No consent records." /> : details.consents.map((consent) => <div key={consent.id} className="flex items-center justify-between rounded-2xl bg-slate-50 p-4"><div><p className="font-bold text-slate-900">{consent.consent_type}</p><p className="text-xs text-slate-500">{formatDate(consent.consented_at)}</p></div><ConsentBadge status={consent.consent_status} /></div>)}</div></div></section>
           </>
         )}
       </div>
@@ -947,6 +964,25 @@ export default function EndpointMonitoring() {
               await run?.();
             }}
           />
+        )}
+        {screenshotViewer && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 p-6">
+            <button
+              type="button"
+              onClick={() => {
+                URL.revokeObjectURL(screenshotViewer.url);
+                setScreenshotViewer(null);
+              }}
+              className="absolute right-6 top-6 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+              aria-label="Close screenshot"
+            >
+              <X size={28} />
+            </button>
+            <div className="flex max-h-full max-w-full flex-col gap-3">
+              <p className="text-sm font-semibold text-white">Protected screenshot · {formatDate(screenshotViewer.capturedAt)}</p>
+              <img src={screenshotViewer.url} alt="Consent-approved endpoint screenshot" className="max-h-[85vh] max-w-[92vw] rounded-xl object-contain shadow-2xl" />
+            </div>
+          </div>
         )}
         {toast && <PageToast toast={toast} onClose={() => setToast(null)} />}
   </div>;
