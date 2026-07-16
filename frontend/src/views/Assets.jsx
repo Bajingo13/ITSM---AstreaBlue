@@ -1486,6 +1486,29 @@ export default function Assets() {
           </div>
         )}
       </section>
+
+      {/* Total Assets Summary */}
+      <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-blue-50 to-indigo-50/60 p-6 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Total Assets</p>
+            <p className="mt-1 text-4xl font-black text-slate-900">{totalAssets}</p>
+          </div>
+          <div className="flex items-center gap-1 text-xs font-bold text-slate-500">
+            {[
+              { label: "Active", count: totalActive },
+              { label: "In Use", count: visibleAssets.filter(a => a.status === "In Use").length },
+              { label: "Available", count: visibleAssets.filter(a => a.status === "Available").length },
+              { label: "Borrowed", count: totalBorrowed },
+            ].map((item, i) => (
+              <span key={item.label} className="flex items-center gap-1 rounded-xl bg-white/70 px-2.5 py-1 shadow-sm">
+                <span className="font-black text-slate-800">{item.count}</span>
+                <span className="text-slate-400">{item.label}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
       <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <div className="grid gap-4 md:grid-cols-3">
           {statusMetrics.map((item) => {
