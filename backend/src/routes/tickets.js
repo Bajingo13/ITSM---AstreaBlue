@@ -44,6 +44,8 @@ const setupTickets = async () => {
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS root_cause TEXT;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS time_spent_minutes INTEGER;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS parts_used TEXT;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMP;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS in_progress_started_at TIMESTAMP;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS satisfaction_rating INTEGER;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS origin_system VARCHAR(150);
@@ -211,6 +213,8 @@ router.get("/", async (req, res) => {
         t.created_via,
         t.created_at,
         t.updated_at,
+        t.assigned_at,
+        t.in_progress_started_at,
 
         c.category_id,
         c.category_name AS category,
@@ -304,6 +308,8 @@ router.get("/:id", async (req, res) => {
         t.external_employee_id,
         t.created_via,
         t.created_at,
+        t.assigned_at,
+        t.in_progress_started_at,
         t.updated_at,
 
         c.category_id,
@@ -600,6 +606,11 @@ router.put("/:id", async (req, res) => {
         ? new Date()
         : existing.first_response_at;
 
+    const inProgressStartedAt =
+      finalStatus === "In Progress" && !existing.in_progress_started_at
+        ? new Date()
+        : existing.in_progress_started_at;
+
     const closedAt =
       finalStatus === "Closed" && !existing.closed_at
         ? new Date()
@@ -655,6 +666,7 @@ router.put("/:id", async (req, res) => {
         closed_at = $17,
         first_response_at = $18,
         cancelled_at = $22,
+        in_progress_started_at = $23,
         response_sla_status = $20,
         resolution_sla_status = $21,
         updated_at = CURRENT_TIMESTAMP
@@ -683,10 +695,10 @@ router.put("/:id", async (req, res) => {
         satisfaction_rating,
         created_at,
         updated_at,
-        response_due_at,
         resolution_due_at,
         response_sla_status,
-        resolution_sla_status
+        resolution_sla_status,
+        in_progress_started_at
       `,
       [
         title ?? existing.title,
@@ -710,7 +722,8 @@ router.put("/:id", async (req, res) => {
         id,
         resSlaStat,
         resolSlaStat,
-        cancelledAt
+        cancelledAt,
+        inProgressStartedAt
       ]
     );
 
@@ -961,7 +974,8 @@ router.patch("/:id/assign", async (req, res) => {
     const result = await db.query(
       `
       UPDATE tickets
-      SET assigned_to = $1
+      SET assigned_to = $1,
+          assigned_at = CASE WHEN $1 IS NOT NULL AND assigned_at IS NULL THEN CURRENT_TIMESTAMP ELSE assigned_at END
       WHERE id = $2
       RETURNING
         id,
@@ -971,6 +985,7 @@ router.patch("/:id/assign", async (req, res) => {
         priority,
         status,
         assigned_to,
+        assigned_at,
         branch_id,
         updated_at
       `,
