@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Camera, ChevronLeft, ChevronRight, HardDrive, MonitorPlay, Maximize2, X, ShieldCheck } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
 import { API_URL } from "../config/api";
@@ -190,7 +191,7 @@ export default function ScreenshotCapture() {
         )}
       </section>
 
-      {fullImage && (
+      {fullImage && createPortal((
         <div className="fixed inset-0 z-[120] flex h-[100dvh] w-screen bg-black" role="dialog" aria-modal="true" aria-label="Protected screenshot viewer">
           <div className="relative flex h-full w-full flex-col overflow-hidden bg-black">
             <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 bg-slate-900 px-4 py-3 text-white sm:px-5">
@@ -207,7 +208,7 @@ export default function ScreenshotCapture() {
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }

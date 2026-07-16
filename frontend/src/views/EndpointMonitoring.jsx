@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Activity, AlertTriangle, Clock3, Monitor, Package, RefreshCw, Search, ShieldCheck, Users, X } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
@@ -992,7 +993,7 @@ export default function EndpointMonitoring() {
             }}
           />
         )}
-        {screenshotViewer && (
+        {screenshotViewer && createPortal((
           <div className="fixed inset-0 z-[120] flex h-[100dvh] w-screen bg-black" role="dialog" aria-modal="true" aria-label="Protected screenshot viewer">
             <div className="relative flex h-full w-full flex-col overflow-hidden bg-black">
               <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 bg-slate-900 px-4 py-3 text-white sm:px-5">
@@ -1002,7 +1003,7 @@ export default function EndpointMonitoring() {
               <div className="min-h-0 flex flex-1 items-center justify-center overflow-auto bg-black p-2"><img src={screenshotViewer.url} alt="Consent-approved endpoint screenshot" className="h-full w-full object-contain" /></div>
             </div>
           </div>
-        )}
+        ), document.body)}
         {toast && <PageToast toast={toast} onClose={() => setToast(null)} />}
   </div>;
 }
