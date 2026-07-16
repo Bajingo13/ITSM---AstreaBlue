@@ -10,6 +10,7 @@
     "migrate:phase2": "node scripts/apply-phase2-migration.js",
     "integration:provision": "node scripts/provision-external-system.js",
     "integration:revoke": "node scripts/revoke-external-system.js",
+    "demo:seed": "node scripts/seed-presentation-demo.js",
     "test": "node --test --test-concurrency=1 test/*.test.js"
   },
   "keywords": [],

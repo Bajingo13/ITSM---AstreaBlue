@@ -2,9 +2,7 @@ const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const crypto = require("crypto");
-const fs = require("fs");
 const path = require("path");
-const multer = require("multer");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 
@@ -94,38 +92,7 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
-const ticketUploadDir = path.join(__dirname, "uploads", "tickets");
-fs.mkdirSync(ticketUploadDir, { recursive: true });
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-const allowedAttachmentMimeTypes = new Set([
-  "image/jpg",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "application/pdf",
-]);
-
-const ticketAttachmentStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, ticketUploadDir),
-  filename: (req, file, cb) => {
-    const safeBase = path
-      .basename(file.originalname)
-      .replace(/[^a-zA-Z0-9._-]/g, "_");
-    cb(null, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}-${safeBase}`);
-  },
-});
-
-const uploadTicketAttachments = multer({
-  storage: ticketAttachmentStorage,
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (!allowedAttachmentMimeTypes.has(file.mimetype)) {
-      return cb(new Error("Only JPG, JPEG, PNG, WEBP, and PDF files are supported"));
-    }
-    cb(null, true);
-  },
-});
 
 async function ensureKnowledgeBaseTable() {
   try {
@@ -3870,133 +3837,6 @@ app.get("/api/v1/tickets/:id", async (req, res) => {
       success: false,
       error: "Failed to fetch ticket",
     });
-  }
-});
-
-app.get("/api/v1/tickets/:id/attachments", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await db.query(
-      `
-      SELECT
-        attachment_id,
-        ticket_id,
-        uploaded_by,
-        file_name,
-        file_path,
-        mime_type,
-        file_size,
-        uploaded_at
-      FROM ticket_attachments
-      WHERE ticket_id = $1
-      ORDER BY uploaded_at ASC
-      `,
-      [id]
-    );
-
-    res.json(result.rows);
-  } catch (err) {
-    console.error("Fetch attachments error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to fetch attachments" });
-  }
-});
-
-app.post("/api/v1/tickets/:id/attachments", (req, res) => {
-  uploadTicketAttachments.array("attachments", 10)(req, res, async (uploadErr) => {
-    if (uploadErr) {
-      return res.status(400).json({
-        success: false,
-        error:
-          uploadErr.code === "LIMIT_FILE_SIZE"
-            ? "File size must be 10MB or less"
-            : uploadErr.message || "Failed to upload attachment",
-      });
-    }
-
-  try {
-    const { id } = req.params;
-    const uploadedBy = req.body.uploaded_by || null;
-    const files = req.files || [];
-
-    if (files.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: "At least one attachment file is required",
-      });
-    }
-
-    const ticketResult = await db.query(`SELECT id FROM tickets WHERE id = $1`, [id]);
-    if (ticketResult.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Ticket not found" });
-    }
-
-    const savedAttachments = [];
-
-    for (const file of files) {
-      const relativePath = `/uploads/tickets/${file.filename}`;
-      const result = await db.query(
-        `
-        INSERT INTO ticket_attachments
-        (ticket_id, file_name, file_path, file_size, mime_type, uploaded_by)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING attachment_id, ticket_id, uploaded_by, file_name, file_path, mime_type, file_size, uploaded_at
-        `,
-        [
-          id,
-          file.originalname,
-          relativePath,
-          file.size,
-          file.mimetype,
-          uploadedBy || null,
-        ]
-      );
-
-      await db.query(
-        `
-        INSERT INTO ticket_history
-        (ticket_id, changed_by, action, old_value, new_value)
-        VALUES ($1, $2, 'Attachment Added', NULL, $3)
-        `,
-        [id, uploadedBy || null, file.originalname]
-      );
-
-      savedAttachments.push(result.rows[0]);
-    }
-
-    res.status(201).json({ success: true, attachments: savedAttachments });
-  } catch (err) {
-    console.error("Upload attachment error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to upload attachment" });
-  }
-  });
-});
-
-app.delete("/api/v1/tickets/:id/attachments/:attachmentId", async (req, res) => {
-  try {
-    const { id, attachmentId } = req.params;
-    const result = await db.query(
-      `
-      DELETE FROM ticket_attachments
-      WHERE ticket_id = $1 AND attachment_id = $2
-      RETURNING attachment_id, file_path
-      `,
-      [id, attachmentId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Attachment not found" });
-    }
-
-    const filePath = result.rows[0].file_path;
-    if (filePath) {
-      const absolutePath = path.join(__dirname, filePath.replace(/^\/uploads[\\/]/, "uploads/"));
-      fs.unlink(absolutePath, () => {});
-    }
-
-    res.json({ success: true, message: "Attachment deleted successfully" });
-  } catch (err) {
-    console.error("Delete attachment error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to delete attachment" });
   }
 });
 

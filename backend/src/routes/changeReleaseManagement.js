@@ -158,7 +158,15 @@ const positiveInt = (value, fallback) => Math.max(1, Number.parseInt(value, 10) 
 const ensureNextStatus = (flow, current, next) => flow.indexOf(next) === flow.indexOf(current) + 1;
 
 async function nextNumber(client, prefix, table, column) {
-  const res = await client.query(`SELECT ${column} FROM ${table} WHERE ${column} LIKE $1 ORDER BY id DESC LIMIT 1`, [`${prefix}%`]);
+  const canonicalPattern = `^${prefix}[0-9]{5}$`;
+  const res = await client.query(
+    `SELECT ${column}
+       FROM ${table}
+      WHERE ${column} ~ $1
+      ORDER BY SUBSTRING(${column} FROM '([0-9]+)$')::BIGINT DESC
+      LIMIT 1`,
+    [canonicalPattern]
+  );
   const last = res.rows[0] ? Number(res.rows[0][column].slice(prefix.length)) : 0;
   return `${prefix}${String(last + 1).padStart(5, "0")}`;
 }

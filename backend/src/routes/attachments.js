@@ -6,39 +6,6 @@ const { uploadTicketAttachments } = require("./_uploads");
 
 const router = express.Router();
 
-async function ensureAttachmentsTable() {
-  try {
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS ticket_attachments (
-        attachment_id SERIAL PRIMARY KEY,
-        ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
-        file_name VARCHAR(255),
-        file_path TEXT,
-        file_size INTEGER,
-        mime_type VARCHAR(100),
-        uploaded_by INTEGER REFERENCES users(user_id),
-        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await db.query(`
-      ALTER TABLE ticket_attachments
-      ADD COLUMN IF NOT EXISTS file_path TEXT,
-      ADD COLUMN IF NOT EXISTS mime_type VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    `);
-
-    await db.query(`
-      ALTER TABLE ticket_attachments
-      ALTER COLUMN file_data DROP NOT NULL
-    `).catch(() => {});
-  } catch (err) {
-    console.error("Attachments setup error:", err.message);
-  }
-}
-
-ensureAttachmentsTable();
-
 router.get("/:id/attachments", async (req, res) => {
   try {
     const { id } = req.params;
