@@ -223,4 +223,286 @@ router.get('/migrate', async (req, res) => {
   }
 });
 
+
+// GET /sla/tickets/:id/timeline — Returns SLA lifecycle timeline for a ticket
+router.get('/tickets/:id/timeline', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const params = [id];
+    const accessClauses = addTicketAccessFilter(req, params, "t");
+    const accessSql = accessClauses.length ? `AND ${accessClauses.join(" AND ")}` : "";
+
+    const ticketResult = await db.query(
+      `
+      SELECT
+        t.id,
+        t.ticket_number,
+        t.title,
+        t.status,
+        t.created_at,
+        t.assigned_at,
+        t.in_progress_started_at,
+        t.resolved_at,
+        t.first_response_at,
+        COALESCE(assignee.full_name, 'Unassigned') AS assigned_name,
+        t.response_sla_status,
+        t.resolution_sla_status
+      FROM tickets t
+      LEFT JOIN users assignee
+        ON t.assigned_to = assignee.user_id
+      WHERE t.id = $1
+        ${accessSql}
+      LIMIT 1
+      `,
+      params
+    );
+
+    if (ticketResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Ticket not found' });
+    }
+
+    const ticket = ticketResult.rows[0];
+
+    // Calculate resolution duration if resolved
+    let resolutionDuration = null;
+    if (ticket.resolved_at && ticket.in_progress_started_at) {
+      const diffMs = new Date(ticket.resolved_at) - new Date(ticket.in_progress_started_at);
+      const diffHrs = Math.floor(diffMs / 3600000);
+      const diffMins = Math.floor((diffMs % 3600000) / 60000);
+      resolutionDuration = { hours: diffHrs, minutes: diffMins, totalMs: diffMs };
+    }
+
+    res.json({
+      success: true,
+      timeline: {
+        created_at: ticket.created_at,
+        assigned_at: ticket.assigned_at,
+        assigned_name: ticket.assigned_name,
+        in_progress_started_at: ticket.in_progress_started_at,
+        resolved_at: ticket.resolved_at,
+        resolution_duration: resolutionDuration,
+        status: ticket.status,
+      },
+    });
+  } catch (err) {
+    console.error('[SLA /tickets/:id/timeline] error:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to load SLA timeline' });
+  }
+});
+// GET /sla/tickets/:id/technician — Returns assigned technician for a ticket
+router.get('/tickets/:id/technician', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const params = [id];
+    const accessClauses = addTicketAccessFilter(req, params, "t");
+    const accessSql = accessClauses.length ? `AND ${accessClauses.join(" AND ")}` : "";
+
+    const result = await db.query(
+      `
+      SELECT
+        u.user_id AS assigned_to,
+        u.full_name AS assigned_name,
+        u.email AS assigned_email
+      FROM tickets t
+      LEFT JOIN users u ON t.assigned_to = u.user_id
+      WHERE t.id = $1
+        ${accessSql}
+      LIMIT 1
+      `,
+      params
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Ticket not found' });
+    }
+
+    const tech = result.rows[0];
+    if (!tech.assigned_to) {
+      return res.json({ success: true, technician: null, message: 'Unassigned' });
+    }
+
+    res.json({ success: true, technician: tech });
+  } catch (err) {
+    console.error('[SLA /tickets/:id/technician] error:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to load technician info' });
+  }
+});
+// GET /sla/reports/export/:id — Generate PDF SLA report for a ticket
+router.get('/reports/export/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const params = [id];
+    const accessClauses = addTicketAccessFilter(req, params, "t");
+    const accessSql = accessClauses.length ? `AND ${accessClauses.join(" AND ")}` : "";
+    const PDFDocument = require('pdfkit');
+
+    const ticketResult = await db.query(
+      `
+      SELECT
+        t.id,
+        t.ticket_number,
+        t.title,
+        t.description,
+        t.priority,
+        t.status,
+        t.created_at,
+        t.assigned_at,
+        t.in_progress_started_at,
+        t.resolved_at,
+        t.first_response_at,
+        t.response_due_at,
+        t.resolution_due_at,
+        t.response_sla_status,
+        t.resolution_sla_status,
+        t.sla_due_date,
+        t.created_via,
+        COALESCE(assignee.full_name, 'Unassigned') AS assigned_name,
+        COALESCE(requester.full_name, 'Unknown') AS requester_name,
+        COALESCE(b.branch_name, 'N/A') AS branch_name
+      FROM tickets t
+      LEFT JOIN users assignee ON t.assigned_to = assignee.user_id
+      LEFT JOIN users requester ON t.requester_id = requester.user_id
+      LEFT JOIN branches b ON t.branch_id = b.branch_id
+      WHERE t.id = $1
+        ${accessSql}
+      LIMIT 1
+      `,
+      params
+    );
+
+    if (ticketResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Ticket not found' });
+    }
+
+    const ticket = ticketResult.rows[0];
+
+    // Format date helper
+    const fmtDate = (val) => {
+      if (!val) return 'N/A';
+      const d = new Date(val);
+      return Number.isNaN(d.getTime())
+        ? 'N/A'
+        : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    };
+
+    // Calculate resolution duration
+    let resolutionDuration = 'N/A';
+    if (ticket.resolved_at && ticket.in_progress_started_at) {
+      const diffMs = new Date(ticket.resolved_at) - new Date(ticket.in_progress_started_at);
+      const hours = Math.floor(diffMs / 3600000);
+      const minutes = Math.floor((diffMs % 3600000) / 60000);
+      resolutionDuration = `${hours} Hours ${minutes} Minutes`;
+    }
+
+    const slaStatus = ticket.resolution_sla_status === 'Breached' || ticket.response_sla_status === 'Breached'
+      ? 'Breached'
+      : ticket.resolution_sla_status === 'Met' || ticket.response_sla_status === 'Met'
+        ? 'Met'
+        : 'Active';
+
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="sla-report-${ticket.ticket_number || id}.pdf"`);
+    doc.pipe(res);
+
+    // Header
+    doc.fontSize(24).font('Helvetica-Bold').fillColor('#1e3a5f').text('AstreaBlue SLA Report', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(10).font('Helvetica').fillColor('#64748b').text(`Generated: ${fmtDate(new Date())}`, { align: 'center' });
+    doc.moveDown(1);
+
+    // Separator
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#cbd5e1').stroke();
+    doc.moveDown(1);
+
+    // Ticket Details
+    const detailColor = '#334155';
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e3a5f');
+    doc.text('Ticket:', { continued: false });
+    doc.font('Helvetica').fillColor(detailColor).text(ticket.ticket_number || `TKT-${ticket.id}`);
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica-Bold').fillColor('#1e3a5f').text('Title:', { continued: false });
+    doc.font('Helvetica').fillColor(detailColor).text(ticket.title);
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica-Bold').fillColor('#1e3a5f').text('Description:', { continued: false });
+    doc.font('Helvetica').fillColor(detailColor).text(ticket.description || 'No description');
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica-Bold').fillColor('#1e3a5f').text('Priority:', { continued: false });
+    doc.font('Helvetica').fillColor(detailColor).text(ticket.priority);
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica-Bold').fillColor('#1e3a5f').text('Status:', { continued: false });
+    doc.font('Helvetica').fillColor(detailColor).text(ticket.status);
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica-Bold').fillColor('#1e3a5f').text('Assigned Technician:', { continued: false });
+    doc.font('Helvetica').fillColor(detailColor).text(ticket.assigned_name);
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica-Bold').fillColor('#1e3a5f').text('Requester:', { continued: false });
+    doc.font('Helvetica').fillColor(detailColor).text(ticket.requester_name);
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica-Bold').fillColor('#1e3a5f').text('Branch:', { continued: false });
+    doc.font('Helvetica').fillColor(detailColor).text(ticket.branch_name);
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica-Bold').fillColor('#1e3a5f').text('SLA Due Date:', { continued: false });
+    doc.font('Helvetica').fillColor(detailColor).text(fmtDate(ticket.sla_due_date || ticket.resolution_due_at));
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica-Bold').fillColor('#1e3a5f').text('SLA Status:', { continued: false });
+    doc.font('Helvetica').fillColor(detailColor).text(slaStatus);
+    doc.moveDown(1);
+
+    // Separator
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#cbd5e1').stroke();
+    doc.moveDown(1);
+
+    // Timeline Section
+    doc.fontSize(14).font('Helvetica-Bold').fillColor('#1e3a5f').text('SLA Timeline', { align: 'center' });
+    doc.moveDown(1);
+
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#475569');
+    doc.text('Created:');
+    doc.font('Helvetica').fillColor(detailColor).text(fmtDate(ticket.created_at));
+    doc.moveDown(0.5);
+
+    doc.font('Helvetica-Bold').fillColor('#475569');
+    doc.text('Assigned:');
+    doc.font('Helvetica').fillColor(detailColor).text(ticket.assigned_name);
+    doc.text(fmtDate(ticket.assigned_at));
+    doc.moveDown(0.5);
+
+    doc.font('Helvetica-Bold').fillColor('#475569');
+    doc.text('Work Started:');
+    doc.font('Helvetica').fillColor(detailColor).text(fmtDate(ticket.in_progress_started_at));
+    doc.moveDown(0.5);
+
+    doc.font('Helvetica-Bold').fillColor('#475569');
+    doc.text('Resolved:');
+    doc.font('Helvetica').fillColor(detailColor).text(fmtDate(ticket.resolved_at));
+    doc.moveDown(1);
+
+    // Resolution Duration
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#cbd5e1').stroke();
+    doc.moveDown(1);
+    doc.fontSize(14).font('Helvetica-Bold').fillColor('#1e3a5f').text('Resolution Duration', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(12).font('Helvetica-Bold').fillColor('#0f766e').text(resolutionDuration, { align: 'center' });
+    doc.moveDown(1);
+
+    // Footer
+    doc.fontSize(8).font('Helvetica').fillColor('#94a3b8').text('This report is system-generated and read-only. For audit purposes only.', { align: 'center' });
+
+    doc.end();
+  } catch (err) {
+    console.error('[SLA /reports/export/:id] error:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to generate SLA report' });
+  }
+});
 module.exports = router;
