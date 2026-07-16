@@ -47,6 +47,7 @@ export const ExecutiveOperationsDashboard = lazy(() => import("../views/Executiv
 export const AnalyticsSection = lazy(() => import("../views/AnalyticsSection"));
 export const PredictiveAnalytics = lazy(() => import("../views/PredictiveAnalytics"));
 export const CustomReports = lazy(() => import("../views/CustomReports"));
+export const Calendar = lazy(() => import("../views/Calendar"));
 
 const routePreloaders = {
   "/tickets": () => import("../views/Tickets"),
@@ -84,6 +85,7 @@ const routePreloaders = {
   "/employee/create-ticket": () => import("../views/CreateTicket"),
   "/ra-10173-compliance": () => import("../views/RA10173Compliance"),
   "/employee/consent": () => import("../views/ConsentPage"),
+  "/calendar": () => import("../views/Calendar"),
 };
 
 export function preloadRoute(path) {
