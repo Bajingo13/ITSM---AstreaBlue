@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Clock, Download, Filter, X } from "lucide-react";
+import { AlertTriangle, ArrowUp, Building2, CalendarDays, ChevronLeft, ChevronRight, CircleUserRound, Clock, Download, Filter, ListTodo, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
@@ -429,44 +429,100 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <Filter size={16} className="text-slate-400" />
-        <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 outline-none transition hover:border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-600/10">
-          <option value="all">All Branches</option>
-            {branches.filter((b) => b.is_active !== false).map((b) => (
-              <option key={b.branch_id} value={b.branch_name}>{b.branch_name}</option>
+      {/* Compact Filter Toolbar */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Branch Filter */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+            <Building2 size={13} className="text-slate-400 shrink-0" />
+            <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-700 outline-none pr-1 max-w-[120px]">
+              <option value="all">All Branches</option>
+              {branches.filter((b) => b.is_active !== false).map((b) => (
+                <option key={b.branch_id} value={b.branch_name}>{b.branch_name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Technician Filter */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+            <CircleUserRound size={13} className="text-slate-400 shrink-0" />
+            <select value={technicianFilter} onChange={(e) => setTechnicianFilter(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-700 outline-none pr-1">
+              <option value="all">All Techs</option>
+              <option value="assigned">Assigned</option>
+              <option value="unassigned">Unassigned</option>
+            </select>
+          </div>
+
+          {/* Priority Filter */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+            <ArrowUp size={13} className="text-slate-400 shrink-0" />
+            <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-700 outline-none pr-1">
+              <option value="">All Priorities</option>
+              <option value="P1-Critical">P1 - Critical</option>
+              <option value="P2-High">P2 - High</option>
+              <option value="P3-Medium">P3 - Medium</option>
+              <option value="P4-Low">P4 - Low</option>
+            </select>
+          </div>
+
+          {/* Status Filter */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+            <ListTodo size={13} className="text-slate-400 shrink-0" />
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-700 outline-none pr-1">
+              <option value="">All Statuses</option>
+              <option value="Open Queue">Open Queue</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Resolved">Resolved</option>
+              <option value="Closed">Closed</option>
+            </select>
+          </div>
+
+          {/* Quick Status Chips */}
+          <div className="flex items-center gap-1">
+            {["Open Queue", "In Progress", "Resolved"].map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(statusFilter === s ? "" : s)}
+                className={`rounded-lg border px-2 py-1 text-[10px] font-bold leading-none transition ${
+                  statusFilter === s
+                    ? "border-blue-300 bg-blue-50 text-blue-700"
+                    : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                }`}
+              >
+                {s}
+              </button>
             ))}
-          </select>
-          <select value={technicianFilter} onChange={(e) => setTechnicianFilter(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 outline-none transition hover:border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-600/10">
-          <option value="all">All Technicians</option>
-          <option value="assigned">Assigned</option>
-          <option value="unassigned">Unassigned</option>
-        </select>
-        <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 outline-none transition hover:border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-600/10">
-          <option value="">All Priorities</option>
-          <option value="P1-Critical">P1 - Critical</option>
-          <option value="P2-High">P2 - High</option>
-          <option value="P3-Medium">P3 - Medium</option>
-          <option value="P4-Low">P4 - Low</option>
-        </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 outline-none transition hover:border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-600/10">
-          <option value="">All Statuses</option>
-          <option value="Open Queue">Open Queue</option>
-          <option value="In Progress">In Progress</option>
-          <option value="Resolved">Resolved</option>
-          <option value="Closed">Closed</option>
-        </select>
-        {(branchFilter !== "all" || technicianFilter !== "all" || priorityFilter || statusFilter) && (
-          <button onClick={() => { setBranchFilter("all"); setTechnicianFilter("all"); setPriorityFilter(""); setStatusFilter(""); }}
-            className="flex items-center gap-1 rounded-xl border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 transition hover:bg-rose-50">
-            <X size={14} /> Clear
-          </button>
-        )}
+          </div>
+
+          {/* Status Color Legend */}
+          <div className="ml-auto flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-2">
+              {[
+                { label: "Open", color: "bg-blue-100 border-blue-300" },
+                { label: "In Progress", color: "bg-amber-100 border-amber-300" },
+                { label: "Resolved", color: "bg-emerald-100 border-emerald-300" },
+                { label: "Closed", color: "bg-slate-100 border-slate-300" },
+              ].map((s) => (
+                <span key={s.label} className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                  <span className={`inline-block h-2.5 w-2.5 rounded-full border ${s.color}`} />
+                  {s.label}
+                </span>
+              ))}
+            </div>
+
+            {/* Clear Filters */}
+            {(branchFilter !== "all" || technicianFilter !== "all" || priorityFilter || statusFilter) && (
+              <button onClick={() => { setBranchFilter("all"); setTechnicianFilter("all"); setPriorityFilter(""); setStatusFilter(""); }}
+                className="flex items-center gap-1 rounded-lg border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-600 transition hover:bg-rose-50">
+                <X size={12} /> Clear
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Calendar Grid */}
