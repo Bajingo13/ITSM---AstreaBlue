@@ -94,10 +94,6 @@ export default function SLAMonitor() {
   const [dateRange, setDateRange] = useState(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [branchFilter, setBranchFilter] = useState("all");
-  const [technicianFilter, setTechnicianFilter] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [departmentFilter, setDepartmentFilter] = useState("all");
 
   const buildFilterQuery = useCallback(() => {
     const q = [];
@@ -108,12 +104,8 @@ export default function SLAMonitor() {
     if (slaStatusFilters.length) q.push(`slaStatus=${slaStatusFilters.join(",")}`);
     if (statusFilters.length) q.push(`status=${statusFilters.map(s => encodeURIComponent(s)).join(",")}`);
     if (priorityFilters.length) q.push(`priority=${priorityFilters.map(p => encodeURIComponent(p)).join(",")}`);
-    if (branchFilter !== "all") q.push(`branch=${encodeURIComponent(branchFilter)}`);
-    if (technicianFilter !== "all") q.push(`technician=${technicianFilter}`);
-    if (categoryFilter !== "all") q.push(`category=${encodeURIComponent(categoryFilter)}`);
-    if (departmentFilter !== "all") q.push(`department=${encodeURIComponent(departmentFilter)}`);
     return q.length ? `&${q.join("&")}` : "";
-  }, [sortMode, dateRange, dateFrom, dateTo, slaStatusFilters, statusFilters, priorityFilters, branchFilter, technicianFilter, categoryFilter, departmentFilter]);
+  }, [sortMode, dateRange, dateFrom, dateTo, slaStatusFilters, statusFilters, priorityFilters]);
 
   const activeFilterCount = useCallback(() => {
     let count = 0;
@@ -123,12 +115,8 @@ export default function SLAMonitor() {
     if (slaStatusFilters.length) count++;
     if (statusFilters.length) count++;
     if (priorityFilters.length) count++;
-    if (branchFilter !== "all") count++;
-    if (technicianFilter !== "all") count++;
-    if (categoryFilter !== "all") count++;
-    if (departmentFilter !== "all") count++;
     return count;
-  }, [sortMode, dateRange, dateFrom, dateTo, slaStatusFilters, statusFilters, priorityFilters, branchFilter, technicianFilter, categoryFilter, departmentFilter]);
+  }, [sortMode, dateRange, dateFrom, dateTo, slaStatusFilters, statusFilters, priorityFilters]);
 
   const clearAllFilters = useCallback(() => {
     setSortMode("latest");
@@ -138,10 +126,6 @@ export default function SLAMonitor() {
     setDateRange(null);
     setDateFrom("");
     setDateTo("");
-    setBranchFilter("all");
-    setTechnicianFilter("all");
-    setCategoryFilter("all");
-    setDepartmentFilter("all");
   }, []);
 
   const handleExportPdfAll = useCallback(async () => {
@@ -314,14 +298,6 @@ export default function SLAMonitor() {
               onDateFromChange={setDateFrom}
               dateTo={dateTo}
               onDateToChange={setDateTo}
-              branchFilter={branchFilter}
-              onBranchFilterChange={setBranchFilter}
-              technicianFilter={technicianFilter}
-              onTechnicianFilterChange={setTechnicianFilter}
-              categoryFilter={categoryFilter}
-              onCategoryFilterChange={setCategoryFilter}
-              departmentFilter={departmentFilter}
-              onDepartmentFilterChange={setDepartmentFilter}
               onClear={clearAllFilters}
             />
             {/* Export Button */}
@@ -548,14 +524,7 @@ function SortFilterDropdown({
   onDateFromChange,
   dateTo,
   onDateToChange,
-  branchFilter,
-  onBranchFilterChange,
-  technicianFilter,
-  onTechnicianFilterChange,
-  categoryFilter,
-  onCategoryFilterChange,
-  departmentFilter,
-  onDepartmentFilterChange,
+
   onClear,
 }) {
   const [open, setOpen] = useState(false);
@@ -571,12 +540,6 @@ function SortFilterDropdown({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const selectOptions = (items) => items.map((item) => ({ label: item, value: item }));
-
-  const branchOptions = [{ label: "All", value: "all" }, ...selectOptions(["Manila HQ", "Cebu Branch", "Clark Branch"])];
-  const technicianOptions = selectOptions(["All", "Assigned", "Unassigned"]);
-  const categoryOptions = selectOptions(["All", "Incident", "Service Request", "Change Request"]);
-  const departmentOptions = [{ label: "All", value: "all" }, ...selectOptions(["IT", "HR", "Finance", "Operations"])];
 
   return (
     <div ref={wrapperRef} className="relative">
@@ -710,36 +673,6 @@ function SortFilterDropdown({
                 placeholder="End date"
               />
             </div>
-          </div>
-        </FilterPanelSection>
-
-        {/* More Filters */}
-        <FilterPanelSection title="More Filters">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FilterSelect
-              label="Branch"
-              value={branchFilter}
-              options={branchOptions.map((o) => ({ ...o, value: o.value }))}
-              onChange={onBranchFilterChange}
-            />
-            <FilterSelect
-              label="Assigned Technician"
-              value={technicianFilter}
-              options={[{ label: "All", value: "all" }, { label: "Assigned", value: "assigned" }, { label: "Unassigned", value: "unassigned" }]}
-              onChange={onTechnicianFilterChange}
-            />
-            <FilterSelect
-              label="Category"
-              value={categoryFilter}
-              options={[{ label: "All", value: "all" }, { label: "Incident", value: "Incident" }, { label: "Service Request", value: "Service Request" }, { label: "Change Request", value: "Change Request" }]}
-              onChange={onCategoryFilterChange}
-            />
-            <FilterSelect
-              label="Department"
-              value={departmentFilter}
-              options={[{ label: "All", value: "all" }, { label: "IT", value: "IT" }, { label: "HR", value: "HR" }, { label: "Finance", value: "Finance" }, { label: "Operations", value: "Operations" }]}
-              onChange={onDepartmentFilterChange}
-            />
           </div>
         </FilterPanelSection>
 
