@@ -674,7 +674,14 @@ namespace AstreaBlue.Agent
                 {
                     PipeSecurity security = new PipeSecurity();
                     security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
-                    security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null), PipeAccessRights.Write, AccessControlType.Allow));
+                    // Named-pipe clients also require synchronization/read-control
+                    // rights to complete the connection handshake on Windows. A
+                    // Write-only ACL causes an interactive companion to fail with
+                    // "Access to the path is denied" before any sample reaches us.
+                    security.AddAccessRule(new PipeAccessRule(
+                        new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
+                        PipeAccessRights.ReadWrite,
+                        AccessControlType.Allow));
                     using (NamedPipeServerStream pipe = new NamedPipeServerStream("AstreaBlueActivityV1", PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.None, 4096, 4096, security))
                     {
                         pipe.WaitForConnection();

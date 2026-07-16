@@ -24,6 +24,20 @@ namespace AstreaBlue.ActivityCompanion
     internal static class Program
     {
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
+        private static readonly string LogDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AstreaBlue", "MonitoringAgent", "logs");
+
+        private static void Log(string level, string message)
+        {
+            try
+            {
+                Directory.CreateDirectory(LogDirectory);
+                string path = Path.Combine(LogDirectory, "companion-" + DateTime.UtcNow.ToString("yyyy-MM-dd") + ".log");
+                File.AppendAllText(path, String.Format("[{0}] [{1}] {2}{3}", DateTime.UtcNow.ToString("o"), level, message, Environment.NewLine));
+            }
+            catch { }
+        }
 
         private static Dictionary<string, object> ReadActivity()
         {
@@ -65,9 +79,24 @@ namespace AstreaBlue.ActivityCompanion
             using (Mutex mutex = new Mutex(true, mutexName, out created))
             {
                 if (!created) return 0;
+                Log("INFO", "Activity companion started in Windows session " + Process.GetCurrentProcess().SessionId + ".");
+                bool firstDelivery = true;
+                string previousError = null;
                 while (true)
                 {
-                    try { SendActivity(ReadActivity()); } catch { }
+                    try
+                    {
+                        SendActivity(ReadActivity());
+                        if (firstDelivery || previousError != null) Log("INFO", "Activity sample delivered to the monitoring service.");
+                        firstDelivery = false;
+                        previousError = null;
+                    }
+                    catch (Exception error)
+                    {
+                        if (!String.Equals(previousError, error.Message, StringComparison.Ordinal))
+                            Log("ERROR", "Activity sample delivery failed: " + error.Message);
+                        previousError = error.Message;
+                    }
                     Thread.Sleep(TimeSpan.FromSeconds(30));
                 }
             }

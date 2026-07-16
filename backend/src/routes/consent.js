@@ -10,7 +10,8 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
-const PDFDocument = require("pdfkit");
+const sharp = require("sharp");
+const { PDFDocument: PDFLibDocument, StandardFonts, rgb } = require("pdf-lib");
 const { createNotification } = require("../services/notificationService");
 const { getPrivateObject, getR2Status, putPrivateObject } = require("../services/r2StorageService");
 
@@ -972,85 +973,75 @@ async function loadConsentSignature(consent) {
   return signatureBuffer(consent.e_signature_image);
 }
 
-function createConsentPdfBuffer(consent, auditRows = [], storedSignature = null) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 54, size: "A4" });
-    const chunks = [];
-    doc.on("data", (chunk) => chunks.push(chunk));
-    doc.on("error", reject);
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    const prefs = Array.isArray(consent.monitoring_preferences) ? consent.monitoring_preferences : [];
-    const categoryLabels = {
-      app_usage: "Application Usage Tracking",
-      idle_time: "Idle Time Detection",
-      network_domains: "Network Domain Logging",
-      window_title: "Active Window Title",
-      screenshot: "Periodic Screenshots",
-      usb_monitoring: "USB Device Monitoring",
-      website_monitoring: "Website and Domain Monitoring",
-      location_tracking: "Location Tracking",
-      productivity_analytics: "Productivity Analytics",
-      activity_alerts: "Employee Activity-Based Alerts",
-    };
-    const selected = new Set(prefs);
-    doc.fontSize(10).fillColor("#1d4ed8").text("AstreaBlue Enterprise ITSM", { align: "center" });
-    doc.moveDown(0.4).fontSize(18).fillColor("#0f172a").text(consent.form_title || "RA 10173 Data Privacy Consent - Employee Monitoring", { align: "center" });
-    doc.moveDown(0.3).fontSize(9).fillColor("#475569").text("Pursuant to Republic Act No. 10173 - Data Privacy Act of 2012", { align: "center" });
-    doc.moveDown(1.2);
-    const line = (label, value) => {
-      doc.font("Helvetica").fontSize(9).fillColor("#64748b").text(label, { continued: true, width: 145 });
-      doc.font("Helvetica-Bold").fillColor("#0f172a").text(value || "N/A");
-      doc.font("Helvetica");
-    };
-    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text("Consent Record");
-    doc.moveDown(0.5);
-    line("Consent ID / Version: ", `#${consent.consent_id} / v${consent.consent_version || "1.0"}`);
-    line("Status: ", consent.status);
-    line("Requested / Submitted: ", `${manilaTime(consent.requested_at || consent.created_at)} / ${consent.submitted_at ? manilaTime(consent.submitted_at) : "N/A"}`);
-    line("Approved: ", consent.approved_at ? `${manilaTime(consent.approved_at)} by ${consent.approver_name || consent.approved_by || "N/A"}` : "N/A");
-    doc.moveDown();
-    doc.font("Helvetica-Bold").fontSize(12).text("Employee and Endpoint Details");
-    doc.moveDown(0.5);
-    line("Employee: ", `${consent.employee_full_name} (${consent.employee_email})`);
-    line("Employee Number: ", consent.employee_number);
-    line("Branch: ", consent.branch_name || "N/A");
-    line("Asset: ", `${consent.asset_tag || "N/A"} ${consent.model ? `(${consent.model})` : ""}`);
-    line("Device: ", `${consent.hostname || consent.device_name || "N/A"} / ${consent.device_uuid || "N/A"}`);
-    doc.moveDown();
-    doc.font("Helvetica-Bold").fontSize(12).text("Selected Monitoring Categories");
-    doc.moveDown(0.5);
-    if (prefs.length) prefs.forEach((pref) => doc.font("Helvetica").fontSize(10).fillColor("#0f172a").text(`- ${categoryLabels[pref] || pref}`));
-    else doc.font("Helvetica").fontSize(10).fillColor("#0f172a").text("No optional categories selected.");
-    doc.moveDown();
-    doc.font("Helvetica-Bold").fontSize(12).text("Declined Monitoring Categories");
-    doc.moveDown(0.5);
-    const declined = Object.entries(categoryLabels).filter(([id]) => !selected.has(id));
-    if (declined.length) declined.forEach(([, label]) => doc.font("Helvetica").fontSize(10).fillColor("#0f172a").text(`- ${label}`));
-    else doc.font("Helvetica").fontSize(10).fillColor("#0f172a").text("No optional categories declined.");
-    doc.moveDown();
-    doc.font("Helvetica-Bold").fontSize(12).text("Legal / Privacy Statement");
-    doc.moveDown(0.5).font("Helvetica").fontSize(9).fillColor("#334155").text("The employee acknowledges that AstreaBlue may process endpoint monitoring data for legitimate IT operations, security, asset protection, compliance, and support purposes. Required endpoint telemetry such as heartbeat, device registration, hardware inventory, software inventory, asset reconciliation, and policy synchronization remains operational. Privacy-sensitive optional monitoring is enabled only when both approved consent and endpoint policy permit it.", { align: "justify" });
-    doc.moveDown(0.5).text("Employee rights under RA 10173 include being informed, access, correction, objection, and lawful withdrawal of consent, subject to applicable company procedures and legal obligations.", { align: "justify" });
-    doc.moveDown();
-    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text("Employee E-Signature");
-    doc.moveDown(0.5);
-    const sig = storedSignature || signatureBuffer(consent.e_signature_image);
-    if (sig) {
-      try { doc.image(sig, { fit: [220, 75], align: "left" }); } catch (_error) { doc.text("[signature image unavailable]"); }
-    } else {
-      doc.text("[e-signature image unavailable]");
-    }
-    doc.moveDown(0.8);
-    doc.text("____________________________");
-    doc.font("Helvetica").fontSize(10).text(consent.printed_name || consent.employee_full_name || "Employee Printed Name");
-    if (auditRows.length) {
-      doc.addPage();
-      doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text("Audit Trail");
-      doc.moveDown(0.5);
-      auditRows.forEach((row) => doc.font("Helvetica").fontSize(8).fillColor("#334155").text(`${manilaTime(row.created_at)} - ${row.event_type}: ${row.details || ""}`));
-    }
-    doc.end();
-  });
+const CONSENT_PDF_TEMPLATE = path.join(__dirname, "..", "..", "assets", "data-privacy-consent-form-template.pdf");
+
+function consentSigningDate(consent) {
+  const value = consent.signed_at || consent.submitted_at || consent.approved_at || consent.updated_at;
+  if (!value) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const part = (type) => parts.find((item) => item.type === type)?.value || "";
+  return `${part("month")}/${part("day")}/${part("year")}`;
+}
+
+function fittedFontSize(font, text, maxWidth, preferredSize = 9, minimumSize = 6) {
+  let size = preferredSize;
+  while (size > minimumSize && font.widthOfTextAtSize(text, size) > maxWidth) size -= 0.25;
+  return size;
+}
+
+async function createConsentPdfBuffer(consent, _auditRows = [], storedSignature = null) {
+  const templateBytes = await fs.promises.readFile(CONSENT_PDF_TEMPLATE);
+  const pdf = await PDFLibDocument.load(templateBytes);
+  const page = pdf.getPages()[2];
+  if (!page) throw new Error("The consent PDF template must contain three pages.");
+
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const ink = rgb(0.08, 0.08, 0.08);
+  const paper = rgb(1, 1, 1);
+  const lineY = 492.25;
+  const fields = {
+    name: { x: 171.25, width: 116.75 },
+    signature: { x: 343.5, width: 76.25 },
+    date: { x: 450.75, width: 81.25 },
+  };
+
+  for (const field of Object.values(fields)) {
+    page.drawRectangle({ x: field.x - 1, y: lineY - 2, width: field.width + 2, height: 18, color: paper });
+    page.drawLine({
+      start: { x: field.x, y: lineY },
+      end: { x: field.x + field.width, y: lineY },
+      thickness: 0.45,
+      color: ink,
+    });
+  }
+
+  const employeeName = String(consent.printed_name || consent.employee_full_name || "").trim();
+  const nameSize = fittedFontSize(font, employeeName, fields.name.width - 4);
+  page.drawText(employeeName, { x: fields.name.x + 2, y: lineY + 2.5, size: nameSize, font, color: ink });
+
+  const dateText = consentSigningDate(consent);
+  const dateSize = fittedFontSize(font, dateText, fields.date.width - 4, 8.5, 7);
+  page.drawText(dateText, { x: fields.date.x + 2, y: lineY + 2.5, size: dateSize, font, color: ink });
+
+  const signature = storedSignature || signatureBuffer(consent.e_signature_image);
+  if (signature) {
+    const normalized = await sharp(signature).trim().png().toBuffer();
+    const signatureImage = await pdf.embedPng(normalized);
+    const dimensions = signatureImage.scaleToFit(fields.signature.width - 4, 25);
+    page.drawImage(signatureImage, {
+      x: fields.signature.x + (fields.signature.width - dimensions.width) / 2,
+      y: lineY + 1,
+      width: dimensions.width,
+      height: dimensions.height,
+    });
+  }
+
+  return Buffer.from(await pdf.save());
 }
 
 router.get("/:id/pdf", requireAuth, async (req, res) => {
@@ -1071,14 +1062,8 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
     if (!["approved", "signed"].includes(String(consent.status).toLowerCase())) {
       return res.status(400).json({ success: false, message: "PDF download is available after consent approval." });
     }
-    let pdfBuffer;
-    if (consent.document_object_key) {
-      pdfBuffer = (await getPrivateObject(consent.document_object_key)).body;
-    } else {
-      const auditResult = await db.query(`SELECT * FROM consent_audit_logs WHERE consent_id=$1 ORDER BY created_at ASC`, [req.params.id]);
-      const storedSignature = await loadConsentSignature(consent);
-      pdfBuffer = await createConsentPdfBuffer(consent, auditResult.rows, storedSignature);
-    }
+    const storedSignature = await loadConsentSignature(consent);
+    const pdfBuffer = await createConsentPdfBuffer(consent, [], storedSignature);
     await audit(consent.consent_id, consent.employee_id, actorId(req.actor), req.actor.role, "consent_pdf_downloaded", "Consent PDF generated/downloaded.");
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="AstreaBlue-Consent-${consent.consent_id}.pdf"`);
