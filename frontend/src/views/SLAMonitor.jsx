@@ -337,19 +337,31 @@ export default function SLAMonitor() {
         </div>
 
         <div className="overflow-x-auto rounded-2xl border-2 border-slate-200 bg-white shadow-sm">
-          <table className="w-full min-w-[1450px] text-left text-sm">
+          <table className="w-full min-w-[1760px] table-fixed text-left text-sm">
+            <colgroup>
+              <col className="w-[190px]" />
+              <col className="w-[190px]" />
+              <col className="w-[190px]" />
+              <col className="w-[140px]" />
+              <col className="w-[140px]" />
+              <col className="w-[160px]" />
+              <col className="w-[160px]" />
+              <col className="w-[170px]" />
+              <col className="w-[160px]" />
+              <col className="w-[160px]" />
+            </colgroup>
             <thead className="bg-slate-50 font-bold uppercase tracking-wider text-slate-500">
               <tr>
-                <th className="px-6 py-4">Ticket No.</th>
-                <th className="px-6 py-4">Title</th>
-                <th className="px-6 py-4">Assigned Technician</th>
-                <th className="px-6 py-4">Priority</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Work Started</th>
-                <th className="px-6 py-4">Completed At</th>
-                <th className="px-6 py-4">Completion Time</th>
-                <th className="px-6 py-4">SLA Due</th>
-                <th className="px-6 py-4">SLA State</th>
+                <th className="whitespace-nowrap px-6 py-4">Ticket No.</th>
+                <th className="whitespace-nowrap px-6 py-4">Title</th>
+                <th className="whitespace-nowrap px-6 py-4">Assigned Technician</th>
+                <th className="whitespace-nowrap px-6 py-4">Priority</th>
+                <th className="whitespace-nowrap px-6 py-4">Status</th>
+                <th className="whitespace-nowrap px-6 py-4">Work Started</th>
+                <th className="whitespace-nowrap px-6 py-4">Completed At</th>
+                <th className="whitespace-nowrap px-6 py-4">Completion Time</th>
+                <th className="whitespace-nowrap px-6 py-4">SLA Due</th>
+                <th className="whitespace-nowrap px-6 py-4">SLA State</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -376,7 +388,7 @@ export default function SLAMonitor() {
                         : "Active";
                   return (
                     <tr key={ticket.id} className="transition hover:bg-slate-50">
-                      <td className="px-6 py-4 font-bold text-slate-900">
+                      <td className="whitespace-nowrap px-6 py-4 font-bold text-slate-900">
                         {ticket.ticket_number || `TKT-${ticket.id}`}
                       </td>
                       <td className="px-6 py-4">
@@ -385,7 +397,7 @@ export default function SLAMonitor() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="inline-flex items-center gap-1.5 font-medium text-slate-700">
+                        <span className="inline-flex whitespace-nowrap items-center gap-1.5 font-medium text-slate-700">
                           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
                             {(ticket.assigned_name || "U")[0]}
                           </span>
@@ -393,23 +405,23 @@ export default function SLAMonitor() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={getPriorityBadgeClass(ticket.priority)}>
+                        <span className={`${getPriorityBadgeClass(ticket.priority)} whitespace-nowrap`}>
                           {formatPriority(ticket.priority)}
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={getStatusBadgeClass(ticket.status)}>
+                        <span className={`${getStatusBadgeClass(ticket.status)} whitespace-nowrap`}>
                           {ticket.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-xs font-semibold text-slate-700">
+                      <td className="whitespace-nowrap px-6 py-4 text-xs font-semibold text-slate-700">
                         {ticket.in_progress_started_at ? formatDateTime(ticket.in_progress_started_at) : "Not started"}
                       </td>
-                      <td className="px-6 py-4 text-xs font-semibold text-slate-700">
+                      <td className="whitespace-nowrap px-6 py-4 text-xs font-semibold text-slate-700">
                         {ticket.resolved_at || ticket.closed_at ? formatDateTime(ticket.resolved_at || ticket.closed_at) : "Not completed"}
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex rounded-xl border px-3 py-2 text-xs font-black ${
+                        <span className={`inline-flex whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-black ${
                           ticket.resolved_at || ticket.closed_at
                             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                             : ticket.in_progress_started_at
@@ -423,11 +435,11 @@ export default function SLAMonitor() {
                               : "Not started"}
                         </span>
                       </td>
-                      <td className="px-6 py-4 font-medium text-slate-700">
+                      <td className="whitespace-nowrap px-6 py-4 font-medium text-slate-700">
                         {formatDateTime(ticket.resolution_due_at || ticket.sla_due_date)}
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${getSlaBadgeClass(overallSla)}`}>
+                        <span className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${getSlaBadgeClass(overallSla)}`}>
                           {overallSla === "Active" ? "SLA Active" : `SLA ${overallSla}`}
                         </span>
                       </td>

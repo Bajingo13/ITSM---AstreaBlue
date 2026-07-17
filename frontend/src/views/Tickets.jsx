@@ -775,7 +775,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             {kbMessage && <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{kbMessage}</div>}
 
             <section className="grid grid-cols-2 gap-4">
-              <div className="astrea-card border-2 border-slate-200 p-4 transition hover:border-blue-200 hover:shadow-md">
+              <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
                 <p className="text-xs font-bold text-slate-400">Status</p>
                 <p className="mt-1 flex flex-wrap items-center gap-2 font-black text-slate-900">
                   {selectedStatus}
@@ -792,7 +792,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 </p>
               </div>
 
-              <div className="astrea-card border-2 border-slate-200 p-4 transition hover:border-blue-200 hover:shadow-md">
+              <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
                 <p className="text-xs font-bold text-slate-400">Priority</p>
                 <p className="mt-1">
                   <span className={getPriorityBadgeClass(item.priority)}>
@@ -801,14 +801,14 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 </p>
               </div>
 
-              <div className="astrea-card border-2 border-slate-200 p-4 transition hover:border-blue-200 hover:shadow-md">
+              <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
                 <p className="text-xs font-bold text-slate-400">Category</p>
                 <p className="mt-1 font-black text-slate-900">
                   {item.category || "Uncategorized"}
                 </p>
               </div>
 
-              <div className="astrea-card border-2 border-slate-200 p-4 transition hover:border-blue-200 hover:shadow-md">
+              <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
                 <p className="text-xs font-bold text-slate-400">
                   Assigned To
                 </p>
@@ -907,7 +907,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   <select
     value={selectedTechnician}
     onChange={(e) => setSelectedTechnician(e.target.value)}
-    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-600"
+    className="w-full rounded-xl border border-blue-200 bg-blue-50/50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition hover:border-blue-300 hover:bg-blue-50 focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100"
     style={{ color: "#0f172a" }}
   >
     <option value="" style={{ color: "#0f172a" }}>
@@ -923,7 +923,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 )}
               </div>
 
-              <div className="rounded-2xl bg-blue-50 p-4">
+              <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm">
                 <p className="text-xs font-bold text-blue-400">Branch</p>
                 <p className="mt-1 font-black text-blue-800">
                   {item.branch_name || "Unassigned Branch"}
@@ -933,9 +933,11 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5">
               <h3 className="mb-3 font-black text-slate-900">Description</h3>
-              <p className="whitespace-pre-line text-sm leading-7 text-slate-600">
-                {item.desc || item.description}
-              </p>
+              <div className="min-h-24 rounded-xl border border-blue-200 bg-blue-50/40 p-4 shadow-sm">
+                <p className="whitespace-pre-line text-sm leading-7 text-slate-700">
+                  {item.desc || item.description}
+                </p>
+              </div>
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -949,7 +951,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                     <button
                       key={attachment.attachment_id}
                       onClick={() => openAttachment(attachment)}
-                      className="flex w-full items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-left text-sm font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+                      className="flex w-full items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/40 px-4 py-3 text-left text-sm font-bold text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
                     >
                       {attachment.mime_type?.startsWith("image/") && (
                         <img
@@ -966,7 +968,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm font-semibold text-slate-400">
+                <p className="rounded-xl border border-dashed border-blue-200 bg-blue-50/40 px-4 py-5 text-sm font-semibold text-slate-500">
                   No attachments uploaded.
                 </p>
               )}
@@ -1074,7 +1076,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               </section>
             )}
 
-            <section className="astrea-card border-2 p-6">
+            <section className="astrea-card border-2 border-slate-200 p-6">
               <h3 className="mb-1 font-black text-slate-900">
                 Update Status
               </h3>
@@ -1096,7 +1098,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                       className={`min-h-11 rounded-xl border-2 px-4 py-2.5 text-sm font-black transition ${
                         selectedStatus === col.id
                           ? "border-blue-700 bg-blue-700 text-white shadow-lg shadow-blue-700/20 ring-2 ring-blue-200"
-                          : "border-slate-300 bg-white text-slate-700 hover:border-blue-500 hover:bg-blue-50 hover:text-blue-800"
+                          : "border-blue-200 bg-blue-50/60 text-slate-700 shadow-sm hover:border-blue-500 hover:bg-blue-100/70 hover:text-blue-800"
                       } disabled:cursor-not-allowed disabled:opacity-70`}
                     >
                       {col.label}
@@ -1106,7 +1108,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               )}
             </section>
 
-            <section className="astrea-card border-2 p-6">
+            <section className="astrea-card border-2 border-slate-200 p-6">
               <div className="mb-4 flex items-center gap-2">
                 <MessageSquare size={18} className="text-blue-600" />
                 <h3 className="font-black text-slate-900">Comments</h3>
@@ -1117,7 +1119,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   item.comments.map((c) => (
                     <div
                       key={c.comment_id}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 shadow-sm"
                     >
                       <p className="text-sm text-slate-700">
                         {c.comment_text}
@@ -1129,7 +1131,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                     </div>
                   ))
                 ) : (
-                  <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm font-semibold text-slate-500">
+                  <p className="rounded-xl border border-dashed border-blue-200 bg-blue-50/40 p-5 text-center text-sm font-semibold text-slate-500">
                     No comments yet. Add context or an update for everyone following this ticket.
                   </p>
                 )}
@@ -1140,7 +1142,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="Write a comment..."
-                  className="astrea-control flex-1 text-sm"
+                  className="astrea-control flex-1 border-blue-200 bg-blue-50/40 text-sm hover:border-blue-300 focus:bg-white"
                 />
                 <button
                   onClick={addComment}
@@ -1159,7 +1161,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               )}
             </section>
 
-            <section className="astrea-card p-6">
+            <section className="astrea-card border border-slate-200 p-6">
               <div className="mb-4 flex items-center gap-2">
                 <History size={18} className="text-blue-600" />
                 <h3 className="font-black text-slate-900">
@@ -1172,7 +1174,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   item.history.map((h) => (
                     <div
                       key={h.history_id}
-                      className="astrea-timeline-item"
+                      className="astrea-timeline-item rounded-xl border border-blue-100 bg-blue-50/40 p-4 shadow-sm"
                     >
                       <p className="text-sm font-black text-slate-800">
                         {h.action}
@@ -1186,7 +1188,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm font-semibold text-slate-400">
+                  <p className="rounded-xl border border-dashed border-blue-200 bg-blue-50/40 p-5 text-sm font-semibold text-slate-500">
                     No activity yet.
                   </p>
                 )}
@@ -1423,7 +1425,7 @@ function TicketArticleModal({ ticket, onClose, onSaved }) {
 
 function ResolutionDetail({ label, value }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-900/5 transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md">
+    <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm shadow-blue-900/5 transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
       <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
         {label}
       </p>
