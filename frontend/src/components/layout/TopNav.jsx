@@ -25,6 +25,57 @@ import { subscribeToTicketChanges } from "../../services/realtimeTickets";
 import { API_URL } from "../../config/api";
 import { authHeaders } from "../../services/authHeaders";
 
+const philippineDateFormatter = new Intl.DateTimeFormat("en-PH", {
+  timeZone: "Asia/Manila",
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+const philippineTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  timeZone: "Asia/Manila",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: true,
+});
+
+function PhilippineClock() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const date = philippineDateFormatter.format(now);
+  const time = philippineTimeFormatter.format(now);
+
+  return (
+    <div
+      className="hidden min-w-[176px] items-center gap-2.5 rounded-xl border border-[#D9E5F5] bg-[#F8FBFF] px-3 py-1.5 shadow-sm lg:flex"
+      title={`${date}, ${time} — Philippine Standard Time`}
+      aria-label={`${date}, ${time}, Philippine Standard Time`}
+    >
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+        <Clock size={16} />
+      </div>
+      <div className="min-w-0 leading-tight">
+        <p className="truncate text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">
+          Philippine Time
+        </p>
+        <p className="mt-0.5 whitespace-nowrap text-xs font-black text-slate-800">
+          {time}
+        </p>
+        <p className="mt-0.5 whitespace-nowrap text-[10px] font-semibold text-slate-500">
+          {date}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function NotifIcon({ type, title }) {
   const base = "flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-sm border";
   const t = (title || "").toLowerCase();
@@ -256,6 +307,8 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
       </div>
 
       <div className="ml-auto flex items-center gap-1">
+        <PhilippineClock />
+
         <button onClick={refreshDashboard} disabled={refreshing} title="Refresh dashboard" className="rounded-lg p-2 text-blue-700/75 hover:bg-[#EAF4FF] hover:text-blue-700 disabled:opacity-50">
           <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
         </button>

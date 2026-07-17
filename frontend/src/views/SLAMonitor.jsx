@@ -505,7 +505,7 @@ export default function SLAMonitor() {
                       {h.new_status || "Not set"}
                     </td>
                     <td className="px-6 py-4 font-medium text-slate-700">
-                      {h.changed_by || "Not set"}
+                      {h.changed_by || "System Automation"}
                     </td>
                     <td className="px-6 py-4 font-medium text-slate-700">
                       {formatDateTime(h.created_at)}

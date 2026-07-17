@@ -167,7 +167,11 @@ router.get('/history', async (req, res) => {
         th.old_value  AS old_status,
         th.new_value  AS new_status,
         th.created_at,
-        u.full_name   AS changed_by
+        CASE
+          WHEN u.full_name IS NOT NULL THEN u.full_name
+          WHEN th.changed_by IS NULL THEN 'System Automation'
+          ELSE 'Former User'
+        END AS changed_by
       FROM ticket_history th
       LEFT JOIN tickets t ON th.ticket_id = t.id
       LEFT JOIN users   u ON th.changed_by = u.user_id

@@ -613,6 +613,7 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const requestContext = getRequestContext(req);
 
     const {
       title,
@@ -673,7 +674,12 @@ router.put("/:id", async (req, res) => {
       satisfaction_rating,
       existing.satisfaction_rating
     );
-    const changedById = normalizeOptionalInteger(changed_by, null);
+    // Actor attribution must come from the authenticated JWT. Keep the body
+    // value only as a backwards-compatible fallback for legacy/internal calls.
+    const changedById = normalizeOptionalInteger(
+      requestContext.currentUserId ?? changed_by,
+      null
+    );
 
     const resolvedAt =
       finalStatus === "Resolved" && !existing.resolved_at
