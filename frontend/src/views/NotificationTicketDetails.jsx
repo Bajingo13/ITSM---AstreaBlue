@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, CalendarClock, CircleUserRound, CheckCircle2, Clock, MapPin, ShieldAlert, Ticket } from "lucide-react";
 import { API_URL } from "../config/api";
+import { getTicketCompletionLabel, getTicketCompletionMinutes } from "../utils/ticketDuration";
 
 function valueOrFallback(value, fallback = "Not set") {
   return value === null || value === undefined || value === "" ? fallback : value;
@@ -13,15 +14,6 @@ function formatDate(value) {
   return Number.isNaN(date.getTime())
     ? "Not set"
     : date.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
-function computeResolutionDuration(resolvedAt, inProgressStartedAt) {
-  if (!resolvedAt || !inProgressStartedAt) return null;
-  const diffMs = new Date(resolvedAt) - new Date(inProgressStartedAt);
-  if (diffMs <= 0) return null;
-  const hours = Math.floor(diffMs / 3600000);
-  const minutes = Math.floor((diffMs % 3600000) / 60000);
-  return { hours, minutes, text: `${hours} Hour${hours !== 1 ? "s" : ""} ${minutes} Minute${minutes !== 1 ? "s" : ""}` };
 }
 
 /* ── SLA Progress Visualization ── */
@@ -87,15 +79,15 @@ function SlaProgressBar({ status, assignedAt }) {
 /* ── SLA Timeline Tracker ── */
 function SlaTimeline({ ticket }) {
   const duration = useMemo(
-    () => computeResolutionDuration(ticket.resolved_at, ticket.in_progress_started_at),
-    [ticket.resolved_at, ticket.in_progress_started_at]
+    () => getTicketCompletionMinutes(ticket),
+    [ticket]
   );
 
   const entries = [
     { icon: CheckCircle2, color: "bg-emerald-100 text-emerald-600", label: "Ticket Created", time: ticket.created_at, extra: null },
     { icon: CircleUserRound, color: "bg-blue-100 text-blue-600", label: "Assigned Technician", time: ticket.assigned_at, extra: ticket.assigned_name },
     { icon: Clock, color: "bg-amber-100 text-amber-600", label: "Work Started", time: ticket.in_progress_started_at, extra: null },
-    { icon: CheckCircle2, color: "bg-emerald-100 text-emerald-600", label: "Ticket Resolved", time: ticket.resolved_at, extra: null },
+    { icon: CheckCircle2, color: "bg-emerald-100 text-emerald-600", label: ticket.status === "Closed" ? "Ticket Closed" : "Ticket Resolved", time: ticket.resolved_at || ticket.closed_at, extra: null },
   ];
 
   const relevantEntries = [];
@@ -138,10 +130,10 @@ function SlaTimeline({ ticket }) {
           })}
         </div>
       </div>
-      {duration && (
+      {duration !== null && (
         <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Resolution Duration</p>
-          <p className="mt-1 text-lg font-black text-emerald-800">{duration.text}</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Completion Time</p>
+          <p className="mt-1 text-lg font-black text-emerald-800">{getTicketCompletionLabel(ticket)}</p>
           <p className="mt-0.5 text-[10px] text-emerald-600">Resolved Time — In Progress Start Time</p>
         </div>
       )}

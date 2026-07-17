@@ -16,6 +16,7 @@ import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import DashboardHero from "../components/DashboardHero";
 import { subscribeToTicketChanges } from "../services/realtimeTickets";
+import { getTicketCompletionLabel } from "../utils/ticketDuration";
 import {
   getPriorityBadgeClass, formatPriority,
   getSeverityOptionStyle,
@@ -648,6 +649,10 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
                   />
                   <InfoTile label="Parts Used" value={item.parts_used || "None recorded"} />
                   <InfoTile
+                    label="Work Started"
+                    value={item.in_progress_started_at ? new Date(item.in_progress_started_at).toLocaleString() : "Not recorded"}
+                  />
+                  <InfoTile
                     label="Resolved At"
                     value={
                       item.resolved_at
@@ -655,6 +660,7 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
                         : "Not recorded"
                     }
                   />
+                  <InfoTile label="Completion Time" value={getTicketCompletionLabel(item)} />
                 </div>
               </div>
             </section>

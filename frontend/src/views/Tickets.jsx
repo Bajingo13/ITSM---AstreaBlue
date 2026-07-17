@@ -29,6 +29,7 @@ import { API_URL } from "../config/api";
 import PageHero from "../components/layout/PageHero";
 import { authHeaders } from "../services/authHeaders";
 import { subscribeToTicketChanges } from "../services/realtimeTickets";
+import { getTicketCompletionLabel } from "../utils/ticketDuration";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -817,6 +818,42 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               </div>
             </section>
 
+            <section className="rounded-2xl border border-blue-100 bg-blue-50/40 p-5">
+              <div className="mb-4 flex items-center gap-2">
+                <History size={18} className="text-blue-600" />
+                <h3 className="font-black text-slate-900">Ticket Work Tracker</h3>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <ResolutionDetail
+                  label="Ticket Created"
+                  value={item.created_at ? new Date(item.created_at).toLocaleString() : "Not recorded"}
+                />
+                <ResolutionDetail
+                  label="Work Started"
+                  value={item.in_progress_started_at ? new Date(item.in_progress_started_at).toLocaleString() : "Waiting for In Progress"}
+                />
+                <ResolutionDetail
+                  label={item.status === "Closed" ? "Closed At" : "Resolved At"}
+                  value={
+                    item.resolved_at || item.closed_at
+                      ? new Date(item.resolved_at || item.closed_at).toLocaleString()
+                      : "Not completed"
+                  }
+                />
+                <ResolutionDetail
+                  label="Completion Time"
+                  value={
+                    item.resolved_at || item.closed_at
+                      ? getTicketCompletionLabel(item)
+                      : item.in_progress_started_at
+                        ? "In progress"
+                        : "Not started"
+                  }
+                />
+              </div>
+              <p className="mt-3 text-[11px] font-semibold text-blue-700">Completion Time is calculated automatically from Work Started to Resolved or Closed.</p>
+            </section>
+
             {(item.origin_system || item.created_via || item.external_reference) && (
               <section className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5">
                 <h3 className="mb-4 font-black text-slate-900">Integration Origin</h3>
@@ -972,12 +1009,24 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                       value={item.parts_used || "None recorded"}
                     />
                     <ResolutionDetail
+                      label="Work Started"
+                      value={
+                        item.in_progress_started_at
+                          ? new Date(item.in_progress_started_at).toLocaleString()
+                          : "Not recorded"
+                      }
+                    />
+                    <ResolutionDetail
                       label="Resolved At"
                       value={
                         item.resolved_at
                           ? new Date(item.resolved_at).toLocaleString()
                           : "Not recorded"
                       }
+                    />
+                    <ResolutionDetail
+                      label="Completion Time"
+                      value={getTicketCompletionLabel(item)}
                     />
                   </div>
                 </div>

@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
 import PageHero from "../components/layout/PageHero";
+import { getTicketCompletionLabel } from "../utils/ticketDuration";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -55,19 +56,21 @@ export default function ResolvedTickets() {
                 <th className="px-4 py-3">Resolution Notes</th>
                 <th className="px-4 py-3">Root Cause</th>
                 <th className="px-4 py-3">Time Spent</th>
+                <th className="px-4 py-3">Work Started</th>
                 <th className="px-4 py-3">Resolved At</th>
+                <th className="px-4 py-3">Completion Time</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="8" className="px-4 py-8 text-center font-bold text-slate-400">
+                  <td colSpan="10" className="px-4 py-8 text-center font-bold text-slate-400">
                     Loading resolved tickets...
                   </td>
                 </tr>
               ) : resolvedTickets.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="px-4 py-8 text-center font-bold text-slate-400">
+                  <td colSpan="10" className="px-4 py-8 text-center font-bold text-slate-400">
                     No resolved tickets yet.
                   </td>
                 </tr>
@@ -103,7 +106,13 @@ export default function ResolvedTickets() {
                       {ticket.time_spent_minutes ? `${ticket.time_spent_minutes} min` : "Not recorded"}
                     </td>
                     <td className="px-4 py-4 text-sm font-semibold text-slate-600">
+                      {ticket.in_progress_started_at ? new Date(ticket.in_progress_started_at).toLocaleString() : "Not recorded"}
+                    </td>
+                    <td className="px-4 py-4 text-sm font-semibold text-slate-600">
                       {ticket.resolved_at ? new Date(ticket.resolved_at).toLocaleString() : "Not recorded"}
+                    </td>
+                    <td className="px-4 py-4 text-sm font-black text-emerald-700">
+                      {getTicketCompletionLabel(ticket)}
                     </td>
                   </tr>
                 ))

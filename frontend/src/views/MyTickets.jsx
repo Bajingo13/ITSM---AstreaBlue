@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
 import PageHero from "../components/layout/PageHero";
+import { getTicketCompletionLabel } from "../utils/ticketDuration";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -298,9 +299,14 @@ function TicketDetails({ ticket, user, onClose, onUpdated }) {
                   />
                   <InfoTile label="Parts Used" value={item.parts_used || "None recorded"} />
                   <InfoTile
+                    label="Work Started"
+                    value={item.in_progress_started_at ? new Date(item.in_progress_started_at).toLocaleString() : "Not recorded"}
+                  />
+                  <InfoTile
                     label="Resolved At"
                     value={item.resolved_at ? new Date(item.resolved_at).toLocaleString() : "Not recorded"}
                   />
+                  <InfoTile label="Completion Time" value={getTicketCompletionLabel(item)} />
                 </div>
               </div>
             </section>

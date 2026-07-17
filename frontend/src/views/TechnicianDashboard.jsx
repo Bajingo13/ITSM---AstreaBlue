@@ -14,6 +14,7 @@ import { authHeaders } from "../services/authHeaders";
 import DashboardHero from "../components/DashboardHero";
 import { subscribeToTicketChanges } from "../services/realtimeTickets";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass, getSeverityLevel } from "../utils/ticketVisuals";
+import { getTicketCompletionLabel } from "../utils/ticketDuration";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -388,19 +389,20 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Resolution Notes</th>
                 <th className="px-4 py-3">Resolved At</th>
+                <th className="px-4 py-3">Completion Time</th>
               </tr>
             </thead>
 
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center font-bold text-slate-400">
+                  <td colSpan="7" className="px-4 py-8 text-center font-bold text-slate-400">
                     Loading resolved tickets...
                   </td>
                 </tr>
               ) : resolvedTickets.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center font-bold text-slate-400">
+                  <td colSpan="7" className="px-4 py-8 text-center font-bold text-slate-400">
                     No resolved tickets yet.
                   </td>
                 </tr>
@@ -435,6 +437,9 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
                       {ticket.resolved_at
                         ? new Date(ticket.resolved_at).toLocaleString()
                         : "Not recorded"}
+                    </td>
+                    <td className="px-4 py-4 text-sm font-black text-emerald-700">
+                      {getTicketCompletionLabel(ticket)}
                     </td>
                   </tr>
                 ))
