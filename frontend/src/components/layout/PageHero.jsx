@@ -14,8 +14,8 @@ export default function PageHero({
   compact = false,
 }) {
   const greeting = returning ? "Welcome back" : "Welcome";
-  const contextGroup = eyebrow === "Change & Release Management"
-    ? "change"
+  const contextGroup = eyebrow === "Replacement Management"
+    ? "replacements"
     : ["Reporting & Analytics", "Project Analytics"].includes(eyebrow)
       ? "analytics"
       : null;

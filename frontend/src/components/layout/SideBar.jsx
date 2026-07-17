@@ -58,10 +58,10 @@ const coreModuleItems = [
     ],
   },
   {
-    label: "Change & Release",
+    label: "Replacement Management",
     icon: GitBranch,
     children: [
-      { label: "Change Request Workflow", icon: ClipboardList, path: "/change-management" },
+      { label: "Replacement Requests", icon: ClipboardList, path: "/replacement-requests" },
     ],
   },
   {
@@ -126,6 +126,13 @@ const technicianNavItems = [
       { label: "SLA Management", icon: Activity, path: "/sla-monitor" },
     ],
   },
+  {
+    label: "Replacement Management",
+    icon: GitBranch,
+    children: [
+      { label: "Replacement Requests", icon: ClipboardList, path: "/replacement-requests" },
+    ],
+  },
 ];
 
 const employeeNavItems = [
@@ -145,6 +152,13 @@ const employeeNavItems = [
     children: [
       { label: "General Privacy Record", icon: Shield, path: "/ra-10173-compliance" },
       { label: "Device Monitoring Consent", icon: Shield, path: "/employee/consent" },
+    ],
+  },
+  {
+    label: "Replacement Management",
+    icon: GitBranch,
+    children: [
+      { label: "My Replacement Requests", icon: ClipboardList, path: "/replacement-requests" },
     ],
   },
 ];

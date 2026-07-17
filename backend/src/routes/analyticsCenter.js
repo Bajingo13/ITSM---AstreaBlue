@@ -3,6 +3,7 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 const db = require("../../config/db");
 const { getRequestContext } = require("./_ticketAccess");
+const { ensureReplacementSchema } = require("../services/replacementSchemaService");
 
 const router = express.Router();
 const summaryCache = new Map();
@@ -32,6 +33,7 @@ router.get("/summary", requireAnalytics, async (req, res) => {
   const cached = summaryCache.get(cacheKey);
   if (cached && Date.now() - cached.createdAt < CACHE_TTL_MS) return res.json({ success: true, message: "Enterprise analytics loaded.", data: cached.data, meta: { cached: true } });
   try {
+    await ensureReplacementSchema();
     const baseTicketScope = scope(role, branchId, "t");
     const ts = { sql: baseTicketScope.sql, params: [...baseTicketScope.params] };
     ts.params.push(days); ts.sql += ` AND t.created_at>=CURRENT_DATE-($${ts.params.length}::int*INTERVAL '1 day')`;
@@ -40,7 +42,7 @@ router.get("/summary", requireAnalytics, async (req, res) => {
     const cs = scope(role, branchId, "c");
     const ks = scope(role, branchId, "k");
     const ps = scope(role, branchId, "p");
-    const [tickets, incidentTrend, incidentCategories, incidentHeatmap, problems, rootCauses, assets, assetDistribution, endpoints, endpointAlerts, screenshots, softwareCompliance, consents, knowledge, knowledgeTop, projects, resources, changeManagement, changeRecent] = await Promise.all([
+    const [tickets, incidentTrend, incidentCategories, incidentHeatmap, problems, rootCauses, assets, assetDistribution, endpoints, endpointAlerts, screenshots, softwareCompliance, consents, knowledge, knowledgeTop, projects, resources, replacementManagement, replacementRecent] = await Promise.all([
       db.query(`SELECT COUNT(*) FILTER(WHERE t.status IN ('Open Queue','In Progress'))::int open_incidents,
         COUNT(*) FILTER(WHERE t.status='Resolved' AND t.resolved_at::date=CURRENT_DATE)::int resolved_today,
         COUNT(*) FILTER(WHERE t.priority='P1-Critical' AND t.status NOT IN ('Resolved','Closed','Cancelled'))::int critical_incidents,
@@ -95,20 +97,28 @@ router.get("/summary", requireAnalytics, async (req, res) => {
           FROM users u JOIN system_roles r ON r.role_id=u.role_id LEFT JOIN tickets t ON t.assigned_to=u.user_id
           WHERE LOWER(r.role_name)='technician' AND ${role === 'superadmin' ? '1=1' : 'u.branch_id=$1'} GROUP BY u.user_id
         ) workload`, role === 'superadmin' ? [] : [branchId]),
-      db.query(`SELECT
-        (SELECT COUNT(*)::int FROM change_requests ch WHERE ${role === 'superadmin' ? '1=1' : 'ch.branch_id=$1'} AND ch.status NOT IN ('Completed','Closed')) pending_changes,
-        (SELECT COUNT(*)::int FROM change_requests ch WHERE ${role === 'superadmin' ? '1=1' : 'ch.branch_id=$1'} AND ch.status='CAB Review') cab_queue,
-        (SELECT COUNT(*)::int FROM release_plans rel WHERE ${role === 'superadmin' ? '1=1' : 'rel.branch_id=$1'} AND rel.scheduled_start BETWEEN NOW() AND NOW()+INTERVAL '30 days') upcoming_releases,
-        (SELECT COUNT(*)::int FROM rollback_procedures rb WHERE ${role === 'superadmin' ? '1=1' : 'rb.branch_id=$1'}) rollback_total,
-        (SELECT COUNT(*)::int FROM rollback_procedures rb WHERE ${role === 'superadmin' ? '1=1' : 'rb.branch_id=$1'} AND rb.status IN ('Approved','Available','Verified')) rollback_ready,
-        (SELECT COUNT(*)::int FROM release_plans rel WHERE ${role === 'superadmin' ? '1=1' : 'rel.branch_id=$1'} AND rel.status IN ('Completed','Closed')) deployments_completed,
-        (SELECT COUNT(*)::int FROM release_plans rel WHERE ${role === 'superadmin' ? '1=1' : 'rel.branch_id=$1'} AND rel.status IN ('Deploying','Verifying','Completed','Closed')) deployments_total,
-        (SELECT COALESCE(JSON_AGG(trend ORDER BY trend.period),'[]'::json) FROM (SELECT TO_CHAR(DATE_TRUNC('month',ch.created_at),'YYYY-MM') period,COUNT(*)::int count FROM change_requests ch WHERE ${role === 'superadmin' ? '1=1' : 'ch.branch_id=$1'} AND ch.created_at>=CURRENT_DATE-INTERVAL '6 months' GROUP BY DATE_TRUNC('month',ch.created_at)) trend) trend`, role === 'superadmin' ? [] : [branchId]),
-      db.query(`SELECT a.message,a.event_type,a.created_at,c.change_number FROM change_activities a JOIN change_requests c ON c.id=a.change_id WHERE ${role === 'superadmin' ? '1=1' : 'c.branch_id=$1'} ORDER BY a.created_at DESC LIMIT 6`,role === 'superadmin'?[]:[branchId]),
+      db.query(`WITH scoped AS (
+          SELECT * FROM replacement_requests rr WHERE ${role === 'superadmin' ? '1=1' : 'rr.branch_id=$1'}
+        ), trend AS (
+          SELECT TO_CHAR(DATE_TRUNC('month',created_at),'YYYY-MM') period,COUNT(*)::int count
+          FROM scoped WHERE created_at>=CURRENT_DATE-INTERVAL '6 months'
+          GROUP BY DATE_TRUNC('month',created_at)
+        ) SELECT
+          (SELECT COUNT(*)::int FROM scoped WHERE status NOT IN ('Completed','Repair Recommended','Rejected','Cancelled')) active_requests,
+          (SELECT COUNT(*)::int FROM scoped WHERE status='Awaiting Approval') awaiting_approval,
+          (SELECT COUNT(*)::int FROM scoped WHERE status='Replacement Reserved') reserved_assets,
+          (SELECT COUNT(*)::int FROM scoped WHERE status='Issued') issued_requests,
+          (SELECT COUNT(*)::int FROM scoped WHERE status='Completed') completed_requests,
+          (SELECT COUNT(*)::int FROM scoped WHERE status='Repair Recommended') repair_recommended,
+          (SELECT COALESCE(JSON_AGG(trend ORDER BY period),'[]'::json) FROM trend) trend`, role === 'superadmin' ? [] : [branchId]),
+      db.query(`SELECT h.message,h.event_type,h.created_at,rr.request_number
+        FROM replacement_request_history h JOIN replacement_requests rr ON rr.id=h.replacement_request_id
+        WHERE ${role === 'superadmin' ? '1=1' : 'rr.branch_id=$1'} ORDER BY h.created_at DESC LIMIT 6`,role === 'superadmin'?[]:[branchId]),
     ]);
     const ticket = tickets.rows[0] || {}; const asset = assets.rows[0] || {}; const endpoint = endpoints.rows[0] || {};
     const alert = endpointAlerts.rows[0] || {}; const screenshot = screenshots.rows[0] || {}; const sw = softwareCompliance.rows[0] || {}; const consent = consents.rows[0] || {};
-    const project = projects.rows[0] || {}; const resourceRows=resources.rows; const changeData=changeManagement.rows[0]||{};
+    const project = projects.rows[0] || {}; const resourceRows=resources.rows; const replacementRow=replacementManagement.rows[0]||{};
+    const replacementData={active_requests:n(replacementRow.active_requests),awaiting_approval:n(replacementRow.awaiting_approval),reserved_assets:n(replacementRow.reserved_assets),issued_requests:n(replacementRow.issued_requests),completed_requests:n(replacementRow.completed_requests),repair_recommended:n(replacementRow.repair_recommended),trend:replacementRow.trend||[]};
     const slaTotal=n(ticket.sla_met)+n(ticket.sla_violated); const totalAssets=n(asset.total_assets); const totalDevices=n(endpoint.total_devices);
     const data = {
       service_desk:{open_incidents:n(ticket.open_incidents),resolved_today:n(ticket.resolved_today),critical_incidents:n(ticket.critical_incidents),assigned_tickets:n(ticket.assigned_tickets),avg_resolution_hours:Number(n(ticket.avg_resolution_hours).toFixed(1)),avg_response_minutes:Number(n(ticket.avg_response_minutes).toFixed(1)),sla_compliance_pct:slaTotal?Math.round(n(ticket.sla_met)/slaTotal*100):0,trend:incidentTrend.rows,top_categories:incidentCategories.rows,heatmap:incidentHeatmap.rows},
@@ -120,7 +130,7 @@ router.get("/summary", requireAnalytics, async (req, res) => {
       compliance:{consent_pct:n(consent.total)?Math.round(n(consent.approved)/n(consent.total)*100):0,policy_compliance_pct:n(sw.total)?Math.round(n(sw.compliant)/n(sw.total)*100):0,pending_consents:n(consent.pending),expired_consents:n(consent.expired)},
       resources:{technicians:resourceRows.reduce((s,r)=>s+n(r.technicians),0),open_assignments:resourceRows.reduce((s,r)=>s+n(r.open_assignments),0),average_queue:resourceRows.length?Number((resourceRows.reduce((s,r)=>s+n(r.avg_queue),0)/resourceRows.length).toFixed(1)):0,capacity_pct:resourceRows.length?Math.max(0,Math.round(100-(resourceRows.reduce((s,r)=>s+n(r.avg_queue),0)/resourceRows.length)*10)):100},
       projects:{current_projects:n(project.total),on_track:n(project.on_track),at_risk:n(project.at_risk),delayed:n(project.delayed),forecast_completion:project.forecast_finish||null},
-      change:{available:true,pending_changes:n(changeData.pending_changes),cab_queue:n(changeData.cab_queue),upcoming_releases:n(changeData.upcoming_releases),rollback_readiness_pct:n(changeData.rollback_total)?Math.round(n(changeData.rollback_ready)/n(changeData.rollback_total)*100):0,deployment_success_pct:n(changeData.deployments_total)?Math.round(n(changeData.deployments_completed)/n(changeData.deployments_total)*100):0,trend:changeData.trend||[],recent_activity:changeRecent.rows},
+      replacements:{available:true,...replacementData,recent_activity:replacementRecent.rows},
       generated_at:new Date().toISOString()
     };
     summaryCache.set(cacheKey,{createdAt:Date.now(),data}); return res.json({success:true,message:"Enterprise analytics loaded.",data,meta:{cached:false}});

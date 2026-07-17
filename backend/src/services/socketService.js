@@ -33,4 +33,19 @@ function emitTicketChanged(payload) {
   }
 }
 
-module.exports = { setSocketServer, getSocketServer, emitSlaUpdated, emitTicketChanged };
+function emitReplacementChanged(payload) {
+  try {
+    if (!socketServer) return false;
+    socketServer.emit("replacement_changed", {
+      action: payload?.action || "changed",
+      requestId: payload?.requestId || null,
+      timestamp: payload?.timestamp || new Date().toISOString(),
+    });
+    return true;
+  } catch (error) {
+    console.warn("Replacement socket emit failed:", error.message);
+    return false;
+  }
+}
+
+module.exports = { setSocketServer, getSocketServer, emitSlaUpdated, emitTicketChanged, emitReplacementChanged };

@@ -40,9 +40,7 @@ export const ConsentManagement = lazy(() => import("../views/ConsentManagement")
 export const ScreenshotCapture = lazy(() => import("../views/ScreenshotCapture"));
 export const UsbDlpMonitoring = lazy(() => import("../views/UsbDlpMonitoring"));
 export const MandatoryOnboarding = lazy(() => import("../views/MandatoryOnboarding"));
-export const ChangeManagement = lazy(() => import("../views/ChangeManagement"));
-export const ReleasePlanning = lazy(() => import("../views/ReleasePlanning"));
-export const RollbackProcedures = lazy(() => import("../views/RollbackProcedures"));
+export const ReplacementRequests = lazy(() => import("../views/ReplacementRequests"));
 export const AdvancedProjectDashboard = lazy(() => import("../views/AdvancedProjectDashboard"));
 export const ExecutiveOperationsDashboard = lazy(() => import("../views/ExecutiveOperationsDashboard"));
 export const AnalyticsSection = lazy(() => import("../views/AnalyticsSection"));
@@ -60,9 +58,7 @@ const routePreloaders = {
   "/asset-discovery": () => import("../views/AssetDiscovery"),
   "/financial-tracking": () => import("../views/AssetFinancials"),
   "/cmdb": () => import("../views/CMDB"),
-  "/change-management": () => import("../views/ChangeManagement"),
-  "/release-planning": () => import("../views/ReleasePlanning"),
-  "/rollback-procedures": () => import("../views/RollbackProcedures"),
+  "/replacement-requests": () => import("../views/ReplacementRequests"),
   "/analytics": () => import("../views/ExecutiveOperationsDashboard"),
   "/analytics/service-desk": () => import("../views/AnalyticsSection"),
   "/analytics/assets": () => import("../views/AnalyticsSection"),

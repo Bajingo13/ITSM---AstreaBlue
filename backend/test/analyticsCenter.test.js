@@ -41,11 +41,11 @@ test("enterprise summary enforces authentication and returns complete manager an
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.success, true);
-  for (const section of ["service_desk", "problems", "assets", "endpoints", "sla", "knowledge", "compliance", "resources", "projects", "change"]) {
+  for (const section of ["service_desk", "problems", "assets", "endpoints", "sla", "knowledge", "compliance", "resources", "projects", "replacements"]) {
     assert.ok(Object.hasOwn(body.data, section), `missing ${section}`);
   }
-  assert.equal(body.data.change.available, true);
-  assert.ok(Object.hasOwn(body.data.change, "cab_queue"));
+  assert.equal(body.data.replacements.available, true);
+  assert.ok(Object.hasOwn(body.data.replacements, "awaiting_approval"));
 });
 
 test("technicians cannot access reporting and analytics", async () => {

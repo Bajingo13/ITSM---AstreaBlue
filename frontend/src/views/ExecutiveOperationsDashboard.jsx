@@ -76,7 +76,19 @@ export default function ExecutiveOperationsDashboard() {
       const response = await fetch(`${endpoint}?days=${days}`, { headers: authHeaders() });
       const body = await response.json();
       if (!response.ok) throw new Error(body.message || "Unable to load enterprise analytics.");
-      setData(body.data);
+      setData({
+        ...body.data,
+        replacements: body.data?.replacements || {
+          active_requests: 0,
+          awaiting_approval: 0,
+          reserved_assets: 0,
+          issued_requests: 0,
+          completed_requests: 0,
+          repair_recommended: 0,
+          trend: [],
+          recent_activity: [],
+        },
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -99,7 +111,7 @@ export default function ExecutiveOperationsDashboard() {
     { icon: CheckCircle2, title: "SLA", subtitle: "Service commitment performance", path: "/analytics/sla", accent: "from-emerald-500 to-cyan-500", metrics: [["SLA Met", data.sla.met], ["SLA Violated", data.sla.violated], ["Avg Response", `${data.sla.avg_response_minutes}m`], ["Avg Resolution", `${data.sla.avg_resolution_hours}h`]] },
     { icon: ShieldCheck, title: "Compliance", subtitle: "Consent and policy posture", path: "/analytics/compliance", accent: "from-indigo-500 to-violet-500", metrics: [["RA10173 Consent", `${data.compliance.consent_pct}%`], ["Policy Compliance", `${data.compliance.policy_compliance_pct}%`], ["Pending", data.compliance.pending_consents], ["Expired", data.compliance.expired_consents]] },
     { icon: Users, title: "Resources", subtitle: "Technician workload", path: "/analytics/resources", accent: "from-blue-500 to-indigo-500", metrics: [["Technicians", data.resources.technicians], ["Assignments", data.resources.open_assignments], ["Average Queue", data.resources.average_queue], ["Capacity", `${data.resources.capacity_pct}%`]] },
-    { icon: GitBranch, title: "Change Management", subtitle: "CAB, releases, and recovery", path: "/analytics/change", accent: "from-violet-500 to-cyan-500", metrics: [["Pending", data.change.pending_changes], ["CAB Queue", data.change.cab_queue], ["Upcoming Releases", data.change.upcoming_releases], ["Rollback Ready", `${data.change.rollback_readiness_pct}%`], ["Deployment Success", `${data.change.deployment_success_pct}%`]] },
+    { icon: GitBranch, title: "Replacement Management", subtitle: "Laptop assessment, approval, and controlled issuance", path: "/analytics/replacements", accent: "from-violet-500 to-cyan-500", metrics: [["Active", data.replacements.active_requests], ["Awaiting Approval", data.replacements.awaiting_approval], ["Assets Reserved", data.replacements.reserved_assets], ["Issued", data.replacements.issued_requests], ["Completed", data.replacements.completed_requests]] },
     { icon: BookOpen, title: "Knowledge Base", subtitle: "Operational knowledge", path: "/knowledge-base", accent: "from-cyan-500 to-teal-500", metrics: [["Published", data.knowledge.published_articles], ["Used", data.knowledge.articles_used], ["Suggested", data.knowledge.suggested_articles], ["Search Trends", data.knowledge.search_trends.length ? "Available" : "No data"]] },
     { icon: BarChart3, title: "Projects", subtitle: "IT portfolio delivery", path: "/analytics/projects", accent: "from-blue-600 to-violet-500", metrics: [["Current", data.projects.current_projects], ["On Track", data.projects.on_track], ["At Risk", data.projects.at_risk], ["Delayed", data.projects.delayed]] },
   ] : [], [data]);
@@ -110,20 +122,20 @@ export default function ExecutiveOperationsDashboard() {
     { label: "Assets", value: data.assets.health_score },
     { label: "Endpoints", value: data.endpoints.endpoint_health_pct },
     { label: "Consent", value: data.compliance.consent_pct },
-    { label: "Rollback", value: data.change.rollback_readiness_pct },
+    { label: "Replacements", value: data.replacements.active_requests ? Math.round((data.replacements.completed_requests / (data.replacements.active_requests + data.replacements.completed_requests)) * 100) : 100 },
   ] : [];
 
   const kpis = data ? [
     { icon: Ticket, label: "Open Incidents", value: data.service_desk.open_incidents, detail: `${data.service_desk.resolved_today} resolved today`, tone: "bg-blue-50 text-blue-700" },
     { icon: CircleGauge, label: "SLA Compliance", value: `${data.service_desk.sla_compliance_pct}%`, detail: `${data.sla.violated} currently violated`, tone: "bg-emerald-50 text-emerald-700" },
     { icon: HardDrive, label: "Managed Assets", value: data.assets.total_assets, detail: `${data.assets.health_score}% fleet health`, tone: "bg-cyan-50 text-cyan-700" },
-    { icon: GitBranch, label: "Active Changes", value: data.change.pending_changes, detail: `${data.change.cab_queue} awaiting CAB`, tone: "bg-violet-50 text-violet-700" },
+    { icon: GitBranch, label: "Active Replacements", value: data.replacements.active_requests, detail: `${data.replacements.awaiting_approval} awaiting approval`, tone: "bg-violet-50 text-violet-700" },
     { icon: HeartPulse, label: "Endpoint Health", value: `${data.endpoints.endpoint_health_pct}%`, detail: `${data.endpoints.offline_devices} devices offline`, tone: "bg-indigo-50 text-indigo-700" },
   ] : [];
 
   return (
     <div className="astrea-module-page space-y-6">
-      <PageHero eyebrow="Reporting & Analytics" title="Executive Operations Dashboard" subtitle="A unified command center for service delivery, assets, endpoints, governance, and change performance." />
+      <PageHero eyebrow="Reporting & Analytics" title="Executive Operations Dashboard" subtitle="A unified command center for service delivery, assets, endpoints, governance, and replacement operations." />
 
       <section className="astrea-dashboard-enter flex flex-col gap-3 rounded-3xl border border-blue-100 bg-white p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3 px-2"><Activity className="text-blue-600" size={19} /><div><p className="text-sm font-black text-slate-800">Live enterprise overview</p><p className="text-xs font-semibold text-slate-400">Updated from operational data sources</p></div></div>
@@ -171,7 +183,7 @@ export default function ExecutiveOperationsDashboard() {
         </Suspense>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <ChartCard title="Recent change activity" subtitle="Latest controlled-change events"><div className="space-y-2">{data.change.recent_activity.length ? data.change.recent_activity.map((activity, index) => <Link to="/change-management" key={`${activity.change_number}-${index}`} className="group flex items-start gap-3 rounded-2xl border border-transparent bg-slate-50 p-3 transition duration-300 hover:translate-x-1 hover:border-blue-100 hover:bg-blue-50"><GitBranch size={16} className="mt-0.5 text-blue-600" /><div><p className="text-sm font-bold text-slate-700">{activity.message}</p><p className="mt-1 text-xs text-slate-400">{activity.change_number} · {new Date(activity.created_at).toLocaleString()}</p></div></Link>) : <p className="py-8 text-center text-sm text-slate-400">No recent change activity.</p>}</div></ChartCard>
+          <ChartCard title="Recent replacement activity" subtitle="Latest controlled laptop replacement events"><div className="space-y-2">{data.replacements.recent_activity.length ? data.replacements.recent_activity.map((activity, index) => <Link to="/replacement-requests" key={`${activity.request_number}-${index}`} className="group flex items-start gap-3 rounded-2xl border border-transparent bg-slate-50 p-3 transition duration-300 hover:translate-x-1 hover:border-blue-100 hover:bg-blue-50"><GitBranch size={16} className="mt-0.5 text-blue-600" /><div><p className="text-sm font-bold text-slate-700">{activity.message}</p><p className="mt-1 text-xs text-slate-400">{activity.request_number} · {new Date(activity.created_at).toLocaleString()}</p></div></Link>) : <p className="py-8 text-center text-sm text-slate-400">No recent replacement activity.</p>}</div></ChartCard>
           <ChartCard title="Most viewed knowledge" subtitle="Frequently used operational guidance"><div className="space-y-2">{data.knowledge.most_viewed.map((article, index) => <Link to="/knowledge-base" key={`${article.title}-${index}`} className="group flex items-center justify-between rounded-2xl border border-transparent bg-slate-50 p-3 transition duration-300 hover:translate-x-1 hover:border-blue-100 hover:bg-blue-50"><span className="truncate text-sm font-bold text-slate-700">{article.title}</span><span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700 transition group-hover:bg-blue-600 group-hover:text-white">{article.views}</span></Link>)}</div></ChartCard>
         </div>
       </>}

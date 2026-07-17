@@ -29,7 +29,7 @@ const onboardingRoutes = require("./src/routes/onboarding");
 const cmdbRoutes = require("./src/routes/cmdb");
 const projectAnalyticsRoutes = require("./src/routes/projectAnalytics");
 const analyticsCenterRoutes = require("./src/routes/analyticsCenter");
-const changeReleaseManagementRoutes = require("./src/routes/changeReleaseManagement");
+const replacementRequestRoutes = require("./src/routes/replacementRequests");
 const calendarRoutes = require("./src/routes/calendar");
 const { setSocketServer } = require("./src/services/socketService");
 const { startScreenshotRetentionJob } = require("./src/services/screenshotRetentionService");
@@ -784,7 +784,7 @@ app.use("/api/v1/cmdb", cmdbRoutes);
 app.use("/api/v1/projects", projectAnalyticsRoutes);
 app.use("/api/v1/analytics", analyticsCenterRoutes);
 app.use("/api/v1/calendar", calendarRoutes);
-app.use("/api/v1/change-release", changeReleaseManagementRoutes);
+app.use("/api/v1/replacement-requests", replacementRequestRoutes);
 
 /* ==========================
    HEALTH CHECK

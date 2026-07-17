@@ -1,13 +1,11 @@
-import { BarChart3, Briefcase, ClipboardList, FileText, HardDrive, LayoutDashboard, RotateCcw, Shield } from "lucide-react";
+import { BarChart3, Briefcase, ClipboardList, FileText, HardDrive, LayoutDashboard, Shield } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 
 const groups = {
-  change: {
-    label: "Change & Release workspace",
+  replacements: {
+    label: "Replacement Management workspace",
     items: [
-      { label: "Change Requests", path: "/change-management", icon: ClipboardList },
-      { label: "Release Planning", path: "/release-planning", icon: Briefcase },
-      { label: "Rollback Procedures", path: "/rollback-procedures", icon: RotateCcw },
+      { label: "Replacement Requests", path: "/replacement-requests", icon: ClipboardList },
     ],
   },
   analytics: {
