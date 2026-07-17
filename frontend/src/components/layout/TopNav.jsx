@@ -27,9 +27,9 @@ import { authHeaders } from "../../services/authHeaders";
 
 const philippineDateFormatter = new Intl.DateTimeFormat("en-PH", {
   timeZone: "Asia/Manila",
-  weekday: "short",
-  month: "short",
+  weekday: "long",
   day: "numeric",
+  month: "long",
   year: "numeric",
 });
 
@@ -54,24 +54,12 @@ function PhilippineClock() {
 
   return (
     <div
-      className="hidden min-w-[176px] items-center gap-2.5 rounded-xl border border-[#D9E5F5] bg-[#F8FBFF] px-3 py-1.5 shadow-sm lg:flex"
+      className="hidden items-center gap-5 whitespace-nowrap border-x border-[#D9E5F5] px-4 py-1 text-xs font-bold text-slate-600 xl:flex"
       title={`${date}, ${time} — Philippine Standard Time`}
       aria-label={`${date}, ${time}, Philippine Standard Time`}
     >
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
-        <Clock size={16} />
-      </div>
-      <div className="min-w-0 leading-tight">
-        <p className="truncate text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">
-          Philippine Time
-        </p>
-        <p className="mt-0.5 whitespace-nowrap text-xs font-black text-slate-800">
-          {time}
-        </p>
-        <p className="mt-0.5 whitespace-nowrap text-[10px] font-semibold text-slate-500">
-          {date}
-        </p>
-      </div>
+      <time dateTime={now.toISOString()} className="font-black text-slate-800">{time}</time>
+      <span>{date}</span>
     </div>
   );
 }
