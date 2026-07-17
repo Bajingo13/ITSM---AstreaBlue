@@ -742,8 +742,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   return (
     <>
     <div className="astrea-modal-backdrop z-[80]">
-      <div className="astrea-modal-panel flex w-full max-w-2xl flex-col">
-        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-7 py-5">
+      <div className="astrea-modal-panel flex w-full max-w-2xl flex-col border border-slate-300 shadow-2xl shadow-slate-950/25">
+        <div className="sticky top-0 z-10 border-b-2 border-slate-200 bg-white px-7 py-5">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-widest text-blue-600">
@@ -775,7 +775,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             {kbMessage && <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{kbMessage}</div>}
 
             <section className="grid grid-cols-2 gap-4">
-              <div className="astrea-card p-4">
+              <div className="astrea-card border-2 border-slate-200 p-4 transition hover:border-blue-200 hover:shadow-md">
                 <p className="text-xs font-bold text-slate-400">Status</p>
                 <p className="mt-1 flex flex-wrap items-center gap-2 font-black text-slate-900">
                   {selectedStatus}
@@ -792,7 +792,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 </p>
               </div>
 
-              <div className="astrea-card p-4">
+              <div className="astrea-card border-2 border-slate-200 p-4 transition hover:border-blue-200 hover:shadow-md">
                 <p className="text-xs font-bold text-slate-400">Priority</p>
                 <p className="mt-1">
                   <span className={getPriorityBadgeClass(item.priority)}>
@@ -801,14 +801,14 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 </p>
               </div>
 
-              <div className="astrea-card p-4">
+              <div className="astrea-card border-2 border-slate-200 p-4 transition hover:border-blue-200 hover:shadow-md">
                 <p className="text-xs font-bold text-slate-400">Category</p>
                 <p className="mt-1 font-black text-slate-900">
                   {item.category || "Uncategorized"}
                 </p>
               </div>
 
-              <div className="astrea-card p-4">
+              <div className="astrea-card border-2 border-slate-200 p-4 transition hover:border-blue-200 hover:shadow-md">
                 <p className="text-xs font-bold text-slate-400">
                   Assigned To
                 </p>
@@ -818,7 +818,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-blue-100 bg-blue-50/40 p-5">
+            <section className="rounded-2xl border-2 border-blue-200 bg-gradient-to-br from-blue-50 to-sky-50 p-5 shadow-sm shadow-blue-900/5">
               <div className="mb-4 flex items-center gap-2">
                 <History size={18} className="text-blue-600" />
                 <h3 className="font-black text-slate-900">Ticket Work Tracker</h3>
@@ -855,7 +855,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             </section>
 
             {(item.origin_system || item.created_via || item.external_reference) && (
-              <section className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5">
+              <section className="rounded-2xl border-2 border-blue-200 bg-blue-50/50 p-5 shadow-sm shadow-blue-900/5">
                 <h3 className="mb-4 font-black text-slate-900">Integration Origin</h3>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <ResolutionDetail label="Created Via" value={item.created_via || item.source || "Integration Gateway"} />
@@ -1423,7 +1423,7 @@ function TicketArticleModal({ ticket, onClose, onSaved }) {
 
 function ResolutionDetail({ label, value }) {
   return (
-    <div className="rounded-2xl bg-white p-4 shadow-sm shadow-emerald-900/5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-900/5 transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md">
       <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
         {label}
       </p>

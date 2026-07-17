@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
 import PageHero from "../components/layout/PageHero";
+import { getTicketCompletionLabel } from "../utils/ticketDuration";
 
 const API_BASE = `${API_URL}/api/v1`;
 const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -335,8 +336,8 @@ export default function SLAMonitor() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto rounded-2xl border-2 border-slate-200 bg-white shadow-sm">
+          <table className="w-full min-w-[1450px] text-left text-sm">
             <thead className="bg-slate-50 font-bold uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-6 py-4">Ticket No.</th>
@@ -344,6 +345,9 @@ export default function SLAMonitor() {
                 <th className="px-6 py-4">Assigned Technician</th>
                 <th className="px-6 py-4">Priority</th>
                 <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">Work Started</th>
+                <th className="px-6 py-4">Completed At</th>
+                <th className="px-6 py-4">Completion Time</th>
                 <th className="px-6 py-4">SLA Due</th>
                 <th className="px-6 py-4">SLA State</th>
               </tr>
@@ -351,12 +355,12 @@ export default function SLAMonitor() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="px-6 py-8 text-center text-slate-400">
+                  <td colSpan="10" className="px-6 py-8 text-center text-slate-400">
                   </td>
                 </tr>
               ) : tickets.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="px-6 py-8 text-center text-slate-400">
+                  <td colSpan="10" className="px-6 py-8 text-center text-slate-400">
                     No active tickets.
                   </td>
                 </tr>
@@ -396,6 +400,27 @@ export default function SLAMonitor() {
                       <td className="px-6 py-4">
                         <span className={getStatusBadgeClass(ticket.status)}>
                           {ticket.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-xs font-semibold text-slate-700">
+                        {ticket.in_progress_started_at ? formatDateTime(ticket.in_progress_started_at) : "Not started"}
+                      </td>
+                      <td className="px-6 py-4 text-xs font-semibold text-slate-700">
+                        {ticket.resolved_at || ticket.closed_at ? formatDateTime(ticket.resolved_at || ticket.closed_at) : "Not completed"}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex rounded-xl border px-3 py-2 text-xs font-black ${
+                          ticket.resolved_at || ticket.closed_at
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : ticket.in_progress_started_at
+                              ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : "border-slate-200 bg-slate-50 text-slate-500"
+                        }`}>
+                          {ticket.resolved_at || ticket.closed_at
+                            ? getTicketCompletionLabel(ticket)
+                            : ticket.in_progress_started_at
+                              ? "In progress"
+                              : "Not started"}
                         </span>
                       </td>
                       <td className="px-6 py-4 font-medium text-slate-700">
