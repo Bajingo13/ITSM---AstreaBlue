@@ -18,6 +18,12 @@ const formatDateTime = (value) => {
   return Number.isNaN(date.getTime()) ? "Not set" : dateTimeFormatter.format(date);
 };
 
+const formatSlaActivityAction = (action) => {
+  if (action === "Response SLA") return "First Response Target";
+  if (action === "Resolution SLA") return "Resolution Target";
+  return action || "SLA Update";
+};
+
 const SORT_OPTIONS = [
   { value: "latest", label: "Latest SLA Tickets" },
   { value: "oldest", label: "Oldest SLA Tickets" },
@@ -454,10 +460,15 @@ export default function SLAMonitor() {
 
       {/* Recent SLA Activity */}
       <section>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-black text-slate-900">Recent SLA Activity</h2>
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-black text-slate-900">Recent SLA Activity</h2>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              Each ticket can record a first-response target and a separate resolution target. Technician time spent is tracked independently.
+            </p>
+          </div>
           <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-700">
-            {history.length} total
+            {history.length} SLA events
           </span>
         </div>
 
@@ -466,7 +477,7 @@ export default function SLAMonitor() {
             <thead className="bg-slate-50 font-bold uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-6 py-4">Ticket</th>
-                <th className="px-6 py-4">Action</th>
+                <th className="px-6 py-4">SLA Check</th>
                 <th className="px-6 py-4">Old Status</th>
                 <th className="px-6 py-4">New Status</th>
                 <th className="px-6 py-4">Changed By</th>
@@ -495,7 +506,7 @@ export default function SLAMonitor() {
                     </td>
                     <td className="px-6 py-4">
                       <span className="rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide bg-blue-100 text-blue-800 border-blue-200">
-                        {h.action}
+                        {formatSlaActivityAction(h.action)}
                       </span>
                     </td>
                     <td className="px-6 py-4 font-medium text-slate-700">
