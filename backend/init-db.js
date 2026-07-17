@@ -31,6 +31,7 @@ const migrationFiles = [
   "2026-07-15-integration-hub-centralized-scope.sql",
   "2026-07-15-core-query-performance.sql",
   "2026-07-17-replacement-requests.sql",
+  "2026-07-17-replacement-repair-lifecycle.sql",
 ];
 
 const defaultTicketCategories = [
