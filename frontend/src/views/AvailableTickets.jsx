@@ -4,6 +4,7 @@ import { FileText } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority } from "../utils/ticketVisuals";
+import { authHeaders } from "../services/authHeaders";
 import PageHero from "../components/layout/PageHero";
 import TicketDetails from "./TicketDetails";
 
@@ -16,12 +17,16 @@ export default function AvailableTickets() {
   const [acceptingId, setAcceptingId] = useState(null);
   const [selectedTicket, setSelectedTicket] = useState(null);
 
-  const technicianId = user?.user_id || 3;
+  const technicianId = user?.user_id || null;
+  const technicianBranchId = user?.branch_id || null;
 
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`);
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
       const data = await res.json();
       setTickets(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -42,9 +47,18 @@ export default function AvailableTickets() {
         ticket.assigned_to === undefined ||
         ticket.assigned_to === "";
 
-      return isUnassigned && ticket.status === "Open Queue";
+      return (
+        isUnassigned &&
+        technicianBranchId &&
+        ticket.branch_id &&
+        Number(ticket.branch_id) === Number(technicianBranchId) &&
+        !ticket.integration_id &&
+        !ticket.origin_system &&
+        ticket.created_via !== "External API" &&
+        ticket.status === "Open Queue"
+      );
     });
-  }, [tickets]);
+  }, [tickets, technicianBranchId]);
 
   const acceptTicket = async (ticketId) => {
     try {
@@ -52,7 +66,7 @@ export default function AvailableTickets() {
 
       const assignRes = await fetch(`${API_BASE}/tickets/${ticketId}/assign`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(
           buildTicketPayload(user, { assigned_to: technicianId })
         ),
@@ -62,7 +76,7 @@ export default function AvailableTickets() {
 
       const statusRes = await fetch(`${API_BASE}/tickets/${ticketId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(buildTicketPayload(user, { status: "In Progress" })),
       });
 

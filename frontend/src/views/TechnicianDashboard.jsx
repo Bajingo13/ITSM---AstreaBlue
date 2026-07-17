@@ -26,7 +26,8 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
   const [ignoredTicketIds, setIgnoredTicketIds] = useState([]);
   const [acceptingTicketId, setAcceptingTicketId] = useState(null);
 
-  const technicianId = user?.user_id || 3;
+  const technicianId = user?.user_id || null;
+  const technicianBranchId = user?.branch_id || null;
 
   const fetchTickets = useCallback(async () => {
     try {
@@ -89,11 +90,17 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
 
       return (
         isUnassigned &&
+        technicianBranchId &&
+        ticket.branch_id &&
+        Number(ticket.branch_id) === Number(technicianBranchId) &&
+        !ticket.integration_id &&
+        !ticket.origin_system &&
+        ticket.created_via !== "External API" &&
         ticket.status === "Open Queue" &&
         !ignoredTicketIds.includes(ticket.id)
       );
     });
-  }, [tickets, ignoredTicketIds]);
+  }, [tickets, ignoredTicketIds, technicianBranchId]);
 
   const resolvedTickets = useMemo(() => {
     return myTickets.filter(

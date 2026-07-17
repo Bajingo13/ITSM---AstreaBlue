@@ -916,21 +916,10 @@ router.patch("/:id/assign", async (req, res) => {
   try {
     const { id } = req.params;
     const { assigned_to, changed_by = null } = req.body;
-    const currentUserId =
-      req.body?.current_user_id ||
-      req.query.current_user_id ||
-      req.body?.user_id ||
-      req.query.user_id ||
-      null;
-    const currentRole = String(
-      req.body?.role_name || req.query.role_name || req.body?.current_role || ""
-    ).toLowerCase();
-    const currentBranchId =
-      req.body?.current_branch_id ||
-      req.query.current_branch_id ||
-      req.body?.branch_id ||
-      req.query.branch_id ||
-      null;
+    const requestContext = getRequestContext(req);
+    const currentUserId = requestContext.currentUserId;
+    const currentRole = String(requestContext.roleName || "").toLowerCase();
+    const currentBranchId = requestContext.branchId;
 
     if (!["superadmin", "admin", "technician"].includes(currentRole)) {
       return res.status(403).json({
@@ -946,6 +935,13 @@ router.patch("/:id/assign", async (req, res) => {
       return res.status(403).json({
         success: false,
         error: "Technicians can only accept tickets for themselves.",
+      });
+    }
+
+    if (currentRole === "technician" && !currentBranchId) {
+      return res.status(403).json({
+        success: false,
+        error: "Your technician account has no assigned branch. Contact an administrator.",
       });
     }
 
@@ -1001,6 +997,17 @@ router.patch("/:id/assign", async (req, res) => {
       });
     }
 
+
+    if (
+      currentRole === "technician" &&
+      (!ticket.branch_id || Number(ticket.branch_id) !== Number(currentBranchId))
+    ) {
+      return res.status(403).json({
+        success: false,
+        error: "Technicians can only accept tickets from their assigned branch.",
+      });
+    }
+
     if (assigned_to) {
       const technicianResult = await db.query(
         `
@@ -1048,7 +1055,7 @@ router.patch("/:id/assign", async (req, res) => {
         });
       }
 
-      if (ticket.branch_id && Number(ticket.branch_id) !== Number(technician.branch_id)) {
+      if (!ticket.branch_id || Number(ticket.branch_id) !== Number(technician.branch_id)) {
         return res.status(403).json({
           success: false,
           error: `Technician must belong to the same branch as the ticket. Ticket branch: ${ticket.branch_name}, Technician branch: ${technician.branch_name}`,
@@ -1086,7 +1093,7 @@ router.patch("/:id/assign", async (req, res) => {
         `,
         [
           id,
-          changed_by || currentUserId,
+          currentUserId || changed_by,
           "Ticket Assigned",
           ticket.assigned_to,
           assigned_to || null,

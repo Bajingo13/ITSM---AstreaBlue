@@ -21,3 +21,20 @@ test("external integration tickets remain exclusive to SuperAdmin", () => {
   const superAdminClauses = addTicketAccessFilter(requestFor("SuperAdmin"), [], "t");
   assert.equal(superAdminClauses.includes("t.integration_id IS NULL"), false);
 });
+
+test("technician without a branch cannot see the unassigned ticket queue", () => {
+  const params = [];
+  const clauses = addTicketAccessFilter(requestFor("Technician", null), params, "t");
+
+  assert.ok(clauses.includes("t.assigned_to = $1"));
+  assert.equal(clauses.some((clause) => clause.includes("assigned_to IS NULL")), false);
+});
+
+test("branch technician is restricted to that branch for assigned and available tickets", () => {
+  const params = [];
+  const clauses = addTicketAccessFilter(requestFor("Technician", 12), params, "t");
+
+  assert.ok(clauses.includes("t.branch_id = $2"));
+  assert.ok(clauses.includes("(t.assigned_to = $1 OR t.assigned_to IS NULL)"));
+  assert.deepEqual(params, [9001, 12]);
+});

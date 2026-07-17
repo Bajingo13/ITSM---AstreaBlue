@@ -478,8 +478,8 @@ export default function SLAMonitor() {
               <tr>
                 <th className="px-6 py-4">Ticket</th>
                 <th className="px-6 py-4">SLA Check</th>
-                <th className="px-6 py-4">Old Status</th>
-                <th className="px-6 py-4">New Status</th>
+                <th className="px-6 py-4">Previous SLA State</th>
+                <th className="px-6 py-4">Current SLA State</th>
                 <th className="px-6 py-4">Changed By</th>
                 <th className="px-6 py-4">Date</th>
               </tr>

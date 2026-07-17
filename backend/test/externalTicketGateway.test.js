@@ -228,7 +228,10 @@ test("Phase 3 external developer handoff acceptance workflow", async () => {
     headers: { authorization: `Bearer ${token(superAdmin, "SuperAdmin", null)}` },
     body: JSON.stringify({ assigned_to: technicianA, current_user_id: superAdmin, role_name: "SuperAdmin" }),
   });
-  assert.equal(assignment.status, 200);
+  // Centralized external tickets are enterprise records. They cannot be
+  // delegated into a branch technician queue without first becoming a
+  // branch-scoped internal ticket.
+  assert.equal(assignment.status, 403);
   const statusUpdate = await request(`/api/v1/tickets/${externalTicketId}`, {
     method: "PUT",
     headers: { authorization: `Bearer ${token(technicianA, "Technician", branchA)}` },

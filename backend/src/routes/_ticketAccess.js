@@ -43,6 +43,8 @@ function addTicketAccessFilter(req, params, alias = "t") {
   // exclusive to SuperAdmin; branch and assignment rules below apply only to
   // the existing internal Service Desk workflow.
   clauses.push(`${alias}.integration_id IS NULL`);
+  clauses.push(`${alias}.origin_system IS NULL`);
+  clauses.push(`COALESCE(${alias}.created_via, '') <> 'External API'`);
 
   if (normalizedRole === "employee" && currentUserId) {
     params.push(currentUserId);
@@ -64,9 +66,12 @@ function addTicketAccessFilter(req, params, alias = "t") {
     if (branchId) {
       params.push(branchId);
       const branchParam = params.length;
-      clauses.push(`(${alias}.assigned_to = $${technicianParam} OR (${alias}.assigned_to IS NULL AND ${branchExpression} = $${branchParam}))`);
-    } else {
+      clauses.push(`${branchExpression} = $${branchParam}`);
       clauses.push(`(${alias}.assigned_to = $${technicianParam} OR ${alias}.assigned_to IS NULL)`);
+    } else {
+      // Fail closed when a technician token has no branch. They may retain
+      // access to work already assigned to them, but never the open queue.
+      clauses.push(`${alias}.assigned_to = $${technicianParam}`);
     }
     return clauses;
   }
