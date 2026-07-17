@@ -167,6 +167,48 @@ test("Ticket status updates broadcast a real-time dashboard refresh", async () =
   assert.ok(socketEvents.some((event) => event.eventName === "ticket_changed" && event.payload.action === "updated"));
 });
 
+test("SuperAdmin cancellation records both SLA transitions as Cancelled", async () => {
+  const createResponse = await createTicket(superAdmin, "SuperAdmin", {
+    title: "SLA cancellation history test",
+    description: "Verifies cancellation is visible in recent SLA activity.",
+    priority: "P3-Medium",
+    category_id: categoryId,
+    requester_id: superAdmin.user_id,
+    branch_id: alternateBranchId,
+  });
+  const created = await createResponse.json();
+  assert.equal(createResponse.status, 201, created.error || JSON.stringify(created));
+  ticketIds.push(created.data.id);
+
+  const cancelResponse = await fetch(`${baseUrl}/api/v1/tickets/${created.data.id}/cancel`, {
+    method: "PATCH",
+    headers: {
+      authorization: `Bearer ${tokenFor(superAdmin, "SuperAdmin")}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ cancellation_reason: "Cancellation SLA audit test" }),
+  });
+  const cancelled = await cancelResponse.json();
+  assert.equal(cancelResponse.status, 200, cancelled.error || JSON.stringify(cancelled));
+  assert.equal(cancelled.data.response_sla_status, "Cancelled");
+  assert.equal(cancelled.data.resolution_sla_status, "Cancelled");
+
+  const history = await db.query(
+    `SELECT action, old_value, new_value
+     FROM ticket_history
+     WHERE ticket_id = $1 AND action IN ('Response SLA', 'Resolution SLA')
+     ORDER BY action`,
+    [created.data.id]
+  );
+  assert.deepEqual(
+    history.rows.map((row) => [row.action, row.old_value, row.new_value]),
+    [
+      ["Resolution SLA", "Pending", "Cancelled"],
+      ["Response SLA", "Pending", "Cancelled"],
+    ]
+  );
+});
+
 test("Employee remains blocked from creating a ticket for another branch", async () => {
   const response = await createTicket(employee, "Employee", {
     title: "Forbidden cross-branch ticket test",

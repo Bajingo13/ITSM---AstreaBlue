@@ -1222,15 +1222,11 @@ router.post("/:id/comments", async (req, res) => {
 router.patch("/:id/cancel", async (req, res) => {
   try {
     const { id } = req.params;
-
-    const roleName = String(
-      req.query.role_name || req.body?.role_name || ""
-    )
+    const requestContext = getRequestContext(req);
+    const roleName = String(requestContext.roleName || "")
       .toLowerCase()
       .replace(/[\s_-]+/g, "");
-
-    const cancelledBy =
-      req.query.current_user_id || req.body?.current_user_id || null;
+    const cancelledBy = requestContext.currentUserId;
 
     const reason = req.body?.cancellation_reason || req.body?.reason || "";
 
@@ -1249,7 +1245,9 @@ router.patch("/:id/cancel", async (req, res) => {
     }
 
     const ticketCheck = await db.query(
-      `SELECT status, requester_id, ticket_number FROM tickets WHERE id = $1`,
+      `SELECT status, requester_id, ticket_number,
+              response_sla_status, resolution_sla_status
+       FROM tickets WHERE id = $1`,
       [id]
     );
 
@@ -1278,7 +1276,10 @@ router.patch("/:id/cancel", async (req, res) => {
         status = 'Cancelled',
         cancelled_at = NOW(),
         cancelled_by = $1,
-        cancellation_reason = $2
+        cancellation_reason = $2,
+        response_sla_status = 'Cancelled',
+        resolution_sla_status = 'Cancelled',
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = $3
       RETURNING *
       `,
@@ -1289,12 +1290,28 @@ router.patch("/:id/cancel", async (req, res) => {
       await db.query(
         `
         INSERT INTO ticket_history
-        (ticket_id, changed_by, action, old_value, new_value)
-        VALUES ($1, $2, $3, $4, $5)
+          (ticket_id, changed_by, action, old_value, new_value)
+        VALUES
+          ($1, $2, 'Ticket Cancelled', $3, 'Cancelled'),
+          ($1, $2, 'Response SLA', $4, 'Cancelled'),
+          ($1, $2, 'Resolution SLA', $5, 'Cancelled')
         `,
-        [id, cancelledBy, "Ticket Cancelled", null, reason.trim()]
+        [
+          id,
+          cancelledBy,
+          existing.status,
+          existing.response_sla_status || "Pending",
+          existing.resolution_sla_status || "Pending",
+        ]
       );
     } catch(e) { console.warn("History insert failed:", e.message); }
+
+    emitSlaUpdated({
+      type: "cancelled",
+      ticket_id: Number(id),
+      ticket_no: existing.ticket_number || `TKT-${id}`,
+      timestamp: new Date().toISOString(),
+    });
 
     let emailWarning = null;
     try {

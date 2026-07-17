@@ -701,7 +701,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
       const res = await fetch(`${API_BASE}/tickets/${ticket.id}/cancel`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           role_name: activeRole,
           current_branch_id: user?.branch_id || null,
