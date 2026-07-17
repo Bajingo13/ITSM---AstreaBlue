@@ -8,7 +8,7 @@ const { ensureReplacementSchema } = require("../services/replacementSchemaServic
 
 const router = express.Router();
 
-const TERMINAL_STATUSES = new Set(["Completed", "Repair Recommended", "Rejected", "Cancelled"]);
+const TERMINAL_STATUSES = new Set(["Completed", "Repaired", "Rejected", "Cancelled"]);
 const VALID_TRANSITIONS = {
   Submitted: ["Under Assessment", "Cancelled"],
   "Under Assessment": ["Awaiting Approval", "Repair Recommended", "Cancelled"],
@@ -17,7 +17,9 @@ const VALID_TRANSITIONS = {
   "Replacement Reserved": ["Issued", "Cancelled"],
   Issued: ["Completed"],
   Completed: [],
-  "Repair Recommended": [],
+  "Repair Recommended": ["In Repair", "Cancelled"],
+  "In Repair": ["Repaired"],
+  Repaired: [],
   Rejected: [],
   Cancelled: [],
 };
@@ -61,6 +63,49 @@ function canTransition(role, current, next) {
       (current === "Under Assessment" && ["Awaiting Approval", "Repair Recommended", "Cancelled"].includes(next));
   }
   return ["admin", "superadmin"].includes(role);
+}
+
+async function updateRepairAsset(client, request, nextStatus, actorId, resolution = null) {
+  const assetResult = await client.query(`SELECT * FROM hardware_assets WHERE asset_id=$1 FOR UPDATE`, [request.current_asset_id]);
+  const asset = assetResult.rows[0];
+  if (!asset) throw Object.assign(new Error("The laptop linked to this request no longer exists."), { status: 409 });
+  if (Number(asset.branch_id) !== Number(request.branch_id)) {
+    throw Object.assign(new Error("The laptop is no longer in the request branch."), { status: 409 });
+  }
+
+  let hardwareStatus = "In Repair";
+  let eventType = "Replacement request - repair started";
+  if (nextStatus === "Repaired") {
+    const linkedDevice = await client.query(
+      `SELECT 1 FROM monitored_devices WHERE asset_id=$1 AND assigned_user_id IS NOT NULL LIMIT 1`,
+      [request.current_asset_id]
+    );
+    const assigned = Boolean(String(asset.employee_id || "").trim() ||
+      String(asset.assigned_name || asset.borrower_name || "").trim() || linkedDevice.rows.length);
+    hardwareStatus = assigned ? "Borrowed" : "Available";
+    eventType = "Replacement request - repair completed";
+  }
+
+  await client.query(
+    `UPDATE hardware_assets
+        SET status=$1,
+            condition_after=CASE WHEN $2::text IS NULL THEN condition_after ELSE $2 END,
+            notes=CASE WHEN $2::text IS NULL THEN notes ELSE CONCAT_WS(E'\n',NULLIF(notes,''),$2) END,
+            updated_at=CURRENT_TIMESTAMP
+      WHERE asset_id=$3`,
+    [hardwareStatus, resolution, request.current_asset_id]
+  );
+  await client.query(
+    `INSERT INTO asset_history(asset_id,event_type,event_data,branch_id,created_by)
+     VALUES($1,$2,$3::jsonb,$4,$5)`,
+    [request.current_asset_id, eventType, JSON.stringify({
+      requestNumber: request.request_number,
+      requestStatus: nextStatus,
+      assetStatus: hardwareStatus,
+      resolution: resolution || null,
+    }), request.branch_id, actorId]
+  );
+  return hardwareStatus;
 }
 
 async function loadRequest(queryable, id, lock = false) {
@@ -235,11 +280,13 @@ router.get("/summary", async (req, res) => {
     const scoped = scopeSql(req, "rr", params);
     const result = await db.query(
       `SELECT COUNT(*)::int total,
-        COUNT(*) FILTER(WHERE rr.status NOT IN ('Completed','Repair Recommended','Rejected','Cancelled'))::int active,
+        COUNT(*) FILTER(WHERE rr.status NOT IN ('Completed','Repaired','Rejected','Cancelled'))::int active,
         COUNT(*) FILTER(WHERE rr.status='Awaiting Approval')::int awaiting_approval,
         COUNT(*) FILTER(WHERE rr.status='Replacement Reserved')::int reserved,
         COUNT(*) FILTER(WHERE rr.status='Completed')::int completed,
-        COUNT(*) FILTER(WHERE rr.status='Repair Recommended')::int repair_recommended
+        COUNT(*) FILTER(WHERE rr.status='Repair Recommended')::int repair_recommended,
+        COUNT(*) FILTER(WHERE rr.status='In Repair')::int in_repair,
+        COUNT(*) FILTER(WHERE rr.status='Repaired')::int repaired
        FROM replacement_requests rr WHERE ${scoped}`,
       params
     );
@@ -434,6 +481,7 @@ router.patch("/:id/status", async (req, res) => {
     }
     if (next === "Rejected" && !String(req.body.rejection_reason || "").trim()) throw Object.assign(new Error("A rejection reason is required."), { status: 400 });
     if (next === "Repair Recommended" && !String(req.body.recommendation || request.recommendation || "").trim()) throw Object.assign(new Error("A repair recommendation is required."), { status: 400 });
+    if (next === "Repaired" && !String(req.body.repair_resolution || "").trim()) throw Object.assign(new Error("Repair resolution details are required before returning the laptop to service."), { status: 400 });
     const replacementAssetId = Number(req.body.replacement_asset_id || request.replacement_asset_id || 0) || null;
     if (["Replacement Reserved", "Issued"].includes(next) && !replacementAssetId) throw Object.assign(new Error("Select an available replacement asset first."), { status: 400 });
 
@@ -454,6 +502,9 @@ router.patch("/:id/status", async (req, res) => {
       if (role !== "superadmin" && Number(asset.branch_id) !== Number(request.branch_id)) throw Object.assign(new Error("The replacement asset must belong to your branch."), { status: 403 });
     }
     if (next === "Issued") await exchangeAssets(client, { ...request, replacement_asset_id: replacementAssetId }, currentUserId);
+    let repairedAssetStatus = null;
+    if (next === "In Repair") repairedAssetStatus = await updateRepairAsset(client, request, next, currentUserId);
+    if (next === "Repaired") repairedAssetStatus = await updateRepairAsset(client, request, next, currentUserId, String(req.body.repair_resolution).trim());
 
     const fields = ["status=$1", "updated_at=CURRENT_TIMESTAMP"];
     const values = [next];
@@ -463,6 +514,7 @@ router.patch("/:id/status", async (req, res) => {
     if (req.body.recommendation !== undefined) set("recommendation", req.body.recommendation || null);
     if (req.body.approval_notes !== undefined) set("approval_notes", req.body.approval_notes || null);
     if (req.body.rejection_reason !== undefined) set("rejection_reason", req.body.rejection_reason || null);
+    if (req.body.repair_resolution !== undefined) set("repair_resolution", req.body.repair_resolution || null);
     if (replacementAssetId) set("replacement_asset_id", replacementAssetId);
     if (next === "Under Assessment") { set("assessed_by", currentUserId); fields.push("assessed_at=CURRENT_TIMESTAMP"); }
     if (next === "Approved") { set("approved_by", currentUserId); fields.push("approved_at=CURRENT_TIMESTAMP"); }
@@ -470,9 +522,11 @@ router.patch("/:id/status", async (req, res) => {
     if (next === "Issued") { set("issued_by", currentUserId); fields.push("issued_at=CURRENT_TIMESTAMP"); }
     if (next === "Completed") { set("completed_by", currentUserId); fields.push("completed_at=CURRENT_TIMESTAMP"); }
     if (next === "Cancelled") { set("cancelled_by", currentUserId); fields.push("cancelled_at=CURRENT_TIMESTAMP"); }
+    if (next === "In Repair") { set("repair_started_by", currentUserId); fields.push("repair_started_at=CURRENT_TIMESTAMP"); }
+    if (next === "Repaired") { set("repaired_by", currentUserId); fields.push("repaired_at=CURRENT_TIMESTAMP"); }
     values.push(req.params.id);
     await client.query(`UPDATE replacement_requests SET ${fields.join(",")} WHERE id=$${values.length}`, values);
-    await addHistory(client, req.params.id, currentUserId, "status_changed", `Status changed from ${request.status} to ${next}.`, request.status, next, { replacementAssetId });
+    await addHistory(client, req.params.id, currentUserId, "status_changed", `Status changed from ${request.status} to ${next}.`, request.status, next, { replacementAssetId, assetStatus: repairedAssetStatus });
     await client.query("COMMIT");
     committed = true;
     emitReplacementChanged({ action: "status_changed", requestId: req.params.id });

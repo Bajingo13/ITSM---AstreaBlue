@@ -11,8 +11,8 @@ import { authHeaders } from "../services/authHeaders";
 import { replacementRequestApi } from "../services/replacementRequestApi";
 import { subscribeToReplacementChanges } from "../services/realtimeTickets";
 
-const STATUS_OPTIONS = ["", "Submitted", "Under Assessment", "Awaiting Approval", "Approved", "Replacement Reserved", "Issued", "Completed", "Repair Recommended", "Rejected", "Cancelled"];
-const terminal = new Set(["Completed", "Repair Recommended", "Rejected", "Cancelled"]);
+const STATUS_OPTIONS = ["", "Submitted", "Under Assessment", "Awaiting Approval", "Approved", "Replacement Reserved", "Issued", "Completed", "Repair Recommended", "In Repair", "Repaired", "Rejected", "Cancelled"];
+const terminal = new Set(["Completed", "Repaired", "Rejected", "Cancelled"]);
 const panel = "rounded-[24px] border border-blue-100 bg-white shadow-[0_12px_35px_rgba(30,64,175,0.08)]";
 const field = "w-full rounded-xl border border-blue-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100";
 
@@ -25,6 +25,8 @@ const statusTone = {
   Issued: "border-sky-200 bg-sky-50 text-sky-700",
   Completed: "border-emerald-200 bg-emerald-50 text-emerald-700",
   "Repair Recommended": "border-orange-200 bg-orange-50 text-orange-700",
+  "In Repair": "border-amber-200 bg-amber-50 text-amber-800",
+  Repaired: "border-emerald-200 bg-emerald-50 text-emerald-700",
   Rejected: "border-red-200 bg-red-50 text-red-700",
   Cancelled: "border-slate-200 bg-slate-100 text-slate-600",
 };
@@ -102,7 +104,7 @@ function RequestDetail({ id, user, onClose, onChanged }) {
   const staff = manager || role === "technician";
   const [item, setItem] = useState(null);
   const [assets, setAssets] = useState([]);
-  const [form, setForm] = useState({ diagnosis: "", assessment_notes: "", recommendation: "", approval_notes: "", rejection_reason: "", replacement_asset_id: "" });
+  const [form, setForm] = useState({ diagnosis: "", assessment_notes: "", recommendation: "", approval_notes: "", rejection_reason: "", replacement_asset_id: "", repair_resolution: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -110,7 +112,7 @@ function RequestDetail({ id, user, onClose, onChanged }) {
     try {
       const detail = await replacementRequestApi.detail(id);
       setItem(detail);
-      setForm({ diagnosis: detail.diagnosis || "", assessment_notes: detail.assessment_notes || "", recommendation: detail.recommendation || "", approval_notes: detail.approval_notes || "", rejection_reason: detail.rejection_reason || "", replacement_asset_id: detail.replacement_asset_id || "" });
+      setForm({ diagnosis: detail.diagnosis || "", assessment_notes: detail.assessment_notes || "", recommendation: detail.recommendation || "", approval_notes: detail.approval_notes || "", rejection_reason: detail.rejection_reason || "", replacement_asset_id: detail.replacement_asset_id || "", repair_resolution: detail.repair_resolution || "" });
       if (staff) replacementRequestApi.availableAssets().then(setAssets).catch(() => setAssets([]));
     } catch (loadError) { setError(loadError.message); }
   }, [id, staff]);
@@ -152,9 +154,14 @@ function RequestDetail({ id, user, onClose, onChanged }) {
 
       {manager && item.status === "Awaiting Approval" && <section className={`${panel} p-5`}><h3 className="font-black text-slate-900">Approval decision</h3><textarea value={form.approval_notes} onChange={set("approval_notes")} rows="3" className={`${field} mt-4`} placeholder="Approval notes"/><textarea value={form.rejection_reason} onChange={set("rejection_reason")} rows="3" className={`${field} mt-3`} placeholder="Rejection reason (required when rejecting)"/></section>}
 
+      {manager && item.status === "Repair Recommended" && <section className={`${panel} border-orange-200 bg-orange-50/40 p-5`}><h3 className="font-black text-slate-900">Repair recommendation awaiting action</h3><p className="mt-2 text-sm font-semibold leading-6 text-slate-600">The technician recommended repair. The laptop remains in its current hardware state until you send it to repair.</p><p className="mt-3 rounded-xl border border-orange-200 bg-white p-3 text-sm font-bold text-orange-800">{item.recommendation || "No recommendation details recorded."}</p></section>}
+      {manager && item.status === "In Repair" && <section className={`${panel} border-amber-200 bg-amber-50/40 p-5`}><h3 className="font-black text-slate-900">Complete repair</h3><p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Record what was repaired and confirm that the laptop passed testing. An assigned laptop returns to Borrowed; an unassigned laptop returns to Available.</p><textarea value={form.repair_resolution} onChange={set("repair_resolution")} rows="4" className={`${field} mt-4`} placeholder="Required: repair performed, parts replaced, and verification results"/></section>}
+
       <section className={`${panel} p-5`}><div className="flex flex-wrap items-center gap-3">
         {staff && item.status === "Submitted" && actionButton("Start Assessment", "Under Assessment")}
         {staff && item.status === "Under Assessment" && <>{actionButton("Send for Approval", "Awaiting Approval")}{actionButton("Recommend Repair", "Repair Recommended", "bg-orange-500 hover:bg-orange-600")}</>}
+        {manager && item.status === "Repair Recommended" && actionButton("Send to Repair", "In Repair", "bg-amber-600 hover:bg-amber-700")}
+        {manager && item.status === "In Repair" && actionButton("Mark Repaired & Return to Service", "Repaired", "bg-emerald-600 hover:bg-emerald-700")}
         {manager && item.status === "Awaiting Approval" && <>{actionButton("Approve Replacement", "Approved", "bg-emerald-600 hover:bg-emerald-700")}{actionButton("Reject", "Rejected", "bg-red-600 hover:bg-red-700")}</>}
         {manager && item.status === "Approved" && actionButton("Reserve Selected Asset", "Replacement Reserved")}
         {manager && item.status === "Replacement Reserved" && actionButton("Issue Replacement", "Issued", "bg-violet-600 hover:bg-violet-700")}
@@ -201,7 +208,7 @@ export default function ReplacementRequests() {
 
   return <div className="astrea-module-page space-y-6">
     <PageHero eyebrow="Replacement Management" title="Laptop Replacement Requests" subtitle="Assess failed employee laptops, approve replacements, and complete a controlled asset exchange without losing endpoint history." actions={<div className="flex gap-2"><button onClick={load} className="rounded-xl border border-white/25 bg-white/10 p-3 text-white transition hover:bg-white/20" aria-label="Refresh"><RefreshCw size={18} className={loading ? "animate-spin" : ""}/></button><button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-blue-700 shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl"><Plus size={17}/> New Request</button></div>}/>
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6"><Metric icon={ClipboardCheck} label="All Requests" value={summary.total} tone="bg-blue-50 text-blue-700"/><Metric icon={Clock3} label="Active" value={summary.active} tone="bg-cyan-50 text-cyan-700"/><Metric icon={ShieldCheck} label="Awaiting Approval" value={summary.awaiting_approval} tone="bg-amber-50 text-amber-700"/><Metric icon={PackageCheck} label="Reserved" value={summary.reserved} tone="bg-violet-50 text-violet-700"/><Metric icon={CheckCircle2} label="Completed" value={summary.completed} tone="bg-emerald-50 text-emerald-700"/><Metric icon={Wrench} label="Repair Recommended" value={summary.repair_recommended} tone="bg-orange-50 text-orange-700"/></div>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6"><Metric icon={ClipboardCheck} label="All Requests" value={summary.total} tone="bg-blue-50 text-blue-700"/><Metric icon={Clock3} label="Active" value={summary.active} tone="bg-cyan-50 text-cyan-700"/><Metric icon={ShieldCheck} label="Awaiting Approval" value={summary.awaiting_approval} tone="bg-amber-50 text-amber-700"/><Metric icon={PackageCheck} label="Reserved" value={summary.reserved} tone="bg-violet-50 text-violet-700"/><Metric icon={Wrench} label="In Repair" value={summary.in_repair} tone="bg-amber-50 text-amber-800"/><Metric icon={CheckCircle2} label="Repaired" value={summary.repaired} tone="bg-emerald-50 text-emerald-700"/></div>
     <section className={`${panel} p-4`}><div className="grid gap-3 md:grid-cols-[1fr_260px]"><label className="relative"><Search size={18} className="absolute left-4 top-3.5 text-slate-400"/><input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} className={`${field} pl-11`} placeholder="Search request, employee, or asset tag"/></label><select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))} className={field}>{STATUS_OPTIONS.map((status) => <option key={status || "all"} value={status}>{status || "All statuses"}</option>)}</select></div></section>
     {error && <section className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-bold text-red-700"><AlertCircle size={18} className="mr-2 inline"/>{error}</section>}
     <section className={`${panel} overflow-hidden`}>

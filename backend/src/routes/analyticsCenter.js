@@ -104,12 +104,14 @@ router.get("/summary", requireAnalytics, async (req, res) => {
           FROM scoped WHERE created_at>=CURRENT_DATE-INTERVAL '6 months'
           GROUP BY DATE_TRUNC('month',created_at)
         ) SELECT
-          (SELECT COUNT(*)::int FROM scoped WHERE status NOT IN ('Completed','Repair Recommended','Rejected','Cancelled')) active_requests,
+          (SELECT COUNT(*)::int FROM scoped WHERE status NOT IN ('Completed','Repaired','Rejected','Cancelled')) active_requests,
           (SELECT COUNT(*)::int FROM scoped WHERE status='Awaiting Approval') awaiting_approval,
           (SELECT COUNT(*)::int FROM scoped WHERE status='Replacement Reserved') reserved_assets,
           (SELECT COUNT(*)::int FROM scoped WHERE status='Issued') issued_requests,
           (SELECT COUNT(*)::int FROM scoped WHERE status='Completed') completed_requests,
           (SELECT COUNT(*)::int FROM scoped WHERE status='Repair Recommended') repair_recommended,
+          (SELECT COUNT(*)::int FROM scoped WHERE status='In Repair') in_repair,
+          (SELECT COUNT(*)::int FROM scoped WHERE status='Repaired') repaired,
           (SELECT COALESCE(JSON_AGG(trend ORDER BY period),'[]'::json) FROM trend) trend`, role === 'superadmin' ? [] : [branchId]),
       db.query(`SELECT h.message,h.event_type,h.created_at,rr.request_number
         FROM replacement_request_history h JOIN replacement_requests rr ON rr.id=h.replacement_request_id

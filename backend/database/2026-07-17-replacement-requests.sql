@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS replacement_requests (
         CHECK (status IN (
             'Submitted','Under Assessment','Awaiting Approval','Approved',
             'Replacement Reserved','Issued','Completed','Repair Recommended',
-            'Rejected','Cancelled'
+            'In Repair','Repaired','Rejected','Cancelled'
         )),
     diagnosis TEXT,
     assessment_notes TEXT,
@@ -35,11 +35,30 @@ CREATE TABLE IF NOT EXISTS replacement_requests (
     completed_at TIMESTAMPTZ,
     cancelled_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     cancelled_at TIMESTAMPTZ,
+    repair_started_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+    repair_started_at TIMESTAMPTZ,
+    repaired_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+    repaired_at TIMESTAMPTZ,
+    repair_resolution TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT replacement_assets_must_differ
         CHECK (replacement_asset_id IS NULL OR replacement_asset_id <> current_asset_id)
 );
+
+ALTER TABLE replacement_requests ADD COLUMN IF NOT EXISTS repair_started_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL;
+ALTER TABLE replacement_requests ADD COLUMN IF NOT EXISTS repair_started_at TIMESTAMPTZ;
+ALTER TABLE replacement_requests ADD COLUMN IF NOT EXISTS repaired_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL;
+ALTER TABLE replacement_requests ADD COLUMN IF NOT EXISTS repaired_at TIMESTAMPTZ;
+ALTER TABLE replacement_requests ADD COLUMN IF NOT EXISTS repair_resolution TEXT;
+
+ALTER TABLE replacement_requests DROP CONSTRAINT IF EXISTS replacement_requests_status_check;
+ALTER TABLE replacement_requests ADD CONSTRAINT replacement_requests_status_check
+    CHECK (status IN (
+        'Submitted','Under Assessment','Awaiting Approval','Approved',
+        'Replacement Reserved','Issued','Completed','Repair Recommended',
+        'In Repair','Repaired','Rejected','Cancelled'
+    ));
 
 CREATE TABLE IF NOT EXISTS replacement_request_history (
     id BIGSERIAL PRIMARY KEY,
@@ -73,9 +92,10 @@ CREATE INDEX IF NOT EXISTS idx_replacement_requests_current_asset
 CREATE INDEX IF NOT EXISTS idx_replacement_request_history_request
     ON replacement_request_history(replacement_request_id, created_at DESC);
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_replacement_active_current_asset
+DROP INDEX IF EXISTS uq_replacement_active_current_asset;
+CREATE UNIQUE INDEX uq_replacement_active_current_asset
     ON replacement_requests(current_asset_id)
-    WHERE status NOT IN ('Completed','Repair Recommended','Rejected','Cancelled');
+    WHERE status NOT IN ('Completed','Repaired','Rejected','Cancelled');
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_replacement_reserved_asset
     ON replacement_requests(replacement_asset_id)
