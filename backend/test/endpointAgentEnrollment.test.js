@@ -16,6 +16,8 @@ let actorId;
 const deviceIds = [];
 const codeIds = [];
 const consentIds = [];
+const policyIds = [];
+const ticketIds = [];
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 
 function managerToken(role = "Admin") {
@@ -92,6 +94,13 @@ test.before(async () => {
 });
 
 test.after(async () => {
+  if (ticketIds.length) {
+    await db.query(`DELETE FROM notifications WHERE related_ticket_id=ANY($1::int[])`, [ticketIds]);
+    await db.query(`DELETE FROM ticket_history WHERE ticket_id=ANY($1::int[])`, [ticketIds]);
+    await db.query(`DELETE FROM integration_audit_logs WHERE metadata->>'ticket_id'=ANY($1::text[])`, [ticketIds.map(String)]);
+    await db.query(`DELETE FROM tickets WHERE id=ANY($1::int[])`, [ticketIds]);
+  }
+  if (policyIds.length) await db.query(`DELETE FROM endpoint_policies WHERE id=ANY($1::bigint[])`, [policyIds]);
   if (deviceIds.length || codeIds.length) {
     await db.query(
       `DELETE FROM endpoint_enrollment_audit_logs
@@ -412,6 +421,52 @@ test("approved consent policy becomes the agent baseline without a manual policy
   assert.equal(usbBatchBody.data.accepted, 1);
   assert.equal(usbBatchBody.data.events[0].risk_level, "Critical");
   assert.equal(usbBatchBody.data.events[0].dlp_action, "alerted");
+
+  const incidentPolicy = await db.query(
+    `INSERT INTO endpoint_policies (name,description,priority,is_active,config_json,created_by,branch_id)
+     VALUES ('Automated DLP Incident Test','Test-only device policy',999,true,$1::jsonb,$2,$3)
+     RETURNING id`,
+    [JSON.stringify({ usb_monitoring_enabled: true, auto_incident_enabled: true }), actorId, branchId]
+  );
+  policyIds.push(incidentPolicy.rows[0].id);
+  await db.query(
+    `INSERT INTO endpoint_policy_assignments (policy_id,target_type,target_id) VALUES ($1,'Device',$2)`,
+    [incidentPolicy.rows[0].id, deviceUuid]
+  );
+
+  const incidentReference = crypto.randomUUID();
+  const incidentBatch = await agentRequest("/usb-events/batch", credential, "POST", {
+    device_uuid: deviceUuid,
+    hostname,
+    events: [{
+      event_reference: incidentReference,
+      event_type: "file_written",
+      drive_letter: "E:",
+      volume_label: "PILOT USB",
+      volume_serial: "TEST-USB-001",
+      filesystem: "NTFS",
+      file_name: "restricted-employee-data.pfx",
+      relative_path: "exports/restricted-employee-data.pfx",
+      extension: ".pfx",
+      file_size_bytes: 4096,
+      file_last_write_at: new Date().toISOString(),
+      occurred_at: new Date().toISOString(),
+    }],
+  });
+  assert.equal(incidentBatch.status, 201);
+  const incidentEvent = (await incidentBatch.json()).data.events[0];
+  assert.equal(incidentEvent.risk_level, "Critical");
+  assert.equal(incidentEvent.dlp_action, "incident_created");
+  assert.ok(incidentEvent.ticket_id);
+  ticketIds.push(incidentEvent.ticket_id);
+  const incidentTicket = await db.query(
+    `SELECT ticket_number,priority,source,title FROM tickets WHERE id=$1`,
+    [incidentEvent.ticket_id]
+  );
+  assert.match(incidentTicket.rows[0].ticket_number, /^DLP-/);
+  assert.equal(incidentTicket.rows[0].priority, "P1-Critical");
+  assert.equal(incidentTicket.rows[0].source, "endpoint_monitoring");
+  assert.match(incidentTicket.rows[0].title, /DLP Alert/i);
 
   const usbList = await adminRequest("/usb-events?risk_level=Critical");
   assert.equal(usbList.status, 200);
