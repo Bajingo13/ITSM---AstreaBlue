@@ -17,7 +17,14 @@ router.get('/events', async (req, res) => {
 
     if (branch && branch !== "all") {
       params.push(branch);
-      accessClauses.push(`t.branch_id = $${params.length}::int`);
+      const branchParam = params.length;
+      // Calendar filters historically sent the branch name while some clients
+      // send its numeric id. Support both without trying to cast names to int.
+      if (/^\d+$/.test(String(branch))) {
+        accessClauses.push(`t.branch_id = $${branchParam}::int`);
+      } else {
+        accessClauses.push(`b.branch_name = $${branchParam}`);
+      }
     }
 
     if (technician === "assigned") {

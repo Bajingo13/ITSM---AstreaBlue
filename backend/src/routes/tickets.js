@@ -224,7 +224,12 @@ router.get("/", async (req, res) => {
 
     if (branch && branch !== "all") {
       params.push(branch);
-      accessClauses.push(`t.branch_id = $${params.length}::int`);
+      const branchParam = params.length;
+      if (/^\d+$/.test(String(branch))) {
+        accessClauses.push(`t.branch_id = $${branchParam}::int`);
+      } else {
+        accessClauses.push(`b.branch_name = $${branchParam}`);
+      }
     }
 
     if (technician === "assigned") {

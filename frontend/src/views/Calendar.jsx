@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
 import { API_URL } from "../config/api";
+import { authHeaders } from "../services/authHeaders";
 import PageHero from "../components/layout/PageHero";
 
 const API_BASE = `${API_URL}/api/v1`;
@@ -273,7 +274,10 @@ export default function CalendarPage() {
     try {
       setLoading(true);
       const filterQuery = buildQuery();
-      const res = await fetch(`${API_BASE}/calendar/events${buildTicketQuery(user)}${filterQuery}`);
+      const res = await fetch(`${API_BASE}/calendar/events${buildTicketQuery(user)}${filterQuery}`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
       const data = await res.json();
       setEvents(data.success ? data.events : []);
     } catch (err) {

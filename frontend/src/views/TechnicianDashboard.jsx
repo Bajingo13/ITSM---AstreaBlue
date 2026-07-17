@@ -32,7 +32,10 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`, { cache: "no-store" });
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
       const data = await res.json();
       if (!res.ok || data.success === false) {
         throw new Error(data.message || data.error || "Failed to refresh technician tickets.");
