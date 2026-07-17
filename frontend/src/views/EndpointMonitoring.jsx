@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, AlertTriangle, Clock3, Monitor, Package, RefreshCw, Search, ShieldCheck, Users } from "lucide-react";
+import { Activity, AlertTriangle, Camera, CameraOff, Clock3, Monitor, Package, RefreshCw, Search, ShieldCheck, Users } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
 import ProtectedScreenshotViewer from "../components/ProtectedScreenshotViewer";
 import { API_URL } from "../config/api";
@@ -19,7 +19,10 @@ const formatDuration = (seconds) => {
 };
 
 async function monitoringRequest(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), ...options });
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { ...authHeaders(), ...(options.headers || {}) },
+  });
   const body = await response.json();
   if (!response.ok || body.success === false) throw new Error(body.error || body.message || "Monitoring request failed.");
   return body.data || body;
@@ -54,6 +57,9 @@ export default function EndpointMonitoring() {
   const [error, setError] = useState("");
   const [debugInfo, setDebugInfo] = useState(null);
   const [screenshotViewer, setScreenshotViewer] = useState(null);
+  const [screenshotControl, setScreenshotControl] = useState(null);
+  const [screenshotControlLoading, setScreenshotControlLoading] = useState(false);
+  const screenshotControlRequest = useRef(0);
   
   const activeTab = activeTabState;
   const selectedId = selectedIdState;
@@ -180,6 +186,34 @@ export default function EndpointMonitoring() {
 
   const selectedDevice = devices.find((device) => String(device.device_id) === String(selectedId));
 
+  const loadScreenshotControl = useCallback(async (employeeId) => {
+    const requestId = ++screenshotControlRequest.current;
+    if (!isSuperAdmin || !employeeId) {
+      setScreenshotControl(null);
+      setScreenshotControlLoading(false);
+      return null;
+    }
+    try {
+      setScreenshotControlLoading(true);
+      setScreenshotControl(null);
+      const data = await monitoringRequest(`/employees/${encodeURIComponent(employeeId)}/screenshot-control`);
+      if (requestId === screenshotControlRequest.current) setScreenshotControl(data);
+      return data;
+    } catch (requestError) {
+      if (requestId === screenshotControlRequest.current) {
+        setScreenshotControl(null);
+        setError(requestError.message);
+      }
+      return null;
+    } finally {
+      if (requestId === screenshotControlRequest.current) setScreenshotControlLoading(false);
+    }
+  }, [isSuperAdmin]);
+
+  useEffect(() => {
+    loadScreenshotControl(selectedDevice?.assigned_user_id);
+  }, [loadScreenshotControl, selectedDevice?.assigned_user_id]);
+
   const showToast = (message, type = "success") => {
     setToast({ message, type });
     window.setTimeout(() => setToast(null), 4500);
@@ -191,6 +225,49 @@ export default function EndpointMonitoring() {
     const data = await monitoringRequest(`/devices/${encodeURIComponent(lookup)}/health`);
     setSelectedHealth(data);
     return data;
+  };
+
+  const requestScreenshotControlChange = () => {
+    const employeeId = selectedDevice?.assigned_user_id;
+    if (!isSuperAdmin || !employeeId || screenshotControlLoading) return;
+    const suspend = !screenshotControl?.suspended;
+    const employeeName = selectedDevice?.assigned_user || screenshotControl?.employee_name || `employee ${employeeId}`;
+    setConfirmAction({
+      title: suspend ? "Pause employee screenshots?" : "Resume employee screenshots?",
+      message: suspend
+        ? `This immediately blocks new screenshot permission and uploads for every managed laptop assigned to ${employeeName}. Consent, activity monitoring, heartbeat, and USB monitoring will not be changed.`
+        : `This removes the SuperAdmin pause for ${employeeName}. Screenshot capture will resume only where the employee's approved consent and endpoint policy allow it.`,
+      confirmLabel: suspend ? "Pause Screenshots" : "Resume Screenshots",
+      tone: suspend ? "danger" : "default",
+      onConfirm: async () => {
+        try {
+          setScreenshotControlLoading(true);
+          await monitoringRequest(`/employees/${encodeURIComponent(employeeId)}/screenshot-control`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              suspended: suspend,
+              reason: suspend
+                ? "Screenshot capture paused by SuperAdmin from Endpoint Management."
+                : "Screenshot capture resumed by SuperAdmin from Endpoint Management.",
+            }),
+          });
+          await Promise.all([
+            loadScreenshotControl(employeeId),
+            monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/activity`).then(setDetails),
+            refreshSelectedHealth(),
+            loadOverview(),
+          ]);
+          showToast(suspend
+            ? `Screenshot capture is paused for ${employeeName}.`
+            : `The SuperAdmin screenshot pause was removed for ${employeeName}.`);
+        } catch (requestError) {
+          showToast(requestError.message || "Screenshot control update failed.", "error");
+        } finally {
+          setScreenshotControlLoading(false);
+        }
+      },
+    });
   };
 
   const handleDiagnosticAction = async (action) => {
@@ -590,9 +667,55 @@ export default function EndpointMonitoring() {
                     </ul>
                   </div>
                 )}
-                {isSuperAdmin && <div className="mt-3">
-              <button onClick={() => handleDiagnosticAction("policy")} disabled={healthLoading || !selectedDevice?.device_uuid} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Regenerate Effective Policy</button>
-                </div>}
+                {isSuperAdmin && (
+                  <div className="mt-4 space-y-3">
+                    <button onClick={() => handleDiagnosticAction("policy")} disabled={healthLoading || !selectedDevice?.device_uuid} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Regenerate Effective Policy</button>
+                    {selectedDevice?.assigned_user_id ? (
+                      <div className={`rounded-2xl border p-3 ${screenshotControl?.suspended ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
+                        <div className="flex items-start gap-3">
+                          <span className={`mt-0.5 rounded-xl p-2 ${screenshotControl?.suspended ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>
+                            {screenshotControl?.suspended ? <CameraOff size={17} /> : <Camera size={17} />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-xs font-black ${screenshotControl?.suspended ? "text-rose-900" : "text-emerald-900"}`}>
+                              {screenshotControlLoading && !screenshotControl
+                                ? "Loading screenshot control..."
+                                : screenshotControl?.suspended
+                                  ? "Screenshots Paused by SuperAdmin"
+                                  : "No SuperAdmin Screenshot Pause"}
+                            </p>
+                            <p className={`mt-1 text-[11px] leading-4 ${screenshotControl?.suspended ? "text-rose-700" : "text-emerald-700"}`}>
+                              Applies to {screenshotControl?.affected_devices ?? 1} managed {Number(screenshotControl?.affected_devices ?? 1) === 1 ? "device" : "devices"} assigned to {selectedDevice?.assigned_user || "this employee"}.
+                            </p>
+                            {screenshotControl?.suspended && screenshotControl?.reason && (
+                              <p className="mt-1 text-[11px] text-rose-700">Reason: {screenshotControl.reason}</p>
+                            )}
+                            {screenshotControl?.updated_at && (
+                              <p className="mt-1 text-[10px] text-slate-500">
+                                Updated {formatDate(screenshotControl.updated_at)}{screenshotControl.updated_by_name ? ` by ${screenshotControl.updated_by_name}` : ""}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={requestScreenshotControlChange}
+                          disabled={screenshotControlLoading}
+                          className={`mt-3 w-full rounded-xl px-3 py-2 text-xs font-black text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${screenshotControl?.suspended ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700"}`}
+                        >
+                          {screenshotControlLoading
+                            ? "Updating..."
+                            : screenshotControl?.suspended
+                              ? "Resume Screenshots for Employee"
+                              : "Pause Screenshots for Employee"}
+                        </button>
+                        <p className="mt-2 text-[10px] leading-4 text-slate-500">Existing screenshots are retained. Consent and all other monitoring controls remain unchanged.</p>
+                      </div>
+                    ) : (
+                      <p className="rounded-xl bg-slate-50 p-2 text-[11px] text-slate-500">Assign an employee before using employee-level screenshot control.</p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

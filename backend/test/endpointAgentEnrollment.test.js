@@ -380,6 +380,60 @@ test("approved consent policy becomes the agent baseline without a manual policy
   assert.equal(screenshotPermissionBody.data.allowed, true);
   assert.equal(String(screenshotPermissionBody.data.consent_id), String(consentId));
 
+  const overrideAuditReason = `endpoint-screenshot-control-test-${crypto.randomUUID()}`;
+  const forbiddenPause = await adminRequest(`/employees/${actorId}/screenshot-control`, "POST", {
+    suspended: true,
+    reason: overrideAuditReason,
+  }, "Admin");
+  assert.equal(forbiddenPause.status, 403);
+
+  try {
+    const initialControl = await adminRequest(`/employees/${actorId}/screenshot-control`, "GET", undefined, "SuperAdmin");
+    assert.equal(initialControl.status, 200);
+    assert.equal((await initialControl.json()).data.suspended, false);
+
+    const pauseResponse = await adminRequest(`/employees/${actorId}/screenshot-control`, "POST", {
+      suspended: true,
+      reason: overrideAuditReason,
+    }, "SuperAdmin");
+    assert.equal(pauseResponse.status, 200);
+    assert.equal((await pauseResponse.json()).data.suspended, true);
+
+    const blockedPermission = await agentRequest(
+      `/screenshot-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
+      credential
+    );
+    assert.equal(blockedPermission.status, 200);
+    const blockedPermissionBody = await blockedPermission.json();
+    assert.equal(blockedPermissionBody.data.allowed, false);
+    assert.match(blockedPermissionBody.data.reason, /endpoint-screenshot-control-test/i);
+
+    const pausedPolicyResponse = await agentRequest(`/policy/latest?device_uuid=${encodeURIComponent(deviceUuid)}`, credential);
+    assert.equal(pausedPolicyResponse.status, 200);
+    const pausedPolicy = (await pausedPolicyResponse.json()).data;
+    assert.equal(pausedPolicy.screenshot_monitoring_enabled, false);
+    assert.equal(pausedPolicy.superadmin_overrides.screenshot_monitoring_enabled.suspended, true);
+  } finally {
+    const resumeResponse = await adminRequest(`/employees/${actorId}/screenshot-control`, "POST", {
+      suspended: false,
+      reason: overrideAuditReason,
+    }, "SuperAdmin");
+    assert.equal(resumeResponse.status, 200);
+    await db.query(
+      `DELETE FROM endpoint_policy_audit_logs
+       WHERE action IN ('screenshot_monitoring_suspended','screenshot_monitoring_resumed')
+         AND details->>'reason'=$1`,
+      [overrideAuditReason]
+    );
+  }
+
+  const resumedPermission = await agentRequest(
+    `/screenshot-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
+    credential
+  );
+  assert.equal(resumedPermission.status, 200);
+  assert.equal((await resumedPermission.json()).data.allowed, true);
+
   const usbPermission = await agentRequest(
     `/usb-monitoring-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
     credential

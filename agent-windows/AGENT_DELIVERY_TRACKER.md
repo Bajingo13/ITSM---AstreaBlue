@@ -35,6 +35,7 @@ Updated: 2026-07-17
 - [x] Per-device authenticated screenshot upload through the Windows service
 - [x] AES-256-GCM encryption before private Cloudflare R2 storage
 - [x] Authenticated, RBAC-scoped screenshot viewing with integrity verification
+- [x] Audited SuperAdmin pause/resume control for employee screenshot capture
 - [x] Configurable screenshot interval and automatic retention deletion
 - [x] Automated retention test verifies R2 object deletion, metadata removal, and audit recording
 - [x] Validate screenshot notification, capture, encrypted storage, and viewing on the first pilot laptop
