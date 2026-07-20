@@ -11,6 +11,7 @@ const { upsertAgentInventoryDiscovery } = require("../services/assetDiscoveryInv
 const { deletePrivateObject, getPrivateObject, putPrivateObject } = require("../services/r2StorageService");
 const { evaluateUsbTransfer } = require("../services/dlpRiskService");
 const { createServiceDeskTicket } = require("../services/serviceDeskTicketService");
+const { emitEndpointStatusChanged } = require("../services/socketService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -403,7 +404,7 @@ async function requireAgent(req, res, next) {
     if (supplied.startsWith("ABDEV-")) {
       const credential = await db.query(
         `SELECT dc.device_credential_id,dc.device_id,dc.expires_at,
-                d.device_uuid,d.hostname,d.branch_id,d.enrollment_status
+                d.device_uuid,d.hostname,d.branch_id,d.enrollment_status,d.last_seen_at,d.status
          FROM endpoint_device_credentials dc
          JOIN monitored_devices d ON d.device_id=dc.device_id
          WHERE dc.credential_hash=$1 AND dc.status='Active'
@@ -1154,6 +1155,15 @@ router.post("/heartbeat", requireAgent, async (req, res) => {
     return res.status(400).json({ success: false, message: "A valid device_uuid is required." });
   }
   try {
+    const previousLastSeenAt = req.agentDevice?.last_seen_at
+      ? new Date(req.agentDevice.last_seen_at).getTime()
+      : null;
+    const wasOffline = Boolean(req.agentDevice) && (
+      String(req.agentDevice.status || "").toLowerCase() !== "online"
+      || !Number.isFinite(previousLastSeenAt)
+      || Date.now() - previousLastSeenAt > ONLINE_THRESHOLD_SECONDS * 1000
+    );
+
     // One-time adoption preserves activity history for pre-UUID installations.
     await db.query(
       `UPDATE monitored_devices SET device_uuid=$1,device_name=$2,logged_in_user=$3,updated_at=CURRENT_TIMESTAMP
@@ -1178,6 +1188,7 @@ router.post("/heartbeat", requireAgent, async (req, res) => {
       last_seen_at: device.last_seen_at instanceof Date ? device.last_seen_at.toISOString() : device.last_seen_at,
       status: device.status,
     });
+    if (wasOffline) emitEndpointStatusChanged({ action: "online" });
     return res.json({ success: true, message: "Heartbeat received.", data: device });
   } catch (error) {
     console.error("[laptop-monitoring:heartbeat]", error.message);

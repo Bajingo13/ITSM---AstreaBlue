@@ -5,6 +5,7 @@ let socket = null;
 let hasConnected = false;
 const subscribers = new Set();
 const replacementSubscribers = new Set();
+const endpointSubscribers = new Set();
 
 function ensureSocket() {
   if (socket) return socket;
@@ -22,9 +23,15 @@ function ensureSocket() {
     replacementSubscribers.forEach((subscriber) => subscriber(event));
   });
 
+  socket.on("endpoint_status_changed", (event) => {
+    endpointSubscribers.forEach((subscriber) => subscriber(event));
+  });
+
   socket.on("connect", () => {
     if (hasConnected) {
       subscribers.forEach((subscriber) => subscriber({ action: "reconnected" }));
+      replacementSubscribers.forEach((subscriber) => subscriber({ action: "reconnected" }));
+      endpointSubscribers.forEach((subscriber) => subscriber({ action: "reconnected" }));
     }
     hasConnected = true;
   });
@@ -38,7 +45,7 @@ export function subscribeToTicketChanges(subscriber) {
 
   return () => {
     subscribers.delete(subscriber);
-    if (subscribers.size === 0 && replacementSubscribers.size === 0 && socket) {
+    if (subscribers.size === 0 && replacementSubscribers.size === 0 && endpointSubscribers.size === 0 && socket) {
       socket.disconnect();
       socket = null;
       hasConnected = false;
@@ -52,7 +59,21 @@ export function subscribeToReplacementChanges(subscriber) {
 
   return () => {
     replacementSubscribers.delete(subscriber);
-    if (subscribers.size === 0 && replacementSubscribers.size === 0 && socket) {
+    if (subscribers.size === 0 && replacementSubscribers.size === 0 && endpointSubscribers.size === 0 && socket) {
+      socket.disconnect();
+      socket = null;
+      hasConnected = false;
+    }
+  };
+}
+
+export function subscribeToEndpointStatusChanges(subscriber) {
+  endpointSubscribers.add(subscriber);
+  ensureSocket();
+
+  return () => {
+    endpointSubscribers.delete(subscriber);
+    if (subscribers.size === 0 && replacementSubscribers.size === 0 && endpointSubscribers.size === 0 && socket) {
       socket.disconnect();
       socket = null;
       hasConnected = false;

@@ -48,4 +48,27 @@ function emitReplacementChanged(payload) {
   }
 }
 
-module.exports = { setSocketServer, getSocketServer, emitSlaUpdated, emitTicketChanged, emitReplacementChanged };
+function emitEndpointStatusChanged(payload) {
+  try {
+    if (!socketServer) return false;
+    // Broadcast only a privacy-safe invalidation. Each client must refetch the
+    // authenticated, RBAC-filtered endpoint data it is permitted to see.
+    socketServer.emit("endpoint_status_changed", {
+      action: payload?.action === "online" ? "online" : "changed",
+      timestamp: payload?.timestamp || new Date().toISOString(),
+    });
+    return true;
+  } catch (error) {
+    console.warn("Endpoint status socket emit failed:", error.message);
+    return false;
+  }
+}
+
+module.exports = {
+  setSocketServer,
+  getSocketServer,
+  emitSlaUpdated,
+  emitTicketChanged,
+  emitReplacementChanged,
+  emitEndpointStatusChanged,
+};

@@ -32,6 +32,7 @@ import { API_URL } from "../config/api";
 import { authHeaders } from "../services/authHeaders";
 import ExportReportModal from "../components/ExportReportModal";
 import { exportRowsAsJpeg } from "../utils/reportExport";
+import { subscribeToEndpointStatusChanges } from "../services/realtimeTickets";
 
 const API_BASE = `${API_URL}/api/v1`;
 const EMPTY_DETAIL_VALUE = "-";
@@ -714,6 +715,7 @@ export default function Assets() {
   const [deletingAsset, setDeletingAsset] = useState(null);
   const [toast, setToast] = useState(null); // { message, type } where type is "success" | "error"
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
+  const [statusRefreshing, setStatusRefreshing] = useState(false);
   const assetRequestIdRef = useRef(0);
 
   const changeViewMode = (mode) => {
@@ -793,6 +795,38 @@ export default function Assets() {
   useEffect(() => {
     fetchAssets();
   }, [fetchAssets]);
+
+  useEffect(() => {
+    const refreshInBackground = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) {
+        void fetchAssets({ background: true });
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshInBackground();
+    };
+
+    const unsubscribe = subscribeToEndpointStatusChanges(refreshInBackground);
+    const pollId = window.setInterval(refreshInBackground, 60_000);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", refreshInBackground);
+
+    return () => {
+      unsubscribe();
+      window.clearInterval(pollId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", refreshInBackground);
+    };
+  }, [fetchAssets]);
+
+  const refreshAssetStatuses = async () => {
+    setStatusRefreshing(true);
+    try {
+      await fetchAssets({ background: true });
+    } finally {
+      setStatusRefreshing(false);
+    }
+  };
 
   const visibleBranches = useMemo(() => {
     if (isSuperAdmin) return branches;
@@ -1338,6 +1372,15 @@ export default function Assets() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={refreshAssetStatuses}
+              disabled={statusRefreshing}
+              className="inline-flex items-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-black text-white shadow-sm backdrop-blur-sm transition hover:bg-white/20 disabled:cursor-wait disabled:opacity-70"
+            >
+              <RefreshCw size={18} className={statusRefreshing ? "animate-spin" : ""} />
+              {statusRefreshing ? "Refreshing" : "Refresh Status"}
+            </button>
             <button
               onClick={openAddAsset}
               className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
