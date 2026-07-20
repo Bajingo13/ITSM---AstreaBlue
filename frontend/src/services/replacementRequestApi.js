@@ -28,6 +28,7 @@ export const replacementRequestApi = {
   list: (params) => request(query(params)).then((body) => body.data || []),
   detail: (id) => request(`/${id}`).then((body) => body.data),
   currentAssets: (employeeId) => request(`/assets/current${query({ employee_id: employeeId })}`).then((body) => body.data || []),
+  linkableTickets: (employeeId) => request(`/tickets/linkable${query({ employee_id: employeeId })}`).then((body) => body.data || []),
   availableAssets: () => request("/assets/available").then((body) => body.data || []),
   create: (data) => request("", { method: "POST", body: JSON.stringify(data) }).then((body) => body.data),
   assess: (id, data) => request(`/${id}/assessment`, { method: "PATCH", body: JSON.stringify(data) }).then((body) => body.data),

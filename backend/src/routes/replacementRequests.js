@@ -344,6 +344,40 @@ router.get("/assets/available", async (req, res) => {
   }
 });
 
+router.get("/tickets/linkable", async (req, res) => {
+  try {
+    const { role, currentUserId, branchId } = req.replacementContext;
+    const employeeId = role === "employee" ? Number(currentUserId) : Number(req.query.employee_id || 0);
+    if (!employeeId) return res.status(400).json({ success: false, message: "employee_id is required.", data: null });
+
+    const employeeResult = await db.query(`SELECT user_id,branch_id FROM users WHERE user_id=$1`, [employeeId]);
+    const employee = employeeResult.rows[0];
+    if (!employee) return res.status(404).json({ success: false, message: "Employee not found.", data: null });
+    if (role !== "superadmin" && role !== "employee" && Number(employee.branch_id) !== Number(branchId)) {
+      return res.status(403).json({ success: false, message: "The employee must belong to your branch.", data: null });
+    }
+
+    const internalOnly = role === "superadmin" ? "" : `
+      AND t.integration_id IS NULL
+      AND t.origin_system IS NULL
+      AND COALESCE(t.created_via,'') <> 'External API'`;
+    const result = await db.query(
+      `SELECT t.id,t.ticket_number,t.title,t.status,t.priority,t.created_at
+         FROM tickets t
+        WHERE t.requester_id=$1
+          AND t.branch_id=$2
+          AND t.status='Open Queue'${internalOnly}
+        ORDER BY t.created_at DESC,t.id DESC
+        LIMIT 100`,
+      [employeeId, employee.branch_id]
+    );
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error("[replacement:linkable-tickets]", error.message);
+    return res.status(500).json({ success: false, message: "Failed to load eligible open tickets.", data: null });
+  }
+});
+
 router.get("/", async (req, res) => {
   try {
     const params = [];
@@ -400,9 +434,10 @@ router.post("/", async (req, res) => {
     if (Number(asset.branch_id) !== Number(employee.branch_id)) throw Object.assign(new Error("Employee and asset branches do not match."), { status: 409 });
 
     if (req.body.source_ticket_id) {
-      const ticket = await client.query(`SELECT requester_id,branch_id,integration_id,origin_system,created_via FROM tickets WHERE id=$1`, [req.body.source_ticket_id]);
+      const ticket = await client.query(`SELECT requester_id,branch_id,integration_id,origin_system,created_via,status FROM tickets WHERE id=$1`, [req.body.source_ticket_id]);
       if (!ticket.rows.length) throw Object.assign(new Error("Linked ticket not found."), { status: 404 });
       const linked = ticket.rows[0];
+      if (linked.status !== "Open Queue") throw Object.assign(new Error("Only an Open Queue ticket can be linked to a new replacement request."), { status: 409 });
       if (role === "employee" && Number(linked.requester_id) !== employeeId) throw Object.assign(new Error("You can only link your own ticket."), { status: 403 });
       if (role !== "superadmin" && (linked.integration_id || linked.origin_system || linked.created_via === "External API" || Number(linked.branch_id) !== Number(employee.branch_id))) {
         throw Object.assign(new Error("The linked ticket is outside your permitted branch scope."), { status: 403 });

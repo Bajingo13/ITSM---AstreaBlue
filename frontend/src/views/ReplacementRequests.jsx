@@ -59,14 +59,31 @@ function CreateRequest({ user, employees, onClose, onCreated }) {
   const employeeOnly = role === "employee";
   const [form, setForm] = useState({ employee_id: employeeOnly ? user.user_id : "", current_asset_id: "", title: "", description: "", damage_type: "Hardware failure", urgency: "Medium", source_ticket_id: "" });
   const [assets, setAssets] = useState([]);
+  const [tickets, setTickets] = useState([]);
+  const [loadingChoices, setLoadingChoices] = useState(false);
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const set = (key) => (event) => setForm((current) => ({
+    ...current,
+    [key]: event.target.value,
+    ...(key === "employee_id" ? { current_asset_id: "", source_ticket_id: "" } : {}),
+  }));
 
   useEffect(() => {
-    if (!form.employee_id) { setAssets([]); return; }
-    replacementRequestApi.currentAssets(form.employee_id).then(setAssets).catch((loadError) => setError(loadError.message));
+    if (!form.employee_id) { setAssets([]); setTickets([]); return; }
+    let active = true;
+    setLoadingChoices(true);
+    Promise.all([
+      replacementRequestApi.currentAssets(form.employee_id),
+      replacementRequestApi.linkableTickets(form.employee_id),
+    ]).then(([assetRows, ticketRows]) => {
+      if (!active) return;
+      setAssets(assetRows);
+      setTickets(ticketRows);
+    }).catch((loadError) => active && setError(loadError.message))
+      .finally(() => active && setLoadingChoices(false));
+    return () => { active = false; };
   }, [form.employee_id]);
 
   async function submit(event) {
@@ -91,7 +108,7 @@ function CreateRequest({ user, employees, onClose, onCreated }) {
       </div>
       <label className="block"><span className="mb-2 block text-sm font-black text-slate-800">Request title</span><input value={form.title} onChange={set("title")} className={field} placeholder="Example: Laptop no longer powers on"/></label>
       <label className="block"><span className="mb-2 block text-sm font-black text-slate-800">Problem description *</span><textarea value={form.description} onChange={set("description")} rows="5" className={field} placeholder="Describe the problem, when it started, and any troubleshooting already attempted."/></label>
-      <label className="block"><span className="mb-2 block text-sm font-black text-slate-800">Related ticket ID (optional)</span><input value={form.source_ticket_id} onChange={set("source_ticket_id")} type="number" min="1" className={field} placeholder="Internal database ticket ID"/></label>
+      <label className="block"><span className="mb-2 block text-sm font-black text-slate-800">Related open ticket (optional)</span><select value={form.source_ticket_id} onChange={set("source_ticket_id")} disabled={!form.employee_id || loadingChoices} className={field}><option value="">{loadingChoices ? "Loading open tickets..." : "No related ticket"}</option>{tickets.map((ticket) => <option key={ticket.id} value={ticket.id}>{ticket.ticket_number || `Ticket ${ticket.id}`} — {ticket.title}</option>)}</select>{form.employee_id && !loadingChoices && !tickets.length && <span className="mt-2 block text-xs font-semibold text-slate-500">This employee has no tickets currently in Open Queue.</span>}</label>
       <label className="block"><span className="mb-2 flex items-center gap-2 text-sm font-black text-slate-800"><Paperclip size={16}/> Evidence (optional)</span><input type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => setFiles([...event.target.files])} className={`${field} file:mr-3 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-black file:text-white`}/></label>
       <div className="flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-black text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white transition hover:bg-blue-700 disabled:opacity-60">{saving && <RefreshCw size={16} className="animate-spin"/>} Submit Request</button></div>
     </form>
