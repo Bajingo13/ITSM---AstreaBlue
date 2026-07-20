@@ -915,10 +915,12 @@ export default function Assets() {
   const totalActive = visibleAssets.filter((asset) => asset.status === "Active").length;
   const totalBorrowed = visibleAssets.filter((asset) => asset.status === "Borrowed").length;
 
-  const verifiedAssets = visibleAssets.filter(a => a.monitoring_device_id && a.agent_serial_number && String(a.serial_number).trim().toLowerCase() === String(a.agent_serial_number).trim().toLowerCase()).length;
-  const mismatchedAssets = visibleAssets.filter(a => a.monitoring_device_id && a.agent_serial_number && String(a.serial_number).trim().toLowerCase() !== String(a.agent_serial_number).trim().toLowerCase()).length;
-  const pendingAssets = visibleAssets.filter(a => a.monitoring_device_id && !a.agent_serial_number).length;
-  const offlineDevices = visibleAssets.filter(a => a.monitoring_device_id && a.monitoring_status === "Offline").length;
+  const verifiedAssets = visibleAssets.filter((asset) => asset.verification_status === "Verified").length;
+  const mismatchedAssets = visibleAssets.filter((asset) => asset.verification_status === "Mismatched").length;
+  const pendingAssets = visibleAssets.filter((asset) => asset.verification_status === "Pending").length;
+  const offlineDevices = visibleAssets.filter(
+    (asset) => asset.monitoring_device_id && asset.monitoring_status === "Offline",
+  ).length;
 
   /* Branch carousel scroll state */
   const carouselRef = useRef(null);
@@ -1358,18 +1360,22 @@ export default function Assets() {
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-black uppercase tracking-wider text-slate-500">Verified Assets</p>
           <p className="mt-3 text-2xl font-black text-emerald-600">{verifiedAssets}</p>
+          <p className="mt-1 text-xs text-slate-500">Inventory fully reconciled</p>
         </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-black uppercase tracking-wider text-slate-500">Mismatched Assets</p>
           <p className="mt-3 text-2xl font-black text-rose-600">{mismatchedAssets}</p>
+          <p className="mt-1 text-xs text-slate-500">Recorded and detected data differ</p>
         </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-black uppercase tracking-wider text-slate-500">Pending Verification</p>
           <p className="mt-3 text-2xl font-black text-amber-600">{pendingAssets}</p>
+          <p className="mt-1 text-xs text-slate-500">Linked inventory needs reconciliation</p>
         </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-black uppercase tracking-wider text-slate-500">Offline Devices</p>
           <p className="mt-3 text-2xl font-black text-slate-900">{offlineDevices}</p>
+          <p className="mt-1 text-xs text-slate-500">Linked devices with a stale heartbeat</p>
         </div>
       </section>
 

@@ -23,7 +23,8 @@ if (-not (Test-Path $sourceCompanion)) { throw "AstreaBlue.ActivityCompanion.exe
 if (-not (Test-Path $sourceUpdater)) { throw "AstreaBlue.Agent.Updater.exe is missing from the package." }
 $credentialPath = Join-Path $dataDirectory "credential.bin"
 $configPath = Join-Path $dataDirectory "config.json"
-$requiresEnrollment = -not (Test-Path $credentialPath) -or -not (Test-Path $configPath)
+$forceEnrollment = -not [string]::IsNullOrWhiteSpace($EnrollmentCode)
+$requiresEnrollment = $forceEnrollment -or -not (Test-Path $credentialPath) -or -not (Test-Path $configPath)
 if ($requiresEnrollment -and -not $EnrollmentCode) {
     throw "The native service is installed but not enrolled. Generate a one-time enrollment code, then run native-repair.ps1 -EnrollmentCode <code>."
 }
@@ -68,5 +69,7 @@ Start-Service -Name $serviceName
 Start-Sleep -Seconds 3
 & $targetExe --diagnostics
 if ($LASTEXITCODE -ne 0) { throw "Repair completed but diagnostics failed." }
+& $targetExe --heartbeat-once
+if ($LASTEXITCODE -ne 0) { throw "Repair completed but the enrolled device credential failed backend authentication." }
 Start-Process -FilePath $targetCompanion
 Write-Host "AstreaBlue agent repair completed successfully." -ForegroundColor Green

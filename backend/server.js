@@ -15,6 +15,11 @@ const db = require("./config/db");
 
 const { calculateSlaDueDate } = require("./src/services/slaService");
 const { calculateStraightLine } = require("./src/services/assetFinancialService");
+const {
+  DEFAULT_ONLINE_THRESHOLD_SECONDS,
+  getAssetVerificationStatus,
+  getCurrentMonitoringStatus,
+} = require("./src/services/assetVerificationService");
 const authRoutes = require("./src/routes/auth");
 require("./src/services/slaCron");
 const dashboardRoutes = require("./src/routes/dashboard");
@@ -1548,30 +1553,59 @@ app.get("/api/v1/hardware-assets", async (req, res) => {
         md.device_id as monitoring_device_id,
         md.device_uuid as monitoring_device_uuid,
         md.hostname as monitoring_hostname,
-        md.status as monitoring_status,
+        md.status as monitoring_recorded_status,
         md.last_seen_at as monitoring_last_seen,
         md.logged_in_user as monitoring_logged_in_user,
         ehi.serial_number as agent_serial_number,
         ehi.manufacturer as agent_manufacturer,
-        ehi.model as agent_model
+        ehi.model as agent_model,
+        ehi.scanned_at as inventory_scanned_at,
+        COALESCE(rec.match_count, 0) as reconciliation_match_count,
+        COALESCE(rec.mismatch_count, 0) as reconciliation_mismatch_count,
+        COALESCE(rec.unknown_count, 0) as reconciliation_unknown_count
       FROM hardware_assets a
       LEFT JOIN branches b ON a.branch_id = b.branch_id
       LEFT JOIN asset_financials f ON f.asset_id = a.asset_id
-      LEFT JOIN monitored_devices md ON md.asset_id = a.asset_id
       LEFT JOIN LATERAL (
-        SELECT hi.serial_number, hi.manufacturer, hi.model
+        SELECT linked_device.*
+        FROM monitored_devices linked_device
+        WHERE linked_device.asset_id = a.asset_id
+        ORDER BY linked_device.last_seen_at DESC NULLS LAST, linked_device.device_id DESC
+        LIMIT 1
+      ) md ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT hi.serial_number, hi.manufacturer, hi.model, hi.scanned_at
         FROM endpoint_hardware_inventory hi
         WHERE hi.device_id = md.device_id
         ORDER BY hi.scanned_at DESC
         LIMIT 1
       ) ehi ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (WHERE LOWER(reconciliation.status) = 'match')::INTEGER AS match_count,
+          COUNT(*) FILTER (WHERE LOWER(reconciliation.status) = 'mismatch')::INTEGER AS mismatch_count,
+          COUNT(*) FILTER (WHERE LOWER(reconciliation.status) NOT IN ('match', 'mismatch'))::INTEGER AS unknown_count
+        FROM asset_inventory_reconciliation reconciliation
+        WHERE reconciliation.asset_id = a.asset_id
+          AND reconciliation.device_id = md.device_id
+          AND reconciliation.field_name IN ('serial_number', 'manufacturer', 'model')
+      ) rec ON TRUE
       ${whereSql}
       ORDER BY a.created_at DESC
       `,
       params
     );
 
-    res.json(result.rows.map((asset) => ({ ...asset, ...calculateStraightLine(asset) })));
+    const onlineThresholdSeconds = Number(process.env.MONITORING_ONLINE_THRESHOLD_SECONDS)
+      || DEFAULT_ONLINE_THRESHOLD_SECONDS;
+    res.json(result.rows.map((asset) => ({
+      ...asset,
+      monitoring_status: asset.monitoring_device_id
+        ? getCurrentMonitoringStatus(asset.monitoring_last_seen, { thresholdSeconds: onlineThresholdSeconds })
+        : null,
+      verification_status: getAssetVerificationStatus(asset),
+      ...calculateStraightLine(asset),
+    })));
   } catch (err) {
     logHardwareAssetError("GET", err);
     return res.status(500).json({

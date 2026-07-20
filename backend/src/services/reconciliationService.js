@@ -33,7 +33,7 @@ async function reconcileDevice(deviceId) {
 
     const comparisons = [
       { field: 'serial_number', assetVal: asset.serial_number, invVal: inventory.serial_number, critical: true },
-      { field: 'manufacturer', assetVal: asset.manufacturer, invVal: inventory.manufacturer, critical: true },
+      { field: 'manufacturer', assetVal: asset.manufacturer || asset.brand, invVal: inventory.manufacturer, critical: true },
       { field: 'model', assetVal: asset.model, invVal: inventory.model, critical: true },
       { field: 'cpu_name', assetVal: asset.processor, invVal: inventory.cpu_name, critical: false },
       { field: 'os_name', assetVal: asset.operating_system, invVal: inventory.os_name, critical: false },
