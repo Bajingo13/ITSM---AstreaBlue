@@ -227,6 +227,26 @@ async function registerDiscovery(record, user, source = "Manual") {
   return { record: result.rows[0], created: true };
 }
 
+async function syncDiscoveredEndpointAsset(discovery, assetId, queryable = db) {
+  const deviceUuid = clean(discovery?.raw_data?.device_uuid);
+  if (!deviceUuid) return;
+  const asset = await queryable.query(`SELECT branch_id FROM hardware_assets WHERE asset_id=$1`, [assetId]);
+  const branchId = asset.rows[0]?.branch_id || null;
+  await queryable.query(
+    `UPDATE monitored_devices
+        SET asset_id=$1, branch_id=COALESCE($2,branch_id), updated_at=CURRENT_TIMESTAMP
+      WHERE device_uuid=$3::uuid`,
+    [assetId, branchId, deviceUuid]
+  );
+  await queryable.query(`UPDATE endpoint_hardware_inventory SET asset_id=$1 WHERE device_uuid=$2::uuid`, [assetId, deviceUuid]);
+  await queryable.query(
+    `UPDATE endpoint_software_inventory
+        SET asset_id=$1, branch_id=COALESCE($2,branch_id), updated_at=CURRENT_TIMESTAMP
+      WHERE device_uuid=$3::uuid`,
+    [assetId, branchId, deviceUuid]
+  );
+}
+
 router.get("/discovery", requireAssetManager, async (req, res) => {
   try {
     await db.query(
@@ -305,41 +325,72 @@ router.get("/discovery/history", requireAssetManager, async (req, res) => {
 });
 
 router.patch("/discovery/:id/link", requireAssetManager, async (req, res) => {
+  let client;
   try {
-    const asset = await db.query(`SELECT asset_id FROM hardware_assets WHERE asset_id=$1 AND ($2::int IS NULL OR branch_id=$2)`, [req.body?.asset_id, req.assetBranchId]);
-    if (!asset.rows.length) return res.status(404).json({ success: false, message: "Hardware asset not found.", error: "Hardware asset not found." });
-    const result = await db.query(
+    client = await db.connect();
+    await client.query("BEGIN");
+    const asset = await client.query(`SELECT asset_id FROM hardware_assets WHERE asset_id=$1 AND ($2::int IS NULL OR branch_id=$2)`, [req.body?.asset_id, req.assetBranchId]);
+    if (!asset.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Hardware asset not found.", error: "Hardware asset not found." });
+    }
+    const result = await client.query(
       `UPDATE asset_discoveries SET matched_asset_id=$1,reconciliation_status='Matched',updated_at=CURRENT_TIMESTAMP
        WHERE discovery_id=$2 AND ($3::int IS NULL OR branch_id=$3) RETURNING *`,
       [req.body.asset_id, req.params.id, req.assetBranchId]
     );
-    if (!result.rows.length) return res.status(404).json({ success: false, message: "Discovery record not found.", error: "Discovery record not found." });
+    if (!result.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Discovery record not found.", error: "Discovery record not found." });
+    }
+    await syncDiscoveredEndpointAsset(result.rows[0], req.body.asset_id, client);
+    await client.query("COMMIT");
     return res.json({ success: true, message: "Discovery linked to hardware asset.", data: result.rows[0] });
   } catch (error) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
     return res.status(500).json({ success: false, message: "Failed to link discovery.", error: error.message });
+  } finally {
+    client?.release();
   }
 });
 
 router.post("/discovery/:id/create-asset", requireAssetManager, async (req, res) => {
+  let client;
   try {
-    const found = await db.query(`SELECT * FROM asset_discoveries WHERE discovery_id=$1 AND ($2::int IS NULL OR branch_id=$2)`, [req.params.id, req.assetBranchId]);
-    if (!found.rows.length) return res.status(404).json({ success: false, message: "Discovery record not found.", error: "Discovery record not found." });
+    client = await db.connect();
+    await client.query("BEGIN");
+    const found = await client.query(`SELECT * FROM asset_discoveries WHERE discovery_id=$1 AND ($2::int IS NULL OR branch_id=$2)`, [req.params.id, req.assetBranchId]);
+    if (!found.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Discovery record not found.", error: "Discovery record not found." });
+    }
     const discovery = found.rows[0];
-    if (discovery.matched_asset_id) return res.status(409).json({ success: false, message: "Discovery is already linked.", error: "Discovery is already linked." });
+    if (discovery.matched_asset_id) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ success: false, message: "Discovery is already linked.", error: "Discovery is already linked." });
+    }
     const suffix = crypto.createHash("sha256").update(`${discovery.discovery_id}-${discovery.hostname}`).digest("hex").slice(0, 10).toUpperCase();
     const assetTag = discovery.asset_tag || `DISC-${suffix}`;
     const serial = discovery.serial_number || discovery.mac_address || `DISC-SN-${suffix}`;
     const branchId = req.assetBranchId || discovery.branch_id || req.body?.branch_id;
-    if (!branchId) return res.status(400).json({ success: false, message: "A branch is required before creating an asset.", error: "Branch is required." });
-    const inserted = await db.query(
+    if (!branchId) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ success: false, message: "A branch is required before creating an asset.", error: "Branch is required." });
+    }
+    const inserted = await client.query(
       `INSERT INTO hardware_assets (asset_name,asset_type,brand,manufacturer,model,serial_number,asset_tag,branch_id,status)
        VALUES ($1,$2,$3,$3,$4,$5,$6,$7,'Active') RETURNING *`,
       [discovery.hostname, discovery.device_type || "Other", discovery.manufacturer || "Unknown", "Discovered Device", serial, assetTag, branchId]
     );
-    await db.query(`UPDATE asset_discoveries SET matched_asset_id=$1,reconciliation_status='Matched',updated_at=CURRENT_TIMESTAMP WHERE discovery_id=$2`, [inserted.rows[0].asset_id, discovery.discovery_id]);
+    await client.query(`UPDATE asset_discoveries SET matched_asset_id=$1,reconciliation_status='Matched',updated_at=CURRENT_TIMESTAMP WHERE discovery_id=$2`, [inserted.rows[0].asset_id, discovery.discovery_id]);
+    await syncDiscoveredEndpointAsset(discovery, inserted.rows[0].asset_id, client);
+    await client.query("COMMIT");
     return res.status(201).json({ success: true, message: "Hardware asset created from discovery.", data: inserted.rows[0] });
   } catch (error) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
     return res.status(500).json({ success: false, message: "Failed to create hardware asset from discovery.", error: error.message });
+  } finally {
+    client?.release();
   }
 });
 

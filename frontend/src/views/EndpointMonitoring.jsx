@@ -566,10 +566,11 @@ export default function EndpointMonitoring() {
                           },
                         });
                       }} 
-                      disabled={loading}
+                      disabled={loading || !details?.hardware}
                       className="mt-2 w-full rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                      {loading ? "Creating..." : "Create Asset from Specs"}
+                      {loading ? "Creating..." : details?.hardware ? "Create Asset from Specs" : "Hardware Scan Required"}
                     </button>
+                    {!details?.hardware && <p className="mt-2 text-center text-[11px] font-semibold text-amber-700">The agent must submit hardware inventory before AstreaBlue can create an accurate asset record.</p>}
                   </div>
                 )}
               </div>
@@ -801,7 +802,7 @@ export default function EndpointMonitoring() {
                   <button onClick={() => handleDiagnosticAction("refresh")} disabled={healthLoading} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Refresh Endpoint Status</button>
                   <button onClick={() => handleDiagnosticAction("health")} disabled={healthLoading} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Run Health Check</button>
                   <button onClick={() => handleDiagnosticAction("policy")} disabled={healthLoading || !selectedDevice?.device_uuid} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Regenerate Effective Policy</button>
-                  <button onClick={() => handleDiagnosticAction("inventory")} disabled={healthLoading} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Recalculate Inventory Status</button>
+                  <button onClick={() => handleDiagnosticAction("inventory")} disabled={healthLoading} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Refresh Inventory Status</button>
                   <button onClick={() => handleDiagnosticAction("reconcile")} disabled={healthLoading || reconciling} className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100 disabled:opacity-50">Re-run Asset Reconciliation</button>
                 </div>
                 <div className="mt-4 grid gap-2 text-xs text-sky-950 md:grid-cols-2 xl:grid-cols-3">

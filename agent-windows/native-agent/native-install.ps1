@@ -75,6 +75,11 @@ Start-Service -Name $serviceName
 Start-Sleep -Seconds 3
 Start-Process -FilePath $targetCompanion
 
+& $targetExe --hardware-once
+if ($LASTEXITCODE -ne 0) { Write-Warning "The initial hardware inventory failed. The service will retry automatically." }
+& $targetExe --software-once
+if ($LASTEXITCODE -ne 0) { Write-Warning "The initial software inventory failed. The service will retry automatically." }
+
 & $targetExe --diagnostics
 if ($LASTEXITCODE -ne 0) { throw "The service was installed, but its first diagnostics check failed." }
 Write-Host "Installation complete. The native agent is running without Node.js." -ForegroundColor Green

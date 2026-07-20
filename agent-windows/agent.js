@@ -23,6 +23,9 @@ const crypto  = require('crypto');
 const si      = require('systeminformation');
 
 const execFileAsync = promisify(execFile);
+const AGENT_VERSION = 'astreablue-run-1.4';
+const INVENTORY_SUCCESS_MS = 24 * 60 * 60 * 1000;
+const INVENTORY_RETRY_MS = 5 * 60 * 1000;
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const localConfigPath = path.join(__dirname, 'agent-config.local.json');
@@ -107,7 +110,7 @@ function loadOrCreateDeviceIdentity() {
     device_uuid: crypto.randomUUID(),
     hostname: os.hostname(),
     device_name: deviceName,
-    agent_version: 'astreablue-run-1.4',
+    agent_version: AGENT_VERSION,
     created_at: new Date().toISOString(),
   };
   try {
@@ -156,7 +159,7 @@ async function ensureAgentCredential() {
         device_uuid: deviceUuid,
         hostname: os.hostname(),
         device_name: deviceName,
-        agent_version: 'astreablue-run-1.4',
+        agent_version: AGENT_VERSION,
       }),
     });
     const result = await response.json().catch(() => ({}));
@@ -252,7 +255,7 @@ async function heartbeat() {
       device_uuid: deviceUuid,
       hostname: os.hostname(),
       device_name: deviceName,
-      agent_version: 'astreablue-run-1.4',
+      agent_version: AGENT_VERSION,
       logged_in_user: os.userInfo().username,
       timestamp: new Date().toISOString(),
     });
@@ -357,6 +360,10 @@ async function captureScreenshot() {
 
 // ============================================================================
 async function sendHardwareInventory() {
+  if (!cachedPolicy.hardware_inventory_enabled) {
+    log('Hardware Inventory SKIPPED | disabled by effective policy.');
+    return true;
+  }
   try {
     const [system, osInfo, cpu, mem, disk, net] = await Promise.all([
       si.system(),
@@ -389,8 +396,10 @@ async function sendHardwareInventory() {
 
     await post('/hardware-inventory', payload);
     log(`Hardware Inventory SUCCESS | Sent hardware specifications to AstreaBlue.`);
+    return true;
   } catch (e) {
     err(`Hardware Inventory FAILURE | error=${e.message}`);
+    return false;
   }
 }
 
@@ -436,6 +445,10 @@ async function readSoftwareInventory() {
 }
 
 async function sendSoftwareInventory() {
+  if (!cachedPolicy.software_inventory_enabled) {
+    log('Software Inventory SKIPPED | disabled by effective policy.');
+    return true;
+  }
   const scanStartedAt = new Date().toISOString();
   try {
     const software = await readSoftwareInventory();
@@ -447,13 +460,33 @@ async function sendSoftwareInventory() {
       software,
     });
     log(`Software Inventory SUCCESS | endpoint=${softwareInventoryEndpoint} | records=${software.length}`);
+    return true;
   } catch (e) {
     err(`Software Inventory FAILURE | endpoint=${softwareInventoryEndpoint} | error=${e.message}`);
+    return false;
+  }
+}
+
+let inventoryTimer = null;
+let inventoryRunning = false;
+async function runInventoryCycle() {
+  if (inventoryRunning) return;
+  inventoryRunning = true;
+  let succeeded = false;
+  try {
+    const hardwareSucceeded = await sendHardwareInventory();
+    const softwareSucceeded = await sendSoftwareInventory();
+    succeeded = hardwareSucceeded && softwareSucceeded;
+  } finally {
+    inventoryRunning = false;
+    clearTimeout(inventoryTimer);
+    inventoryTimer = setTimeout(runInventoryCycle, succeeded ? INVENTORY_SUCCESS_MS : INVENTORY_RETRY_MS);
+    if (!succeeded) warn('Inventory cycle incomplete; retry scheduled in 5 minutes.');
   }
 }
 
 log('='.repeat(60));
-log(`AstreaBlue Monitoring Agent starting — v1.1`);
+log(`AstreaBlue Monitoring Agent starting — ${AGENT_VERSION}`);
 log(`Device:   ${deviceName}`);
 log(`Device UUID: ${deviceUuid}`);
 log(`Hostname: ${os.hostname()}`);
@@ -479,18 +512,36 @@ async function startMonitoringLoops() {
   if (registered) {
     await fetchPolicy();
     sendActivity();
-    sendHardwareInventory();
-    sendSoftwareInventory();
+    await runInventoryCycle();
   }
   setInterval(heartbeat, heartbeatMs);
   setInterval(fetchPolicy, 60 * 1000);
   setInterval(sendActivity, activityMs);
-  setInterval(sendHardwareInventory, 24 * 60 * 60 * 1000);
-  setInterval(sendSoftwareInventory, 24 * 60 * 60 * 1000);
   if (screenshotEnabled) {
     captureScreenshot();
     setInterval(captureScreenshot, screenshotMs);
   }
 }
 
-startMonitoringLoops();
+async function main() {
+  if (process.argv.includes('--inventory-once')) {
+    if (!(await ensureAgentCredential())) process.exitCode = 1;
+    else {
+      const registered = await heartbeat();
+      if (!registered) process.exitCode = 1;
+      else {
+        await fetchPolicy();
+        const hardwareSucceeded = await sendHardwareInventory();
+        const softwareSucceeded = await sendSoftwareInventory();
+        if (!hardwareSucceeded || !softwareSucceeded) process.exitCode = 1;
+      }
+    }
+    return;
+  }
+  await startMonitoringLoops();
+}
+
+main().catch((error) => {
+  err(`Agent startup FAILURE | error=${error.message}`);
+  process.exitCode = 1;
+});

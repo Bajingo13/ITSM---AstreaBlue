@@ -7,6 +7,7 @@ const multer = require("multer");
 const db = require("../../config/db");
 const { createNotification } = require("../services/notificationService");
 const { reconcileDevice } = require("../services/reconciliationService");
+const { upsertAgentInventoryDiscovery } = require("../services/assetDiscoveryInventoryService");
 const { deletePrivateObject, getPrivateObject, putPrivateObject } = require("../services/r2StorageService");
 const { evaluateUsbTransfer } = require("../services/dlpRiskService");
 const { createServiceDeskTicket } = require("../services/serviceDeskTicketService");
@@ -2196,11 +2197,16 @@ router.post("/hardware-inventory", requireAgent, async (req, res) => {
   }
 
   try {
-    const deviceResult = await db.query(`SELECT device_id, asset_id FROM monitored_devices WHERE device_uuid=$1 LIMIT 1`, [deviceUuid]);
+    const deviceResult = await db.query(
+      `SELECT device_id, device_uuid, hostname, agent_version, status, asset_id, branch_id
+         FROM monitored_devices WHERE device_uuid=$1 LIMIT 1`,
+      [deviceUuid]
+    );
     if (!deviceResult.rows.length) {
       return res.status(404).json({ success: false, message: "Device not found." });
     }
-    const { device_id, asset_id } = deviceResult.rows[0];
+    const device = deviceResult.rows[0];
+    const { device_id, asset_id } = device;
 
     const {
       manufacturer, model, serial_number, cpu_name, total_ram_gb,
@@ -2219,7 +2225,12 @@ router.post("/hardware-inventory", requireAgent, async (req, res) => {
       cpu_name, total_ram_gb, os_name, os_version, os_build, architecture,
       disk_total_gb, disk_free_gb, mac_address, ip_address, scanned_at
     ]);
-    
+
+    await upsertAgentInventoryDiscovery(device, {
+      manufacturer, model, serial_number, cpu_name, total_ram_gb,
+      os_name, os_version, os_build, architecture,
+      disk_total_gb, disk_free_gb, mac_address, ip_address, scanned_at,
+    });
     await reconcileDevice(device_id);
 
     return res.json({ success: true, message: "Hardware inventory updated." });
