@@ -90,11 +90,15 @@ async function updateRepairAsset(client, request, nextStatus, actorId, resolutio
   await client.query(
     `UPDATE hardware_assets
         SET status=$1,
-            condition_after=CASE WHEN $2::text IS NULL THEN condition_after ELSE $2 END,
+            condition_after=CASE
+              WHEN $4::text='In Repair' THEN 'Needs Repair'
+              WHEN $4::text='Repaired' THEN 'Working'
+              ELSE condition_after
+            END,
             notes=CASE WHEN $2::text IS NULL THEN notes ELSE CONCAT_WS(E'\n',NULLIF(notes,''),$2) END,
             updated_at=CURRENT_TIMESTAMP
       WHERE asset_id=$3`,
-    [hardwareStatus, resolution, request.current_asset_id]
+    [hardwareStatus, resolution, request.current_asset_id, nextStatus]
   );
   await client.query(
     `INSERT INTO asset_history(asset_id,event_type,event_data,branch_id,created_by)
@@ -214,7 +218,7 @@ async function exchangeAssets(client, request, actorId) {
     `UPDATE hardware_assets SET
        employee_id=NULL,assigned_name=NULL,borrower_name=NULL,borrower_email=NULL,
        borrower_department=NULL,actual_return_date=CURRENT_DATE,returned_date=CURRENT_DATE,
-       status='In Repair',condition_after=COALESCE($1,condition_after),updated_at=CURRENT_TIMESTAMP
+       status='In Repair',condition_after='Needs Repair',notes=CONCAT_WS(E'\n',NULLIF(notes,''),$1),updated_at=CURRENT_TIMESTAMP
      WHERE asset_id=$2`,
     [request.diagnosis || request.assessment_notes || "Replacement issued after reported hardware failure.", request.current_asset_id]
   );

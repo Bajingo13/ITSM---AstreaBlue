@@ -229,6 +229,14 @@ async function registerDiscovery(record, user, source = "Manual") {
 
 router.get("/discovery", requireAssetManager, async (req, res) => {
   try {
+    await db.query(
+      `UPDATE asset_discoveries
+          SET reconciliation_status='Unmanaged'
+        WHERE reconciliation_status='Matched'
+          AND matched_asset_id IS NULL
+          AND ($1::int IS NULL OR branch_id=$1)`,
+      [req.assetBranchId]
+    );
     const result = await db.query(
       `SELECT d.*,a.asset_name,a.asset_tag matched_asset_tag,b.branch_name FROM asset_discoveries d
        LEFT JOIN hardware_assets a ON a.asset_id=d.matched_asset_id LEFT JOIN branches b ON b.branch_id=d.branch_id
@@ -490,57 +498,16 @@ router.get("/export", requireAssetManager, async (req, res) => {
     }
 
     /* ── Apply protection ── */
-    const protectionPassword = process.env.EXCEL_PROTECTION_PASSWORD || "AstreaBlue@2026!Secure";
-    const sheetProtectionOptions = {
-      autoFilter: true,
-      selectLockedCells: true,
-      selectUnlockedCells: true,
-      sort: true,
-      formatCells: false,
-      formatColumns: false,
-      formatRows: false,
-      insertColumns: false,
-      insertRows: false,
-      deleteColumns: false,
-      deleteRows: false,
-      insertHyperlinks: false,
-    };
-    workbook.eachSheet((ws) => {
-      ws.protect(protectionPassword, sheetProtectionOptions);
-    });
-
     // Build descriptive filename
     const dateLabel = start_date && end_date
       ? `${start_date}_to_${end_date}`
       : new Date().toISOString().slice(0, 10);
-    const scopeLabel = isSuperAdmin ? "all-branches" : `branch-${branchId}`;
+    const scopeLabel = isSuperAdmin
+      ? (filter_branch_id ? `branch-${filter_branch_id}` : "all-branches")
+      : `branch-${branchId}`;
     const filename = `hardware-assets-${scopeLabel}-${dateLabel}.xlsx`;
 
-    // Write workbook to buffer, then add workbook structure protection via JSZip
-    const crypto = require("crypto");
-    const JSZip = require("jszip");
-
-    const excelBuf = await workbook.xlsx.writeBuffer();
-    const zip = await JSZip.loadAsync(Buffer.from(excelBuf));
-
-    let wbXml = await zip.file("xl/workbook.xml").async("string");
-    if (!wbXml.includes("workbookProtection")) {
-      // Generate SHA-512 hash for workbook protection (same algorithm as exceljs)
-      const salt = crypto.randomBytes(16).toString("base64");
-      const spinCount = 100000;
-      let hash = crypto.createHash("sha512").update(protectionPassword + salt).digest();
-      for (let i = 1; i < spinCount; i++) {
-        hash = crypto.createHash("sha512").update(hash).digest();
-      }
-      const hashValue = hash.toString("base64");
-
-      const protElement = `<workbookProtection workbookAlgorithmName="SHA-512" workbookHashValue="${hashValue}" workbookSaltValue="${salt}" workbookSpinCount="${spinCount}" lockStructure="1"/>`;
-      // Insert after <workbookPr.../> and before <sheets> (correct ECMA-376 order)
-      wbXml = wbXml.replace(/<workbookPr[^/]*\/>/, (match) => `${match}${protElement}`);
-      zip.file("xl/workbook.xml", wbXml);
-    }
-
-    const finalBuf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+    const finalBuf = Buffer.from(await workbook.xlsx.writeBuffer());
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

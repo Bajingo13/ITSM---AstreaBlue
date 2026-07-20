@@ -1011,3 +1011,16 @@ html[data-theme="dark"] .astrea-workspace-panel { background: linear-gradient(14
 .replacement-requests-table tbody button:hover {
   background: #1d4ed8 !important;
 }
+
+/* Export actions must remain readable across light, dark, and legacy themes. */
+.astrea-export-primary,
+.astrea-export-primary:hover,
+.astrea-export-primary:focus {
+  background: #2563eb !important;
+  border-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+.astrea-export-primary:hover {
+  background: #1d4ed8 !important;
+}

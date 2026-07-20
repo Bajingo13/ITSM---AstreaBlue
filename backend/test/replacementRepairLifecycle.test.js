@@ -112,9 +112,10 @@ test("repair lifecycle restores an assigned laptop to its pre-repair In Use stat
     "SELECT status,pre_repair_asset_status FROM replacement_requests WHERE id=$1",
     [requestId]
   )).rows[0];
-  let asset = (await db.query("SELECT status FROM hardware_assets WHERE asset_id=$1", [assetId])).rows[0];
+  let asset = (await db.query("SELECT status,condition_after FROM hardware_assets WHERE asset_id=$1", [assetId])).rows[0];
   assert.deepEqual(request, { status: "In Repair", pre_repair_asset_status: "In Use" });
   assert.equal(asset.status, "In Repair");
+  assert.equal(asset.condition_after, "Needs Repair");
 
   await transition("Repaired", { repair_resolution: "Power component replaced and diagnostics passed." });
 
@@ -122,7 +123,9 @@ test("repair lifecycle restores an assigned laptop to its pre-repair In Use stat
     "SELECT status,pre_repair_asset_status FROM replacement_requests WHERE id=$1",
     [requestId]
   )).rows[0];
-  asset = (await db.query("SELECT status FROM hardware_assets WHERE asset_id=$1", [assetId])).rows[0];
+  asset = (await db.query("SELECT status,condition_after,notes FROM hardware_assets WHERE asset_id=$1", [assetId])).rows[0];
   assert.deepEqual(request, { status: "Repaired", pre_repair_asset_status: "In Use" });
   assert.equal(asset.status, "In Use");
+  assert.equal(asset.condition_after, "Working");
+  assert.match(asset.notes, /Power component replaced and diagnostics passed/);
 });

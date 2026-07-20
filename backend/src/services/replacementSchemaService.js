@@ -65,6 +65,22 @@ async function ensureReplacementSchema() {
         );
         await client.query(statusRestoreMigration);
       }
+      // Older repair flows stored free-form resolution notes in the asset condition.
+      // Restore the condition to a structured value while preserving the resolution
+      // in both the request record and asset notes.
+      await client.query(`
+        UPDATE hardware_assets asset
+           SET condition_after='Working',
+               notes=CASE
+                 WHEN POSITION(request.repair_resolution IN COALESCE(asset.notes,'')) > 0 THEN asset.notes
+                 ELSE CONCAT_WS(E'\n',NULLIF(asset.notes,''),request.repair_resolution)
+               END
+          FROM replacement_requests request
+         WHERE request.current_asset_id=asset.asset_id
+           AND request.status='Repaired'
+           AND NULLIF(BTRIM(request.repair_resolution),'') IS NOT NULL
+           AND asset.condition_after=request.repair_resolution
+      `);
       await client.query("COMMIT");
       return true;
     } catch (error) {

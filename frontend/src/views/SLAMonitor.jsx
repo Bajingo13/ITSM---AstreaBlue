@@ -485,7 +485,7 @@ export default function SLAMonitor() {
         </div>
       </section>
       {exportOpen && (
-        <ExportReportModal title="Export SLA Ticket Queue" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={handleUnifiedExport} branches={isSuperAdmin ? branches : []} branchId={branchFilter} onBranchChange={isSuperAdmin ? setBranchFilter : undefined}/>
+        <ExportReportModal title="Export SLA Ticket Queue" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={handleUnifiedExport} branches={isSuperAdmin ? branches : []} branchId={branchFilter} onBranchChange={isSuperAdmin ? setBranchFilter : undefined} spreadsheetLabel="CSV for Excel" spreadsheetDescription="Opens directly in Excel"/>
       )}
 
       {/* Recent SLA Activity */}

@@ -8,7 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_pr
 const JWT_EXPIRES = "8h";
 
 const bcrypt = require("bcryptjs");
-const { sendPasswordResetEmail } = require("../services/emailService");
+const { getMissingSmtpConfig, sendPasswordResetEmail } = require("../services/emailService");
 
 function passwordMatches(inputPassword, storedPassword) {
   if (!storedPassword) return false;
@@ -124,18 +124,29 @@ router.post("/login", async (req, res) => {
 });
 
 router.post("/forgot-password", async (req, res) => {
-  const { email } = req.body;
+  const email = String(req.body?.email || "").trim().toLowerCase();
   
-  if (!email) {
-    return res.status(400).json({ success: false, message: "Email is required" });
+  if (!/^\S+@\S+\.\S+$/.test(email)) {
+    return res.status(400).json({ success: false, message: "A valid email address is required." });
   }
 
+  const missingConfig = getMissingSmtpConfig();
+  if (missingConfig.length) {
+    console.error("Password reset email unavailable", { missingConfig });
+    return res.status(503).json({
+      success: false,
+      message: "Email delivery is not configured. A SuperAdmin must complete the SMTP settings in Railway.",
+    });
+  }
+
+  let pendingToken = null;
   try {
-    const userResult = await db.query("SELECT user_id FROM users WHERE email = $1 LIMIT 1", [email]);
+    const userResult = await db.query("SELECT user_id FROM users WHERE LOWER(email) = $1 LIMIT 1", [email]);
     
     if (userResult.rows.length > 0) {
       const userId = userResult.rows[0].user_id;
       const token = crypto.randomBytes(32).toString("hex");
+      pendingToken = token;
       
       const expiresAt = new Date(Date.now() + 30 * 60000); // 30 minutes
       
@@ -149,15 +160,26 @@ router.post("/forgot-password", async (req, res) => {
       
       const emailResult = await sendPasswordResetEmail(email, resetLink);
       if (emailResult && !emailResult.success) {
-        return res.status(500).json({
+        await db.query("DELETE FROM password_resets WHERE token=$1 AND used_at IS NULL", [token]);
+        pendingToken = null;
+        console.error("Password reset email delivery failed", { provider: emailResult.provider, error: emailResult.error });
+        return res.status(502).json({
           success: false,
-          message: "Failed to send reset email. SMTP configuration may be incomplete."
+          message: "Email delivery failed. Ask a SuperAdmin to run the Email Test and verify the Railway SMTP variables."
         });
       }
+      await db.query(
+        "UPDATE password_resets SET used_at=CURRENT_TIMESTAMP WHERE user_id=$1 AND token<>$2 AND used_at IS NULL",
+        [userId, token]
+      );
+      pendingToken = null;
     }
   } catch (error) {
     console.error("Forgot password error:", error.message);
-    return res.status(500).json({ success: false, message: "Internal server error." });
+    if (pendingToken) {
+      await db.query("DELETE FROM password_resets WHERE token=$1 AND used_at IS NULL", [pendingToken]).catch(() => {});
+    }
+    return res.status(500).json({ success: false, message: "Unable to process the password reset request." });
   }
 
   // Always return generic message to prevent email enumeration

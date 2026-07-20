@@ -519,7 +519,7 @@ function SortFilterDropdown({
   onQuickToggle,
   conditionFilters,
   conditionOptions,
-  onConditionToggle,
+  onConditionChange,
   typeFilter,
   assetTypeOptions,
   onTypeChange,
@@ -568,12 +568,12 @@ function SortFilterDropdown({
       </button>
 
       <div
-        className={`absolute right-0 top-full z-40 mt-2 w-[min(92vw,440px)] origin-top-right overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/12 transition-all duration-150 ${
+        className={`absolute right-0 top-full z-40 mt-2 max-h-[min(78vh,720px)] w-[min(94vw,560px)] origin-top-right overflow-y-auto rounded-2xl border border-blue-100 bg-white shadow-2xl shadow-slate-900/15 transition-all duration-150 ${
           open ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0 pointer-events-none"
         }`}
       >
         <FilterPanelSection title="Sorting">
-          <div className="space-y-1">
+          <div className="grid gap-2 sm:grid-cols-2">
             {SORT_OPTIONS.map((option) => {
               const selected = sortMode === option.value;
               return (
@@ -581,8 +581,8 @@ function SortFilterDropdown({
                   key={option.value}
                   type="button"
                   onClick={() => onSortChange(option.value)}
-                  className={`flex w-full items-center justify-between rounded-[11px] px-3 py-2.5 text-left text-sm font-bold transition ${
-                    selected ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-blue-50/60 hover:text-blue-700"
+                  className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm font-bold transition ${
+                    selected ? "border-blue-400 bg-blue-50 text-blue-700 ring-2 ring-blue-100" : "border-slate-200 bg-slate-50/70 text-slate-700 hover:border-blue-300 hover:bg-blue-50/60 hover:text-blue-700"
                   }`}
                 >
                   <span>{option.label}</span>
@@ -620,22 +620,6 @@ function SortFilterDropdown({
             ))}
           </div>
 
-          {conditionOptions.filter((item) => item !== "All").length > 0 && (
-            <div className="mt-4">
-              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">Condition</p>
-              <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto pr-1">
-                {conditionOptions.filter((item) => item !== "All").map((condition) => (
-                  <FilterChip
-                    key={condition}
-                    selected={conditionFilters.includes(condition)}
-                    onClick={() => onConditionToggle(condition)}
-                  >
-                    {condition}
-                  </FilterChip>
-                ))}
-              </div>
-            </div>
-          )}
         </FilterPanelSection>
 
         <FilterPanelSection title="More Filters">
@@ -663,6 +647,12 @@ function SortFilterDropdown({
               value={assignedFilter}
               options={selectOptions(assignedOptions)}
               onChange={onAssignedChange}
+            />
+            <FilterSelect
+              label="Asset condition"
+              value={conditionFilters[0] || "All"}
+              options={selectOptions(conditionOptions)}
+              onChange={onConditionChange}
             />
           </div>
         </FilterPanelSection>
@@ -1593,7 +1583,7 @@ export default function Assets() {
           onQuickToggle={toggleQuickFilter}
           conditionFilters={conditionFilters}
           conditionOptions={conditionOptions}
-          onConditionToggle={(value) => setConditionFilters((prev) => toggleArrayValue(prev, value))}
+          onConditionChange={(value) => setConditionFilters(value === "All" ? [] : [value])}
           typeFilter={typeFilter}
           assetTypeOptions={assetTypeFilterOptions}
           onTypeChange={setTypeFilter}

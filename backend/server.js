@@ -3359,37 +3359,7 @@ app.get("/api/v1/software-licenses/export", async (req, res) => {
       to: { row: ws.rowCount, column: headers.length },
     };
 
-    // Apply protection (same as hardware assets)
-    const protectionPassword = process.env.EXCEL_PROTECTION_PASSWORD || "AstreaBlue@2026!Secure";
-    ws.protect(protectionPassword, {
-      autoFilter: true,
-      selectLockedCells: true,
-      selectUnlockedCells: true,
-      sort: true,
-      formatCells: false, formatColumns: false, formatRows: false,
-      insertColumns: false, insertRows: false, deleteColumns: false, deleteRows: false,
-      insertHyperlinks: false,
-    });
-
-    // Add workbook structure protection via JSZip
-    const crypto = require("crypto");
-    const JSZip = require("jszip");
-    const excelBuf = await wb.xlsx.writeBuffer();
-    const zip = await JSZip.loadAsync(Buffer.from(excelBuf));
-    let wbXml = await zip.file("xl/workbook.xml").async("string");
-    if (!wbXml.includes("workbookProtection")) {
-      const salt = crypto.randomBytes(16).toString("base64");
-      const spinCount = 100000;
-      let hash = crypto.createHash("sha512").update(protectionPassword + salt).digest();
-      for (let i = 1; i < spinCount; i++) {
-        hash = crypto.createHash("sha512").update(hash).digest();
-      }
-      const hashValue = hash.toString("base64");
-      const protElement = `<workbookProtection workbookAlgorithmName="SHA-512" workbookHashValue="${hashValue}" workbookSaltValue="${salt}" workbookSpinCount="${spinCount}" lockStructure="1"/>`;
-      wbXml = wbXml.replace(/<workbookPr[^/]*\/>/, (match) => `${match}${protElement}`);
-      zip.file("xl/workbook.xml", wbXml);
-    }
-    const finalBuf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+    const finalBuf = Buffer.from(await wb.xlsx.writeBuffer());
 
     const filename = `software-licenses-${new Date().toISOString().slice(0, 10)}.xlsx`;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

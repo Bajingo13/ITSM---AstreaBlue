@@ -1,6 +1,9 @@
 const nodemailer = require("nodemailer");
 const { generateEmailHtml } = require("./emailTemplates");
 
+let cachedTransporter = null;
+let cachedTransportSignature = "";
+
 function cleanEnv(value) {
   return String(value || "").trim();
 }
@@ -19,6 +22,8 @@ function smtpCredentials() {
 
 function smtpConfig() {
   const auth = smtpCredentials();
+  const host = cleanEnv(process.env.SMTP_HOST);
+  if (!host) throw new Error("SMTP configuration is incomplete. Missing: SMTP_HOST.");
   const configuredPort = Number.parseInt(cleanEnv(process.env.SMTP_PORT), 10);
   const port = Number.isInteger(configuredPort) ? configuredPort : 587;
   
@@ -28,7 +33,7 @@ function smtpConfig() {
   else if (secureStr === "false") secure = false;
 
   return {
-    host: cleanEnv(process.env.SMTP_HOST),
+    host,
     port,
     secure,
     requireTLS: port === 587,
@@ -46,6 +51,22 @@ function smtpConfig() {
   };
 }
 
+function getTransporter(config) {
+  const signature = JSON.stringify({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    user: config.auth.user,
+    pass: config.auth.pass,
+  });
+  if (!cachedTransporter || cachedTransportSignature !== signature) {
+    if (cachedTransporter && typeof cachedTransporter.close === "function") cachedTransporter.close();
+    cachedTransporter = nodemailer.createTransport(config);
+    cachedTransportSignature = signature;
+  }
+  return cachedTransporter;
+}
+
 async function sendMail(message) {
   const startedAt = Date.now();
   const config = smtpConfig();
@@ -60,8 +81,7 @@ async function sendMail(message) {
 
   console.info("Email delivery started", diagnostics);
   try {
-    const transporter = nodemailer.createTransport(config);
-    await transporter.verify();
+    const transporter = getTransporter(config);
     const info = await transporter.sendMail(message);
     
     const result = {
@@ -85,8 +105,17 @@ async function sendMail(message) {
 }
 
 function exactEmailError(error) {
+  if (error?.code === "EAUTH") {
+    return "SMTP authentication failed. For Gmail, use a Google App Password instead of the normal account password.";
+  }
   if (error?.code === "ETIMEDOUT") {
     return "SMTP connection timed out. Check Railway network access, SMTP_HOST, SMTP_PORT, and Google App Password.";
+  }
+  if (["ECONNECTION", "ESOCKET", "ECONNREFUSED", "ENOTFOUND"].includes(error?.code)) {
+    return "SMTP server connection failed. Check SMTP_HOST, SMTP_PORT, SMTP_SECURE, and Railway outbound connectivity.";
+  }
+  if (error?.code === "EENVELOPE") {
+    return "SMTP rejected the sender or recipient address. Check EMAIL_FROM/SMTP_FROM_EMAIL and the recipient email.";
   }
   return [error?.code, error?.command, error?.response, error?.message]
     .filter(Boolean)
@@ -99,16 +128,13 @@ function getMissingSmtpConfig() {
     "SMTP_HOST",
     "SMTP_USER",
     "SMTP_PASS",
-  ].filter((key) => !cleanEnv(process.env[key])).concat(
-    cleanEnv(process.env.EMAIL_FROM) || cleanEnv(process.env.SMTP_FROM_EMAIL)
-      ? []
-      : ["EMAIL_FROM or SMTP_FROM_EMAIL"]
-  );
+  ].filter((key) => !cleanEnv(process.env[key]));
 }
 
 function fromAddress() {
-  const fromName = process.env.SMTP_FROM_NAME || "AstreaBlue ITSM";
-  const fromEmail = process.env.EMAIL_FROM || process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+  const fromName = cleanEnv(process.env.SMTP_FROM_NAME) || "AstreaBlue ITSM";
+  const fromEmail = cleanEnv(process.env.EMAIL_FROM) || cleanEnv(process.env.SMTP_FROM_EMAIL) || cleanEnv(process.env.SMTP_USER);
+  if (!fromEmail) throw new Error("SMTP configuration is incomplete. Missing: EMAIL_FROM or SMTP_FROM_EMAIL.");
   return `"${fromName}" <${fromEmail}>`;
 }
 
@@ -240,12 +266,11 @@ async function sendTestEmail(to) {
       html: generateEmailHtml("AstreaBlue ITSM - Email Test", bodyContent),
     });
   } catch (error) {
-    const config = smtpConfig();
     return {
       success: false,
       provider: "smtp",
-      host: config.host,
-      port: config.port,
+      host: cleanEnv(process.env.SMTP_HOST) || null,
+      port: Number.parseInt(cleanEnv(process.env.SMTP_PORT), 10) || 587,
       error: exactEmailError(error),
     };
   }

@@ -102,10 +102,6 @@ function EventPopover({ event, onClose }) {
 function TicketsByDateModal({ date, events, onClose, onEventClick, branches }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [sortMode, setSortMode] = useState("oldest");
-  const [exportOpen, setExportOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState("excel");
-  const isSuperAdmin = String(user?.role || user?.role_name || "").toLowerCase() === "superadmin";
   const [priorityFilter, setPriorityFilter] = useState("");
   const [technicianFilter, setTechnicianFilter] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
@@ -266,6 +262,10 @@ export default function CalendarPage() {
   const [technicianFilter, setTechnicianFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [sortMode, setSortMode] = useState("oldest");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState("excel");
+  const isSuperAdmin = String(user?.role || user?.role_name || "").toLowerCase() === "superadmin";
 
   const buildQuery = useCallback(() => {
     const q = [];
@@ -669,7 +669,7 @@ export default function CalendarPage() {
         />
       )}
       {exportOpen && (
-        <ExportReportModal title="Export Ticket Schedule" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={handleCalendarExport} branches={isSuperAdmin ? branches : []} branchId={branchFilter} onBranchChange={isSuperAdmin ? setBranchFilter : undefined}/>
+        <ExportReportModal title="Export Ticket Schedule" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={handleCalendarExport} branches={isSuperAdmin ? branches : []} branchId={branchFilter} onBranchChange={isSuperAdmin ? setBranchFilter : undefined} spreadsheetLabel="CSV for Excel" spreadsheetDescription="Opens directly in Excel"/>
       )}
     </div>
   );
