@@ -340,7 +340,7 @@ router.post("/discovery/:id/create-asset", requireAssetManager, async (req, res)
    ───────────────────────────────────────────── */
 router.get("/export", requireAssetManager, async (req, res) => {
   try {
-    const { start_date, end_date } = req.query;
+    const { start_date, end_date, filter_branch_id } = req.query;
     const role = String(req.assetUser.role || "").toLowerCase().replace(/[\s_-]/g, "");
     const isSuperAdmin = role === "superadmin";
     const branchId = req.assetBranchId; // set by requireAssetManager for admins
@@ -353,6 +353,9 @@ router.get("/export", requireAssetManager, async (req, res) => {
     if (!isSuperAdmin && branchId) {
       conditions.push(`a.branch_id = $${idx++}`);
       params.push(branchId);
+    } else if (isSuperAdmin && filter_branch_id) {
+      conditions.push(`a.branch_id = $${idx++}`);
+      params.push(filter_branch_id);
     }
 
     if (start_date) {

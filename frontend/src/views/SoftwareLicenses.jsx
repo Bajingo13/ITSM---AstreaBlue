@@ -26,6 +26,9 @@ import {
 import { API_URL } from "../config/api";
 import { useAuth } from "../context/AuthContext";
 import PageHero from "../components/layout/PageHero";
+import ExportReportModal from "../components/ExportReportModal";
+import { authHeaders } from "../services/authHeaders";
+import { exportRowsAsCsv, exportRowsAsJpeg } from "../utils/reportExport";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -169,6 +172,7 @@ function UtilizationChart({ used, total }) {
    ExpiringSoonBanner
    ───────────────────────────────────────────── */
 function ExpiringSoonBanner({ licenses }) {
+  const [expanded, setExpanded] = useState(false);
   const expiring = useMemo(
     () => (licenses || []).filter((l) => l.status === "Expiring Soon"),
     [licenses]
@@ -184,14 +188,14 @@ function ExpiringSoonBanner({ licenses }) {
           {expiring.length} license{expiring.length > 1 ? "s" : ""} expiring soon
         </p>
         <ul className="mt-3 divide-y divide-amber-200/70">
-          {expiring.slice(0, 5).map((l) => (
+          {(expanded ? expiring : expiring.slice(0, 5)).map((l) => (
             <li key={l.license_id} className="py-2 text-xs font-semibold">
               <strong>{l.license_name}</strong> — expires {formatDate(l.expiry_date)}
               {l.branch_name ? ` (${l.branch_name})` : ""}
             </li>
           ))}
           {expiring.length > 5 && (
-            <li className="text-xs font-bold text-amber-600">+{expiring.length - 5} more</li>
+            <li className="py-2"><button type="button" onClick={() => setExpanded((current) => !current)} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-black text-amber-700 transition hover:bg-amber-100">{expanded ? "Show less" : `+${expiring.length - 5} more`}</button></li>
           )}
         </ul>
       </div>
@@ -489,6 +493,10 @@ export default function SoftwareLicenses() {
 
   const [search, setSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortMode, setSortMode] = useState("expiry");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState("excel");
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingLicense, setEditingLicense] = useState(null);
@@ -497,7 +505,7 @@ export default function SoftwareLicenses() {
 
   /* ── Fetch branches (for filter + modal) ── */
   useEffect(() => {
-    fetch(`${API_BASE}/branches`)
+    fetch(`${API_BASE}/branches`, { headers: authHeaders(), cache: "no-store" })
       .then((r) => r.json())
       .then((data) => setBranches(Array.isArray(data) ? data : []))
       .catch(() => {});
@@ -514,8 +522,8 @@ export default function SoftwareLicenses() {
       });
 
       const [licensesRes, summaryRes] = await Promise.all([
-        fetch(`${API_BASE}/software-licenses${query}`),
-        fetch(`${API_BASE}/software-licenses/summary${query}`),
+        fetch(`${API_BASE}/software-licenses${query}`, { headers: authHeaders(), cache: "no-store" }),
+        fetch(`${API_BASE}/software-licenses/summary${query}`, { headers: authHeaders(), cache: "no-store" }),
       ]);
 
       if (!licensesRes.ok) throw new Error("Failed to fetch licenses");
@@ -540,15 +548,20 @@ export default function SoftwareLicenses() {
 
   /* ── Filtered licenses ── */
   const filteredLicenses = useMemo(() => {
-    if (!search.trim()) return licenses;
     const q = search.trim().toLowerCase();
-    return licenses.filter(
+    const rows = licenses.filter(
       (l) =>
-        (l.license_name || "").toLowerCase().includes(q) ||
+        (!q || (l.license_name || "").toLowerCase().includes(q) ||
         (l.vendor || "").toLowerCase().includes(q) ||
-        (l.branch_name || "").toLowerCase().includes(q)
+        (l.branch_name || "").toLowerCase().includes(q)) &&
+        (statusFilter === "all" || l.status === statusFilter)
     );
-  }, [licenses, search]);
+    return [...rows].sort((left, right) => {
+      if (sortMode === "name") return String(left.license_name || "").localeCompare(String(right.license_name || ""));
+      if (sortMode === "utilization") return (Number(right.used_licenses) / Math.max(Number(right.total_licenses), 1)) - (Number(left.used_licenses) / Math.max(Number(left.total_licenses), 1));
+      return new Date(left.expiry_date || "9999-12-31") - new Date(right.expiry_date || "9999-12-31");
+    });
+  }, [licenses, search, statusFilter, sortMode]);
 
   /* ── Derived totals for utilization ── */
   const totalUsed = licenses.reduce((s, l) => s + (l.used_licenses || 0), 0);
@@ -564,7 +577,7 @@ export default function SoftwareLicenses() {
       setSaveError("");
       const res = await fetch(`${API_BASE}/software-licenses`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(buildLicensePayload(user, formData)),
       });
       const data = await res.json();
@@ -585,7 +598,7 @@ export default function SoftwareLicenses() {
       setSaveError("");
       const res = await fetch(`${API_BASE}/software-licenses/${editingLicense.license_id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(buildLicensePayload(user, formData)),
       });
       const data = await res.json();
@@ -604,6 +617,7 @@ export default function SoftwareLicenses() {
     try {
       const res = await fetch(`${API_BASE}/software-licenses/${license.license_id}`, {
         method: "DELETE",
+        headers: authHeaders(),
       });
       const data = await res.json();
       if (!res.ok || data.success === false) throw new Error(data.message || data.error || "Failed to delete license.");
@@ -614,16 +628,33 @@ export default function SoftwareLicenses() {
     }
   };
 
+  const exportColumns = [
+    { label: "License", value: (row) => row.license_name },
+    { label: "Vendor", value: (row) => row.vendor },
+    { label: "Branch", value: (row) => row.branch_name || "Unassigned" },
+    { label: "Type", value: (row) => row.license_type },
+    { label: "Used / Total", value: (row) => `${row.used_licenses || 0} / ${row.total_licenses || 0}` },
+    { label: "Expiry", value: (row) => formatDate(row.expiry_date) },
+    { label: "Status", value: (row) => row.status },
+  ];
+
   const handleExport = async () => {
     if (filteredLicenses.length === 0) return;
+    if (exportFormat === "print") { setExportOpen(false); window.print(); return; }
+    if (exportFormat === "jpg") {
+      exportRowsAsJpeg({ filename: "software-licenses", title: "AstreaBlue Software Licenses", subtitle: branchFilter === "all" ? "All branches" : branches.find((branch) => String(branch.branch_id) === String(branchFilter))?.branch_name, columns: exportColumns, rows: filteredLicenses });
+      setExportOpen(false);
+      return;
+    }
     try {
       const params = new URLSearchParams({ t: Date.now() });
       const roleName = getRoleName(user);
       if (user?.user_id) params.set("current_user_id", user.user_id);
       if (roleName) params.set("role_name", roleName);
       if (user?.branch_id) params.set("current_branch_id", user.branch_id);
+      if (isSuperAdmin && branchFilter !== "all") params.set("branch_id", branchFilter);
 
-      const res = await fetch(`${API_BASE}/software-licenses/export?${params.toString()}`);
+      const res = await fetch(`${API_BASE}/software-licenses/export?${params.toString()}`, { headers: authHeaders() });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: "Export failed" }));
         alert(err.message || err.error || "No software licenses found for export.");
@@ -642,6 +673,7 @@ export default function SoftwareLicenses() {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
+      setExportOpen(false);
     } catch (err) {
       console.error("Export error:", err);
       alert("Failed to export software licenses. Please try again.");
@@ -673,8 +705,8 @@ export default function SoftwareLicenses() {
           </button>
           <button
             type="button"
-            onClick={handleExport}
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100"
+            onClick={() => setExportOpen(true)}
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-black text-white transition hover:bg-white/20"
           >
             <Download size={18} />
             Export
@@ -682,7 +714,7 @@ export default function SoftwareLicenses() {
           <button
             type="button"
             onClick={handlePrint}
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-900/5 px-5 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100"
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-black text-white transition hover:bg-white/20"
           >
             <Printer size={18} />
             Print
@@ -748,6 +780,8 @@ export default function SoftwareLicenses() {
                 <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
             )}
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"><option value="all">All statuses</option><option value="Active">Active</option><option value="Expiring Soon">Expiring soon</option><option value="Expired">Expired</option></select>
+            <select value={sortMode} onChange={(event) => setSortMode(event.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"><option value="expiry">Expiry date</option><option value="name">License name</option><option value="utilization">Highest utilization</option></select>
           </div>
           <p className="shrink-0 text-xs font-bold text-slate-400">
             {filteredLicenses.length} license{filteredLicenses.length !== 1 ? "s" : ""}
@@ -879,6 +913,18 @@ export default function SoftwareLicenses() {
           error={saveError}
           branches={branches}
           isSuperAdmin={isSuperAdmin}
+        />
+      )}
+      {exportOpen && (
+        <ExportReportModal
+          title="Export Software Licenses"
+          format={exportFormat}
+          onFormatChange={setExportFormat}
+          onClose={() => setExportOpen(false)}
+          onExport={handleExport}
+          branches={isSuperAdmin ? branches : []}
+          branchId={branchFilter}
+          onBranchChange={isSuperAdmin ? setBranchFilter : undefined}
         />
       )}
     </div>

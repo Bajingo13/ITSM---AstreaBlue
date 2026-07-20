@@ -4,6 +4,8 @@ import { authHeaders, getAuthToken } from "./authHeaders";
 const BASE = `${API_URL}/api/v1/replacement-requests`;
 
 async function request(path = "", options = {}) {
+  const token = getAuthToken();
+  if (!token) throw new Error("Your session is missing or expired. Please sign in again.");
   const sendsJson = options.body !== undefined && !(options.body instanceof FormData);
   const response = await fetch(`${BASE}${path}`, {
     ...options,
@@ -11,7 +13,7 @@ async function request(path = "", options = {}) {
     cache: options.method && options.method !== "GET" ? options.cache : "no-store",
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || `Request failed (${response.status}).`);
+  if (!response.ok) throw new Error(response.status === 401 ? "Your session expired. Please sign out and sign in again." : body.message || `Request failed (${response.status}).`);
   return body;
 }
 

@@ -6,6 +6,8 @@ import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../u
 import { API_URL } from "../config/api";
 import { authHeaders } from "../services/authHeaders";
 import PageHero from "../components/layout/PageHero";
+import ExportReportModal from "../components/ExportReportModal";
+import { exportRowsAsCsv, exportRowsAsJpeg } from "../utils/reportExport";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -100,6 +102,10 @@ function EventPopover({ event, onClose }) {
 function TicketsByDateModal({ date, events, onClose, onEventClick, branches }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [sortMode, setSortMode] = useState("oldest");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState("excel");
+  const isSuperAdmin = String(user?.role || user?.role_name || "").toLowerCase() === "superadmin";
   const [priorityFilter, setPriorityFilter] = useState("");
   const [technicianFilter, setTechnicianFilter] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
@@ -305,7 +311,7 @@ export default function CalendarPage() {
         const role = String(user?.role || user?.role_name || "").toLowerCase();
         if (role !== "superadmin" && user?.branch_id && branchFilter === "all") {
           const userBranch = activeBranches.find((b) => b.branch_id === user.branch_id);
-          if (userBranch) setBranchFilter(userBranch.branch_name);
+          if (userBranch) setBranchFilter(String(userBranch.branch_id));
         }
       })
       .catch((err) => {
@@ -338,9 +344,15 @@ export default function CalendarPage() {
   };
 
   // Group events by date for month view
+  const sortedEvents = useMemo(() => [...events].sort((left, right) => {
+    const leftTime = new Date(left.start_time || left.created_at || 0).getTime();
+    const rightTime = new Date(right.start_time || right.created_at || 0).getTime();
+    return sortMode === "latest" ? rightTime - leftTime : leftTime - rightTime;
+  }), [events, sortMode]);
+
   const eventsByDate = useMemo(() => {
     const map = {};
-    for (const ev of events) {
+    for (const ev of sortedEvents) {
       const dt = ev.start_time ? new Date(ev.start_time) : ev.created_at ? new Date(ev.created_at) : null;
       if (!dt || Number.isNaN(dt.getTime())) continue;
       const key = `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
@@ -348,7 +360,24 @@ export default function CalendarPage() {
       map[key].push(ev);
     }
     return map;
-  }, [events]);
+  }, [sortedEvents]);
+
+  const exportColumns = [
+    { label: "Ticket", value: (row) => row.ticket_number },
+    { label: "Title", value: (row) => row.title },
+    { label: "Branch", value: (row) => row.branch_name || "Unassigned" },
+    { label: "Technician", value: (row) => row.assigned_name || "Unassigned" },
+    { label: "Priority", value: (row) => formatPriority(row.priority) },
+    { label: "Status", value: (row) => row.status },
+    { label: "Scheduled", value: (row) => new Date(row.start_time || row.created_at).toLocaleString() },
+  ];
+  const handleCalendarExport = () => {
+    const filename = `ticket-calendar-${new Date().toISOString().slice(0, 10)}`;
+    if (exportFormat === "print") window.print();
+    else if (exportFormat === "jpg") exportRowsAsJpeg({ filename, title: "AstreaBlue Ticket Schedule", subtitle: headerLabel, columns: exportColumns, rows: sortedEvents });
+    else exportRowsAsCsv({ filename, columns: exportColumns, rows: sortedEvents });
+    setExportOpen(false);
+  };
 
   // Build month grid
   const monthGrid = useMemo(() => {
@@ -409,6 +438,7 @@ export default function CalendarPage() {
       {/* Controls Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setExportOpen(true)} className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-black text-blue-700 transition hover:border-blue-400 hover:bg-blue-100"><Download size={15}/> Export</button>
           <button onClick={goPrev} className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100"><ChevronLeft size={18} /></button>
           <button onClick={goToday} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50">Today</button>
           <button onClick={goNext} className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100"><ChevronRight size={18} /></button>
@@ -442,9 +472,14 @@ export default function CalendarPage() {
               className="bg-transparent text-xs font-bold text-slate-700 outline-none pr-1 max-w-[120px]">
               <option value="all">All Branches</option>
               {branches.filter((b) => b.is_active !== false).map((b) => (
-                <option key={b.branch_id} value={b.branch_name}>{b.branch_name}</option>
+                <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>
               ))}
             </select>
+          </div>
+
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+            <CalendarDays size={13} className="shrink-0 text-slate-400"/>
+            <select value={sortMode} onChange={(event) => setSortMode(event.target.value)} className="bg-transparent pr-1 text-xs font-bold text-slate-700 outline-none"><option value="oldest">Earliest first</option><option value="latest">Latest first</option></select>
           </div>
 
           {/* Technician Filter */}
@@ -632,6 +667,9 @@ export default function CalendarPage() {
           onClose={() => setSelectedDateEvents(null)}
           onEventClick={handleEventClick}
         />
+      )}
+      {exportOpen && (
+        <ExportReportModal title="Export Ticket Schedule" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={handleCalendarExport} branches={isSuperAdmin ? branches : []} branchId={branchFilter} onBranchChange={isSuperAdmin ? setBranchFilter : undefined}/>
       )}
     </div>
   );

@@ -7,6 +7,9 @@ import { buildTicketQuery } from "../utils/ticketAccess";
 import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
 import PageHero from "../components/layout/PageHero";
 import { getTicketCompletionLabel } from "../utils/ticketDuration";
+import { authHeaders } from "../services/authHeaders";
+import ExportReportModal from "../components/ExportReportModal";
+import { exportRowsAsCsv, exportRowsAsJpeg } from "../utils/reportExport";
 
 const API_BASE = `${API_URL}/api/v1`;
 const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -91,7 +94,11 @@ export default function SLAMonitor() {
   const [loading, setLoading] = useState(true);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState("excel");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [branches, setBranches] = useState([]);
+  const [branchFilter, setBranchFilter] = useState("all");
+  const isSuperAdmin = String(user?.role_name || user?.role || "").toLowerCase() === "superadmin";
 
   // SLA Filter & Sort State
   const [sortMode, setSortMode] = useState("latest");
@@ -111,8 +118,9 @@ export default function SLAMonitor() {
     if (slaStatusFilters.length) q.push(`slaStatus=${slaStatusFilters.join(",")}`);
     if (statusFilters.length) q.push(`status=${statusFilters.map(s => encodeURIComponent(s)).join(",")}`);
     if (priorityFilters.length) q.push(`priority=${priorityFilters.map(p => encodeURIComponent(p)).join(",")}`);
+    if (isSuperAdmin && branchFilter !== "all") q.push(`filter_branch_id=${encodeURIComponent(branchFilter)}`);
     return q.length ? `&${q.join("&")}` : "";
-  }, [sortMode, dateRange, dateFrom, dateTo, slaStatusFilters, statusFilters, priorityFilters]);
+  }, [sortMode, dateRange, dateFrom, dateTo, slaStatusFilters, statusFilters, priorityFilters, isSuperAdmin, branchFilter]);
 
   const activeFilterCount = useCallback(() => {
     let count = 0;
@@ -122,8 +130,9 @@ export default function SLAMonitor() {
     if (slaStatusFilters.length) count++;
     if (statusFilters.length) count++;
     if (priorityFilters.length) count++;
+    if (isSuperAdmin && branchFilter !== "all") count++;
     return count;
-  }, [sortMode, dateRange, dateFrom, dateTo, slaStatusFilters, statusFilters, priorityFilters]);
+  }, [sortMode, dateRange, dateFrom, dateTo, slaStatusFilters, statusFilters, priorityFilters, isSuperAdmin, branchFilter]);
 
   const clearAllFilters = useCallback(() => {
     setSortMode("latest");
@@ -133,7 +142,20 @@ export default function SLAMonitor() {
     setDateRange(null);
     setDateFrom("");
     setDateTo("");
+    setBranchFilter("all");
   }, []);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    fetch(`${API_BASE}/branches`, { headers: authHeaders(), cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || body.message || "Failed to load branches.");
+        return Array.isArray(body) ? body : body.data || body.branches || [];
+      })
+      .then(setBranches)
+      .catch((error) => console.error("SLA branch filter:", error.message));
+  }, [isSuperAdmin]);
 
   const handleExportPdfAll = useCallback(async () => {
     const token = localStorage.getItem("token") || sessionStorage.getItem("token");
@@ -173,14 +195,14 @@ export default function SLAMonitor() {
       const filterQuery = buildFilterQuery();
 
       // Fetch stats with filter params
-      const statsRes = await fetch(`${API_BASE}/sla/dashboard${buildTicketQuery(user)}${filterQuery}`);
+      const statsRes = await fetch(`${API_BASE}/sla/dashboard${buildTicketQuery(user)}${filterQuery}`, { headers: authHeaders(), cache: "no-store" });
       const statsData = await statsRes.json();
       if (statsData.success) {
         setStats(statsData.stats);
       }
 
       // Fetch tickets with filter params
-      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}${filterQuery}`);
+      const res = await fetch(`${API_BASE}/tickets${buildTicketQuery(user)}${filterQuery}`, { headers: authHeaders(), cache: "no-store" });
       const data = await res.json();
       const allTickets = Array.isArray(data) ? data : [];
       // When filters are active, show all matching results; otherwise exclude completed
@@ -188,7 +210,8 @@ export default function SLAMonitor() {
       setTickets(hasFilters ? allTickets : allTickets.filter((t) => t.status !== "Closed" && t.status !== "Cancelled"));
 
       // Fetch SLA history
-      const histRes = await fetch(`${API_BASE}/sla/history${buildTicketQuery(user)}`);
+      const historyBranch = isSuperAdmin && branchFilter !== "all" ? `&filter_branch_id=${encodeURIComponent(branchFilter)}` : "";
+      const histRes = await fetch(`${API_BASE}/sla/history${buildTicketQuery(user)}${historyBranch}`, { headers: authHeaders(), cache: "no-store" });
       const histData = await histRes.json();
       setHistory(histData.history || histData.data || []);
 
@@ -198,7 +221,26 @@ export default function SLAMonitor() {
     } finally {
       setLoading(false);
     }
-  }, [user, buildFilterQuery, activeFilterCount]);
+  }, [user, buildFilterQuery, activeFilterCount, isSuperAdmin, branchFilter]);
+
+  const exportColumns = [
+    { label: "Ticket", value: (row) => row.ticket_number || `TKT-${row.id}` },
+    { label: "Title", value: (row) => row.title },
+    { label: "Branch", value: (row) => row.branch_name || "Unassigned" },
+    { label: "Technician", value: (row) => row.assigned_name || "Unassigned" },
+    { label: "Priority", value: (row) => formatPriority(row.priority) },
+    { label: "Status", value: (row) => row.status },
+    { label: "Completion", value: (row) => row.resolved_at || row.closed_at ? getTicketCompletionLabel(row) : "Not completed" },
+    { label: "SLA", value: (row) => row.resolution_sla_status || row.response_sla_status || "Pending" },
+  ];
+
+  const handleUnifiedExport = useCallback(() => {
+    const filename = `sla-ticket-queue-${new Date().toISOString().slice(0, 10)}`;
+    if (exportFormat === "print") window.print();
+    else if (exportFormat === "jpg") exportRowsAsJpeg({ filename, title: "AstreaBlue SLA Ticket Queue", subtitle: branchFilter === "all" ? "All branches" : branches.find((branch) => String(branch.branch_id) === String(branchFilter))?.branch_name, columns: exportColumns, rows: tickets });
+    else exportRowsAsCsv({ filename, columns: exportColumns, rows: tickets });
+    setExportOpen(false);
+  }, [exportFormat, branchFilter, branches, tickets]);
 
   useEffect(() => {
     fetchData();
@@ -299,6 +341,9 @@ export default function SLAMonitor() {
                   prev.includes(val) ? prev.filter((v) => v !== val) : [...prev, val]
                 )
               }
+              branches={isSuperAdmin ? branches : []}
+              branchFilter={branchFilter}
+              onBranchChange={setBranchFilter}
               dateRange={dateRange}
               onDateRangeChange={setDateRange}
               dateFrom={dateFrom}
@@ -317,24 +362,6 @@ export default function SLAMonitor() {
                 Export
                 <svg className={`h-3 w-3 transition ${exportOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
               </button>
-              {exportOpen && (
-                <div className="absolute right-0 z-50 mt-1 w-48 rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
-                  <button
-                    onClick={() => { setExportOpen(false); handleExportPdfAll(); }}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <FileText size={16} className="text-slate-400" />
-                    Export PDF
-                  </button>
-                  <button
-                    onClick={() => handlePrintAll()}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <Printer size={16} className="text-slate-400" />
-                    Print Report
-                  </button>
-                </div>
-              )}
             </div>
             <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-700">
               {tickets.length} total
@@ -457,6 +484,9 @@ export default function SLAMonitor() {
           </table>
         </div>
       </section>
+      {exportOpen && (
+        <ExportReportModal title="Export SLA Ticket Queue" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={handleUnifiedExport} branches={isSuperAdmin ? branches : []} branchId={branchFilter} onBranchChange={isSuperAdmin ? setBranchFilter : undefined}/>
+      )}
 
       {/* Recent SLA Activity */}
       <section>
@@ -572,6 +602,9 @@ function SortFilterDropdown({
   onDateFromChange,
   dateTo,
   onDateToChange,
+  branches,
+  branchFilter,
+  onBranchChange,
 
   onClear,
 }) {
@@ -632,6 +665,8 @@ function SortFilterDropdown({
             })}
           </div>
         </FilterPanelSection>
+
+        {branches?.length > 0 && <FilterPanelSection title="Branch"><FilterSelect label="Ticket branch" value={branchFilter} onChange={onBranchChange} options={[{ value: "all", label: "All branches" }, ...branches.map((branch) => ({ value: String(branch.branch_id), label: branch.branch_name }))]}/></FilterPanelSection>}
 
         {/* SLA Status */}
         <FilterPanelSection title="SLA Status">

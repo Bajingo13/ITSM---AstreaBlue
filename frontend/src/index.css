@@ -1001,3 +1001,13 @@ html[data-theme="dark"] .astrea-workspace-panel { background: linear-gradient(14
   .astrea-intelligence-tile:hover { transform: none; }
 }
 
+/* Replacement request actions keep accessible contrast in every theme. */
+.replacement-requests-table tbody button {
+  border-color: #1d4ed8 !important;
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.replacement-requests-table tbody button:hover {
+  background: #1d4ed8 !important;
+}

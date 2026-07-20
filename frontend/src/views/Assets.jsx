@@ -30,6 +30,8 @@ import { buildTicketPayload } from "../utils/ticketAccess";
 import { API_URL } from "../config/api";
 
 import { authHeaders } from "../services/authHeaders";
+import ExportReportModal from "../components/ExportReportModal";
+import { exportRowsAsJpeg } from "../utils/reportExport";
 
 const API_BASE = `${API_URL}/api/v1`;
 const EMPTY_DETAIL_VALUE = "-";
@@ -715,6 +717,7 @@ export default function Assets() {
   const [historyRecords, setHistoryRecords] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFormat, setExportFormat] = useState("excel");
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -1264,11 +1267,37 @@ export default function Assets() {
 
   /* ── Export ───────────────────────────────────── */
   const handleExport = async () => {
+    const dateMatches = (asset) => {
+      const value = String(asset.updated_at || asset.created_at || asset.purchase_date || "").slice(0, 10);
+      return (!exportDateFrom || value >= exportDateFrom) && (!exportDateTo || value <= exportDateTo);
+    };
+    const exportRows = visibleAssets.filter(dateMatches);
+    if (exportFormat === "print") { setShowExportModal(false); window.print(); return; }
+    if (exportFormat === "jpg") {
+      exportRowsAsJpeg({
+        filename: "hardware-assets",
+        title: "AstreaBlue Hardware Assets",
+        subtitle: branchFilter === "All" ? "All branches" : branches.find((branch) => String(branch.branch_id) === String(branchFilter))?.branch_name,
+        columns: [
+          { label: "Asset Tag", value: (row) => row.asset_tag },
+          { label: "Asset", value: (row) => row.asset_name },
+          { label: "Type", value: (row) => row.asset_type },
+          { label: "Serial", value: (row) => row.serial_number },
+          { label: "Branch", value: (row) => row.branch_name || "Unassigned" },
+          { label: "Assigned", value: (row) => row.assigned_name || row.borrower_name || "Unassigned" },
+          { label: "Status", value: (row) => row.status },
+        ],
+        rows: exportRows,
+      });
+      setShowExportModal(false);
+      return;
+    }
     try {
       setExporting(true);
       const params = new URLSearchParams({ t: Date.now() });
       if (exportDateFrom) params.set("start_date", exportDateFrom);
       if (exportDateTo) params.set("end_date", exportDateTo);
+      if (isSuperAdmin && branchFilter !== "All") params.set("filter_branch_id", branchFilter);
 
       const res = await fetch(`${API_BASE}/hardware-assets/export?${params.toString()}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("token") || sessionStorage.getItem("token") || ""}` },
@@ -1786,65 +1815,23 @@ export default function Assets() {
         <AssetHistoryModal asset={historyAsset} records={historyRecords} loading={historyLoading} onClose={() => setHistoryAsset(null)} />
       )}
 
-      {/* Export Modal */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
-          <div className="w-full max-w-md overflow-hidden rounded-[28px] bg-white shadow-2xl">
-            <div className="border-b border-slate-200 px-6 py-5">
-              <h2 className="text-xl font-black text-slate-900">Export Hardware Assets</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Select a date range for the export.
-              </p>
-            </div>
-            <div className="space-y-5 px-6 py-6">
-              <label className="block space-y-1.5">
-                <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">From Date</span>
-                <input
-                  type="date"
-                  value={exportDateFrom}
-                  onChange={(e) => setExportDateFrom(e.target.value)}
-                  className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15"
-                />
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">To Date</span>
-                <input
-                  type="date"
-                  value={exportDateTo}
-                  onChange={(e) => setExportDateTo(e.target.value)}
-                  className="w-full rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15"
-                />
-              </label>
-            </div>
-            <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
-              <button
-                type="button"
-                onClick={() => { setShowExportModal(false); setExportDateFrom(""); setExportDateTo(""); }}
-                className="rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleExport}
-                disabled={exporting}
-                className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {exporting ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <Download size={16} />
-                    Export Excel
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ExportReportModal
+          title="Export Hardware Assets"
+          format={exportFormat}
+          onFormatChange={setExportFormat}
+          onClose={() => setShowExportModal(false)}
+          onExport={handleExport}
+          busy={exporting}
+          branches={isSuperAdmin ? branches : []}
+          branchId={branchFilter === "All" ? "all" : branchFilter}
+          onBranchChange={isSuperAdmin ? (value) => setBranchFilter(value === "all" ? "All" : value) : undefined}
+          showDates
+          dateFrom={exportDateFrom}
+          dateTo={exportDateTo}
+          onDateFromChange={setExportDateFrom}
+          onDateToChange={setExportDateTo}
+        />
       )}
 
       {/* Delete Confirmation Modal */}
