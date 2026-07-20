@@ -3,10 +3,30 @@ const fs = require("fs");
 const path = require("path");
 const db = require("../../config/db");
 const { uploadTicketAttachments } = require("./_uploads");
+const { addTicketAccessFilter, requireAuthenticatedTicketUser } = require("./_ticketAccess");
 
 const router = express.Router();
+router.use(requireAuthenticatedTicketUser);
 
-router.get("/:id/attachments", async (req, res) => {
+async function requireScopedTicket(req, res, next) {
+  try {
+    const params = [req.params.id];
+    const clauses = addTicketAccessFilter(req, params, "t");
+    const result = await db.query(
+      `SELECT t.id FROM tickets t WHERE t.id=$1 AND ${clauses.join(" AND ")}`,
+      params
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ success: false, error: "Ticket not found" });
+    }
+    return next();
+  } catch (error) {
+    console.error("Ticket attachment scope error:", error.message);
+    return res.status(500).json({ success: false, error: "Failed to verify ticket access" });
+  }
+}
+
+router.get("/:id/attachments", requireScopedTicket, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await db.query(
@@ -34,7 +54,7 @@ router.get("/:id/attachments", async (req, res) => {
   }
 });
 
-router.post("/:id/attachments", (req, res) => {
+router.post("/:id/attachments", requireScopedTicket, (req, res) => {
   uploadTicketAttachments.array("attachments", 10)(req, res, async (uploadErr) => {
     if (uploadErr) {
       return res.status(400).json({
@@ -48,7 +68,7 @@ router.post("/:id/attachments", (req, res) => {
 
   try {
     const { id } = req.params;
-    const uploadedBy = req.body.uploaded_by || null;
+    const uploadedBy = req.ticketAccessContext.currentUserId;
     const files = req.files || [];
 
     if (files.length === 0) {
@@ -56,11 +76,6 @@ router.post("/:id/attachments", (req, res) => {
         success: false,
         error: "At least one attachment file is required",
       });
-    }
-
-    const ticketResult = await db.query(`SELECT id FROM tickets WHERE id = $1`, [id]);
-    if (ticketResult.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Ticket not found" });
     }
 
     const savedAttachments = [];
@@ -108,7 +123,7 @@ router.post("/:id/attachments", (req, res) => {
   });
 });
 
-router.delete("/:id/attachments/:attachmentId", async (req, res) => {
+router.delete("/:id/attachments/:attachmentId", requireScopedTicket, async (req, res) => {
   try {
     const { id, attachmentId } = req.params;
     const result = await db.query(

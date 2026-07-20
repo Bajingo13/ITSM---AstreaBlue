@@ -1,7 +1,8 @@
 const express = require('express');
 const db = require('../../config/db');
 const router = express.Router();
-const { addTicketAccessFilter } = require('./_ticketAccess');
+const { addTicketAccessFilter, requireAuthenticatedTicketUser } = require('./_ticketAccess');
+router.use(requireAuthenticatedTicketUser);
 
 // GET /api/v1/calendar/events — Returns ticket events for calendar display
 router.get('/events', async (req, res) => {

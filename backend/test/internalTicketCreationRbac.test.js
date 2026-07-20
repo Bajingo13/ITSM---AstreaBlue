@@ -219,3 +219,35 @@ test("Employee remains blocked from creating a ticket for another branch", async
   });
   assert.equal(response.status, 403);
 });
+
+test("internal ticket routes reject unauthenticated requests", async () => {
+  const response = await fetch(`${baseUrl}/api/v1/tickets`);
+  assert.equal(response.status, 401);
+});
+
+test("employee cannot comment on a ticket in another branch", async () => {
+  const createResponse = await createTicket(superAdmin, "SuperAdmin", {
+    title: "Cross-branch comment scope test",
+    description: "Verifies comment writes respect ticket RBAC.",
+    priority: "P3-Medium",
+    category_id: categoryId,
+    requester_id: superAdmin.user_id,
+    branch_id: alternateBranchId,
+  });
+  const created = await createResponse.json();
+  assert.equal(createResponse.status, 201, JSON.stringify(created));
+  ticketIds.push(created.data.id);
+
+  const response = await fetch(`${baseUrl}/api/v1/tickets/${created.data.id}/comments`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${tokenFor(employee, "Employee")}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      comment_text: "This cross-branch write must be denied.",
+      user_id: superAdmin.user_id,
+    }),
+  });
+  assert.equal(response.status, 404);
+});

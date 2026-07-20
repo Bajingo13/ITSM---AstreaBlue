@@ -10,7 +10,7 @@ async function ensureReplacementSchema() {
     const client = await db.rawPool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["astreablue_replacement_requests_v2"]);
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["astreablue_replacement_requests_v3"]);
       const readiness = await client.query(`SELECT
         to_regclass('replacement_requests') IS NOT NULL
         AND to_regclass('replacement_request_history') IS NOT NULL
@@ -51,6 +51,19 @@ async function ensureReplacementSchema() {
           "utf8"
         );
         await client.query(repairMigration);
+      }
+      const statusRestoreReadiness = await client.query(`SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema=current_schema()
+          AND table_name='replacement_requests'
+          AND column_name='pre_repair_asset_status'
+      ) AS ready`);
+      if (!statusRestoreReadiness.rows[0]?.ready) {
+        const statusRestoreMigration = fs.readFileSync(
+          path.join(__dirname, "../../database/2026-07-20-replacement-restore-asset-status.sql"),
+          "utf8"
+        );
+        await client.query(statusRestoreMigration);
       }
       await client.query("COMMIT");
       return true;

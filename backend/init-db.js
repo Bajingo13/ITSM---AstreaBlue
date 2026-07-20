@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { rawPool } = require("./config/db");
+const bcrypt = require("bcryptjs");
 
 const migrationFiles = [
   "BASE_SCHEMA.sql",
@@ -32,6 +33,7 @@ const migrationFiles = [
   "2026-07-15-core-query-performance.sql",
   "2026-07-17-replacement-requests.sql",
   "2026-07-17-replacement-repair-lifecycle.sql",
+  "2026-07-20-replacement-restore-asset-status.sql",
 ];
 
 const defaultTicketCategories = [
@@ -69,6 +71,27 @@ async function seedTicketCategories(client) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("[AstreaBlue DB] ticket category seeding failed:", error.message);
     throw error;
+  }
+}
+
+async function migrateLegacyPlaintextPasswords(client) {
+  const result = await client.query(`
+    SELECT user_id,password_hash
+    FROM users
+    WHERE password_hash IS NOT NULL
+      AND password_hash NOT LIKE '$2a$%'
+      AND password_hash NOT LIKE '$2b$%'
+      AND password_hash NOT LIKE '$2y$%'
+      AND password_hash NOT LIKE 'sha256$%'
+  `);
+  for (const user of result.rows) {
+    await client.query(
+      "UPDATE users SET password_hash=$1 WHERE user_id=$2 AND password_hash=$3",
+      [bcrypt.hashSync(user.password_hash, 12), user.user_id, user.password_hash]
+    );
+  }
+  if (result.rowCount) {
+    console.log(`[AstreaBlue DB] migrated ${result.rowCount} legacy plaintext password(s)`);
   }
 }
 
@@ -113,6 +136,7 @@ async function runMigrations() {
     }
 
     await seedTicketCategories(client);
+    await migrateLegacyPlaintextPasswords(client);
 
     console.log("[AstreaBlue DB] initialization complete");
   } finally {

@@ -34,7 +34,7 @@ function smtpConfig() {
     requireTLS: port === 587,
     auth,
     tls: {
-      rejectUnauthorized: false,
+      rejectUnauthorized: process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== "false",
     },
     family: 4,
     connectionTimeout: 30000,

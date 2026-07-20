@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node init-db.js && node server.js",
     "dev": "node init-db.js && nodemon server.js",
-    "build": "node --check init-db.js && node --check server.js && node --check src/routes/tickets.js && node --check src/routes/integrationGateway.js && node --check src/routes/laptopMonitoring.js && node --check src/routes/projectAnalytics.js && node --check src/routes/analyticsCenter.js && node --check src/routes/replacementRequests.js && node --check src/routes/onboarding.js && node --check src/routes/consent.js && node --check src/services/replacementSchemaService.js && node --check src/services/r2StorageService.js && node --check src/services/serviceDeskTicketService.js",
+    "build": "node --check init-db.js && node --check server.js && node --check src/routes/_ticketAccess.js && node --check src/routes/attachments.js && node --check src/routes/tickets.js && node --check src/routes/integrationGateway.js && node --check src/routes/laptopMonitoring.js && node --check src/routes/projectAnalytics.js && node --check src/routes/analyticsCenter.js && node --check src/routes/replacementRequests.js && node --check src/routes/onboarding.js && node --check src/routes/consent.js && node --check src/services/emailService.js && node --check src/services/replacementSchemaService.js && node --check src/services/replacementAssetStatusService.js && node --check src/services/r2StorageService.js && node --check src/services/serviceDeskTicketService.js",
     "migrate:phase2": "node scripts/apply-phase2-migration.js",
     "integration:provision": "node scripts/provision-external-system.js",
     "integration:revoke": "node scripts/revoke-external-system.js",
@@ -27,7 +27,7 @@
     "mongoose": "^9.7.2",
     "multer": "^2.2.0",
     "node-cron": "^4.6.0",
-    "nodemailer": "^6.9.4",
+    "nodemailer": "^9.0.3",
     "pdf-lib": "^1.17.1",
     "pdfkit": "^0.19.1",
     "pg": "^8.21.0",

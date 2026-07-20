@@ -4,7 +4,12 @@ const cors = require("cors");
 const crypto = require("crypto");
 const path = require("path");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 require("dotenv").config();
+
+if (process.env.NODE_ENV === "production" && !String(process.env.JWT_SECRET || "").trim()) {
+  throw new Error("JWT_SECRET is required in production.");
+}
 
 const db = require("./config/db");
 
@@ -198,26 +203,29 @@ async function ensureRoleBranchManagement() {
       )
     `);
 
-    await db.query(`
-      INSERT INTO users
-      (full_name, email, password_hash, role_id, company_name, status, is_active)
-      SELECT
-        'Super Administrator',
-        'superadmin@astreablue.com',
-        'superadmin123',
-        sr.role_id,
-        'AstreaBlue',
-        'Active',
-        TRUE
-      FROM system_roles sr
-      WHERE LOWER(sr.role_name) = 'superadmin'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM users u
-          WHERE LOWER(u.email) = 'superadmin@astreablue.com'
-        )
-      LIMIT 1
-    `);
+    const bootstrapPassword = String(process.env.BOOTSTRAP_SUPERADMIN_PASSWORD || "").trim();
+    if (bootstrapPassword) {
+      await db.query(`
+        INSERT INTO users
+        (full_name, email, password_hash, role_id, company_name, status, is_active)
+        SELECT
+          'Super Administrator',
+          'superadmin@astreablue.com',
+          $1,
+          sr.role_id,
+          'AstreaBlue',
+          'Active',
+          TRUE
+        FROM system_roles sr
+        WHERE LOWER(sr.role_name) = 'superadmin'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM users u
+            WHERE LOWER(u.email) = 'superadmin@astreablue.com'
+          )
+        LIMIT 1
+      `, [bcrypt.hashSync(bootstrapPassword, 12)]);
+    }
   } catch (err) {
     console.error("Role/branch setup error:", err.message);
   }
@@ -1028,7 +1036,7 @@ app.get("/api/v1/technicians", async (req, res) => {
    USER MANAGEMENT
 ========================== */
 
-app.get("/api/v1/roles", async (req, res) => {
+app.get("/api/v1/roles", requireAuthenticatedRequest, async (req, res) => {
   try {
     const result = await db.query(`
       SELECT role_id, role_name
@@ -1055,18 +1063,17 @@ app.get("/api/v1/roles", async (req, res) => {
   }
 });
 
-app.get("/api/v1/branches", async (req, res) => {
+app.get("/api/v1/branches", requireAuthenticatedRequest, async (req, res) => {
   try {
     const auth = getAuthFromRequest(req);
     let whereClause = "";
     const params = [];
 
-    if (auth) {
-      const role = String(auth.role || "").toLowerCase();
-      if ((role === "admin" || role === "technician") && auth.branchId) {
-        whereClause = "WHERE b.branch_id = $1";
-        params.push(auth.branchId);
-      }
+    const role = String(auth.role || "").toLowerCase();
+    if (role !== "superadmin") {
+      if (!auth.branchId) return res.status(403).json({ success: false, error: "Branch access denied." });
+      whereClause = "WHERE b.branch_id = $1";
+      params.push(auth.branchId);
     }
 
     const result = await db.query(`
@@ -1107,7 +1114,7 @@ app.get("/api/v1/branches", async (req, res) => {
   }
 });
 
-app.post("/api/v1/branches", async (req, res) => {
+app.post("/api/v1/branches", requireSuperAdminRequest, async (req, res) => {
   try {
     const {
       branch_name,
@@ -1151,7 +1158,7 @@ app.post("/api/v1/branches", async (req, res) => {
   }
 });
 
-app.put("/api/v1/branches/:id", async (req, res) => {
+app.put("/api/v1/branches/:id", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -1208,7 +1215,7 @@ app.put("/api/v1/branches/:id", async (req, res) => {
   }
 });
 
-app.patch("/api/v1/branches/:id/status", async (req, res) => {
+app.patch("/api/v1/branches/:id/status", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const { is_active } = req.body;
@@ -1248,7 +1255,7 @@ app.patch("/api/v1/branches/:id/status", async (req, res) => {
   }
 });
 
-app.patch("/api/v1/branches/:id/admin", async (req, res) => {
+app.patch("/api/v1/branches/:id/admin", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const { user_id } = req.body;
@@ -1299,6 +1306,27 @@ function getAuthFromRequest(req) {
   } catch {
     return null;
   }
+}
+
+function requireAuthenticatedRequest(req, res, next) {
+  const auth = getAuthFromRequest(req);
+  if (!auth?.userId) {
+    return res.status(401).json({ success: false, error: "Authentication required." });
+  }
+  req.authenticatedUser = auth;
+  return next();
+}
+
+function requireSuperAdminRequest(req, res, next) {
+  const auth = getAuthFromRequest(req);
+  if (!auth?.userId) {
+    return res.status(401).json({ success: false, error: "Authentication required." });
+  }
+  if (String(auth.role || "").toLowerCase().replace(/[\s_-]/g, "") !== "superadmin") {
+    return res.status(403).json({ success: false, error: "SuperAdmin access required." });
+  }
+  req.authenticatedUser = auth;
+  return next();
 }
 
 function getHardwareAssetAccessFilter(req) {
@@ -2273,18 +2301,20 @@ app.patch("/api/v1/hardware-assets/:id/status", async (req, res) => {
   }
 });
 
-app.get("/api/v1/users", async (req, res) => {
+app.get("/api/v1/users", requireAuthenticatedRequest, async (req, res) => {
   try {
     const auth = getAuthFromRequest(req);
     let whereClause = "";
     const params = [];
     
-    if (auth) {
-      const role = String(auth.role || "").toLowerCase();
-      if ((role === "admin" || role === "technician") && auth.branchId) {
-        whereClause = "WHERE u.branch_id = $1";
-        params.push(auth.branchId);
-      }
+    const role = String(auth.role || "").toLowerCase();
+    if (role === "employee") {
+      whereClause = "WHERE u.user_id = $1";
+      params.push(auth.userId);
+    } else if (role !== "superadmin") {
+      if (!auth.branchId) return res.status(403).json({ success: false, error: "Branch access denied." });
+      whereClause = "WHERE u.branch_id = $1";
+      params.push(auth.branchId);
     }
 
     const result = await db.query(`
@@ -2324,7 +2354,7 @@ app.get("/api/v1/users", async (req, res) => {
   }
 });
 
-app.post("/api/v1/users", async (req, res) => {
+app.post("/api/v1/users", requireSuperAdminRequest, async (req, res) => {
   try {
     const {
       full_name,
@@ -2350,7 +2380,7 @@ app.post("/api/v1/users", async (req, res) => {
       });
     }
 
-    const hashedPwd = `sha256$${crypto.createHash("sha256").update(finalPassword).digest("hex")}`;
+    const hashedPwd = bcrypt.hashSync(finalPassword, 12);
 
     const result = await db.query(
       `
@@ -2362,7 +2392,7 @@ app.post("/api/v1/users", async (req, res) => {
       [
         full_name,
         email,
-        finalPassword,
+        hashedPwd,
         role_id,
         company_name,
         branch_id || null,
@@ -2390,7 +2420,7 @@ app.post("/api/v1/users", async (req, res) => {
   }
 });
 
-app.put("/api/v1/users/:id", async (req, res) => {
+app.put("/api/v1/users/:id", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -2459,7 +2489,7 @@ app.put("/api/v1/users/:id", async (req, res) => {
   }
 });
 
-app.patch("/api/v1/users/:id/reset-password", async (req, res) => {
+app.patch("/api/v1/users/:id/reset-password", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const { password, password_hash } = req.body;
@@ -2472,7 +2502,7 @@ app.patch("/api/v1/users/:id/reset-password", async (req, res) => {
       });
     }
 
-    const hashedPwd = `sha256$${crypto.createHash("sha256").update(finalPassword).digest("hex")}`;
+    const hashedPwd = bcrypt.hashSync(finalPassword, 12);
 
     const result = await db.query(
       `
@@ -2499,7 +2529,7 @@ app.patch("/api/v1/users/:id/reset-password", async (req, res) => {
   }
 });
 
-app.patch("/api/v1/users/:id/status", async (req, res) => {
+app.patch("/api/v1/users/:id/status", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -2543,7 +2573,7 @@ app.patch("/api/v1/users/:id/status", async (req, res) => {
   }
 });
 
-app.post("/api/v1/users/invite", async (req, res) => {
+app.post("/api/v1/users/invite", requireSuperAdminRequest, async (req, res) => {
   try {
     const {
       full_name,

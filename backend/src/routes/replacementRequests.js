@@ -5,6 +5,7 @@ const { uploadTicketAttachments } = require("./_uploads");
 const { createNotification } = require("../services/notificationService");
 const { emitReplacementChanged } = require("../services/socketService");
 const { ensureReplacementSchema } = require("../services/replacementSchemaService");
+const { resolvePostRepairAssetStatus } = require("../services/replacementAssetStatusService");
 
 const router = express.Router();
 
@@ -82,7 +83,7 @@ async function updateRepairAsset(client, request, nextStatus, actorId, resolutio
     );
     const assigned = Boolean(String(asset.employee_id || "").trim() ||
       String(asset.assigned_name || asset.borrower_name || "").trim() || linkedDevice.rows.length);
-    hardwareStatus = assigned ? "Borrowed" : "Available";
+    hardwareStatus = resolvePostRepairAssetStatus(request.pre_repair_asset_status, assigned);
     eventType = "Replacement request - repair completed";
   }
 
@@ -102,10 +103,11 @@ async function updateRepairAsset(client, request, nextStatus, actorId, resolutio
       requestNumber: request.request_number,
       requestStatus: nextStatus,
       assetStatus: hardwareStatus,
+      previousAssetStatus: nextStatus === "In Repair" ? asset.status : request.pre_repair_asset_status || null,
       resolution: resolution || null,
     }), request.branch_id, actorId]
   );
-  return hardwareStatus;
+  return { hardwareStatus, previousStatus: asset.status };
 }
 
 async function loadRequest(queryable, id, lock = false) {
@@ -537,9 +539,9 @@ router.patch("/:id/status", async (req, res) => {
       if (role !== "superadmin" && Number(asset.branch_id) !== Number(request.branch_id)) throw Object.assign(new Error("The replacement asset must belong to your branch."), { status: 403 });
     }
     if (next === "Issued") await exchangeAssets(client, { ...request, replacement_asset_id: replacementAssetId }, currentUserId);
-    let repairedAssetStatus = null;
-    if (next === "In Repair") repairedAssetStatus = await updateRepairAsset(client, request, next, currentUserId);
-    if (next === "Repaired") repairedAssetStatus = await updateRepairAsset(client, request, next, currentUserId, String(req.body.repair_resolution).trim());
+    let repairAssetUpdate = null;
+    if (next === "In Repair") repairAssetUpdate = await updateRepairAsset(client, request, next, currentUserId);
+    if (next === "Repaired") repairAssetUpdate = await updateRepairAsset(client, request, next, currentUserId, String(req.body.repair_resolution).trim());
 
     const fields = ["status=$1", "updated_at=CURRENT_TIMESTAMP"];
     const values = [next];
@@ -557,11 +559,19 @@ router.patch("/:id/status", async (req, res) => {
     if (next === "Issued") { set("issued_by", currentUserId); fields.push("issued_at=CURRENT_TIMESTAMP"); }
     if (next === "Completed") { set("completed_by", currentUserId); fields.push("completed_at=CURRENT_TIMESTAMP"); }
     if (next === "Cancelled") { set("cancelled_by", currentUserId); fields.push("cancelled_at=CURRENT_TIMESTAMP"); }
-    if (next === "In Repair") { set("repair_started_by", currentUserId); fields.push("repair_started_at=CURRENT_TIMESTAMP"); }
+    if (next === "In Repair") {
+      set("repair_started_by", currentUserId);
+      set("pre_repair_asset_status", repairAssetUpdate.previousStatus || null);
+      fields.push("repair_started_at=CURRENT_TIMESTAMP");
+    }
     if (next === "Repaired") { set("repaired_by", currentUserId); fields.push("repaired_at=CURRENT_TIMESTAMP"); }
     values.push(req.params.id);
     await client.query(`UPDATE replacement_requests SET ${fields.join(",")} WHERE id=$${values.length}`, values);
-    await addHistory(client, req.params.id, currentUserId, "status_changed", `Status changed from ${request.status} to ${next}.`, request.status, next, { replacementAssetId, assetStatus: repairedAssetStatus });
+    await addHistory(client, req.params.id, currentUserId, "status_changed", `Status changed from ${request.status} to ${next}.`, request.status, next, {
+      replacementAssetId,
+      assetStatus: repairAssetUpdate?.hardwareStatus || null,
+      previousAssetStatus: next === "In Repair" ? repairAssetUpdate?.previousStatus || null : request.pre_repair_asset_status || null,
+    });
     await client.query("COMMIT");
     committed = true;
     emitReplacementChanged({ action: "status_changed", requestId: req.params.id });

@@ -79,7 +79,17 @@ function addTicketAccessFilter(req, params, alias = "t") {
   return ["1 = 0"];
 }
 
+function requireAuthenticatedTicketUser(req, res, next) {
+  const context = getRequestContext(req);
+  if (!context.authenticated) {
+    return res.status(401).json({ success: false, message: "Authentication required." });
+  }
+  req.ticketAccessContext = context;
+  return next();
+}
+
 module.exports = {
   getRequestContext,
   addTicketAccessFilter,
+  requireAuthenticatedTicketUser,
 };

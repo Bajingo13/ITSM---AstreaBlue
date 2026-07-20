@@ -1,6 +1,6 @@
 const express = require("express");
 const db = require("../../config/db");
-const { addTicketAccessFilter, getRequestContext } = require("./_ticketAccess");
+const { addTicketAccessFilter, getRequestContext, requireAuthenticatedTicketUser } = require("./_ticketAccess");
 const {
   sendTicketAssignedEmail,
   sendTicketCancelledEmail,
@@ -64,6 +64,7 @@ const setupTickets = async () => {
 };
 
 const router = express.Router();
+router.use(requireAuthenticatedTicketUser);
 
 async function ensureTicketBranchColumn() {
   try {
@@ -155,6 +156,12 @@ async function sendTicketNotification(ticketId, sendEmail) {
     console.warn("Ticket email notification failed:", err.message);
     return "Ticket updated, but email notification failed.";
   }
+}
+
+function queueTicketNotification(ticketId, sendEmail, context = "Ticket email") {
+  sendTicketNotification(ticketId, sendEmail).catch((error) => {
+    console.warn(`${context} failed:`, error.message);
+  });
 }
 
 async function createInAppNotification(userId, title, message, type = "info", ticketId = null, metadata = {}) {
@@ -817,8 +824,6 @@ router.put("/:id", async (req, res) => {
       ]
     );
 
-    let emailWarning = null;
-
       if (status && status !== existing.status) {
         try {
           await db.query(
@@ -869,13 +874,8 @@ router.put("/:id", async (req, res) => {
       }
 
       if (status && status !== existing.status && (finalStatus === "Closed" || finalStatus === "Cancelled")) {
-        try {
-          const statusEmail =
-            finalStatus === "Closed"
-              ? sendTicketClosedEmail
-              : sendTicketCancelledEmail;
-          emailWarning = await sendTicketNotification(id, statusEmail);
-        } catch(e) { console.warn("Email failed:", e.message); }
+        const statusEmail = finalStatus === "Closed" ? sendTicketClosedEmail : sendTicketCancelledEmail;
+        queueTicketNotification(id, statusEmail, "Ticket status email");
       }
       
       if (status && status !== existing.status) try {
@@ -905,7 +905,6 @@ router.put("/:id", async (req, res) => {
       success: true,
       message: "Ticket updated successfully.",
       data: result.rows[0],
-      ...(emailWarning ? { email_warning: emailWarning } : {}),
     });
   } catch (err) {
     console.error("Update ticket error:", err.message);
@@ -1106,9 +1105,8 @@ router.patch("/:id/assign", async (req, res) => {
       );
     } catch(e) { console.warn("History insert failed:", e.message); }
 
-    let emailWarning = null;
     if (assigned_to && process.env.NODE_ENV !== "test") {
-      emailWarning = await sendTicketNotification(id, async (ticketDetails) => {
+      queueTicketNotification(id, async (ticketDetails) => {
         const assignedTicket = {
           ...ticketDetails,
           requester_email: ticketDetails.assigned_email,
@@ -1116,7 +1114,7 @@ router.patch("/:id/assign", async (req, res) => {
           requester_personal_email: null,
         };
         return sendTicketAssignedEmail(assignedTicket);
-      });
+      }, "Ticket assignment email");
     }
     
     if (assigned_to) {
@@ -1139,7 +1137,6 @@ router.patch("/:id/assign", async (req, res) => {
       message: "Ticket assigned successfully.",
       data: result.rows[0],
       ticket: result.rows[0],
-      ...(emailWarning ? { email_warning: emailWarning } : {}),
     });
   } catch (err) {
     console.error("Assign ticket error:", err.message);
@@ -1154,13 +1151,29 @@ router.patch("/:id/assign", async (req, res) => {
 router.post("/:id/comments", async (req, res) => {
   try {
     const { id } = req.params;
-    const { user_id = null, comment_text, is_internal = false } = req.body;
+    const { comment_text, is_internal = false } = req.body;
+    const context = req.ticketAccessContext;
 
     if (!comment_text) {
       return res.status(400).json({
         success: false,
         error: "Comment text is required",
       });
+    }
+
+    const accessParams = [id];
+    const accessClauses = addTicketAccessFilter(req, accessParams, "t");
+    const accessible = await db.query(
+      `SELECT t.id FROM tickets t WHERE t.id=$1 AND ${accessClauses.join(" AND ")}`,
+      accessParams
+    );
+    if (!accessible.rows.length) {
+      return res.status(404).json({ success: false, error: "Ticket not found" });
+    }
+
+    const role = String(context.roleName || "").toLowerCase();
+    if (is_internal && !["superadmin", "admin", "technician"].includes(role)) {
+      return res.status(403).json({ success: false, error: "Internal comments are restricted to IT staff" });
     }
 
     const result = await db.query(
@@ -1170,7 +1183,7 @@ router.post("/:id/comments", async (req, res) => {
       VALUES ($1,$2,$3,$4)
       RETURNING *
       `,
-      [id, user_id, comment_text, is_internal]
+      [id, context.currentUserId, comment_text, Boolean(is_internal)]
     );
 
     await db.query(
@@ -1179,7 +1192,7 @@ router.post("/:id/comments", async (req, res) => {
       (ticket_id, changed_by, action, old_value, new_value)
       VALUES ($1,$2,$3,$4,$5)
       `,
-      [id, user_id, "Comment Added", null, comment_text]
+      [id, context.currentUserId, "Comment Added", null, comment_text]
     );
 
     const ticketPeople = await db.query(
@@ -1188,7 +1201,7 @@ router.post("/:id/comments", async (req, res) => {
     );
     const ticket = ticketPeople.rows[0];
     const recipients = [...new Set([ticket?.requester_id, ticket?.assigned_to].filter(Boolean))]
-      .filter((recipientId) => String(recipientId) !== String(user_id));
+      .filter((recipientId) => String(recipientId) !== String(context.currentUserId));
     for (const recipientId of recipients) {
       await createInAppNotification(
         recipientId,
@@ -1313,13 +1326,9 @@ router.patch("/:id/cancel", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
 
-    let emailWarning = null;
-    try {
-      emailWarning = await sendTicketNotification(
-        id,
-        sendTicketCancelledEmail
-      );
-    } catch(e) { console.warn("Email failed:", e.message); }
+    if (process.env.NODE_ENV !== "test") {
+      queueTicketNotification(id, sendTicketCancelledEmail, "Ticket cancellation email");
+    }
     
     try {
       await createInAppNotification(existing.requester_id, "Ticket Cancelled", `Your ticket ${existing.ticket_number || id} was cancelled.`, "error", id, { event: "cancelled" });
@@ -1338,7 +1347,6 @@ router.patch("/:id/cancel", async (req, res) => {
       message: "Ticket cancelled successfully.",
       data: result.rows[0],
       ticket: result.rows[0],
-      ...(emailWarning ? { email_warning: emailWarning } : {}),
     });
   } catch (err) {
     console.error("Cancel ticket error:", err.message);
