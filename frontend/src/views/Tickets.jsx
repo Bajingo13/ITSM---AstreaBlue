@@ -1683,7 +1683,7 @@ export default function Tickets() {
       setExporting(true);
       setPageError("");
       const params = new URLSearchParams({
-        format: exportFormat === "print" ? "pdf" : "excel",
+        format: exportFormat,
       });
       if (branchFilter) params.set("filter_branch_id", branchFilter);
       if (statusFilter !== "all") params.set("status", statusFilter);
@@ -1704,7 +1704,7 @@ export default function Tickets() {
       const blob = await response.blob();
       const disposition = response.headers.get("content-disposition") || "";
       const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
-      const fallbackExtension = exportFormat === "print" ? "pdf" : "xlsx";
+      const fallbackExtension = exportFormat === "excel" ? "xlsx" : exportFormat;
       const filename = filenameMatch?.[1] || `ticket-report.${fallbackExtension}`;
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -1904,9 +1904,7 @@ export default function Tickets() {
           branches={isSuperAdmin ? branches : []}
           branchId={branchFilter || "all"}
           onBranchChange={isSuperAdmin ? (value) => setBranchFilter(value === "all" ? "" : value) : undefined}
-          allowedFormats={["excel", "print"]}
-          printLabel="PDF Report"
-          printDescription="Branded table-style .pdf file"
+          allowedFormats={["excel", "txt", "pdf"]}
         />
       )}
 

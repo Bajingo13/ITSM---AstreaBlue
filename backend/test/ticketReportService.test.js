@@ -4,6 +4,7 @@ const ExcelJS = require("exceljs");
 const {
   createReportMetadata,
   createTicketExcelReport,
+  createTicketTextReport,
   createTicketPdfReport,
 } = require("../src/services/ticketReportService");
 
@@ -52,4 +53,16 @@ test("ticket PDF report is a valid branded PDF document", async () => {
   const buffer = await createTicketPdfReport(sampleTickets, metadata);
   assert.equal(buffer.subarray(0, 4).toString(), "%PDF");
   assert.ok(buffer.length > 1000);
+});
+
+test("ticket TXT report is a distinct tabular text document", () => {
+  const metadata = createReportMetadata({
+    companyName: "AstreaBlue Enterprise ITSM",
+    scopeLabel: "All Branches / Centralized Systems",
+    recordCount: sampleTickets.length,
+  });
+  const buffer = createTicketTextReport(sampleTickets, metadata);
+  const text = buffer.toString("utf8");
+  assert.match(text, /TICKET MANAGEMENT REPORT/);
+  assert.match(text, /Ticket\tTitle\tPriority/);
 });

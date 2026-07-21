@@ -1,9 +1,8 @@
 const express = require("express");
-const ExcelJS = require("exceljs");
-const PDFDocument = require("pdfkit");
 const db = require("../../config/db");
 const { getRequestContext } = require("./_ticketAccess");
 const { ensureReplacementSchema } = require("../services/replacementSchemaService");
+const { createExcelReport, createTextReport, createPdfReport } = require("../services/tabularReportService");
 
 const router = express.Router();
 const summaryCache = new Map();
@@ -173,11 +172,13 @@ router.get('/report-options',requireAnalytics,requireManagerAnalytics,async(req,
 }catch(error){console.error('Report options error:',error.message);res.status(500).json({success:false,message:'Failed to load report filters.',data:null});}});
 
 router.get('/custom-report',requireAnalytics,requireManagerAnalytics,async(req,res)=>{try{const rows=await reportRows(req);res.json({success:true,message:'Custom report generated.',data:rows});}catch(error){console.error('Custom report error:',error.message);res.status(500).json({success:false,message:'Failed to generate report.',data:null});}});
-router.get('/custom-report/export',requireAnalytics,requireManagerAnalytics,async(req,res)=>{try{const rows=await reportRows(req);const format=String(req.query.format||'csv').toLowerCase();const columns=['ticket_number','title','priority','status','category','branch','technician','department','created_at','resolved_at'];
-  if(format==='csv'){const escape=v=>`"${String(v??'').replace(/"/g,'""')}"`;const csv=[columns.join(','),...rows.map(row=>columns.map(c=>escape(row[c])).join(','))].join('\n');res.type('text/csv').set('Content-Disposition','attachment; filename="astreablue-report.csv"').send(csv);return;}
-  if(format==='xlsx'){const workbook=new ExcelJS.Workbook();const sheet=workbook.addWorksheet('AstreaBlue Report');sheet.columns=columns.map(c=>({header:c.replace(/_/g,' ').toUpperCase(),key:c,width:22}));sheet.addRows(rows);const buffer=await workbook.xlsx.writeBuffer();res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').set('Content-Disposition','attachment; filename="astreablue-report.xlsx"').send(Buffer.from(buffer));return;}
-  if(format==='pdf'){res.type('application/pdf').set('Content-Disposition','attachment; filename="astreablue-report.pdf"');const doc=new PDFDocument({margin:36,size:'A4',layout:'landscape'});doc.pipe(res);doc.fontSize(16).text('AstreaBlue Custom Report');doc.moveDown();rows.slice(0,250).forEach(row=>doc.fontSize(8).text(`${row.ticket_number} | ${row.priority} | ${row.status} | ${row.title}`));doc.end();return;}
-  return res.status(400).json({success:false,message:'format must be csv, xlsx, or pdf.',data:null});
+router.get('/custom-report/export',requireAnalytics,requireManagerAnalytics,async(req,res)=>{try{const rows=await reportRows(req);const format=String(req.query.format||'excel').toLowerCase();const keys=['ticket_number','title','priority','status','category','branch','technician','department','created_at','resolved_at'];
+  if(!['excel','txt','pdf'].includes(format)) return res.status(400).json({success:false,message:'format must be excel, txt, or pdf.',data:null});
+  const input={title:'Custom Service Desk Report',scope:req.query.branch_id?`Branch ID ${req.query.branch_id}`:'All authorized branches',columns:keys.map(key=>({key,label:key.replace(/_/g,' ').toUpperCase(),width:key==='title'?32:20})),rows};
+  const buffer=format==='txt'?createTextReport(input):format==='pdf'?await createPdfReport(input):await createExcelReport(input);
+  const extension=format==='excel'?'xlsx':format;
+  const contentType=format==='excel'?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':format==='pdf'?'application/pdf':'text/plain; charset=utf-8';
+  res.type(contentType).set('Content-Disposition',`attachment; filename="astreablue-report.${extension}"`).send(buffer);return;
 }catch(error){console.error('Custom report export error:',error.message);if(!res.headersSent)res.status(500).json({success:false,message:'Failed to export report.',data:null});}});
 
 module.exports=router;

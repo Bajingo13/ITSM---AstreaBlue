@@ -1,4 +1,4 @@
-import { Download, FileSpreadsheet, Image, Printer, X } from "lucide-react";
+import { Download, FileDown, FileSpreadsheet, FileText, X } from "lucide-react";
 
 export default function ExportReportModal({
   title,
@@ -18,14 +18,12 @@ export default function ExportReportModal({
   showDates = false,
   spreadsheetLabel = "Excel Workbook",
   spreadsheetDescription = "Formatted .xlsx spreadsheet",
-  allowedFormats = ["excel", "jpg", "print"],
-  printLabel = "Print / PDF",
-  printDescription = "Use the browser print dialog",
+  allowedFormats = ["excel", "txt", "pdf"],
 }) {
   const options = [
     { value: "excel", label: spreadsheetLabel, description: spreadsheetDescription, icon: FileSpreadsheet },
-    { value: "jpg", label: "JPG Image", description: "AstreaBlue report image", icon: Image },
-    { value: "print", label: printLabel, description: printDescription, icon: Printer },
+    { value: "txt", label: "Text File", description: "Tabular plain-text .txt file", icon: FileText },
+    { value: "pdf", label: "PDF Report", description: "Formatted AstreaBlue .pdf report", icon: FileDown },
   ].filter((option) => allowedFormats.includes(option.value));
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>

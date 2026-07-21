@@ -31,7 +31,6 @@ import { API_URL } from "../config/api";
 
 import { authHeaders } from "../services/authHeaders";
 import ExportReportModal from "../components/ExportReportModal";
-import { exportRowsAsJpeg } from "../utils/reportExport";
 import { subscribeToEndpointStatusChanges } from "../services/realtimeTickets";
 
 const API_BASE = `${API_URL}/api/v1`;
@@ -1293,34 +1292,9 @@ export default function Assets() {
 
   /* ── Export ───────────────────────────────────── */
   const handleExport = async () => {
-    const dateMatches = (asset) => {
-      const value = String(asset.updated_at || asset.created_at || asset.purchase_date || "").slice(0, 10);
-      return (!exportDateFrom || value >= exportDateFrom) && (!exportDateTo || value <= exportDateTo);
-    };
-    const exportRows = visibleAssets.filter(dateMatches);
-    if (exportFormat === "print") { setShowExportModal(false); window.print(); return; }
-    if (exportFormat === "jpg") {
-      exportRowsAsJpeg({
-        filename: "hardware-assets",
-        title: "AstreaBlue Hardware Assets",
-        subtitle: branchFilter === "All" ? "All branches" : branches.find((branch) => String(branch.branch_id) === String(branchFilter))?.branch_name,
-        columns: [
-          { label: "Asset Tag", value: (row) => row.asset_tag },
-          { label: "Asset", value: (row) => row.asset_name },
-          { label: "Type", value: (row) => row.asset_type },
-          { label: "Serial", value: (row) => row.serial_number },
-          { label: "Branch", value: (row) => row.branch_name || "Unassigned" },
-          { label: "Assigned", value: (row) => row.assigned_name || row.borrower_name || "Unassigned" },
-          { label: "Status", value: (row) => row.status },
-        ],
-        rows: exportRows,
-      });
-      setShowExportModal(false);
-      return;
-    }
     try {
       setExporting(true);
-      const params = new URLSearchParams({ t: Date.now() });
+      const params = new URLSearchParams({ t: Date.now(), format: exportFormat });
       if (exportDateFrom) params.set("start_date", exportDateFrom);
       if (exportDateTo) params.set("end_date", exportDateTo);
       if (isSuperAdmin && branchFilter !== "All") params.set("filter_branch_id", branchFilter);
@@ -1337,8 +1311,9 @@ export default function Assets() {
 
       const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") || "";
-      const match = disposition.match(/filename="?([^"]+)"?/);
-      const filename = match ? match[1] : "hardware-assets-export.xlsx";
+      const match = disposition.match(/filename="?([^";]+)"?/i);
+      const fallbackExtension = exportFormat === "txt" ? "txt" : exportFormat === "pdf" ? "pdf" : "xlsx";
+      const filename = match ? match[1] : `hardware-assets-export.${fallbackExtension}`;
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -1870,6 +1845,9 @@ export default function Assets() {
           dateTo={exportDateTo}
           onDateFromChange={setExportDateFrom}
           onDateToChange={setExportDateTo}
+          allowedFormats={["excel", "txt", "pdf"]}
+          spreadsheetLabel="Excel Workbook"
+          spreadsheetDescription="Formatted AstreaBlue .xlsx report"
         />
       )}
 

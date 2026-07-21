@@ -17,7 +17,6 @@ import {
   Package,
   PieChart,
   Plus,
-  Printer,
   Search,
   Shield,
   Trash2,
@@ -28,7 +27,7 @@ import { useAuth } from "../context/AuthContext";
 import PageHero from "../components/layout/PageHero";
 import ExportReportModal from "../components/ExportReportModal";
 import { authHeaders } from "../services/authHeaders";
-import { exportRowsAsCsv, exportRowsAsJpeg } from "../utils/reportExport";
+import { exportRowsAsReport } from "../utils/reportExport";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -640,48 +639,14 @@ export default function SoftwareLicenses() {
 
   const handleExport = async () => {
     if (filteredLicenses.length === 0) return;
-    if (exportFormat === "print") { setExportOpen(false); window.print(); return; }
-    if (exportFormat === "jpg") {
-      exportRowsAsJpeg({ filename: "software-licenses", title: "AstreaBlue Software Licenses", subtitle: branchFilter === "all" ? "All branches" : branches.find((branch) => String(branch.branch_id) === String(branchFilter))?.branch_name, columns: exportColumns, rows: filteredLicenses });
-      setExportOpen(false);
-      return;
-    }
     try {
-      const params = new URLSearchParams({ t: Date.now() });
-      const roleName = getRoleName(user);
-      if (user?.user_id) params.set("current_user_id", user.user_id);
-      if (roleName) params.set("role_name", roleName);
-      if (user?.branch_id) params.set("current_branch_id", user.branch_id);
-      if (isSuperAdmin && branchFilter !== "all") params.set("branch_id", branchFilter);
-
-      const res = await fetch(`${API_BASE}/software-licenses/export?${params.toString()}`, { headers: authHeaders() });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: "Export failed" }));
-        alert(err.message || err.error || "No software licenses found for export.");
-        return;
-      }
-
-      const blob = await res.blob();
-      const disposition = res.headers.get("Content-Disposition") || "";
-      const match = disposition.match(/filename="?([^"]+)"?/);
-      const filename = match ? match[1] : "software-licenses.xlsx";
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      const scope = branchFilter === "all" ? "All branches" : branches.find((branch) => String(branch.branch_id) === String(branchFilter))?.branch_name || "Authorized branch";
+      await exportRowsAsReport({ filename: `software-licenses-${new Date().toISOString().slice(0, 10)}`, title: "Software License Report", scope, format: exportFormat, columns: exportColumns, rows: filteredLicenses });
       setExportOpen(false);
     } catch (err) {
       console.error("Export error:", err);
       alert("Failed to export software licenses. Please try again.");
     }
-  };
-
-  const handlePrint = () => {
-    window.print();
   };
 
   /* ── Render ── */
@@ -710,14 +675,6 @@ export default function SoftwareLicenses() {
           >
             <Download size={18} />
             Export
-          </button>
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="inline-flex items-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-black text-white transition hover:bg-white/20"
-          >
-            <Printer size={18} />
-            Print
           </button>
         </>} />
 

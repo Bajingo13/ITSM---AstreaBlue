@@ -64,6 +64,23 @@ function reportRows(tickets) {
   }));
 }
 
+function createTicketTextReport(tickets, metadata) {
+  const columns = ["Ticket", "Title", "Priority", "Status", "Category", "Branch", "Requester", "Assigned", "Created", "Updated"];
+  const rows = reportRows(tickets);
+  const lines = [
+    "ASTREABLUE ENTERPRISE ITSM",
+    "TICKET MANAGEMENT REPORT",
+    `Company: ${metadata.companyName}`,
+    `Scope: ${metadata.scopeLabel}`,
+    `Generated: ${metadata.generatedAt}`,
+    `Records: ${metadata.recordCount}`,
+    "",
+    columns.join("\t"),
+    ...rows.map((row) => [row.ticket_number, row.title, row.priority, row.status, row.category, row.branch, row.requester, row.assigned, row.created_at, row.updated_at].map((value) => String(value).replace(/[\r\n\t]+/g, " ")).join("\t")),
+  ];
+  return Buffer.from(`\uFEFF${lines.join("\r\n")}`, "utf8");
+}
+
 async function createTicketExcelReport(tickets, metadata) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "AstreaBlue Enterprise ITSM";
@@ -275,6 +292,7 @@ function createReportMetadata({ companyName, scopeLabel, recordCount }) {
 module.exports = {
   createReportMetadata,
   createTicketExcelReport,
+  createTicketTextReport,
   createTicketPdfReport,
   formatReportTimestamp,
 };

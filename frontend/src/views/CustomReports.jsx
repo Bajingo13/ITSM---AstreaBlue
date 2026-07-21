@@ -26,8 +26,50 @@ export default function CustomReports() {
     return () => { active = false; };
   }, []);
 
-  const generate = async () => { setLoading(true); setError(""); try { const response = await fetch(`${API_URL}/api/v1/analytics/custom-report?${query()}`, { headers: authHeaders() }); const body = await response.json(); if (!response.ok) throw new Error(body.message); setRows(body.data); } catch (requestError) { setError(requestError.message); } finally { setLoading(false); } };
-  const exportFile = async (format) => { setError(""); try { const response = await fetch(`${API_URL}/api/v1/analytics/custom-report/export?${query(format)}`, { headers: authHeaders() }); if (!response.ok) { const body = await response.json(); throw new Error(body.message); } const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `astreablue-report.${format}`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (requestError) { setError(requestError.message); } };
+  const generate = async () => {
+    setLoading(true); setError("");
+    try { const response = await fetch(`${API_URL}/api/v1/analytics/custom-report?${query()}`, { headers: authHeaders() }); const body = await response.json(); if (!response.ok) throw new Error(body.message); setRows(body.data); }
+    catch (requestError) { setError(requestError.message); }
+    finally { setLoading(false); }
+  };
 
-  return <div className="space-y-6"><PageHero eyebrow="Reporting & Analytics" title="Custom Reports" subtitle="Build branch-aware Service Desk reports and export the results in standard enterprise formats."/><section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><label className="text-xs font-bold text-slate-600">From<input type="date" value={filters.date_from} onChange={update("date_from")} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-400"/></label><label className="text-xs font-bold text-slate-600">To<input type="date" value={filters.date_to} onChange={update("date_to")} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-400"/></label><SelectFilter label="Branch" value={filters.branch_id} onChange={update("branch_id")} options={options.branches} valueKey="branch_id" labelKey="branch_name"/><SelectFilter label="Department" value={filters.department} onChange={update("department")} options={options.departments}/><SelectFilter label="Priority" value={filters.priority} onChange={update("priority")} options={options.priorities}/><SelectFilter label="Category" value={filters.category_id} onChange={update("category_id")} options={options.categories} valueKey="category_id" labelKey="category_name"/><SelectFilter label="Status" value={filters.status} onChange={update("status")} options={options.statuses}/><SelectFilter label="Technician" value={filters.technician_id} onChange={update("technician_id")} options={options.technicians} valueKey="user_id" labelKey="full_name"/></div><div className="mt-5 flex flex-wrap gap-3"><button disabled={loading} onClick={generate} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"><Search size={15} className="mr-2 inline"/>{loading ? "Generating..." : "Generate Report"}</button>{["csv", "xlsx", "pdf"].map((format) => <button key={format} onClick={() => exportFile(format)} className="rounded-xl bg-blue-50 px-4 py-2.5 text-sm font-bold uppercase text-blue-700"><Download size={15} className="mr-2 inline"/>{format}</button>)}</div>{error && <p className="mt-4 text-sm font-bold text-red-600">{error}</p>}</section><section className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm"><div className="flex items-center gap-3 border-b border-slate-100 p-5"><FileSpreadsheet className="text-blue-600"/><div><h2 className="font-black text-slate-900">Report Results</h2><p className="text-xs text-slate-400">{rows.length} records</p></div></div><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Ticket", "Title", "Priority", "Status", "Category", "Branch", "Technician", "Created"].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}</tr></thead><tbody>{rows.length ? rows.slice(0, 200).map((row) => <tr key={row.ticket_number} className="border-t border-slate-100"><td className="px-4 py-3 font-bold text-blue-700">{row.ticket_number}</td><td className="max-w-xs truncate px-4 py-3">{row.title}</td><td className="px-4 py-3">{row.priority}</td><td className="px-4 py-3">{row.status}</td><td className="px-4 py-3">{row.category}</td><td className="px-4 py-3">{row.branch}</td><td className="px-4 py-3">{row.technician}</td><td className="px-4 py-3">{new Date(row.created_at).toLocaleDateString()}</td></tr>) : <tr><td colSpan="8" className="px-4 py-14 text-center text-slate-400">Generate a report to view live results.</td></tr>}</tbody></table></div></section></div>;
+  const exportFile = async (format) => {
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/api/v1/analytics/custom-report/export?${query(format)}`, { headers: authHeaders() });
+      if (!response.ok) { const body = await response.json(); throw new Error(body.message); }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `astreablue-report.${format === "excel" ? "xlsx" : format}`;
+      document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (requestError) { setError(requestError.message); }
+  };
+
+  return <div className="space-y-6">
+    <PageHero eyebrow="Reporting & Analytics" title="Custom Reports" subtitle="Build branch-aware Service Desk reports and export the results in standard enterprise formats."/>
+    <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="text-xs font-bold text-slate-600">From<input type="date" value={filters.date_from} onChange={update("date_from")} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-400"/></label>
+        <label className="text-xs font-bold text-slate-600">To<input type="date" value={filters.date_to} onChange={update("date_to")} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-400"/></label>
+        <SelectFilter label="Branch" value={filters.branch_id} onChange={update("branch_id")} options={options.branches} valueKey="branch_id" labelKey="branch_name"/>
+        <SelectFilter label="Department" value={filters.department} onChange={update("department")} options={options.departments}/>
+        <SelectFilter label="Priority" value={filters.priority} onChange={update("priority")} options={options.priorities}/>
+        <SelectFilter label="Category" value={filters.category_id} onChange={update("category_id")} options={options.categories} valueKey="category_id" labelKey="category_name"/>
+        <SelectFilter label="Status" value={filters.status} onChange={update("status")} options={options.statuses}/>
+        <SelectFilter label="Technician" value={filters.technician_id} onChange={update("technician_id")} options={options.technicians} valueKey="user_id" labelKey="full_name"/>
+      </div>
+      <div className="mt-5 flex flex-wrap gap-3">
+        <button disabled={loading} onClick={generate} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"><Search size={15} className="mr-2 inline"/>{loading ? "Generating..." : "Generate Report"}</button>
+        {["excel", "txt", "pdf"].map((format) => <button key={format} onClick={() => exportFile(format)} className="rounded-xl bg-blue-50 px-4 py-2.5 text-sm font-bold uppercase text-blue-700"><Download size={15} className="mr-2 inline"/>{format}</button>)}
+      </div>
+      {error && <p className="mt-4 text-sm font-bold text-red-600">{error}</p>}
+    </section>
+    <section className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="flex items-center gap-3 border-b border-slate-100 p-5"><FileSpreadsheet className="text-blue-600"/><div><h2 className="font-black text-slate-900">Report Results</h2><p className="text-xs text-slate-400">{rows.length} records</p></div></div>
+      <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Ticket", "Title", "Priority", "Status", "Category", "Branch", "Technician", "Created"].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}</tr></thead><tbody>{rows.length ? rows.slice(0, 200).map((row) => <tr key={row.ticket_number} className="border-t border-slate-100"><td className="px-4 py-3 font-bold text-blue-700">{row.ticket_number}</td><td className="max-w-xs truncate px-4 py-3">{row.title}</td><td className="px-4 py-3">{row.priority}</td><td className="px-4 py-3">{row.status}</td><td className="px-4 py-3">{row.category}</td><td className="px-4 py-3">{row.branch}</td><td className="px-4 py-3">{row.technician}</td><td className="px-4 py-3">{new Date(row.created_at).toLocaleDateString()}</td></tr>) : <tr><td colSpan="8" className="px-4 py-14 text-center text-slate-400">Generate a report to view live results.</td></tr>}</tbody></table></div>
+    </section>
+  </div>;
 }

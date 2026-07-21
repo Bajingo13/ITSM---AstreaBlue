@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, Info, Pencil, X } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
+import ExportReportModal from "../components/ExportReportModal";
 import { API_URL } from "../config/api";
 import { authHeaders, getAuthToken } from "../services/authHeaders";
 import { logoutUser } from "../context/AuthService";
+import { exportRowsAsReport } from "../utils/reportExport";
 
 const API_BASE = `${API_URL}/api/v1/hardware-assets`;
 const money = (value) => Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "PHP" });
@@ -40,6 +42,8 @@ export default function AssetFinancials() {
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState("excel");
 
   const loadData = useCallback(async () => {
     try {
@@ -81,25 +85,22 @@ export default function AssetFinancials() {
 
   const exportReport = async () => {
     try {
-      const res = await financialRequest("/financial/reports/depreciation");
-      const body = await res.json();
-      if (!res.ok || body.success === false) return setError(body.message || body.error);
-      const headers = ["Asset Tag", "Asset Name", "Classification", "Purchase Cost", "Useful Life Months", "Monthly Depreciation", "Accumulated Depreciation", "Book Value", "Remaining Months"];
-      const csv = [headers, ...(body.data.assets || []).map((a) => [a.asset_tag, a.asset_name, a.asset_financial_classification, a.purchase_cost, a.useful_life_months, a.monthly_depreciation, a.accumulated_depreciation, a.current_book_value, a.remaining_useful_life_months])]
-        .map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `depreciation-${new Date().toISOString().slice(0, 10)}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
+      const columns = [
+        { label: "Asset Tag", value: (row) => row.asset_tag }, { label: "Asset Name", value: (row) => row.asset_name },
+        { label: "Branch", value: (row) => row.branch_name || "Unassigned" }, { label: "Classification", value: (row) => row.asset_financial_classification },
+        { label: "Purchase Cost", value: (row) => row.purchase_cost }, { label: "Useful Life Months", value: (row) => row.useful_life_months },
+        { label: "Monthly Depreciation", value: (row) => row.monthly_depreciation }, { label: "Accumulated Depreciation", value: (row) => row.accumulated_depreciation },
+        { label: "Book Value", value: (row) => row.current_book_value }, { label: "Remaining Months", value: (row) => row.remaining_useful_life_months },
+      ];
+      await exportRowsAsReport({ filename: `asset-financials-${new Date().toISOString().slice(0, 10)}`, title: "Asset Financial and Depreciation Report", scope: "Authorized asset scope", format: exportFormat, columns, rows: assets });
+      setExportOpen(false);
     } catch (requestError) {
       setError(requestError.message || "Failed to export depreciation report.");
     }
   };
 
   return <div className="space-y-6">
-    <PageHero eyebrow="Asset Financial Management" title="Depreciation & Financial Tracking" subtitle="Straight-line depreciation using useful life in months and the ₱5,000 capitalization threshold." actions={<button onClick={exportReport} className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700"><Download size={17} /> Export Report</button>} />
+    <PageHero eyebrow="Asset Financial Management" title="Depreciation & Financial Tracking" subtitle="Straight-line depreciation using useful life in months and the ₱5,000 capitalization threshold." actions={<button onClick={() => setExportOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700"><Download size={17} /> Export Report</button>} />
     {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 font-semibold text-rose-700">{error}</div>}
     <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-800">Assets below ₱5,000 are treated as expenses and excluded from depreciation.</div>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">{cards.map(([label, value]) => <div key={label} title={depreciationHelp[label] || ""} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-slate-500">{label}{label === "Monthly Depreciation" && <Info size={14} aria-label="Monthly depreciation calculation" />}</p><p className="mt-2 text-xl font-black text-slate-900">{value}</p>{depreciationHelp[label] && <p className="mt-2 text-xs leading-5 text-slate-500">{depreciationHelp[label]}</p>}</div>)}</section>
@@ -107,6 +108,7 @@ export default function AssetFinancials() {
       {loading ? <tr><td colSpan="10" className="p-8 text-center text-slate-500">Loading financial records...</td></tr> : assets.length === 0 ? <tr><td colSpan="10" className="p-8 text-center text-slate-500">No financial records found.</td></tr> : assets.map((asset) => <tr key={asset.asset_id} className="border-t border-slate-100"><td className="px-4 py-4"><p className="font-black text-slate-900">{asset.asset_tag}</p><p className="text-xs text-slate-500">{asset.asset_name}</p></td><td className="px-4 py-4"><DepreciationStatus status={asset.depreciation_status} /></td><td className="px-4 py-4">{money(asset.purchase_cost)}</td><td className="px-4 py-4">{asset.useful_life_months}</td><td className="px-4 py-4">{money(asset.monthly_depreciation)}</td><td className="px-4 py-4">{money(asset.accumulated_depreciation)}</td><td className="px-4 py-4 font-bold">{money(asset.current_book_value)}</td><td className="px-4 py-4">{asset.remaining_useful_life_months} months</td><td className="px-4 py-4"><LifespanStatus status={asset.lifespan_status} /></td><td className="px-4 py-4"><button onClick={() => setEditing(asset)} className="rounded-xl bg-blue-50 p-2 text-blue-700" aria-label={`Edit ${asset.asset_tag} finance settings`}><Pencil size={15} /></button></td></tr>)}
     </tbody></table></div></section>
     {editing && <FinanceModal asset={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); loadData(); }} />}
+    {exportOpen && <ExportReportModal title="Export Asset Financial Report" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={exportReport} />}
   </div>;
 }
 

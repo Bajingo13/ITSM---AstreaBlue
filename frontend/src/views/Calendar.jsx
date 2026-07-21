@@ -7,7 +7,7 @@ import { API_URL } from "../config/api";
 import { authHeaders } from "../services/authHeaders";
 import PageHero from "../components/layout/PageHero";
 import ExportReportModal from "../components/ExportReportModal";
-import { exportRowsAsCsv, exportRowsAsJpeg } from "../utils/reportExport";
+import { exportRowsAsReport } from "../utils/reportExport";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -371,12 +371,14 @@ export default function CalendarPage() {
     { label: "Status", value: (row) => row.status },
     { label: "Scheduled", value: (row) => new Date(row.start_time || row.created_at).toLocaleString() },
   ];
-  const handleCalendarExport = () => {
+  const handleCalendarExport = async () => {
     const filename = `ticket-calendar-${new Date().toISOString().slice(0, 10)}`;
-    if (exportFormat === "print") window.print();
-    else if (exportFormat === "jpg") exportRowsAsJpeg({ filename, title: "AstreaBlue Ticket Schedule", subtitle: headerLabel, columns: exportColumns, rows: sortedEvents });
-    else exportRowsAsCsv({ filename, columns: exportColumns, rows: sortedEvents });
-    setExportOpen(false);
+    try {
+      await exportRowsAsReport({ filename, title: "Ticket Schedule", scope: headerLabel, format: exportFormat, columns: exportColumns, rows: sortedEvents });
+      setExportOpen(false);
+    } catch (error) {
+      window.alert(error.message || "Failed to export ticket schedule.");
+    }
   };
 
   // Build month grid
@@ -669,7 +671,7 @@ export default function CalendarPage() {
         />
       )}
       {exportOpen && (
-        <ExportReportModal title="Export Ticket Schedule" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={handleCalendarExport} branches={isSuperAdmin ? branches : []} branchId={branchFilter} onBranchChange={isSuperAdmin ? setBranchFilter : undefined} spreadsheetLabel="CSV for Excel" spreadsheetDescription="Opens directly in Excel"/>
+        <ExportReportModal title="Export Ticket Schedule" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={handleCalendarExport} branches={isSuperAdmin ? branches : []} branchId={branchFilter} onBranchChange={isSuperAdmin ? setBranchFilter : undefined}/>
       )}
     </div>
   );

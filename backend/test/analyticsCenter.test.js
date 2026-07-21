@@ -56,7 +56,7 @@ test("technicians cannot access reporting and analytics", async () => {
   assert.equal((await fetch(`${baseUrl}/api/v1/analytics/custom-report`, { headers })).status, 403);
 });
 
-test("administrators can generate branch-scoped reports and CSV exports", async () => {
+test("administrators can generate branch-scoped reports and TXT exports", async () => {
   const headers = { authorization: `Bearer ${tokenFor("Admin", branchId)}` };
   const optionResponse = await fetch(`${baseUrl}/api/v1/analytics/report-options`, { headers });
   assert.equal(optionResponse.status, 200);
@@ -70,8 +70,8 @@ test("administrators can generate branch-scoped reports and CSV exports", async 
   assert.equal(report.status, 200);
   assert.ok(Array.isArray((await report.json()).data));
 
-  const csv = await fetch(`${baseUrl}/api/v1/analytics/custom-report/export?format=csv`, { headers });
-  assert.equal(csv.status, 200);
-  assert.match(csv.headers.get("content-type") || "", /text\/csv/);
-  assert.match(await csv.text(), /^ticket_number,title,priority,status/);
+  const textExport = await fetch(`${baseUrl}/api/v1/analytics/custom-report/export?format=txt`, { headers });
+  assert.equal(textExport.status, 200);
+  assert.match(textExport.headers.get("content-type") || "", /text\/plain/);
+  assert.match(await textExport.text(), /CUSTOM SERVICE DESK REPORT/);
 });

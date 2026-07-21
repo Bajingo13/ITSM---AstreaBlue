@@ -15,6 +15,7 @@ const { emitSlaUpdated, emitTicketChanged } = require("../services/socketService
 const {
   createReportMetadata,
   createTicketExcelReport,
+  createTicketTextReport,
   createTicketPdfReport,
 } = require("../services/ticketReportService");
 
@@ -361,8 +362,8 @@ router.get("/export", async (req, res) => {
     const { format = "excel", status, priority, category, assignment, query } = req.query;
     const normalizedFormat = String(format).toLowerCase();
 
-    if (!['excel', 'pdf'].includes(normalizedFormat)) {
-      return res.status(400).json({ success: false, message: "Export format must be excel or pdf." });
+    if (!["excel", "txt", "pdf"].includes(normalizedFormat)) {
+      return res.status(400).json({ success: false, message: "Export format must be excel, txt, or pdf." });
     }
 
     if (status && status !== "all") {
@@ -460,6 +461,13 @@ router.get("/export", async (req, res) => {
       const buffer = await createTicketPdfReport(result.rows, metadata);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="ticket-report-${safeScope}-${dateStamp}.pdf"`);
+      return res.end(buffer);
+    }
+
+    if (normalizedFormat === "txt") {
+      const buffer = createTicketTextReport(result.rows, metadata);
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="ticket-report-${safeScope}-${dateStamp}.txt"`);
       return res.end(buffer);
     }
 

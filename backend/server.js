@@ -41,6 +41,7 @@ const projectAnalyticsRoutes = require("./src/routes/projectAnalytics");
 const analyticsCenterRoutes = require("./src/routes/analyticsCenter");
 const replacementRequestRoutes = require("./src/routes/replacementRequests");
 const calendarRoutes = require("./src/routes/calendar");
+const reportExportRoutes = require("./src/routes/reportExports");
 const { setSocketServer } = require("./src/services/socketService");
 const { startScreenshotRetentionJob } = require("./src/services/screenshotRetentionService");
 const onboardingAccessGuard = require("./src/middleware/onboardingAccessGuard");
@@ -797,6 +798,7 @@ app.use("/api/v1/cmdb", cmdbRoutes);
 app.use("/api/v1/projects", projectAnalyticsRoutes);
 app.use("/api/v1/analytics", analyticsCenterRoutes);
 app.use("/api/v1/calendar", calendarRoutes);
+app.use("/api/v1/report-exports", reportExportRoutes);
 app.use("/api/v1/replacement-requests", replacementRequestRoutes);
 
 /* ==========================

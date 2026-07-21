@@ -9,7 +9,7 @@ import PageHero from "../components/layout/PageHero";
 import { getTicketCompletionLabel } from "../utils/ticketDuration";
 import { authHeaders } from "../services/authHeaders";
 import ExportReportModal from "../components/ExportReportModal";
-import { exportRowsAsCsv, exportRowsAsJpeg } from "../utils/reportExport";
+import { exportRowsAsReport } from "../utils/reportExport";
 
 const API_BASE = `${API_URL}/api/v1`;
 const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -157,36 +157,6 @@ export default function SLAMonitor() {
       .catch((error) => console.error("SLA branch filter:", error.message));
   }, [isSuperAdmin]);
 
-  const handleExportPdfAll = useCallback(async () => {
-    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-    setExportOpen(false);
-    for (const ticket of tickets) {
-      const id = ticket.id;
-      try {
-        const res = await fetch(`${API_BASE}/sla/reports/export/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = `sla-report-${ticket.ticket_number || id}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(blobUrl);
-      } catch (err) {
-        console.error(`PDF export error for ticket ${id}:`, err);
-      }
-    }
-  }, [tickets]);
-
-  const handlePrintAll = useCallback(() => {
-    setExportOpen(false);
-    window.print();
-  }, []);
-
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
@@ -234,12 +204,15 @@ export default function SLAMonitor() {
     { label: "SLA", value: (row) => row.resolution_sla_status || row.response_sla_status || "Pending" },
   ];
 
-  const handleUnifiedExport = useCallback(() => {
+  const handleUnifiedExport = useCallback(async () => {
     const filename = `sla-ticket-queue-${new Date().toISOString().slice(0, 10)}`;
-    if (exportFormat === "print") window.print();
-    else if (exportFormat === "jpg") exportRowsAsJpeg({ filename, title: "AstreaBlue SLA Ticket Queue", subtitle: branchFilter === "all" ? "All branches" : branches.find((branch) => String(branch.branch_id) === String(branchFilter))?.branch_name, columns: exportColumns, rows: tickets });
-    else exportRowsAsCsv({ filename, columns: exportColumns, rows: tickets });
-    setExportOpen(false);
+    const scope = branchFilter === "all" ? "All branches" : branches.find((branch) => String(branch.branch_id) === String(branchFilter))?.branch_name || "Authorized branch";
+    try {
+      await exportRowsAsReport({ filename, title: "SLA Ticket Queue", scope, format: exportFormat, columns: exportColumns, rows: tickets });
+      setExportOpen(false);
+    } catch (error) {
+      window.alert(error.message || "Failed to export SLA ticket queue.");
+    }
   }, [exportFormat, branchFilter, branches, tickets]);
 
   useEffect(() => {
@@ -485,7 +458,7 @@ export default function SLAMonitor() {
         </div>
       </section>
       {exportOpen && (
-        <ExportReportModal title="Export SLA Ticket Queue" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={handleUnifiedExport} branches={isSuperAdmin ? branches : []} branchId={branchFilter} onBranchChange={isSuperAdmin ? setBranchFilter : undefined} spreadsheetLabel="CSV for Excel" spreadsheetDescription="Opens directly in Excel"/>
+        <ExportReportModal title="Export SLA Ticket Queue" format={exportFormat} onFormatChange={setExportFormat} onClose={() => setExportOpen(false)} onExport={handleUnifiedExport} branches={isSuperAdmin ? branches : []} branchId={branchFilter} onBranchChange={isSuperAdmin ? setBranchFilter : undefined}/>
       )}
 
       {/* Recent SLA Activity */}
