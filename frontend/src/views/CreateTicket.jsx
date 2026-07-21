@@ -21,7 +21,9 @@ const priorityDotStyle = {
 
 export default function CreateTicket() {
   const { user } = useAuth();
+  const isHr = String(user?.role_name || user?.role || "").trim().toLowerCase() === "hr";
   const [categories, setCategories] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -33,6 +35,7 @@ export default function CreateTicket() {
     description: "",
     category_id: "",
     priority: "P3-Medium",
+    requester_id: "",
   });
 
   const fetchCategories = useCallback(async () => {
@@ -49,6 +52,21 @@ export default function CreateTicket() {
     fetchCategories();
   }, [fetchCategories]);
 
+  useEffect(() => {
+    if (!isHr) return;
+    let active = true;
+    fetch(`${API_BASE}/employee-lifecycle/employees`)
+      .then(async (res) => {
+        const body = await res.json();
+        if (!res.ok || body.success === false) throw new Error(body.message || "Failed to load employees.");
+        if (active) setEmployees((body.data || []).filter((employee) => employee.is_active !== false));
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+    return () => { active = false; };
+  }, [isHr]);
+
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -59,6 +77,7 @@ export default function CreateTicket() {
       description: "",
       category_id: "",
       priority: "P3-Medium",
+      requester_id: "",
     });
     setFiles([]);
     setIsOtherCategory(false);
@@ -72,6 +91,10 @@ export default function CreateTicket() {
 
     if (!form.title.trim() || !form.description.trim()) {
       setError("Title and description are required.");
+      return;
+    }
+    if (isHr && !form.requester_id) {
+      setError("Select the employee this ticket is for.");
       return;
     }
     if (isOtherCategory && !customCategory.trim()) {
@@ -102,7 +125,7 @@ export default function CreateTicket() {
           impact: "Medium",
           urgency: "Medium",
           category_id: categoryId,
-          requester_id: user?.user_id,
+          requester_id: isHr ? form.requester_id : user?.user_id,
           branch_id: user?.branch_id || null,
           status: "Open Queue",
           source: "portal",
@@ -125,7 +148,14 @@ export default function CreateTicket() {
 
   return (
     <div className="space-y-6">
-      <PageHero eyebrow="Employee Service Hub" title="Create Ticket" subtitle="Submit an incident or service request with the details needed for a fast response." compact />
+      <PageHero
+        eyebrow={isHr ? "HR Service Desk" : "Employee Service Hub"}
+        title={isHr ? "Create Employee Ticket" : "Create Ticket"}
+        subtitle={isHr
+          ? "Submit a branch-scoped IT request on behalf of an employee. IT retains assignment and resolution control."
+          : "Submit an incident or service request with the details needed for a fast response."}
+        compact
+      />
 
       <form onSubmit={handleSubmit} className="space-y-5 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
         {error && (
@@ -137,6 +167,21 @@ export default function CreateTicket() {
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
             {success}
           </div>
+        )}
+
+        {isHr && (
+          <SelectField
+            label="Ticket For Employee *"
+            value={form.requester_id}
+            onChange={(value) => updateForm("requester_id", value)}
+            options={[
+              { label: "Select an employee in your branch", value: "" },
+              ...employees.map((employee) => ({
+                label: `${employee.full_name} — ${employee.email}`,
+                value: employee.user_id,
+              })),
+            ]}
+          />
         )}
 
         <Field
@@ -194,7 +239,7 @@ export default function CreateTicket() {
           />
         )}
 
-        <div>
+        {!isHr && <div>
           <label className="astrea-field-label">
             Attach Screenshots or PDF
           </label>
@@ -213,7 +258,7 @@ export default function CreateTicket() {
               className="hidden"
             />
           </label>
-        </div>
+        </div>}
 
         <div className="flex justify-end border-t border-slate-200 pt-5">
           <button

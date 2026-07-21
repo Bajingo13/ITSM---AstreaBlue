@@ -128,6 +128,14 @@ export default function App() {
           }
         />
         <Route
+          path="/hr/create-ticket"
+          element={
+            <ProtectedRoute allowedRoles={["HR"]}>
+              <CreateTicket />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/employee-lifecycle"
           element={
             <ProtectedRoute allowedRoles={["SuperAdmin", "Admin", "HR"]}>

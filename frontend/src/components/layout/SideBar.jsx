@@ -173,6 +173,13 @@ const employeeNavItems = [
 const hrNavItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/hr/lifecycle" },
   {
+    label: "Service Desk & Ticketing",
+    icon: Ticket,
+    children: [
+      { label: "Create Employee Ticket", icon: FileText, path: "/hr/create-ticket" },
+    ],
+  },
+  {
     label: "Employee Lifecycle",
     icon: Users,
     children: [

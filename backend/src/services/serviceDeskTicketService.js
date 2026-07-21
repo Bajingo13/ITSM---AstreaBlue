@@ -95,9 +95,21 @@ async function createServiceDeskTicket(input) {
     if (input.requireBranch && !branchId) throw httpError(403, "An authorized branch is required.");
 
     if (requesterId && input.enforceRequesterBranch) {
-      const requester = await client.query("SELECT user_id, branch_id FROM users WHERE user_id = $1", [requesterId]);
+      const requester = await client.query(
+        `SELECT u.user_id,u.branch_id,r.role_name
+           FROM users u
+           JOIN system_roles r ON r.role_id=u.role_id
+          WHERE u.user_id=$1 AND COALESCE(u.is_active,true)=true`,
+        [requesterId]
+      );
       if (!requester.rows[0] || Number(requester.rows[0].branch_id) !== branchId) {
         throw httpError(400, "employee_id does not exist in the selected branch.");
+      }
+      if (
+        input.requiredRequesterRole
+        && String(requester.rows[0].role_name || "").trim().toLowerCase() !== String(input.requiredRequesterRole).trim().toLowerCase()
+      ) {
+        throw httpError(400, `The selected requester must have the ${input.requiredRequesterRole} role.`);
       }
     }
     if (requesterId && input.enforceRequesterExists && !input.enforceRequesterBranch) {

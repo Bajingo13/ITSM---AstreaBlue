@@ -13,9 +13,11 @@ let server;
 let baseUrl;
 let superAdmin;
 let employee;
+let hr;
 let categoryId;
 let alternateBranchId;
 let createdBranchId;
+let createdHrUserId;
 const ticketIds = [];
 const socketEvents = [];
 
@@ -45,6 +47,17 @@ test.before(async () => {
   assert.ok(employee?.user_id && employee?.branch_id, "ticket tests require a branch-assigned employee");
   assert.ok(categoryId, "ticket tests require a category");
 
+  const hrRole = await db.query(`SELECT role_id FROM system_roles WHERE LOWER(role_name)='hr' LIMIT 1`);
+  assert.ok(hrRole.rows[0]?.role_id, "ticket tests require the HR role migration");
+  const createdHr = await db.query(
+    `INSERT INTO users(full_name,email,password_hash,role_id,company_name,branch_id,status,is_active,onboarding_status,onboarding_required)
+     VALUES('Ticket Test HR',$1,'test',$2,'AstreaBlue',$3,'Active',TRUE,'Completed',FALSE)
+     RETURNING user_id,branch_id`,
+    [`ticket-hr-${Date.now()}@example.test`, hrRole.rows[0].role_id, employee.branch_id]
+  );
+  hr = createdHr.rows[0];
+  createdHrUserId = hr.user_id;
+
   const branch = await db.query(
     `INSERT INTO branches (branch_name,branch_location,is_active) VALUES ($1,'Test',TRUE) RETURNING branch_id`,
     [`Ticket RBAC Test ${Date.now()}`]
@@ -73,6 +86,7 @@ test.after(async () => {
     await db.query(`DELETE FROM tickets WHERE id = ANY($1::int[])`, [ticketIds]);
   }
   if (createdBranchId) await db.query(`DELETE FROM branches WHERE branch_id=$1`, [createdBranchId]);
+  if (createdHrUserId) await db.query(`DELETE FROM users WHERE user_id=$1`, [createdHrUserId]);
   if (server) await new Promise((resolve) => server.close(resolve));
   setSocketServer(null);
   await db.rawPool.end();
@@ -108,6 +122,50 @@ test("Employee can create a ticket in their own branch with an integer category"
   assert.equal(Number(payload.data.requester_id), Number(employee.user_id));
   assert.equal(Number(payload.data.branch_id), Number(employee.branch_id));
   ticketIds.push(payload.data.id);
+});
+
+test("HR can create a ticket only for an employee in HR's branch", async () => {
+  const response = await createTicket(hr, "HR", {
+    title: "HR branch employee ticket test",
+    description: "Verifies HR can file an IT request for a branch employee.",
+    priority: "P3-Medium",
+    category_id: categoryId,
+    requester_id: employee.user_id,
+    branch_id: hr.branch_id,
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 201, payload.error || JSON.stringify(payload));
+  assert.equal(Number(payload.data.requester_id), Number(employee.user_id));
+  assert.equal(Number(payload.data.branch_id), Number(hr.branch_id));
+  ticketIds.push(payload.data.id);
+
+  const missingEmployee = await createTicket(hr, "HR", {
+    title: "HR missing requester test",
+    description: "HR must select the employee represented by the request.",
+    category_id: categoryId,
+    branch_id: hr.branch_id,
+  });
+  assert.equal(missingEmployee.status, 400);
+
+  const nonEmployee = await createTicket(hr, "HR", {
+    title: "HR invalid requester role test",
+    description: "HR cannot file an employee request using an HR account as requester.",
+    category_id: categoryId,
+    requester_id: hr.user_id,
+    branch_id: hr.branch_id,
+  });
+  assert.equal(nonEmployee.status, 400);
+});
+
+test("HR remains blocked from creating tickets for another branch", async () => {
+  const response = await createTicket(hr, "HR", {
+    title: "Forbidden HR cross-branch ticket test",
+    description: "This request must remain blocked by branch RBAC.",
+    category_id: categoryId,
+    requester_id: employee.user_id,
+    branch_id: alternateBranchId,
+  });
+  assert.equal(response.status, 403);
 });
 
 test("Loading tickets never deletes an old cancelled ticket", async () => {
