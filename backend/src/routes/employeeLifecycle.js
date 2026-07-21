@@ -8,6 +8,8 @@ const {
   getDefaultTasks,
   canTransition,
   canCompleteCase,
+  canUpdateLifecycleTask,
+  lifecycleTaskOwnerLabel,
 } = require("../services/employeeLifecycleService");
 
 const router = express.Router();
@@ -303,8 +305,8 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
     const task = taskResult.rows[0];
     if (!task) throw Object.assign(new Error("Checklist task not found."), { status: 404 });
     if (TERMINAL_STATUSES.has(task.case_status)) throw Object.assign(new Error("A completed or cancelled case cannot be edited."), { status: 409 });
-    if (req.lifecycleActor.role === "hr" && normalizeRole(task.assigned_role) !== "hr") {
-      throw Object.assign(new Error(`This task must be completed by ${task.assigned_role}.`), { status: 403 });
+    if (!canUpdateLifecycleTask(req.lifecycleActor.role, task.assigned_role)) {
+      throw Object.assign(new Error(`This task must be completed by an ${lifecycleTaskOwnerLabel(task.assigned_role)}.`), { status: 403 });
     }
     if (nextStatus === "Not Applicable" && task.is_required) {
       throw Object.assign(new Error("Required checklist tasks cannot be marked Not Applicable."), { status: 400 });

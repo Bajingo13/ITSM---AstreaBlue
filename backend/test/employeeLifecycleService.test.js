@@ -6,6 +6,7 @@ const {
   getDefaultTasks,
   canTransition,
   canCompleteCase,
+  canUpdateLifecycleTask,
 } = require("../src/services/employeeLifecycleService");
 
 test("onboarding and offboarding templates contain the required operational gates", () => {
@@ -27,6 +28,14 @@ test("completion is gated and terminal cases cannot be reopened implicitly", () 
   assert.equal(canTransition("Completed", "In Progress"), false);
 });
 
+test("HR is limited to HR checklist work while Admin and SuperAdmin retain IT authority", () => {
+  assert.equal(canUpdateLifecycleTask("HR", "HR"), true);
+  assert.equal(canUpdateLifecycleTask("HR", "IT"), false);
+  assert.equal(canUpdateLifecycleTask("Admin", "IT"), true);
+  assert.equal(canUpdateLifecycleTask("SuperAdmin", "IT"), true);
+  assert.equal(canUpdateLifecycleTask("Employee", "HR"), false);
+});
+
 test("Phase 0 lifecycle files do not mutate endpoint identity, consent, or policy storage", () => {
   const files = [
     path.join(__dirname, "..", "database", "2026-07-21-employee-lifecycle-foundation.sql"),
@@ -38,4 +47,3 @@ test("Phase 0 lifecycle files do not mutate endpoint identity, consent, or polic
     assert.doesNotMatch(source, /(?:UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+(?:monitored_devices|device_credentials|consent_documents|endpoint_effective_policies)/i);
   }
 });
-

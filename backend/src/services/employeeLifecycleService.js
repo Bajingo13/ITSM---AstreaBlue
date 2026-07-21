@@ -71,6 +71,21 @@ function canCompleteCase({ requiredPending = 0 }) {
   return Number(requiredPending) === 0;
 }
 
+function normalizeActorRole(value) {
+  return String(value || "").trim().toLowerCase().replace(/[\s_-]/g, "");
+}
+
+function canUpdateLifecycleTask(actorRole, assignedRole) {
+  const actor = normalizeActorRole(actorRole);
+  const owner = normalizeActorRole(assignedRole);
+  if (actor === "superadmin" || actor === "admin") return true;
+  return actor === "hr" && owner === "hr";
+}
+
+function lifecycleTaskOwnerLabel(assignedRole) {
+  return normalizeActorRole(assignedRole) === "it" ? "IT Administrator" : String(assignedRole || "authorized staff");
+}
+
 module.exports = {
   CASE_STATUSES,
   TERMINAL_STATUSES,
@@ -79,5 +94,6 @@ module.exports = {
   getDefaultTasks,
   canTransition,
   canCompleteCase,
+  canUpdateLifecycleTask,
+  lifecycleTaskOwnerLabel,
 };
-

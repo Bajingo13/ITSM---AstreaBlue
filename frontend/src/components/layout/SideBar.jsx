@@ -184,7 +184,6 @@ const hrNavItems = [
     icon: Users,
     children: [
       { label: "All Cases", icon: ClipboardList, path: "/hr/lifecycle" },
-      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
     ],
   },
 ];

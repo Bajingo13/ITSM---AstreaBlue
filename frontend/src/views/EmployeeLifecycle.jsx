@@ -57,6 +57,10 @@ function statusClass(status) {
   return "border-blue-200 bg-blue-50 text-blue-700";
 }
 
+function ownerLabel(role) {
+  return String(role || "").trim().toLowerCase() === "it" ? "IT Administrator" : role;
+}
+
 export default function EmployeeLifecycle() {
   const { role } = useAuth();
   const normalizedRole = String(role || "").toLowerCase();
@@ -269,10 +273,10 @@ function CaseDrawer({ details, role, busy, onClose, onTask, onStatus }) {
           <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" style={{ width: `${progress}%` }}/></div>
           <div className="mt-5 space-y-3">{details.tasks?.map((task) => {
             const completed = task.status === "Completed";
-            const hrBlocked = role === "hr" && String(task.assigned_role).toLowerCase() !== "hr";
+            const hrBlocked = normalizedRole === "hr" && String(task.assigned_role).toLowerCase() !== "hr";
             return <article key={task.lifecycle_task_id} className={`rounded-2xl border p-4 ${completed ? "border-emerald-200 bg-emerald-50/60" : "border-blue-100 bg-slate-50"}`}>
-              <div className="flex gap-3"><button disabled={busy || hrBlocked || ["Completed", "Cancelled"].includes(details.status)} onClick={() => void onTask(task, completed ? "Pending" : "Completed")} title={hrBlocked ? `Assigned to ${task.assigned_role}` : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
-                <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-slate-900">{task.task_label}</h4><span className="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">{task.assigned_role}</span>{task.is_required && <span className="text-[10px] font-black uppercase text-rose-600">Required</span>}</div><p className="mt-1 text-sm leading-6 text-slate-600">{task.task_description}</p>{completed && <p className="mt-2 text-xs font-semibold text-emerald-700">Completed by {task.completed_by_name || "authorized user"} · {formatDate(task.completed_at, true)}</p>}{hrBlocked && !completed && <p className="mt-2 text-xs font-semibold text-amber-700">Visible to HR; completion is restricted to IT/Admin.</p>}</div>
+              <div className="flex gap-3"><button disabled={busy || hrBlocked || ["Completed", "Cancelled"].includes(details.status)} onClick={() => void onTask(task, completed ? "Pending" : "Completed")} title={hrBlocked ? `Assigned to ${ownerLabel(task.assigned_role)}` : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
+                <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-slate-900">{task.task_label}</h4><span className="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">{ownerLabel(task.assigned_role)}</span>{task.is_required && <span className="text-[10px] font-black uppercase text-rose-600">Required</span>}</div><p className="mt-1 text-sm leading-6 text-slate-600">{task.task_description}</p>{completed && <p className="mt-2 text-xs font-semibold text-emerald-700">Completed by {task.completed_by_name || "authorized user"} · {formatDate(task.completed_at, true)}</p>}{hrBlocked && !completed && <p className="mt-2 text-xs font-semibold text-amber-700">HR can track this item; only an Admin or SuperAdmin can complete it.</p>}</div>
               </div>
             </article>;
           })}</div>
