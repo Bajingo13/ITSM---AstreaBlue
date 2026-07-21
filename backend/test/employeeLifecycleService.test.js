@@ -47,3 +47,10 @@ test("Phase 0 lifecycle files do not mutate endpoint identity, consent, or polic
     assert.doesNotMatch(source, /(?:UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+(?:monitored_devices|device_credentials|consent_documents|endpoint_effective_policies)/i);
   }
 });
+
+test("internal offboarding has no cross-system integration and preserves monitoring credentials", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "services", "internalOffboardingService.js"), "utf8");
+  assert.doesNotMatch(source, /axios|fetch\s*\(|nodemailer|resend|hris|vpn|cloud service/i);
+  assert.doesNotMatch(source, /(?:UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+(?:device_credentials|consent_documents|endpoint_effective_policies)/i);
+  assert.match(source, /UPDATE monitored_devices SET assigned_user_id=NULL/i);
+});

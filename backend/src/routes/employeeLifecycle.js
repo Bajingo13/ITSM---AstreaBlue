@@ -11,6 +11,7 @@ const {
   canUpdateLifecycleTask,
   lifecycleTaskOwnerLabel,
 } = require("../services/employeeLifecycleService");
+const { executeInternalOffboardingTask } = require("../services/internalOffboardingService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -297,8 +298,13 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
     await client.query("BEGIN");
     if (!(await assertScopedCase(req, client, req.params.id, true))) throw Object.assign(new Error("Lifecycle case not found."), { status: 404 });
     const taskResult = await client.query(
-      `SELECT lt.*,lc.status case_status FROM employee_lifecycle_tasks lt
+      `SELECT lt.*,lc.status case_status,lc.lifecycle_type,lc.case_number,lc.employee_id,
+              lc.branch_id,lc.related_ticket_id,lc.created_by,
+              employee.full_name employee_name,employee.email employee_email,
+              employee.employee_number
+       FROM employee_lifecycle_tasks lt
        JOIN employee_lifecycle_cases lc ON lc.lifecycle_case_id=lt.lifecycle_case_id
+       JOIN users employee ON employee.user_id=lc.employee_id
        WHERE lt.lifecycle_case_id=$1 AND lt.lifecycle_task_id=$2 FOR UPDATE OF lt`,
       [req.params.id, req.params.taskId]
     );
@@ -311,16 +317,47 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
     if (nextStatus === "Not Applicable" && task.is_required) {
       throw Object.assign(new Error("Required checklist tasks cannot be marked Not Applicable."), { status: 400 });
     }
+    if (task.lifecycle_type === "Offboarding" && task.status === "Completed" && nextStatus !== "Completed") {
+      throw Object.assign(new Error("Completed offboarding actions cannot be reopened because their internal changes are already committed."), { status: 409 });
+    }
+    let automationResult = task.automation_result || {};
+    if (nextStatus === "Completed" && task.status !== "Completed") {
+      automationResult = await executeInternalOffboardingTask({
+        queryable: client,
+        lifecycleCase: {
+          lifecycle_case_id: Number(req.params.id),
+          lifecycle_type: task.lifecycle_type,
+          case_number: task.case_number,
+          employee_id: task.employee_id,
+          branch_id: task.branch_id,
+          related_ticket_id: task.related_ticket_id,
+          created_by: task.created_by,
+        },
+        task,
+        employee: {
+          user_id: task.employee_id,
+          full_name: task.employee_name,
+          email: task.employee_email,
+          employee_number: task.employee_number,
+        },
+        actor: req.lifecycleActor,
+        notes: req.body.notes,
+      });
+    }
     await client.query(
       `UPDATE employee_lifecycle_tasks SET status=$1::text,
          completed_by=CASE WHEN $1::text='Completed' THEN $2::int ELSE NULL END,
          completed_at=CASE WHEN $1::text='Completed' THEN CURRENT_TIMESTAMP ELSE NULL END,
-         completion_notes=$3,updated_at=CURRENT_TIMESTAMP
-       WHERE lifecycle_task_id=$4`,
-      [nextStatus, req.lifecycleActor.user_id, String(req.body.notes || "").trim() || null, req.params.taskId]
+         completion_notes=$3,automation_result=$4::jsonb,
+         automation_completed_at=CASE WHEN $1::text='Completed' THEN CURRENT_TIMESTAMP ELSE NULL END,
+         updated_at=CURRENT_TIMESTAMP
+       WHERE lifecycle_task_id=$5`,
+      [nextStatus, req.lifecycleActor.user_id, String(req.body.notes || "").trim() || null,
+        JSON.stringify(automationResult), req.params.taskId]
     );
     await client.query(`UPDATE employee_lifecycle_cases SET updated_at=CURRENT_TIMESTAMP WHERE lifecycle_case_id=$1`, [req.params.id]);
-    await addHistory(client, req.params.id, req.lifecycleActor.user_id, "task_updated", `${task.task_label} marked ${nextStatus}.`, null, null, { taskKey: task.task_key, taskStatus: nextStatus });
+    await addHistory(client, req.params.id, req.lifecycleActor.user_id, "task_updated", `${task.task_label} marked ${nextStatus}.`, null, null,
+      { taskKey: task.task_key, taskStatus: nextStatus, automation: automationResult });
     await client.query("COMMIT");
     return res.json({ success: true, data: await loadCase(db, req.params.id) });
   } catch (error) {

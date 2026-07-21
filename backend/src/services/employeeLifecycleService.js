@@ -33,14 +33,14 @@ const ONBOARDING_TASKS = Object.freeze([
 ]);
 
 const OFFBOARDING_TASKS = Object.freeze([
-  ["disable_access", "Disable system access", "Revoke access to approved company systems and remote services.", "IT"],
-  ["recover_assets", "Recover physical assets", "Collect and record all assigned company equipment.", "IT"],
-  ["audit_licenses", "Audit software licenses", "Revoke, transfer, or return assigned licenses to the available pool.", "IT"],
-  ["secure_data", "Secure and transfer company data", "Back up required business data and transfer ownership to the designated custodian.", "IT"],
+  ["disable_access", "Disable AstreaBlue access", "Deactivate the employee's AstreaBlue account. This does not call external systems.", "IT"],
+  ["recover_assets", "Recover assigned assets", "Unassign returned AstreaBlue assets and place them in stock without deleting endpoint identity.", "IT"],
+  ["audit_licenses", "Release software licenses", "Release software-license assignments recorded inside AstreaBlue.", "IT"],
+  ["secure_data", "Record internal data handover", "Record the completed company-data handover as internal audit evidence; no external storage is accessed.", "IT"],
   ["classify_assets", "Classify returned assets", "Mark each returned asset for redeployment, repair, or disposal after inspection.", "IT"],
-  ["verify_checklist", "Verify required offboarding tasks", "HR and IT verify that no required task remains pending.", "HR"],
-  ["notify_parties", "Notify employee and HR", "Record formal completion notification after verification.", "HR"],
-  ["close_linked_ticket", "Close the linked Service Desk ticket", "Close the associated ticket only after lifecycle verification.", "IT"],
+  ["verify_checklist", "Verify required offboarding tasks", "HR verifies that all required internal IT actions and evidence are complete.", "HR"],
+  ["notify_parties", "Create internal completion notifications", "Notify the employee record, branch HR, and case creator inside AstreaBlue only.", "HR"],
+  ["close_linked_ticket", "Close the linked AstreaBlue ticket", "Close the associated AstreaBlue Service Desk ticket after verification.", "IT"],
 ]);
 
 function normalizeLifecycleType(value) {

@@ -143,13 +143,13 @@ export default function EmployeeLifecycle() {
     }
   }
 
-  async function updateTask(task, status) {
+  async function updateTask(task, status, notes = "") {
     setBusy(true);
     setError("");
     try {
       await lifecycleRequest(`/cases/${details.lifecycle_case_id}/tasks/${task.lifecycle_task_id}`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, notes }),
       });
       await Promise.all([openCase(details.lifecycle_case_id), loadWorkspace()]);
     } catch (requestError) {
@@ -259,6 +259,7 @@ function Field({ label, children }) {
 }
 
 function CaseDrawer({ details, role, busy, onClose, onTask, onStatus }) {
+  const [taskNotes, setTaskNotes] = useState({});
   const progress = details.task_count ? Math.round((details.completed_task_count / details.task_count) * 100) : 0;
   const transitions = STATUS_TRANSITIONS[details.status] || [];
   return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60 backdrop-blur-sm">
@@ -274,10 +275,14 @@ function CaseDrawer({ details, role, busy, onClose, onTask, onStatus }) {
           <div className="mt-5 space-y-3">{details.tasks?.map((task) => {
             const completed = task.status === "Completed";
             const hrBlocked = normalizedRole === "hr" && String(task.assigned_role).toLowerCase() !== "hr";
+            const notesRequired = details.lifecycle_type === "Offboarding" && ["audit_licenses", "secure_data", "classify_assets"].includes(task.task_key);
             return <article key={task.lifecycle_task_id} className={`rounded-2xl border p-4 ${completed ? "border-emerald-200 bg-emerald-50/60" : "border-blue-100 bg-slate-50"}`}>
-              <div className="flex gap-3"><button disabled={busy || hrBlocked || ["Completed", "Cancelled"].includes(details.status)} onClick={() => void onTask(task, completed ? "Pending" : "Completed")} title={hrBlocked ? `Assigned to ${ownerLabel(task.assigned_role)}` : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
+              <div className="flex gap-3"><button disabled={busy || (completed && details.lifecycle_type === "Offboarding") || hrBlocked || ["Completed", "Cancelled"].includes(details.status) || (notesRequired && String(taskNotes[task.lifecycle_task_id] || "").trim().length < 5)} onClick={() => void onTask(task, completed ? "Pending" : "Completed", taskNotes[task.lifecycle_task_id] || "")} title={hrBlocked ? `Assigned to ${ownerLabel(task.assigned_role)}` : completed && details.lifecycle_type === "Offboarding" ? "The internal action is complete and cannot be reversed here" : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
                 <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-slate-900">{task.task_label}</h4><span className="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">{ownerLabel(task.assigned_role)}</span>{task.is_required && <span className="text-[10px] font-black uppercase text-rose-600">Required</span>}</div><p className="mt-1 text-sm leading-6 text-slate-600">{task.task_description}</p>{completed && <p className="mt-2 text-xs font-semibold text-emerald-700">Completed by {task.completed_by_name || "authorized user"} · {formatDate(task.completed_at, true)}</p>}{hrBlocked && !completed && <p className="mt-2 text-xs font-semibold text-amber-700">HR can track this item; only an Admin or SuperAdmin can complete it.</p>}</div>
               </div>
+              {notesRequired && !completed && !hrBlocked && <label className="mt-3 block pl-9"><span className="mb-1 block text-xs font-bold text-slate-600">Required completion evidence</span><textarea rows="2" value={taskNotes[task.lifecycle_task_id] || ""} onChange={(event) => setTaskNotes((current) => ({ ...current, [task.lifecycle_task_id]: event.target.value }))} className="field resize-none" placeholder="Record the handover or asset inspection result before completing this task."/></label>}
+              {completed && task.completion_notes && <p className="mt-3 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-600"><strong>Evidence:</strong> {task.completion_notes}</p>}
+              {completed && task.automation_result?.action && <p className="mt-2 pl-9 text-xs font-semibold text-emerald-700">Internal result: {String(task.automation_result.action).replaceAll("_", " ")}{Number.isFinite(Number(task.automation_result.affected)) ? ` (${task.automation_result.affected} record${Number(task.automation_result.affected) === 1 ? "" : "s"})` : ""}</p>}
             </article>;
           })}</div>
         </section>

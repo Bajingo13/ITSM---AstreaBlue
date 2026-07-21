@@ -17,6 +17,10 @@ let employeeId;
 let hrId;
 let superAdminId;
 let caseId;
+let offboardingCaseId;
+let assetId;
+let deviceId;
+let ticketId;
 
 function authHeaders(userId, role, branch) {
   const token = jwt.sign({ userId, role, branchId: branch || null }, secret, { expiresIn: "5m" });
@@ -26,6 +30,8 @@ function authHeaders(userId, role, branch) {
 test.before(async () => {
   const migration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-07-21-employee-lifecycle-foundation.sql"), "utf8");
   await db.query(migration);
+  const automationMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-07-21-internal-offboarding-automation.sql"), "utf8");
+  await db.query(automationMigration);
   const branch = await db.query(`SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1`);
   assert.ok(branch.rows[0]?.branch_id);
   branchId = branch.rows[0].branch_id;
@@ -60,6 +66,10 @@ test.before(async () => {
 });
 
 test.after(async () => {
+  if (deviceId) await db.query(`DELETE FROM monitored_devices WHERE device_id=$1`, [deviceId]);
+  if (assetId) await db.query(`DELETE FROM hardware_assets WHERE asset_id=$1`, [assetId]);
+  if (offboardingCaseId) await db.query(`DELETE FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`, [offboardingCaseId]);
+  if (ticketId) await db.query(`DELETE FROM tickets WHERE id=$1`, [ticketId]);
   if (caseId) await db.query(`DELETE FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`, [caseId]);
   await db.query(`DELETE FROM users WHERE user_id=ANY($1::int[])`, [[employeeId, hrId, superAdminId].filter(Boolean)]);
   if (server) await new Promise((resolve) => server.close(resolve));
@@ -128,3 +138,60 @@ test("required tasks block completion until an authorized administrator finishes
   assert.equal((await response.json()).data.status, "Completed");
 });
 
+test("offboarding executes only internal AstreaBlue actions and preserves endpoint identity", async () => {
+  const suffix = Date.now();
+  const asset = await db.query(
+    `INSERT INTO hardware_assets(asset_name,asset_type,brand,model_name,serial_number,branch_id,status,assigned_to,employee_id,assigned_name)
+     VALUES('Lifecycle Laptop','Laptop','AstreaBlue','QA Laptop',$1,$2,'In Use',$3::int,$3::text,'Lifecycle Employee') RETURNING asset_id`,
+    [`LIFECYCLE-${suffix}`, branchId, employeeId]
+  );
+  assetId = asset.rows[0].asset_id;
+  const deviceUuid = "8a49d563-8b24-4c37-a0ad-25a58cdf55a9";
+  const device = await db.query(
+    `INSERT INTO monitored_devices(hostname,assigned_user_id,branch_id,asset_id,device_uuid,status)
+     VALUES($1,$2,$3,$4,$5,'Online') RETURNING device_id`,
+    [`LIFECYCLE-${suffix}`, employeeId, branchId, assetId, deviceUuid]
+  );
+  deviceId = device.rows[0].device_id;
+  const ticket = await db.query(
+    `INSERT INTO tickets(ticket_number,title,description,requester_id,branch_id,status)
+     VALUES($1,'Employee offboarding','Internal lifecycle test',$2,$3,'Open Queue') RETURNING id`,
+    [`TKT-OFF-${suffix}`, employeeId, branchId]
+  );
+  ticketId = ticket.rows[0].id;
+
+  let response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases`, {
+    method: "POST",
+    headers: authHeaders(hrId, "HR", branchId),
+    body: JSON.stringify({ lifecycle_type: "Offboarding", employee_id: employeeId, related_ticket_id: ticketId }),
+  });
+  assert.equal(response.status, 201);
+  offboardingCaseId = (await response.json()).data.lifecycle_case_id;
+
+  const headers = authHeaders(superAdminId, "SuperAdmin", null);
+  const detailsResponse = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${offboardingCaseId}`, { headers });
+  const tasks = (await detailsResponse.json()).data.tasks;
+  for (const task of tasks) {
+    const notes = ["audit_licenses", "secure_data", "classify_assets"].includes(task.task_key) ? "Internal evidence verified for automated QA." : "";
+    response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${offboardingCaseId}/tasks/${task.lifecycle_task_id}`, {
+      method: "PATCH", headers, body: JSON.stringify({ status: "Completed", notes }),
+    });
+    assert.equal(response.status, 200, `${task.task_key}: ${await response.text()}`);
+  }
+
+  const [employee, assetAfter, deviceAfter, ticketAfter] = await Promise.all([
+    db.query(`SELECT is_active,status FROM users WHERE user_id=$1`, [employeeId]),
+    db.query(`SELECT status,assigned_to,employee_id FROM hardware_assets WHERE asset_id=$1`, [assetId]),
+    db.query(`SELECT assigned_user_id,device_uuid,status FROM monitored_devices WHERE device_id=$1`, [deviceId]),
+    db.query(`SELECT status FROM tickets WHERE id=$1`, [ticketId]),
+  ]);
+  assert.equal(employee.rows[0].is_active, false);
+  assert.equal(employee.rows[0].status, "Inactive");
+  assert.equal(assetAfter.rows[0].status, "In Stock");
+  assert.equal(assetAfter.rows[0].assigned_to, null);
+  assert.equal(assetAfter.rows[0].employee_id, null);
+  assert.equal(deviceAfter.rows[0].assigned_user_id, null);
+  assert.equal(deviceAfter.rows[0].device_uuid, deviceUuid);
+  assert.equal(deviceAfter.rows[0].status, "Online");
+  assert.equal(ticketAfter.rows[0].status, "Closed");
+});
