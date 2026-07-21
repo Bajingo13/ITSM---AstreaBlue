@@ -17,6 +17,7 @@ import {
   RefreshCw,
   XCircle,
   Trash2,
+  Download,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import AttachmentPreviewModal from "../components/AttachmentPreviewModal";
@@ -30,6 +31,7 @@ import PageHero from "../components/layout/PageHero";
 import { authHeaders } from "../services/authHeaders";
 import { subscribeToTicketChanges } from "../services/realtimeTickets";
 import { getTicketCompletionLabel } from "../utils/ticketDuration";
+import ExportReportModal from "../components/ExportReportModal";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -1507,7 +1509,7 @@ function TicketCard({ ticket, onClick }) {
 
 function Column({ column, tickets, onTicketClick }) {
   return (
-    <div className="flex min-h-[620px] flex-col rounded-3xl border border-slate-200 bg-slate-50 p-4">
+    <div className="flex h-[620px] min-h-[460px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className={`h-3 w-3 rounded-full ${column.color}`} />
@@ -1519,9 +1521,9 @@ function Column({ column, tickets, onTicketClick }) {
         </span>
       </div>
 
-      <div className="flex flex-1 flex-col gap-3">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1 [scrollbar-color:#93c5fd_#e2e8f0] [scrollbar-width:thin]">
         {tickets.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/60 text-sm font-semibold text-slate-400">
+          <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/60 text-sm font-semibold text-slate-400">
             No tickets
           </div>
         ) : (
@@ -1544,12 +1546,19 @@ export default function Tickets() {
   const [categories, setCategories] = useState([]);
   const [branches, setBranches] = useState([]);
   const [branchFilter, setBranchFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [assignmentFilter, setAssignmentFilter] = useState("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [pageMessage, setPageMessage] = useState("");
   const [pageError, setPageError] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState("excel");
+  const [exporting, setExporting] = useState(false);
 
   const fetchTickets = useCallback(async () => {
     try {
@@ -1632,18 +1641,87 @@ export default function Tickets() {
   }, [pageMessage]);
 
   const filteredTickets = useMemo(() => {
-    const text = query.toLowerCase();
+    const text = query.trim().toLowerCase();
 
     return tickets.filter((ticket) => {
-      return (
+      const matchesText = !text || (
         ticket.title?.toLowerCase().includes(text) ||
         ticket.ticket_number?.toLowerCase().includes(text) ||
         ticket.priority?.toLowerCase().includes(text) ||
         ticket.status?.toLowerCase().includes(text) ||
-        ticket.category?.toLowerCase().includes(text)
+        ticket.category?.toLowerCase().includes(text) ||
+        ticket.branch_name?.toLowerCase().includes(text) ||
+        ticket.requester_name?.toLowerCase().includes(text) ||
+        ticket.assigned_name?.toLowerCase().includes(text)
       );
+      const matchesStatus = statusFilter === "all" || ticket.status === statusFilter;
+      const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
+      const matchesCategory = categoryFilter === "all" || (ticket.category || "Uncategorized") === categoryFilter;
+      const matchesAssignment = assignmentFilter === "all"
+        || (assignmentFilter === "assigned" && Boolean(ticket.assigned_to))
+        || (assignmentFilter === "unassigned" && !ticket.assigned_to);
+
+      return matchesText && matchesStatus && matchesPriority && matchesCategory && matchesAssignment;
     });
-  }, [tickets, query]);
+  }, [tickets, query, statusFilter, priorityFilter, categoryFilter, assignmentFilter]);
+
+  const visibleColumns = useMemo(
+    () => statusFilter === "all" ? columns : columns.filter((column) => column.id === statusFilter),
+    [statusFilter]
+  );
+
+  const clearFilters = () => {
+    setStatusFilter("all");
+    setPriorityFilter("all");
+    setCategoryFilter("all");
+    setAssignmentFilter("all");
+    setQuery("");
+  };
+
+  const exportTickets = async () => {
+    try {
+      setExporting(true);
+      setPageError("");
+      const params = new URLSearchParams({
+        format: exportFormat === "print" ? "pdf" : "excel",
+      });
+      if (branchFilter) params.set("filter_branch_id", branchFilter);
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (priorityFilter !== "all") params.set("priority", priorityFilter);
+      if (categoryFilter !== "all") params.set("category", categoryFilter);
+      if (assignmentFilter !== "all") params.set("assignment", assignmentFilter);
+      if (query.trim()) params.set("query", query.trim());
+
+      const response = await fetch(`${API_BASE}/tickets/export?${params.toString()}`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const error = await readJsonSafely(response);
+        throw new Error(error.message || error.error || "Failed to export ticket report.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+      const fallbackExtension = exportFormat === "print" ? "pdf" : "xlsx";
+      const filename = filenameMatch?.[1] || `ticket-report.${fallbackExtension}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setExportOpen(false);
+      setPageMessage(`Ticket report exported as ${fallbackExtension.toUpperCase()}.`);
+    } catch (error) {
+      setPageError(error.message || "Failed to export ticket report.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const totalOpen = tickets.filter(
     (t) => t.status !== "Closed" && t.status !== "Cancelled"
@@ -1656,6 +1734,13 @@ export default function Tickets() {
   return (
     <div className="space-y-6">
       <PageHero eyebrow="Service Desk" title="Ticket Management" subtitle="Track, prioritize, and resolve incidents and service requests across your branches." actions={<>
+          <button
+            onClick={() => setExportOpen(true)}
+            className="flex items-center justify-center gap-2 rounded-xl border border-white/50 bg-white/15 px-5 py-3 font-black text-white shadow-sm backdrop-blur transition hover:bg-white/25"
+          >
+            <Download size={18} />
+            Export
+          </button>
           <button
             onClick={() => fetchTickets().catch(() => {})}
             disabled={loading}
@@ -1736,13 +1821,13 @@ export default function Tickets() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+      <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_1fr_1fr_2fr_auto] xl:items-center">
           {isSuperAdmin && (
             <select
               value={branchFilter}
               onChange={(e) => setBranchFilter(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none"
+              className="astrea-control text-sm font-bold"
             >
               <option value="">All branches</option>
               {branches.map((branch) => (
@@ -1752,14 +1837,38 @@ export default function Tickets() {
               ))}
             </select>
           )}
-          <Search size={18} className="text-slate-400" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by ticket number, title, status, priority, or category..."
-            className="w-full bg-transparent py-2 text-slate-700 outline-none placeholder:text-slate-400"
-          />
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="astrea-control text-sm font-bold">
+            <option value="all">All statuses</option>
+            {columns.map((column) => <option key={column.id} value={column.id}>{column.label}</option>)}
+          </select>
+          <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} className="astrea-control text-sm font-bold">
+            <option value="all">All priorities</option>
+            <option value="P1-Critical">P1 - Critical</option>
+            <option value="P2-High">P2 - High</option>
+            <option value="P3-Medium">P3 - Medium</option>
+            <option value="P4-Low">P4 - Low</option>
+          </select>
+          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="astrea-control text-sm font-bold">
+            <option value="all">All categories</option>
+            {categories.map((category) => <option key={category.category_id} value={category.category_name}>{category.category_name}</option>)}
+          </select>
+          <select value={assignmentFilter} onChange={(event) => setAssignmentFilter(event.target.value)} className="astrea-control text-sm font-bold">
+            <option value="all">All assignments</option>
+            <option value="assigned">Assigned</option>
+            <option value="unassigned">Unassigned</option>
+          </select>
+          <label className="relative block">
+            <Search size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search tickets, people, or branch..."
+              className="astrea-control pl-11 text-sm font-semibold"
+            />
+          </label>
+          <button type="button" onClick={clearFilters} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700">Clear</button>
         </div>
+        <p className="mt-3 text-xs font-bold text-slate-500">Showing {filteredTickets.length} of {tickets.length} tickets. Each status queue scrolls independently.</p>
       </section>
 
       {loading ? (
@@ -1767,8 +1876,9 @@ export default function Tickets() {
           Loading tickets...
         </div>
       ) : (
-        <section className="grid grid-cols-1 gap-5 xl:grid-cols-5">
-          {columns.map((column) => (
+        <section className="overflow-x-auto pb-2 [scrollbar-color:#93c5fd_#e2e8f0] [scrollbar-width:thin]">
+          <div className={visibleColumns.length === 1 ? "grid max-w-2xl grid-cols-1 gap-5" : "grid min-w-[1500px] grid-cols-5 gap-5"}>
+          {visibleColumns.map((column) => (
             <Column
               key={column.id}
               column={column}
@@ -1778,7 +1888,26 @@ export default function Tickets() {
               onTicketClick={setSelectedTicket}
             />
           ))}
+          </div>
         </section>
+      )}
+
+      {exportOpen && (
+        <ExportReportModal
+          title="Export Ticket Report"
+          subtitle="Export a branded table containing the tickets matching the current filters and RBAC scope."
+          format={exportFormat}
+          onFormatChange={setExportFormat}
+          onClose={() => !exporting && setExportOpen(false)}
+          onExport={exportTickets}
+          busy={exporting}
+          branches={isSuperAdmin ? branches : []}
+          branchId={branchFilter || "all"}
+          onBranchChange={isSuperAdmin ? (value) => setBranchFilter(value === "all" ? "" : value) : undefined}
+          allowedFormats={["excel", "print"]}
+          printLabel="PDF Report"
+          printDescription="Branded table-style .pdf file"
+        />
       )}
 
       {modalOpen && (

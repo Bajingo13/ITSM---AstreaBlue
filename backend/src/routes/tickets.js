@@ -12,6 +12,11 @@ const {
 const { createNotification } = require("../services/notificationService");
 const { createServiceDeskTicket } = require("../services/serviceDeskTicketService");
 const { emitSlaUpdated, emitTicketChanged } = require("../services/socketService");
+const {
+  createReportMetadata,
+  createTicketExcelReport,
+  createTicketPdfReport,
+} = require("../services/ticketReportService");
 
 function normalizeOptionalInteger(value, fallback = null) {
   if (value === undefined || value === "") return fallback;
@@ -345,6 +350,126 @@ router.get("/", async (req, res) => {
       success: false,
       error: "Failed to fetch tickets",
     });
+  }
+});
+
+router.get("/export", async (req, res) => {
+  try {
+    const context = getRequestContext(req);
+    const params = [];
+    const clauses = addTicketAccessFilter(req, params, "t");
+    const { format = "excel", status, priority, category, assignment, query } = req.query;
+    const normalizedFormat = String(format).toLowerCase();
+
+    if (!['excel', 'pdf'].includes(normalizedFormat)) {
+      return res.status(400).json({ success: false, message: "Export format must be excel or pdf." });
+    }
+
+    if (status && status !== "all") {
+      const statuses = String(status).split(",").map((value) => value.trim()).filter(Boolean);
+      if (statuses.length) {
+        const placeholders = statuses.map((value) => {
+          params.push(value);
+          return `$${params.length}`;
+        });
+        clauses.push(`t.status IN (${placeholders.join(", ")})`);
+      }
+    }
+
+    if (priority && priority !== "all") {
+      params.push(priority);
+      clauses.push(`t.priority = $${params.length}`);
+    }
+
+    if (category && category !== "all") {
+      params.push(category);
+      clauses.push(`COALESCE(c.category_name, 'Uncategorized') ILIKE $${params.length}`);
+    }
+
+    if (assignment === "assigned") {
+      clauses.push("t.assigned_to IS NOT NULL");
+    } else if (assignment === "unassigned") {
+      clauses.push("t.assigned_to IS NULL");
+    }
+
+    if (query && String(query).trim()) {
+      params.push(`%${String(query).trim()}%`);
+      const searchParam = `$${params.length}`;
+      clauses.push(`(
+        t.ticket_number ILIKE ${searchParam}
+        OR t.title ILIKE ${searchParam}
+        OR COALESCE(t.description, '') ILIKE ${searchParam}
+        OR COALESCE(c.category_name, '') ILIKE ${searchParam}
+        OR COALESCE(b.branch_name, '') ILIKE ${searchParam}
+        OR COALESCE(requester.full_name, t.external_requester_name, '') ILIKE ${searchParam}
+        OR COALESCE(assignee.full_name, '') ILIKE ${searchParam}
+      )`);
+    }
+
+    const whereSql = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const result = await db.query(
+      `
+      SELECT
+        t.id,
+        t.ticket_number,
+        t.title,
+        t.priority,
+        t.status,
+        t.created_at,
+        t.updated_at,
+        COALESCE(c.category_name, 'Uncategorized') AS category,
+        COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
+        COALESCE(requester.full_name, t.external_requester_name, 'Not recorded') AS requester_name,
+        COALESCE(assignee.full_name, 'Unassigned') AS assigned_name
+      FROM tickets t
+      LEFT JOIN ticket_categories c ON t.category_id = c.category_id
+      LEFT JOIN branches b ON t.branch_id = b.branch_id
+      LEFT JOIN users requester ON t.requester_id = requester.user_id
+      LEFT JOIN users assignee ON t.assigned_to = assignee.user_id
+      ${whereSql}
+      ORDER BY t.created_at DESC
+      `,
+      params
+    );
+
+    const normalizedRole = String(context.roleName || "").toLowerCase();
+    const scopedBranchId = normalizedRole === "superadmin"
+      ? req.query.filter_branch_id || null
+      : context.branchId || null;
+    let scopeLabel = normalizedRole === "superadmin" ? "All Branches / Centralized Systems" : "Authorized Ticket Scope";
+
+    if (scopedBranchId) {
+      const branchResult = await db.query(
+        "SELECT branch_name FROM branches WHERE branch_id = $1 LIMIT 1",
+        [scopedBranchId]
+      );
+      scopeLabel = branchResult.rows[0]?.branch_name || `Branch ${scopedBranchId}`;
+    } else if (normalizedRole === "employee") {
+      scopeLabel = "My Tickets";
+    }
+
+    const metadata = createReportMetadata({
+      companyName: process.env.COMPANY_NAME || "AstreaBlue Enterprise ITSM",
+      scopeLabel,
+      recordCount: result.rows.length,
+    });
+    const safeScope = scopeLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "authorized-scope";
+    const dateStamp = new Date().toISOString().slice(0, 10);
+
+    if (normalizedFormat === "pdf") {
+      const buffer = await createTicketPdfReport(result.rows, metadata);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="ticket-report-${safeScope}-${dateStamp}.pdf"`);
+      return res.end(buffer);
+    }
+
+    const buffer = await createTicketExcelReport(result.rows, metadata);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="ticket-report-${safeScope}-${dateStamp}.xlsx"`);
+    return res.end(buffer);
+  } catch (err) {
+    console.error("Ticket export error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to generate ticket report." });
   }
 });
 

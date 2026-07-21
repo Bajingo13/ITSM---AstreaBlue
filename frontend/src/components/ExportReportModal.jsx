@@ -18,12 +18,15 @@ export default function ExportReportModal({
   showDates = false,
   spreadsheetLabel = "Excel Workbook",
   spreadsheetDescription = "Formatted .xlsx spreadsheet",
+  allowedFormats = ["excel", "jpg", "print"],
+  printLabel = "Print / PDF",
+  printDescription = "Use the browser print dialog",
 }) {
   const options = [
     { value: "excel", label: spreadsheetLabel, description: spreadsheetDescription, icon: FileSpreadsheet },
     { value: "jpg", label: "JPG Image", description: "AstreaBlue report image", icon: Image },
-    { value: "print", label: "Print / PDF", description: "Use the browser print dialog", icon: Printer },
-  ];
+    { value: "print", label: printLabel, description: printDescription, icon: Printer },
+  ].filter((option) => allowedFormats.includes(option.value));
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="w-full max-w-xl overflow-hidden rounded-[28px] border border-blue-100 bg-white shadow-2xl">
@@ -34,7 +37,7 @@ export default function ExportReportModal({
         <div className="space-y-5 p-6">
           <div>
             <p className="mb-2 text-xs font-black uppercase tracking-[0.14em] text-slate-500">File format</p>
-            <div className="grid gap-3 sm:grid-cols-3">{options.map(({ value, label, description, icon: Icon }) => <button key={value} type="button" onClick={() => onFormatChange(value)} className={`rounded-2xl border p-4 text-left transition ${format === value ? "border-blue-500 bg-blue-50 ring-4 ring-blue-100" : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/50"}`}><Icon size={20} className={format === value ? "text-blue-700" : "text-slate-500"}/><p className="mt-3 text-sm font-black text-slate-900">{label}</p><p className="mt-1 text-xs font-semibold text-slate-500">{description}</p></button>)}</div>
+            <div className={`grid gap-3 ${options.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>{options.map(({ value, label, description, icon: Icon }) => <button key={value} type="button" onClick={() => onFormatChange(value)} className={`rounded-2xl border p-4 text-left transition ${format === value ? "border-blue-500 bg-blue-50 ring-4 ring-blue-100" : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/50"}`}><Icon size={20} className={format === value ? "text-blue-700" : "text-slate-500"}/><p className="mt-3 text-sm font-black text-slate-900">{label}</p><p className="mt-1 text-xs font-semibold text-slate-500">{description}</p></button>)}</div>
           </div>
           {onBranchChange && <label className="block"><span className="mb-2 block text-xs font-black uppercase tracking-[0.14em] text-slate-500">Branch</span><select value={branchId} onChange={(event) => onBranchChange(event.target.value)} className="w-full rounded-xl border border-blue-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"><option value="all">All branches</option>{branches.map((branch) => <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_name}</option>)}</select></label>}
           {showDates && <div className="grid gap-4 sm:grid-cols-2"><label><span className="mb-2 block text-xs font-black uppercase tracking-[0.14em] text-slate-500">From date</span><input type="date" value={dateFrom} onChange={(event) => onDateFromChange(event.target.value)} className="w-full rounded-xl border border-blue-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/></label><label><span className="mb-2 block text-xs font-black uppercase tracking-[0.14em] text-slate-500">To date</span><input type="date" value={dateTo} onChange={(event) => onDateToChange(event.target.value)} className="w-full rounded-xl border border-blue-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/></label></div>}
