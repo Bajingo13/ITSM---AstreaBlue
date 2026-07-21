@@ -1,10 +1,11 @@
 const express = require("express");
 const db = require("../../config/db");
-const { getRequestContext } = require("./_ticketAccess");
+const { getRequestContext, requireAuthenticatedTicketUser } = require("./_ticketAccess");
 const { ensureReplacementSchema } = require("../services/replacementSchemaService");
 const { createExcelReport, createTextReport, createPdfReport } = require("../services/tabularReportService");
 
 const router = express.Router();
+router.use(requireAuthenticatedTicketUser);
 const summaryCache = new Map();
 const CACHE_TTL_MS = 30_000;
 

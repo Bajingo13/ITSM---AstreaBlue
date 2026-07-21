@@ -63,6 +63,11 @@ const setupTickets = async () => {
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS integration_id INTEGER;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS employee_id INTEGER;
       ALTER TABLE tickets ADD COLUMN IF NOT EXISTS created_via VARCHAR(100);
+      ALTER TABLE ticket_categories ADD COLUMN IF NOT EXISTS visibility_scope VARCHAR(30) NOT NULL DEFAULT 'standard';
+      UPDATE ticket_categories
+         SET visibility_scope='sensitive'
+       WHERE LOWER(REGEXP_REPLACE(TRIM(category_name), '[[:space:]_/\\-]+', ' ', 'g')) IN
+         ('consent privacy request','privacy request','role change request');
     `);
   } catch (err) {
     console.error("Failed to alter tickets table:", err.message);

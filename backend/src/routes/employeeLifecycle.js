@@ -9,7 +9,6 @@ const {
   canTransition,
   canCompleteCase,
   canUpdateLifecycleTask,
-  lifecycleTaskOwnerLabel,
 } = require("../services/employeeLifecycleService");
 const { executeInternalOffboardingTask } = require("../services/internalOffboardingService");
 
@@ -312,7 +311,7 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
     if (!task) throw Object.assign(new Error("Checklist task not found."), { status: 404 });
     if (TERMINAL_STATUSES.has(task.case_status)) throw Object.assign(new Error("A completed or cancelled case cannot be edited."), { status: 409 });
     if (!canUpdateLifecycleTask(req.lifecycleActor.role, task.assigned_role)) {
-      throw Object.assign(new Error(`This task must be completed by an ${lifecycleTaskOwnerLabel(task.assigned_role)}.`), { status: 403 });
+      throw Object.assign(new Error("You do not have permission to complete this checklist item."), { status: 403 });
     }
     if (nextStatus === "Not Applicable" && task.is_required) {
       throw Object.assign(new Error("Required checklist tasks cannot be marked Not Applicable."), { status: 400 });

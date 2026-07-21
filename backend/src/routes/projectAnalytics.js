@@ -1,8 +1,9 @@
 const express = require("express");
 const db = require("../../config/db");
-const { getRequestContext } = require("./_ticketAccess");
+const { getRequestContext, requireAuthenticatedTicketUser } = require("./_ticketAccess");
 
 const router = express.Router();
+router.use(requireAuthenticatedTicketUser);
 const cache = new Map();
 const CACHE_TTL_MS = 30_000;
 

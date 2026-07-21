@@ -9,8 +9,16 @@ const projectAnalyticsRoutes = require("../src/routes/projectAnalytics");
 
 let server;
 let baseUrl;
+let superAdmin;
 
 test.before(async () => {
+  superAdmin = (await db.query(`
+    SELECT u.user_id,u.branch_id,r.role_name
+      FROM users u JOIN system_roles r ON r.role_id=u.role_id
+     WHERE LOWER(r.role_name)='superadmin' AND COALESCE(u.is_active,TRUE)=TRUE
+       AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
+     ORDER BY u.user_id LIMIT 1`)).rows[0];
+  assert.ok(superAdmin, "project analytics tests require an active SuperAdmin");
   const app = express();
   app.use("/api/v1/projects", projectAnalyticsRoutes);
   server = app.listen(0, "127.0.0.1");
@@ -28,7 +36,7 @@ test("project analytics dashboard is authenticated, complete, and cacheable", as
   assert.equal(unauthorized.status, 401);
 
   const token = jwt.sign(
-    { userId: 1, role: "SuperAdmin", branchId: null },
+    { userId: superAdmin.user_id, role: "SuperAdmin", branchId: superAdmin.branch_id || null },
     process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod",
     { expiresIn: "5m" }
   );

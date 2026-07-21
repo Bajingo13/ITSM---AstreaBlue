@@ -168,6 +168,33 @@ test("HR remains blocked from creating tickets for another branch", async () => 
   assert.equal(response.status, 403);
 });
 
+test("database account state overrides a still-valid HR JWT", async () => {
+  await db.query("UPDATE users SET is_active=FALSE,status='Inactive' WHERE user_id=$1", [hr.user_id]);
+  try {
+    const response = await createTicket(hr, "HR", {
+      title: "Deactivated HR token must fail",
+      description: "A signed JWT must not bypass current database account state.",
+      category_id: categoryId,
+      requester_id: employee.user_id,
+      branch_id: hr.branch_id,
+    });
+    assert.equal(response.status, 401);
+  } finally {
+    await db.query("UPDATE users SET is_active=TRUE,status='Active' WHERE user_id=$1", [hr.user_id]);
+  }
+});
+
+test("database role overrides a forged role claim in a valid JWT", async () => {
+  const response = await createTicket(employee, "SuperAdmin", {
+    title: "Forged SuperAdmin claim must fail",
+    description: "The employee remains branch-bound according to the database role.",
+    category_id: categoryId,
+    requester_id: employee.user_id,
+    branch_id: alternateBranchId,
+  });
+  assert.equal(response.status, 403);
+});
+
 test("Loading tickets never deletes an old cancelled ticket", async () => {
   const response = await createTicket(superAdmin, "SuperAdmin", {
     title: "Cancelled ticket retention test",

@@ -42,6 +42,7 @@ const ra10173ComplianceRoutes = require("./src/routes/ra10173Compliance");
 const consentRoutes = require("./src/routes/consent");
 const onboardingRoutes = require("./src/routes/onboarding");
 const employeeLifecycleRoutes = require("./src/routes/employeeLifecycle");
+const { requireAuthenticatedTicketUser: requireCanonicalTicketUser } = require("./src/routes/_ticketAccess");
 const cmdbRoutes = require("./src/routes/cmdb");
 const projectAnalyticsRoutes = require("./src/routes/projectAnalytics");
 const analyticsCenterRoutes = require("./src/routes/analyticsCenter");
@@ -3699,26 +3700,21 @@ app.delete("/api/v1/software-licenses/:id", async (req, res) => {
 ========================== */
 
 function getTicketRequestContext(req) {
-  const body = req.body || {};
+  if (req.ticketAccessContext?.authenticated) {
+    return {
+      currentUserId: req.ticketAccessContext.currentUserId,
+      roleName: req.ticketAccessContext.roleName,
+      branchId: req.ticketAccessContext.branchId,
+      filterBranchId: req.ticketAccessContext.filterBranchId,
+    };
+  }
   const decoded = decodeRequestUser(req);
 
   return {
-    currentUserId:
-      decoded?.userId ||
-      req.query.current_user_id ||
-      body.current_user_id ||
-      req.query.user_id ||
-      body.user_id ||
-      null,
-    roleName: decoded?.role || req.query.role_name || body.role_name || null,
-    branchId:
-      decoded?.branchId ||
-      req.query.current_branch_id ||
-      body.current_branch_id ||
-      req.query.branch_id ||
-      body.branch_id ||
-      null,
-    filterBranchId: req.query.filter_branch_id || body.filter_branch_id || null,
+    currentUserId: decoded?.userId || null,
+    roleName: decoded?.role || null,
+    branchId: decoded?.branchId || null,
+    filterBranchId: req.query.filter_branch_id || req.body?.filter_branch_id || null,
   };
 }
 
@@ -3737,10 +3733,33 @@ function addTicketAccessClauses(req, params, alias = "t", requesterAlias = "requ
     return clauses;
   }
 
+  clauses.push(`${alias}.integration_id IS NULL`);
+  clauses.push(`${alias}.origin_system IS NULL`);
+  clauses.push(`COALESCE(${alias}.created_via, '') <> 'External API'`);
+
   if (role === "admin") {
     if (!branchId) return ["1 = 0"];
     params.push(branchId);
     clauses.push(`${branchExpression} = $${params.length}`);
+    return clauses;
+  }
+
+  if (role === "hr") {
+    if (!branchId || !currentUserId) return ["1 = 0"];
+    params.push(branchId);
+    const branchParam = params.length;
+    params.push(currentUserId);
+    const actorParam = params.length;
+    clauses.push(`${branchExpression} = $${branchParam}`);
+    clauses.push(`(
+      EXISTS (SELECT 1 FROM employee_lifecycle_cases lifecycle_case
+        WHERE lifecycle_case.related_ticket_id=${alias}.id
+          AND lifecycle_case.branch_id=$${branchParam})
+      OR EXISTS (SELECT 1 FROM ticket_history creation_history
+        WHERE creation_history.ticket_id=${alias}.id
+          AND creation_history.action='Ticket Created'
+          AND creation_history.changed_by=$${actorParam})
+    )`);
     return clauses;
   }
 
@@ -3766,11 +3785,18 @@ function addTicketAccessClauses(req, params, alias = "t", requesterAlias = "requ
       clauses.push(`${alias}.assigned_to = $${technicianParam}`);
     }
 
+    clauses.push(`COALESCE((SELECT category.visibility_scope FROM ticket_categories category
+      WHERE category.category_id=${alias}.category_id),'standard')='standard'`);
+
     return clauses;
   }
 
   return ["1 = 0"];
 }
+
+// Any request that falls through the modular ticket router must still resolve
+// its actor from the current database record before reaching legacy handlers.
+app.use("/api/v1/tickets", requireCanonicalTicketUser);
 
 app.get("/api/v1/tickets", async (req, res) => {
   try {

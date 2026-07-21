@@ -45,12 +45,15 @@ test.before(async () => {
     SELECT u.user_id,u.full_name,u.branch_id
     FROM users u JOIN system_roles r ON r.role_id=u.role_id
     WHERE LOWER(r.role_name)='employee' AND u.branch_id IS NOT NULL
+      AND COALESCE(u.is_active,TRUE)=TRUE
+      AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
     ORDER BY u.user_id LIMIT 1
   `)).rows[0];
   superAdmin = (await db.query(`
     SELECT u.user_id,u.branch_id
     FROM users u JOIN system_roles r ON r.role_id=u.role_id
-    WHERE LOWER(r.role_name)='superadmin'
+    WHERE LOWER(r.role_name)='superadmin' AND COALESCE(u.is_active,TRUE)=TRUE
+      AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
     ORDER BY u.user_id LIMIT 1
   `)).rows[0];
   assert.ok(employee && superAdmin, "Replacement lifecycle QA requires an employee and SuperAdmin.");

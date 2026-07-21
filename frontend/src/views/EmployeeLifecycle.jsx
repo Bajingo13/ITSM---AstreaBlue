@@ -25,13 +25,18 @@ const STATUS_TRANSITIONS = {
 };
 
 async function lifecycleRequest(path, options = {}) {
+  const token = getAuthToken();
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Cache-Control": "no-cache",
+    ...(options.headers || {}),
+  };
+  if (options.body) headers["Content-Type"] = "application/json";
+
   const response = await fetch(`${API_URL}/api/v1/employee-lifecycle${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getAuthToken()}`,
-      ...(options.headers || {}),
-    },
+    headers,
+    cache: "no-store",
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.success === false) throw new Error(payload.message || "Lifecycle request failed.");
@@ -55,10 +60,6 @@ function statusClass(status) {
   if (status === "Ready for Verification") return "border-violet-200 bg-violet-50 text-violet-700";
   if (status === "Awaiting Employee" || status === "Awaiting IT") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-blue-200 bg-blue-50 text-blue-700";
-}
-
-function ownerLabel(role) {
-  return String(role || "").trim().toLowerCase() === "it" ? "IT Administrator" : role;
 }
 
 export default function EmployeeLifecycle() {
@@ -109,6 +110,7 @@ export default function EmployeeLifecycle() {
     setBusy(true);
     setError("");
     try {
+      await loadWorkspace(); // Reload latest version
       setDetails(await lifecycleRequest(`/cases/${id}`));
     } catch (requestError) {
       setError(requestError.message);
@@ -183,7 +185,7 @@ export default function EmployeeLifecycle() {
 
   return (
     <div className="space-y-5">
-      <PageHero eyebrow="People Operations" title="Employee Lifecycle Management" subtitle="Branch-scoped onboarding and offboarding checklists with HR oversight, IT execution, verification gates, and audit history." />
+      <PageHero eyebrow="People Operations" title="Employee Lifecycle Management" subtitle="Branch-scoped onboarding and offboarding checklists with verification gates and complete audit history." />
 
       {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-bold text-rose-700">{error}</div>}
       {notice && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-700">{notice}</div>}
@@ -201,7 +203,7 @@ export default function EmployeeLifecycle() {
 
       <section className="rounded-3xl border border-blue-100 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div><h2 className="text-xl font-black text-slate-950">Lifecycle cases</h2><p className="text-sm text-slate-500">HR owns verification; assigned IT tasks remain clearly separated.</p></div>
+          <div><h2 className="text-xl font-black text-slate-950">Lifecycle cases</h2><p className="text-sm text-slate-500">Track every required onboarding and offboarding step in one place.</p></div>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => void loadWorkspace()} className="inline-flex items-center gap-2 rounded-xl border border-blue-200 px-4 py-2.5 text-sm font-bold text-blue-700 hover:bg-blue-50"><RefreshCw size={16} /> Refresh</button>
             <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow hover:bg-blue-700"><UserPlus size={16} /> New lifecycle case</button>
@@ -242,7 +244,7 @@ export default function EmployeeLifecycle() {
             <Field label="Employee"><select required value={form.employee_id} onChange={(event) => setForm((current) => ({ ...current, employee_id: event.target.value }))} className="field"><option value="">Select employee</option>{employees.map((employee) => <option key={employee.user_id} value={employee.user_id}>{employee.full_name} — {employee.branch_name}</option>)}</select></Field>
             <Field label="Target date"><input type="date" value={form.target_date} onChange={(event) => setForm((current) => ({ ...current, target_date: event.target.value }))} className="field"/></Field>
             <Field label="Related ticket ID (optional)"><input type="number" min="1" value={form.related_ticket_id} onChange={(event) => setForm((current) => ({ ...current, related_ticket_id: event.target.value }))} className="field" placeholder="Database ticket ID"/></Field>
-            <label className="sm:col-span-2"><span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-600">Notes</span><textarea rows="3" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="field resize-none" placeholder="Context for HR and IT"/></label>
+            <label className="sm:col-span-2"><span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-600">Notes</span><textarea rows="3" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="field resize-none" placeholder="Add relevant onboarding or offboarding context"/></label>
           </div>
           <footer className="flex justify-end gap-3 border-t border-blue-100 bg-slate-50 p-5"><button type="button" onClick={() => setShowCreate(false)} className="rounded-xl border border-slate-200 px-5 py-2.5 font-bold">Cancel</button><button disabled={busy} className="rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white disabled:opacity-50">{busy ? "Creating…" : "Create case"}</button></footer>
         </form>
@@ -274,13 +276,13 @@ function CaseDrawer({ details, role, busy, onClose, onTask, onStatus }) {
           <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" style={{ width: `${progress}%` }}/></div>
           <div className="mt-5 space-y-3">{details.tasks?.map((task) => {
             const completed = task.status === "Completed";
-            const hrBlocked = role === "hr" && String(task.assigned_role).toLowerCase() !== "hr";
+            const accessBlocked = role === "hr" && String(task.assigned_role).toLowerCase() !== "hr";
             const notesRequired = details.lifecycle_type === "Offboarding" && ["audit_licenses", "secure_data", "classify_assets"].includes(task.task_key);
             return <article key={task.lifecycle_task_id} className={`rounded-2xl border p-4 ${completed ? "border-emerald-200 bg-emerald-50/60" : "border-blue-100 bg-slate-50"}`}>
-              <div className="flex gap-3"><button disabled={busy || (completed && details.lifecycle_type === "Offboarding") || hrBlocked || ["Completed", "Cancelled"].includes(details.status) || (notesRequired && String(taskNotes[task.lifecycle_task_id] || "").trim().length < 5)} onClick={() => void onTask(task, completed ? "Pending" : "Completed", taskNotes[task.lifecycle_task_id] || "")} title={hrBlocked ? `Assigned to ${ownerLabel(task.assigned_role)}` : completed && details.lifecycle_type === "Offboarding" ? "The internal action is complete and cannot be reversed here" : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
-                <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-slate-900">{task.task_label}</h4><span className="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">{ownerLabel(task.assigned_role)}</span>{task.is_required && <span className="text-[10px] font-black uppercase text-rose-600">Required</span>}</div><p className="mt-1 text-sm leading-6 text-slate-600">{task.task_description}</p>{completed && <p className="mt-2 text-xs font-semibold text-emerald-700">Completed by {task.completed_by_name || "authorized user"} · {formatDate(task.completed_at, true)}</p>}{hrBlocked && !completed && <p className="mt-2 text-xs font-semibold text-amber-700">HR can track this item; only an Admin or SuperAdmin can complete it.</p>}</div>
+              <div className="flex gap-3"><button disabled={busy || (completed && details.lifecycle_type === "Offboarding") || accessBlocked || ["Completed", "Cancelled"].includes(details.status) || (notesRequired && String(taskNotes[task.lifecycle_task_id] || "").trim().length < 5)} onClick={() => void onTask(task, completed ? "Pending" : "Completed", taskNotes[task.lifecycle_task_id] || "")} title={accessBlocked ? "You do not have permission to complete this checklist item" : completed && details.lifecycle_type === "Offboarding" ? "The internal action is complete and cannot be reversed here" : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
+                <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-slate-900">{task.task_label}</h4>{task.is_required && <span className="text-[10px] font-black uppercase text-rose-600">Required</span>}</div><p className="mt-1 text-sm leading-6 text-slate-600">{task.task_description}</p>{completed && <p className="mt-2 text-xs font-semibold text-emerald-700">Completed by {task.completed_by_name || "authorized user"} · {formatDate(task.completed_at, true)}</p>}{accessBlocked && !completed && <p className="mt-2 text-xs font-semibold text-amber-700">You can track this item, but your role cannot mark it complete.</p>}</div>
               </div>
-              {notesRequired && !completed && !hrBlocked && <label className="mt-3 block pl-9"><span className="mb-1 block text-xs font-bold text-slate-600">Required completion evidence</span><textarea rows="2" value={taskNotes[task.lifecycle_task_id] || ""} onChange={(event) => setTaskNotes((current) => ({ ...current, [task.lifecycle_task_id]: event.target.value }))} className="field resize-none" placeholder="Record the handover or asset inspection result before completing this task."/></label>}
+              {notesRequired && !completed && !accessBlocked && <label className="mt-3 block pl-9"><span className="mb-1 block text-xs font-bold text-slate-600">Required completion evidence</span><textarea rows="2" value={taskNotes[task.lifecycle_task_id] || ""} onChange={(event) => setTaskNotes((current) => ({ ...current, [task.lifecycle_task_id]: event.target.value }))} className="field resize-none" placeholder="Record the handover or asset inspection result before completing this task."/></label>}
               {completed && task.completion_notes && <p className="mt-3 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-600"><strong>Evidence:</strong> {task.completion_notes}</p>}
               {completed && task.automation_result?.action && <p className="mt-2 pl-9 text-xs font-semibold text-emerald-700">Internal result: {String(task.automation_result.action).replaceAll("_", " ")}{Number.isFinite(Number(task.automation_result.affected)) ? ` (${task.automation_result.affected} record${Number(task.automation_result.affected) === 1 ? "" : "s"})` : ""}</p>}
             </article>;

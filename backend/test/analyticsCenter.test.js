@@ -10,9 +10,12 @@ const analyticsCenterRoutes = require("../src/routes/analyticsCenter");
 let server;
 let baseUrl;
 let branchId;
+let superAdminUser;
+let adminUser;
+let technicianUser;
 
-const tokenFor = (role, branch = null) => jwt.sign(
-  { userId: 1, role, branchId: branch },
+const tokenFor = (user, claimedRole = null) => jwt.sign(
+  { userId: user.user_id, role: claimedRole || user.role_name, branchId: user.branch_id },
   process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod",
   { expiresIn: "5m" }
 );
@@ -20,6 +23,18 @@ const tokenFor = (role, branch = null) => jwt.sign(
 test.before(async () => {
   branchId = (await db.query("SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1")).rows[0]?.branch_id;
   assert.ok(branchId, "analytics tests require at least one branch");
+  const users = await db.query(`
+    SELECT u.user_id,u.branch_id,r.role_name
+      FROM users u JOIN system_roles r ON r.role_id=u.role_id
+     WHERE COALESCE(u.is_active,TRUE)=TRUE
+       AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
+       AND LOWER(r.role_name) IN ('superadmin','admin','technician')
+     ORDER BY u.user_id`);
+  superAdminUser = users.rows.find((user) => String(user.role_name).toLowerCase() === "superadmin");
+  adminUser = users.rows.find((user) => String(user.role_name).toLowerCase() === "admin" && user.branch_id);
+  technicianUser = users.rows.find((user) => String(user.role_name).toLowerCase() === "technician" && user.branch_id);
+  assert.ok(superAdminUser && adminUser && technicianUser, "analytics tests require active SuperAdmin, Admin, and Technician users");
+  branchId = adminUser.branch_id;
   const app = express();
   app.use("/api/v1/analytics", analyticsCenterRoutes);
   server = app.listen(0, "127.0.0.1");
@@ -36,7 +51,7 @@ test("enterprise summary enforces authentication and returns complete manager an
   assert.equal((await fetch(`${baseUrl}/api/v1/analytics/summary`)).status, 401);
 
   const response = await fetch(`${baseUrl}/api/v1/analytics/summary`, {
-    headers: { authorization: `Bearer ${tokenFor("SuperAdmin")}` },
+    headers: { authorization: `Bearer ${tokenFor(superAdminUser)}` },
   });
   assert.equal(response.status, 200);
   const body = await response.json();
@@ -49,7 +64,7 @@ test("enterprise summary enforces authentication and returns complete manager an
 });
 
 test("technicians cannot access reporting and analytics", async () => {
-  const headers = { authorization: `Bearer ${tokenFor("Technician", branchId)}` };
+  const headers = { authorization: `Bearer ${tokenFor(technicianUser)}` };
   const response = await fetch(`${baseUrl}/api/v1/analytics/summary`, { headers });
   assert.equal(response.status, 403);
   assert.match((await response.json()).message, /administrators/i);
@@ -57,7 +72,7 @@ test("technicians cannot access reporting and analytics", async () => {
 });
 
 test("administrators can generate branch-scoped reports and TXT exports", async () => {
-  const headers = { authorization: `Bearer ${tokenFor("Admin", branchId)}` };
+  const headers = { authorization: `Bearer ${tokenFor(adminUser)}` };
   const optionResponse = await fetch(`${baseUrl}/api/v1/analytics/report-options`, { headers });
   assert.equal(optionResponse.status, 200);
   const options = (await optionResponse.json()).data;

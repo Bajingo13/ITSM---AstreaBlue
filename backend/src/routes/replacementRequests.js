@@ -1,6 +1,6 @@
 const express = require("express");
 const db = require("../../config/db");
-const { getRequestContext } = require("./_ticketAccess");
+const { getRequestContext, requireAuthenticatedTicketUser } = require("./_ticketAccess");
 const { uploadTicketAttachments } = require("./_uploads");
 const { createNotification } = require("../services/notificationService");
 const { emitReplacementChanged } = require("../services/socketService");
@@ -8,6 +8,7 @@ const { ensureReplacementSchema } = require("../services/replacementSchemaServic
 const { resolvePostRepairAssetStatus } = require("../services/replacementAssetStatusService");
 
 const router = express.Router();
+router.use(requireAuthenticatedTicketUser);
 
 const TERMINAL_STATUSES = new Set(["Completed", "Repaired", "Rejected", "Cancelled"]);
 const VALID_TRANSITIONS = {
