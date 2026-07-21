@@ -19,6 +19,7 @@ const {
   computeSoftwareLicenseStatus,
   validateLicenseRenewal,
 } = require("./src/services/softwareLicenseRenewalService");
+const { protectWorkbook } = require("./src/services/excelProtectionService");
 const {
   DEFAULT_ONLINE_THRESHOLD_SECONDS,
   getAssetVerificationStatus,
@@ -40,6 +41,7 @@ const notificationRoutes = require("./src/routes/notifications");
 const ra10173ComplianceRoutes = require("./src/routes/ra10173Compliance");
 const consentRoutes = require("./src/routes/consent");
 const onboardingRoutes = require("./src/routes/onboarding");
+const employeeLifecycleRoutes = require("./src/routes/employeeLifecycle");
 const cmdbRoutes = require("./src/routes/cmdb");
 const projectAnalyticsRoutes = require("./src/routes/projectAnalytics");
 const analyticsCenterRoutes = require("./src/routes/analyticsCenter");
@@ -200,14 +202,15 @@ async function ensureRoleBranchManagement() {
     `);
 
     await db.query(`
-      INSERT INTO system_roles (role_name)
-      SELECT role_name
+      INSERT INTO system_roles (role_name, clearance_level, description)
+      SELECT role_name, clearance_level, description
       FROM (VALUES
-        ('SuperAdmin'),
-        ('Admin'),
-        ('Technician'),
-        ('Employee')
-      ) AS required_roles(role_name)
+        ('SuperAdmin', 100, 'Full system administrator with cross-branch privileges'),
+        ('Admin', 80, 'Branch administrator with branch-scoped visibility'),
+        ('HR', 70, 'Human Resources lifecycle coordinator with branch-scoped onboarding and offboarding oversight'),
+        ('Technician', 60, 'Support technician for handling asset and ticket operations'),
+        ('Employee', 40, 'Regular employee with branch-level access')
+      ) AS required_roles(role_name, clearance_level, description)
       WHERE NOT EXISTS (
         SELECT 1
         FROM system_roles sr
@@ -800,6 +803,7 @@ app.use("/api/v1/integrations", integrationManagementRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
 app.use("/api/v1/consent", consentRoutes);
 app.use("/api/v1/onboarding", onboardingRoutes);
+app.use("/api/v1/employee-lifecycle", employeeLifecycleRoutes);
 app.use("/api/v1/cmdb", cmdbRoutes);
 app.use("/api/v1/projects", projectAnalyticsRoutes);
 app.use("/api/v1/analytics", analyticsCenterRoutes);
@@ -1058,8 +1062,9 @@ app.get("/api/v1/roles", requireAuthenticatedRequest, async (req, res) => {
         CASE LOWER(role_name)
           WHEN 'superadmin' THEN 1
           WHEN 'admin' THEN 2
-          WHEN 'technician' THEN 3
-          WHEN 'employee' THEN 4
+          WHEN 'hr' THEN 3
+          WHEN 'technician' THEN 4
+          WHEN 'employee' THEN 5
           ELSE 5
         END,
         role_name ASC
@@ -3404,6 +3409,7 @@ app.get("/api/v1/software-licenses/export", async (req, res) => {
       to: { row: ws.rowCount, column: headers.length },
     };
 
+    await protectWorkbook(wb);
     const finalBuf = Buffer.from(await wb.xlsx.writeBuffer());
 
     const filename = `software-licenses-${new Date().toISOString().slice(0, 10)}.xlsx`;

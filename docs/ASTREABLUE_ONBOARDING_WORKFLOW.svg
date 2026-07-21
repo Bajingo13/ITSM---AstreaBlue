@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1800" viewBox="0 0 1920 1800" role="img" aria-labelledby="title desc">
+  <title id="title">AstreaBlue Employee Onboarding Swimlane Flowchart</title>
+  <desc id="desc">Draw.io-style cross-functional flowchart covering HR initiation, consent, asset assignment, endpoint policy synchronization, diagnostics, and completion.</desc>
+  <defs>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#082855"/><stop offset=".58" stop-color="#1559A8"/><stop offset="1" stop-color="#17A8DC"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#102A4C" flood-opacity=".14"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#245EA8"/></marker>
+    <marker id="orangeArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#D97706"/></marker>
+    <style>
+      .h1{font:800 34px 'Segoe UI',Arial,sans-serif;fill:#fff}.sub{font:500 17px 'Segoe UI',Arial,sans-serif;fill:#D9EDFF}.lane{font:800 16px 'Segoe UI',Arial,sans-serif;fill:#17365E;letter-spacing:1px}.node{font:700 16px 'Segoe UI',Arial,sans-serif;fill:#142943}.detail{font:500 13px 'Segoe UI',Arial,sans-serif;fill:#516984}.tag{font:800 11px 'Segoe UI',Arial,sans-serif;letter-spacing:.8px}.edge{fill:none;stroke:#245EA8;stroke-width:3;marker-end:url(#arrow)}.retry{fill:none;stroke:#D97706;stroke-width:3;stroke-dasharray:8 6;marker-end:url(#orangeArrow)}.edgeText{font:800 13px 'Segoe UI',Arial,sans-serif;fill:#245EA8}.retryText{font:800 13px 'Segoe UI',Arial,sans-serif;fill:#B45309}
+    </style>
+  </defs>
+  <rect width="1920" height="1800" fill="#EEF4FC"/>
+  <rect x="30" y="24" width="1860" height="108" rx="22" fill="url(#top)"/>
+  <text x="72" y="68" class="sub" style="font-weight:800;letter-spacing:3px">ASTREABLUE ENTERPRISE ITSM</text>
+  <text x="72" y="108" class="h1">Employee Onboarding Workflow</text>
+  <text x="1845" y="72" text-anchor="end" class="sub">Cross-Functional Swimlane Diagram</text>
+  <text x="1845" y="103" text-anchor="end" class="sub">HR oversight · IT execution · Monitoring-safe</text>
+
+  <!-- Swimlanes -->
+  <rect x="30" y="158" width="1860" height="1510" rx="16" fill="#fff" stroke="#9FB7D4" stroke-width="2"/>
+  <rect x="30" y="158" width="310" height="1510" rx="16" fill="#FAF7FF"/>
+  <rect x="340" y="158" width="350" height="1510" fill="#F6FAFF"/>
+  <rect x="690" y="158" width="350" height="1510" fill="#F5FCF9"/>
+  <rect x="1040" y="158" width="350" height="1510" fill="#FFFBF2"/>
+  <rect x="1390" y="158" width="500" height="1510" rx="16" fill="#F6FAFF"/>
+  <rect x="30" y="158" width="310" height="64" rx="16" fill="#EEE6FF"/><rect x="340" y="158" width="350" height="64" fill="#DFECFF"/><rect x="690" y="158" width="350" height="64" fill="#DDF5EB"/><rect x="1040" y="158" width="350" height="64" fill="#FFF0CE"/><rect x="1390" y="158" width="500" height="64" rx="16" fill="#DFECFF"/>
+  <line x1="340" y1="158" x2="340" y2="1668" stroke="#9FB7D4" stroke-width="2"/><line x1="690" y1="158" x2="690" y2="1668" stroke="#9FB7D4" stroke-width="2"/><line x1="1040" y1="158" x2="1040" y2="1668" stroke="#9FB7D4" stroke-width="2"/><line x1="1390" y1="158" x2="1390" y2="1668" stroke="#9FB7D4" stroke-width="2"/>
+  <text x="185" y="198" text-anchor="middle" class="lane">HR</text><text x="515" y="198" text-anchor="middle" class="lane">ASTREABLUE SYSTEM</text><text x="865" y="198" text-anchor="middle" class="lane">EMPLOYEE</text><text x="1215" y="198" text-anchor="middle" class="lane">IT ADMIN</text><text x="1640" y="198" text-anchor="middle" class="lane">IT OPERATIONS</text>
+
+  <!-- Start -->
+  <ellipse cx="185" cy="270" rx="88" ry="36" fill="#fff" stroke="#7C3AED" stroke-width="3" filter="url(#shadow)"/>
+  <text x="185" y="276" text-anchor="middle" class="node">START</text>
+  <path d="M185 306V338" class="edge"/>
+
+  <!-- HR initiate -->
+  <g filter="url(#shadow)"><rect x="65" y="346" width="240" height="92" rx="12" fill="#fff" stroke="#7C3AED" stroke-width="2"/><rect x="65" y="346" width="240" height="25" rx="12" fill="#EEE6FF"/><text x="185" y="365" text-anchor="middle" class="tag" fill="#6D28D9">HR TASK</text><text x="185" y="396" text-anchor="middle" class="node">Create onboarding case</text><text x="185" y="420" text-anchor="middle" class="detail">Employee · branch · role · start date</text></g>
+  <path d="M305 392H515V470" class="edge"/>
+
+  <!-- System account -->
+  <g filter="url(#shadow)"><rect x="395" y="478" width="240" height="92" rx="12" fill="#fff" stroke="#2563EB" stroke-width="2"/><rect x="395" y="478" width="240" height="25" rx="12" fill="#DFECFF"/><text x="515" y="497" text-anchor="middle" class="tag" fill="#1D4ED8">AUTOMATED</text><text x="515" y="528" text-anchor="middle" class="node">Create ITSM account</text><text x="515" y="552" text-anchor="middle" class="detail">Apply branch-scoped RBAC</text></g>
+  <path d="M635 524H865V600" class="edge"/>
+
+  <!-- Employee profile -->
+  <g filter="url(#shadow)"><rect x="745" y="608" width="240" height="92" rx="12" fill="#fff" stroke="#0F9F6E" stroke-width="2"/><rect x="745" y="608" width="240" height="25" rx="12" fill="#DDF5EB"/><text x="865" y="627" text-anchor="middle" class="tag" fill="#087A55">EMPLOYEE TASK</text><text x="865" y="658" text-anchor="middle" class="node">Complete profile</text><text x="865" y="682" text-anchor="middle" class="detail">Review role and branch details</text></g>
+  <path d="M865 700V744" class="edge"/>
+
+  <!-- Privacy -->
+  <g filter="url(#shadow)"><rect x="745" y="752" width="240" height="92" rx="12" fill="#fff" stroke="#0F9F6E" stroke-width="2"/><rect x="745" y="752" width="240" height="25" rx="12" fill="#DDF5EB"/><text x="865" y="771" text-anchor="middle" class="tag" fill="#087A55">EMPLOYEE TASK</text><text x="865" y="802" text-anchor="middle" class="node">Review privacy notice</text><text x="865" y="826" text-anchor="middle" class="detail">Purpose · categories · rights</text></g>
+  <path d="M865 844V888" class="edge"/>
+
+  <!-- Sign consent -->
+  <g filter="url(#shadow)"><rect x="745" y="896" width="240" height="96" rx="12" fill="#fff" stroke="#0F9F6E" stroke-width="2"/><rect x="745" y="896" width="240" height="25" rx="12" fill="#DDF5EB"/><text x="865" y="915" text-anchor="middle" class="tag" fill="#087A55">EMPLOYEE TASK</text><text x="865" y="946" text-anchor="middle" class="node">Sign general consent</text><text x="865" y="970" text-anchor="middle" class="detail">One consent for assigned devices</text></g>
+  <path d="M985 944H1215V1016" class="edge"/>
+
+  <!-- Review consent -->
+  <g filter="url(#shadow)"><rect x="1095" y="1024" width="240" height="92" rx="12" fill="#fff" stroke="#F59E0B" stroke-width="2"/><rect x="1095" y="1024" width="240" height="25" rx="12" fill="#FFF0CE"/><text x="1215" y="1043" text-anchor="middle" class="tag" fill="#A35B00">IT ADMIN TASK</text><text x="1215" y="1074" text-anchor="middle" class="node">Review consent</text><text x="1215" y="1098" text-anchor="middle" class="detail">Approve · reject · request revision</text></g>
+  <path d="M1215 1116V1142" class="edge"/>
+
+  <!-- Approval decision -->
+  <polygon points="1215,1148 1320,1215 1215,1282 1110,1215" fill="#FFF9E9" stroke="#F59E0B" stroke-width="2.5" filter="url(#shadow)"/>
+  <text x="1215" y="1209" text-anchor="middle" class="node">Consent</text><text x="1215" y="1231" text-anchor="middle" class="node">approved?</text>
+  <path d="M1110 1215H1025V944H985" class="retry"/><text x="1038" y="1196" class="retryText">NO · REVISION</text>
+  <path d="M1320 1215H1640V1274" class="edge"/><text x="1370" y="1197" class="edgeText">YES</text>
+
+  <!-- Assign asset/device -->
+  <g filter="url(#shadow)"><rect x="1510" y="1282" width="260" height="96" rx="12" fill="#fff" stroke="#2563EB" stroke-width="2"/><rect x="1510" y="1282" width="260" height="25" rx="12" fill="#DFECFF"/><text x="1640" y="1301" text-anchor="middle" class="tag" fill="#1D4ED8">IT OPERATIONS</text><text x="1640" y="1332" text-anchor="middle" class="node">Assign asset &amp; device</text><text x="1640" y="1356" text-anchor="middle" class="detail">Link without duplicating identity</text></g>
+  <path d="M1640 1378V1410" class="edge"/>
+
+  <!-- Agent setup -->
+  <g filter="url(#shadow)"><rect x="1490" y="1418" width="300" height="112" rx="12" fill="#fff" stroke="#2563EB" stroke-width="2"/><rect x="1490" y="1418" width="300" height="25" rx="12" fill="#DFECFF"/><text x="1640" y="1437" text-anchor="middle" class="tag" fill="#1D4ED8">AGENT SETUP</text><text x="1640" y="1468" text-anchor="middle" class="node">Resolve enrollment safely</text><text x="1640" y="1492" text-anchor="middle" class="detail">Existing: preserve identity &amp; credential</text><text x="1640" y="1514" text-anchor="middle" class="detail">New: enroll once with one-time code</text></g>
+  <path d="M1490 1474H620V1386" class="edge"/>
+
+  <!-- Policy system -->
+  <g filter="url(#shadow)"><rect x="395" y="1282" width="240" height="104" rx="12" fill="#fff" stroke="#2563EB" stroke-width="2"/><rect x="395" y="1282" width="240" height="25" rx="12" fill="#DFECFF"/><text x="515" y="1301" text-anchor="middle" class="tag" fill="#1D4ED8">AUTOMATED</text><text x="515" y="1332" text-anchor="middle" class="node">Generate effective policy</text><text x="515" y="1356" text-anchor="middle" class="detail">Override → general → safe default</text></g>
+  <path d="M515 1386V1550H1510" class="edge"/>
+
+  <!-- Diagnostics -->
+  <g filter="url(#shadow)"><rect x="1510" y="1560" width="260" height="92" rx="12" fill="#fff" stroke="#0EA5E9" stroke-width="2"/><rect x="1510" y="1560" width="260" height="25" rx="12" fill="#DDF4FF"/><text x="1640" y="1579" text-anchor="middle" class="tag" fill="#0369A1">VERIFICATION</text><text x="1640" y="1610" text-anchor="middle" class="node">Verify diagnostics</text><text x="1640" y="1634" text-anchor="middle" class="detail">Heartbeat · inventory · policy sync</text></g>
+
+  <!-- completion area -->
+  <path d="M1510 1606H1358" class="edge"/>
+  <polygon points="1260,1542 1358,1606 1260,1670 1162,1606" fill="#EBF8F2" stroke="#0F9F6E" stroke-width="2.5" filter="url(#shadow)"/>
+  <text x="1260" y="1599" text-anchor="middle" class="node">Required checks</text><text x="1260" y="1621" text-anchor="middle" class="node">healthy?</text>
+  <path d="M1260 1542V1490H1490" class="retry"/><text x="1280" y="1474" class="retryText">NO · FIX &amp; RETRY</text>
+  <path d="M1162 1606H985" class="edge"/><text x="1080" y="1588" class="edgeText">YES</text>
+  <g filter="url(#shadow)"><rect x="745" y="1560" width="240" height="92" rx="12" fill="#EAFBF4" stroke="#0F9F6E" stroke-width="2"/><text x="865" y="1595" text-anchor="middle" class="node">HR + IT verification</text><text x="865" y="1620" text-anchor="middle" class="detail">Both checklist sections verified</text></g>
+  <path d="M745 1606H625" class="edge"/>
+  <g filter="url(#shadow)"><rect x="395" y="1560" width="230" height="92" rx="46" fill="#E8F2FF" stroke="#2563EB" stroke-width="3"/><text x="510" y="1599" text-anchor="middle" class="node">ONBOARDING</text><text x="510" y="1624" text-anchor="middle" class="node">COMPLETED</text></g>
+
+  <!-- footer -->
+  <rect x="30" y="1700" width="1860" height="70" rx="18" fill="#0B2D5C"/>
+  <text x="65" y="1728" class="tag" fill="#72D7FF">MONITORING SAFEGUARD</text>
+  <text x="65" y="1753" class="sub" style="font-size:14px">Healthy enrolled devices keep their UUID and credential. No reinstall is triggered by onboarding assignment.</text>
+  <text x="1850" y="1745" text-anchor="end" class="sub" style="font-size:13px">General consent is the default · Device-specific consent remains an explicit override</text>
+</svg>

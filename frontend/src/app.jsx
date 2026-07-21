@@ -24,6 +24,7 @@ import {
   CustomReports,
   Dashboard,
   EmployeeDashboard,
+  EmployeeLifecycle,
   EndpointAgentAdministration,
   EndpointMonitoring,
   EndpointPolicies,
@@ -54,7 +55,7 @@ import {
   Calendar,
 } from "./routes/lazyViews";
 
-const ALL_ROLES = ["SuperAdmin", "Admin", "Technician", "Employee"];
+const ALL_ROLES = ["SuperAdmin", "Admin", "HR", "Technician", "Employee"];
 const ADMIN_ROLES = ["SuperAdmin", "Admin"];
 
 function Unauthorized() {
@@ -115,6 +116,22 @@ export default function App() {
           element={
             <ProtectedRoute allowedRoles={["Admin"]}>
               <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/hr/lifecycle"
+          element={
+            <ProtectedRoute allowedRoles={["HR"]}>
+              <EmployeeLifecycle />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/employee-lifecycle"
+          element={
+            <ProtectedRoute allowedRoles={["SuperAdmin", "Admin", "HR"]}>
+              <EmployeeLifecycle />
             </ProtectedRoute>
           }
         />

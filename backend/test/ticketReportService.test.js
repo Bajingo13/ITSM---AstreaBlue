@@ -42,6 +42,7 @@ test("ticket Excel report contains branded metadata and tabular ticket rows", as
   assert.equal(worksheet.getCell("A5").value, "Ticket No.");
   assert.equal(worksheet.getCell("A6").value, "TKT-20260721-0001");
   assert.equal(worksheet.getCell("F6").value, "Makati Head Office");
+  assert.equal(worksheet.sheetProtection?.sheet, true);
 });
 
 test("ticket PDF report is a valid branded PDF document", async () => {

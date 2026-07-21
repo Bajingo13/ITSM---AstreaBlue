@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const ExcelJS = require("exceljs");
+const { protectWorkbook } = require("./excelProtectionService");
 const PDFDocument = require("pdfkit");
 
 const BRAND = {
@@ -182,6 +183,7 @@ async function createTicketExcelReport(tickets, metadata) {
   worksheet.headerFooter.oddFooter = `&LAstreaBlue Enterprise ITSM&C${metadata.scopeLabel}&RPage &P of &N`;
   worksheet.printTitlesRow = `${headerRowNumber}:${headerRowNumber}`;
 
+  await protectWorkbook(workbook);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 

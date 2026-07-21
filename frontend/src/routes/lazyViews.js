@@ -40,6 +40,7 @@ export const ConsentManagement = lazy(() => import("../views/ConsentManagement")
 export const ScreenshotCapture = lazy(() => import("../views/ScreenshotCapture"));
 export const UsbDlpMonitoring = lazy(() => import("../views/UsbDlpMonitoring"));
 export const MandatoryOnboarding = lazy(() => import("../views/MandatoryOnboarding"));
+export const EmployeeLifecycle = lazy(() => import("../views/EmployeeLifecycle"));
 export const ReplacementRequests = lazy(() => import("../views/ReplacementRequests"));
 export const AdvancedProjectDashboard = lazy(() => import("../views/AdvancedProjectDashboard"));
 export const ExecutiveOperationsDashboard = lazy(() => import("../views/ExecutiveOperationsDashboard"));
@@ -80,6 +81,8 @@ const routePreloaders = {
   "/employee/dashboard": () => import("../views/EmployeeDashboard"),
   "/employee/my-tickets": () => import("../views/MyTickets"),
   "/employee/create-ticket": () => import("../views/CreateTicket"),
+  "/employee-lifecycle": () => import("../views/EmployeeLifecycle"),
+  "/hr/lifecycle": () => import("../views/EmployeeLifecycle"),
   "/ra-10173-compliance": () => import("../views/RA10173Compliance"),
   "/employee/consent": () => import("../views/ConsentPage"),
   "/calendar": () => import("../views/Calendar"),

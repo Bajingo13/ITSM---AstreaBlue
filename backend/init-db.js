@@ -34,6 +34,7 @@ const migrationFiles = [
   "2026-07-17-replacement-requests.sql",
   "2026-07-17-replacement-repair-lifecycle.sql",
   "2026-07-20-replacement-restore-asset-status.sql",
+  "2026-07-21-employee-lifecycle-foundation.sql",
 ];
 
 const defaultTicketCategories = [

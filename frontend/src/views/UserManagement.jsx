@@ -127,7 +127,7 @@ export default function UserManagement() {
 
   const allowedRoles = useMemo(() => {
     const allowedNames = isSuperAdmin
-      ? ["SuperAdmin", "Admin", "Technician", "Employee"]
+      ? ["SuperAdmin", "Admin", "HR", "Technician", "Employee"]
       : ["Technician", "Employee"];
 
     return roles.filter((item) => allowedNames.includes(item.role_name));
@@ -135,7 +135,7 @@ export default function UserManagement() {
 
   const inviteRoles = useMemo(() => {
     const allowedNames = isSuperAdmin
-      ? ["Admin", "Technician", "Employee"]
+      ? ["Admin", "HR", "Technician", "Employee"]
       : ["Technician", "Employee"];
 
     return roles.filter((item) => allowedNames.includes(item.role_name));
@@ -298,7 +298,7 @@ export default function UserManagement() {
           <div>
             <h2 className="text-xl font-black text-slate-900">System Users</h2>
             <p className="text-sm text-slate-500">
-              SuperAdmin, Admin, Technician, and Employee accounts.
+              SuperAdmin, Admin, HR, Technician, and Employee accounts.
             </p>
           </div>
         </div>

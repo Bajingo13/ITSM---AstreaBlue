@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const ExcelJS = require("exceljs");
+const { protectWorkbook } = require("./excelProtectionService");
 const PDFDocument = require("pdfkit");
 
 const COLORS = {
@@ -178,6 +179,7 @@ async function createHardwareAssetExcelReport(assets, metadata) {
   worksheet.printTitlesRow = `${headerRowNumber}:${headerRowNumber}`;
   worksheet.headerFooter.oddFooter = `&LAstreaBlue Enterprise ITSM&C${metadata.scopeLabel}&RPage &P of &N`;
 
+  await protectWorkbook(workbook);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 

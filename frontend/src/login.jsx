@@ -33,6 +33,8 @@ export default function Login() {
         navigate("/superadmin/dashboard");
       } else if (role === "admin") {
         navigate("/admin/dashboard");
+      } else if (role === "hr") {
+        navigate("/hr/lifecycle");
       } else if (role === "technician") {
         navigate("/technician/dashboard");
       } else if (role === "employee") {

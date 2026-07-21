@@ -91,6 +91,13 @@ const coreModuleItems = [
     ],
   },
   {
+    label: "Employee Lifecycle",
+    icon: Users,
+    children: [
+      { label: "Onboarding & Offboarding", icon: ClipboardList, path: "/employee-lifecycle" },
+    ],
+  },
+  {
     label: "System Administration",
     icon: UserCog,
     children: [
@@ -163,6 +170,18 @@ const employeeNavItems = [
   },
 ];
 
+const hrNavItems = [
+  { label: "Dashboard", icon: LayoutDashboard, path: "/hr/lifecycle" },
+  {
+    label: "Employee Lifecycle",
+    icon: Users,
+    children: [
+      { label: "All Cases", icon: ClipboardList, path: "/hr/lifecycle" },
+      { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
+    ],
+  },
+];
+
 function getDashboardPath(role) {
   const normalizedRole = String(role || "").toLowerCase();
 
@@ -170,6 +189,7 @@ function getDashboardPath(role) {
   if (normalizedRole === "admin") return "/admin/dashboard";
   if (normalizedRole === "technician") return "/technician/dashboard";
   if (normalizedRole === "employee") return "/employee/dashboard";
+  if (normalizedRole === "hr") return "/hr/lifecycle";
 
   return "/dashboard";
 }
@@ -189,6 +209,10 @@ function getVisibleNavItems(role) {
 
   if (normalizedRole === "employee") {
     return employeeNavItems;
+  }
+
+  if (normalizedRole === "hr") {
+    return hrNavItems;
   }
 
   if (normalizedRole === "admin") {
@@ -217,6 +241,7 @@ function NavGroup({ item, collapsed, dashboardPath }) {
       "/admin/dashboard",
       "/technician/dashboard",
       "/employee/dashboard",
+      "/hr/lifecycle",
     ].includes(location.pathname);
   const isActive = location.pathname === itemPath || hasActiveChild || isDashboardActive;
 

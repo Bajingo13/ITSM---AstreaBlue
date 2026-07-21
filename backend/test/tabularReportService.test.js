@@ -21,6 +21,7 @@ test("shared Excel report is a branded workbook with tabular rows", async () => 
   const sheet = workbook.getWorksheet("Report");
   assert.match(String(sheet.getCell("A1").value), /SLA TICKET QUEUE/);
   assert.equal(sheet.getCell("A6").value, "TKT-20260721-0001");
+  assert.equal(sheet.sheetProtection?.sheet, true);
 });
 
 test("shared TXT report is a distinct branded text file", () => {

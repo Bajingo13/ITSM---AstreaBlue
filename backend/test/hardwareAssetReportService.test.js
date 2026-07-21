@@ -40,6 +40,7 @@ test("hardware asset Excel export contains the branded header and asset table", 
   assert.match(String(worksheet.getCell("A2").value), /Makati Head Office/);
   assert.equal(worksheet.getCell("A5").value, "Asset ID");
   assert.equal(worksheet.getCell("B6").value, "Makati Support Laptop");
+  assert.equal(worksheet.sheetProtection?.sheet, true);
 });
 
 test("hardware asset TXT export is a distinct tabular plain-text file", () => {

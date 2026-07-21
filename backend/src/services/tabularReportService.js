@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
+const { protectWorkbook } = require("./excelProtectionService");
 
 const COLORS = { navy: "123A6D", blue: "2563EB", line: "CBD5E1", ink: "172033", muted: "64748B" };
 
@@ -80,6 +81,7 @@ async function createExcelReport(input) {
   report.columns.forEach((column, index) => { sheet.getColumn(index + 1).width = column.width; });
   sheet.autoFilter = { from: { row: 5, column: 1 }, to: { row: Math.max(5, sheet.rowCount), column: report.columns.length } };
   sheet.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+  await protectWorkbook(workbook);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
