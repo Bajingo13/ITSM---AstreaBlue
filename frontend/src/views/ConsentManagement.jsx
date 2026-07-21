@@ -658,6 +658,13 @@ export default function ConsentManagement() {
           </select>
         </div>
 
+        <div className="mb-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <p className="font-black">Consent coverage</p>
+          <p className="mt-1 text-xs font-semibold text-blue-700">
+            General consent covers every device assigned to the employee. Device-specific records are retained as audited overrides for the named laptop only.
+          </p>
+        </div>
+
         {loading ? (
           <p className="py-10 text-center text-slate-400 font-semibold">Loading consent documents...</p>
         ) : filtered.length === 0 ? (
@@ -697,7 +704,10 @@ export default function ConsentManagement() {
                           </p>
                         </div>
                       ) : (
-                        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black uppercase text-slate-600">General consent</span>
+                        <div>
+                          <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-black uppercase text-emerald-700">General consent</span>
+                          <p className="mt-1 text-xs font-semibold text-slate-600">All assigned devices</p>
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-4 text-sm font-semibold text-slate-600">v{c.consent_version || "1.0"}</td>

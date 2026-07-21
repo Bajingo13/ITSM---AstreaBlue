@@ -223,7 +223,8 @@ async function generateEndpointPolicy(doc, actor) {
   const prefs = selectedPrefs(doc);
   await db.query(
     `UPDATE endpoint_monitoring_policies SET status='superseded'
-     WHERE status='active' AND employee_id=$1 AND ($2::uuid IS NULL OR device_uuid=$2::uuid)`,
+     WHERE status='active' AND employee_id=$1
+       AND (($2::uuid IS NULL AND device_uuid IS NULL) OR device_uuid=$2::uuid)`,
     [doc.employee_id, doc.device_uuid || null]
   );
   const policy = await db.query(
@@ -1199,7 +1200,7 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
         `UPDATE consent_documents
          SET status='superseded', active=false, previous_consent_id=COALESCE(previous_consent_id, $1), updated_at=CURRENT_TIMESTAMP
          WHERE employee_id=$2 AND consent_id<>$1 AND status IN ('approved','signed') AND active=true
-           AND ($3::uuid IS NULL OR device_uuid=$3::uuid)`,
+           AND (($3::uuid IS NULL AND device_uuid IS NULL) OR device_uuid=$3::uuid)`,
         [doc.consent_id, doc.employee_id, doc.device_uuid || null]
       );
       updated = await client.query(
@@ -1315,14 +1316,22 @@ router.post("/:id/approve-change", requireAdminOrHR, async (req, res) => {
       `INSERT INTO consent_documents
          (employee_id, employee_full_name, employee_email, employee_number,
           branch_id, branch_name, department, form_title, consent_version,
-          monitoring_preferences, signed_at, e_signature_image, printed_name, status, submitted_at, approved_at, approved_by, active, previous_consent_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_TIMESTAMP,$11,$12,'approved',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,$13,true,$14)
+          monitoring_preferences, signed_at, e_signature_image, printed_name, status,
+          submitted_at, approved_at, approved_by, active, previous_consent_id,
+          assigned_user_id, device_uuid, device_id, asset_id, hostname)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_TIMESTAMP,$11,$12,'approved',
+          CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,$13,true,$14,$15,$16,$17,$18,$19)
        RETURNING *`,
       [
         old.employee_id, old.employee_full_name, old.employee_email, old.employee_number,
         old.branch_id, old.branch_name, old.department, old.form_title, newVersion,
         JSON.stringify(new_preferences || old.monitoring_preferences || []),
         old.e_signature_image, old.printed_name, actorId(actor), old.consent_id,
+        old.assigned_user_id || old.employee_id,
+        old.device_uuid || null,
+        old.device_id || null,
+        old.asset_id || null,
+        old.hostname || null,
       ]
     );
 

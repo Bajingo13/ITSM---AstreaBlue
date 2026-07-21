@@ -13,10 +13,12 @@ import {
   Download,
   Edit3,
   FileText,
+  History,
   Layers,
   Package,
   PieChart,
   Plus,
+  RefreshCw,
   Search,
   Shield,
   Trash2,
@@ -477,6 +479,71 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
   );
 }
 
+function suggestedRenewalDate(expiryDate) {
+  const base = expiryDate ? new Date(expiryDate) : new Date();
+  if (Number.isNaN(base.getTime())) return "";
+  base.setFullYear(base.getFullYear() + 1);
+  return base.toISOString().slice(0, 10);
+}
+
+function RenewLicenseModal({ license, history, historyLoading, onClose, onRenew, loading, error }) {
+  const [form, setForm] = useState({
+    new_expiry_date: suggestedRenewalDate(license?.expiry_date),
+    annual_cost: license?.annual_cost ?? "",
+    renewal_reference: "",
+    notes: "",
+  });
+
+  const submit = (event) => {
+    event.preventDefault();
+    onRenew(form);
+  };
+
+  return (
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel relative max-w-2xl">
+        <div className="astrea-modal-header">
+          <div>
+            <h2 className="text-base font-black text-slate-900">Renew {license.license_name}</h2>
+            <p className="mt-1 text-xs font-semibold text-slate-500">The previous term remains in the renewal history.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"><X size={18}/></button>
+        </div>
+
+        <form onSubmit={submit} className="astrea-modal-body space-y-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Current Expiry"><input value={formatDateInput(license.expiry_date)} disabled className={inputClass}/></Field>
+            <Field label="New Expiry Date" required><input type="date" required value={form.new_expiry_date} onChange={(event) => setForm((current) => ({ ...current, new_expiry_date: event.target.value }))} className={inputClass}/></Field>
+            <Field label="Renewal Cost"><input type="number" min="0" step="0.01" value={form.annual_cost} onChange={(event) => setForm((current) => ({ ...current, annual_cost: event.target.value }))} className={inputClass}/></Field>
+            <Field label="Invoice / Reference"><input value={form.renewal_reference} onChange={(event) => setForm((current) => ({ ...current, renewal_reference: event.target.value }))} placeholder="Optional reference number" className={inputClass}/></Field>
+          </div>
+          <Field label="Renewal Notes"><textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} rows={3} placeholder="Vendor, procurement, or approval notes" className={inputClass}/></Field>
+
+          {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">{error}</div>}
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center gap-2 text-sm font-black text-slate-800"><History size={16}/> Renewal History</div>
+            {historyLoading ? <p className="mt-3 text-xs font-semibold text-slate-500">Loading history...</p> : history.length === 0 ? <p className="mt-3 text-xs font-semibold text-slate-500">No previous renewals recorded.</p> : (
+              <div className="mt-3 max-h-40 space-y-2 overflow-y-auto pr-1">
+                {history.map((item) => <div key={item.renewal_id} className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                  <p className="font-black text-slate-800">{formatDate(item.previous_expiry_date)} → {formatDate(item.new_expiry_date)}</p>
+                  <p className="mt-1">{item.renewed_by_name || "System"} · {new Date(item.renewed_at).toLocaleString("en-PH")}</p>
+                  {item.renewal_reference && <p className="mt-1">Reference: {item.renewal_reference}</p>}
+                </div>)}
+              </div>
+            )}
+          </div>
+
+          <div className="astrea-modal-footer -mx-6 -mb-6 mt-6">
+            <button type="button" onClick={onClose} className="astrea-button astrea-button-secondary">Cancel</button>
+            <button type="submit" disabled={loading} className="astrea-button astrea-button-primary"><RefreshCw size={16}/>{loading ? "Renewing..." : "Renew License"}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────
    Main SoftwareLicenses Component
    ───────────────────────────────────────────── */
@@ -499,6 +566,9 @@ export default function SoftwareLicenses() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingLicense, setEditingLicense] = useState(null);
+  const [renewingLicense, setRenewingLicense] = useState(null);
+  const [renewalHistory, setRenewalHistory] = useState([]);
+  const [renewalHistoryLoading, setRenewalHistoryLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
@@ -603,6 +673,48 @@ export default function SoftwareLicenses() {
       const data = await res.json();
       if (!res.ok || data.success === false) throw new Error(data.message || data.error || "Failed to update license.");
       setEditingLicense(null);
+      await fetchData();
+    } catch (err) {
+      setSaveError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openRenewal = async (license) => {
+    setSaveError("");
+    setRenewingLicense(license);
+    setRenewalHistory([]);
+    setRenewalHistoryLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/software-licenses/${license.license_id}/renewals`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok || data.success === false) throw new Error(data.error || "Failed to load renewal history.");
+      setRenewalHistory(data.data || []);
+    } catch (err) {
+      setSaveError(err.message);
+    } finally {
+      setRenewalHistoryLoading(false);
+    }
+  };
+
+  const handleRenew = async (formData) => {
+    if (!renewingLicense) return;
+    try {
+      setSaving(true);
+      setSaveError("");
+      const response = await fetch(`${API_BASE}/software-licenses/${renewingLicense.license_id}/renew`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(buildLicensePayload(user, formData)),
+      });
+      const data = await response.json();
+      if (!response.ok || data.success === false) throw new Error(data.error || "Failed to renew license.");
+      setRenewingLicense(null);
+      setRenewalHistory([]);
       await fetchData();
     } catch (err) {
       setSaveError(err.message);
@@ -819,6 +931,16 @@ export default function SoftwareLicenses() {
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {l.license_type !== "Perpetual" && (
+                            <button
+                              type="button"
+                              onClick={() => openRenewal(l)}
+                              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-700"
+                              title="Renew license and preserve history"
+                            >
+                              <RefreshCw size={15} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => {
@@ -870,6 +992,21 @@ export default function SoftwareLicenses() {
           error={saveError}
           branches={branches}
           isSuperAdmin={isSuperAdmin}
+        />
+      )}
+      {renewingLicense && (
+        <RenewLicenseModal
+          license={renewingLicense}
+          history={renewalHistory}
+          historyLoading={renewalHistoryLoading}
+          onClose={() => {
+            setRenewingLicense(null);
+            setRenewalHistory([]);
+            setSaveError("");
+          }}
+          onRenew={handleRenew}
+          loading={saving}
+          error={saveError}
         />
       )}
       {exportOpen && (

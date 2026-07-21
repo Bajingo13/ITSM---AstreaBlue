@@ -371,6 +371,34 @@ test("approved consent policy becomes the agent baseline without a manual policy
   assert.equal(policy.usb_scan_interval_seconds, 15);
   assert.equal(policy.dlp_large_transfer_mb, 100);
 
+  const deviceOverride = await db.query(
+    `INSERT INTO consent_documents
+       (employee_id,employee_full_name,employee_email,form_title,consent_version,
+        monitoring_preferences,status,active,approved_at,device_uuid)
+     VALUES ($1,'Consent Policy Test','consent-policy-test@astreablue.test',
+       'Endpoint Monitoring Consent','1.1',$2::jsonb,'approved',true,CURRENT_TIMESTAMP,$3::uuid)
+     RETURNING consent_id`,
+    [actorId, JSON.stringify(["usb_monitoring"]), deviceUuid]
+  );
+  const overrideConsentId = deviceOverride.rows[0].consent_id;
+  consentIds.push(overrideConsentId);
+  const overridePolicyResponse = await agentRequest(`/policy/latest?device_uuid=${encodeURIComponent(deviceUuid)}`, credential);
+  assert.equal(overridePolicyResponse.status, 200);
+  const overridePolicy = (await overridePolicyResponse.json()).data;
+  assert.equal(String(overridePolicy.consent_id), String(overrideConsentId));
+  assert.equal(overridePolicy.screenshot_monitoring_enabled, false);
+  assert.equal(overridePolicy.usb_monitoring_enabled, true);
+
+  await db.query(
+    `UPDATE consent_documents SET status='superseded',active=false WHERE consent_id=$1`,
+    [overrideConsentId]
+  );
+  const fallbackPolicyResponse = await agentRequest(`/policy/latest?device_uuid=${encodeURIComponent(deviceUuid)}`, credential);
+  assert.equal(fallbackPolicyResponse.status, 200);
+  const fallbackPolicy = (await fallbackPolicyResponse.json()).data;
+  assert.equal(String(fallbackPolicy.consent_id), String(consentId));
+  assert.equal(fallbackPolicy.screenshot_monitoring_enabled, true);
+
   const screenshotPermission = await agentRequest(
     `/screenshot-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
     credential

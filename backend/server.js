@@ -16,6 +16,10 @@ const db = require("./config/db");
 const { calculateSlaDueDate } = require("./src/services/slaService");
 const { calculateStraightLine } = require("./src/services/assetFinancialService");
 const {
+  computeSoftwareLicenseStatus,
+  validateLicenseRenewal,
+} = require("./src/services/softwareLicenseRenewalService");
+const {
   DEFAULT_ONLINE_THRESHOLD_SECONDS,
   getAssetVerificationStatus,
   getCurrentMonitoringStatus,
@@ -44,10 +48,12 @@ const calendarRoutes = require("./src/routes/calendar");
 const reportExportRoutes = require("./src/routes/reportExports");
 const { setSocketServer } = require("./src/services/socketService");
 const { startScreenshotRetentionJob } = require("./src/services/screenshotRetentionService");
+const { startSoftwareLicenseReminderJob } = require("./src/services/softwareLicenseReminderService");
 const onboardingAccessGuard = require("./src/middleware/onboardingAccessGuard");
 
 const app = express();
 startScreenshotRetentionJob();
+startSoftwareLicenseReminderJob();
 
 const allowedOrigins = new Set(
   [
@@ -3166,7 +3172,21 @@ async function ensureSoftwareLicensesTable() {
         branch_id INTEGER REFERENCES branches(branch_id),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      );
+      CREATE TABLE IF NOT EXISTS software_license_renewals (
+        renewal_id BIGSERIAL PRIMARY KEY,
+        license_id INTEGER NOT NULL REFERENCES software_licenses(license_id) ON DELETE CASCADE,
+        previous_expiry_date DATE,
+        new_expiry_date DATE NOT NULL,
+        previous_annual_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+        new_annual_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+        renewal_reference VARCHAR(255),
+        notes TEXT,
+        renewed_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+        renewed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS software_license_renewals_license_idx
+        ON software_license_renewals(license_id, renewed_at DESC)
     `);
   } catch (err) {
     console.error("Software licenses table setup error:", err.message);
@@ -3236,17 +3256,6 @@ function canManageSoftwareLicense(scope, licenseBranchId) {
   if (!scope?.user) return false;
   if (scope.user.role === "superadmin") return true;
   return scope.user.role === "admin" && Number(scope.user.branchId) === Number(licenseBranchId);
-}
-
-function computeSoftwareLicenseStatus(expiryDate) {
-  if (!expiryDate) return "Active";
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const expiry = new Date(`${String(expiryDate).slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(expiry.getTime())) return "Active";
-  if (expiry < today) return "Expired";
-  const daysRemaining = Math.ceil((expiry - today) / 86400000);
-  return daysRemaining <= 30 ? "Expiring Soon" : "Active";
 }
 
 // GET /api/v1/software-licenses?branch_id=1
@@ -3437,6 +3446,111 @@ app.get("/api/v1/software-licenses/summary", async (req, res) => {
   } catch (err) {
     console.error("Fetch software licenses summary error:", err.message);
     res.status(500).json({ success: false, error: "Failed to fetch software licenses summary." });
+  }
+});
+
+// GET /api/v1/software-licenses/:id/renewals — immutable renewal history
+app.get("/api/v1/software-licenses/:id/renewals", async (req, res) => {
+  try {
+    const scope = requireSoftwareLicenseScope(req, res);
+    if (!scope) return;
+    const licenseId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(licenseId)) {
+      return res.status(400).json({ success: false, error: "Invalid license ID." });
+    }
+
+    const license = await db.query(
+      `SELECT license_id, branch_id FROM software_licenses WHERE license_id=$1 LIMIT 1`,
+      [licenseId]
+    );
+    if (!license.rows.length) return res.status(404).json({ success: false, error: "License not found." });
+    if (!canManageSoftwareLicense(scope, license.rows[0].branch_id)) {
+      return res.status(403).json({ success: false, error: "Renewal history denied for this license branch." });
+    }
+
+    const history = await db.query(
+      `SELECT r.*, u.full_name AS renewed_by_name
+       FROM software_license_renewals r
+       LEFT JOIN users u ON u.user_id=r.renewed_by
+       WHERE r.license_id=$1
+       ORDER BY r.renewed_at DESC, r.renewal_id DESC`,
+      [licenseId]
+    );
+    return res.json({ success: true, data: history.rows });
+  } catch (err) {
+    console.error("Fetch software license renewal history error:", err.message);
+    return res.status(500).json({ success: false, error: "Failed to load license renewal history." });
+  }
+});
+
+// POST /api/v1/software-licenses/:id/renew — renew without erasing the previous term
+app.post("/api/v1/software-licenses/:id/renew", async (req, res) => {
+  const scope = requireSoftwareLicenseScope(req, res);
+  if (!scope) return;
+  const licenseId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(licenseId)) {
+    return res.status(400).json({ success: false, error: "Invalid license ID." });
+  }
+
+  const client = await db.rawPool.connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query(
+      `SELECT license_id, branch_id, expiry_date, annual_cost
+       FROM software_licenses WHERE license_id=$1 FOR UPDATE`,
+      [licenseId]
+    );
+    if (!existing.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, error: "License not found." });
+    }
+    const license = existing.rows[0];
+    if (!canManageSoftwareLicense(scope, license.branch_id)) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ success: false, error: "Renewal denied for this license branch." });
+    }
+
+    const validation = validateLicenseRenewal({
+      currentExpiryDate: license.expiry_date,
+      newExpiryDate: req.body.new_expiry_date,
+      annualCost: req.body.annual_cost,
+    });
+    if (!validation.valid) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ success: false, error: validation.message });
+    }
+
+    const previousCost = Number(license.annual_cost) || 0;
+    const newCost = req.body.annual_cost === undefined || req.body.annual_cost === null || req.body.annual_cost === ""
+      ? previousCost
+      : Number(req.body.annual_cost);
+    const reference = String(req.body.renewal_reference || "").trim() || null;
+    const notes = String(req.body.notes || "").trim() || null;
+
+    const renewal = await client.query(
+      `INSERT INTO software_license_renewals
+         (license_id,previous_expiry_date,new_expiry_date,previous_annual_cost,new_annual_cost,
+          renewal_reference,notes,renewed_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING *`,
+      [licenseId, license.expiry_date, validation.newExpiryDate, previousCost, newCost,
+        reference, notes, scope.user.userId]
+    );
+    const updated = await client.query(
+      `UPDATE software_licenses
+       SET expiry_date=$1, annual_cost=$2, status=$3, updated_at=CURRENT_TIMESTAMP
+       WHERE license_id=$4
+       RETURNING *`,
+      [validation.newExpiryDate, newCost, computeSoftwareLicenseStatus(validation.newExpiryDate), licenseId]
+    );
+    await client.query("COMMIT");
+    return res.json({ success: true, data: updated.rows[0], renewal: renewal.rows[0] });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Renew software license error:", err.message);
+    return res.status(500).json({ success: false, error: "Failed to renew software license." });
+  } finally {
+    client.release();
   }
 });
 

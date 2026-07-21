@@ -761,13 +761,13 @@ function hasPreference(prefs, ...names) {
 }
 
 async function ensureConsentRequestForDevice(device, actorId) {
-  if (!device?.assigned_user_id || !device?.device_uuid || !device?.asset_id) return null;
+  if (!device?.assigned_user_id || !device?.device_uuid) return null;
 
   const existing = await db.query(
     `SELECT consent_id, status FROM consent_documents
      WHERE employee_id=$1 AND (device_uuid=$2::uuid OR device_uuid IS NULL)
        AND status IN ('pending_employee','pending_approval','revision_requested','approved','signed')
-     ORDER BY created_at DESC LIMIT 1`,
+     ORDER BY (device_uuid IS NOT NULL) DESC, created_at DESC LIMIT 1`,
     [device.assigned_user_id, device.device_uuid]
   );
   if (existing.rows.length) return existing.rows[0];
@@ -785,10 +785,10 @@ async function ensureConsentRequestForDevice(device, actorId) {
   const created = await db.query(
     `INSERT INTO consent_documents (
        employee_id, assigned_user_id, employee_full_name, employee_email, employee_number,
-       branch_id, branch_name, department, device_uuid, device_id, asset_id, requested_at,
-       requested_by, created_by, status, consent_version, form_title, hostname
-     ) VALUES ($1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_TIMESTAMP,$11,$11,'pending_employee','1.0',
-       'RA 10173 Data Privacy Consent - Employee Monitoring',$12)
+       branch_id, branch_name, department, requested_at,
+       requested_by, created_by, status, consent_version, form_title
+     ) VALUES ($1,$1,$2,$3,$4,$5,$6,$7,CURRENT_TIMESTAMP,$8,$8,'pending_employee','1.0',
+       'RA 10173 Data Privacy Consent - Employee Monitoring')
      RETURNING consent_id, status`,
     [
       device.assigned_user_id,
@@ -798,11 +798,7 @@ async function ensureConsentRequestForDevice(device, actorId) {
       device.branch_id || null,
       employee.branch_name || null,
       device.department || employee.department || null,
-      device.device_uuid,
-      device.device_id,
-      device.asset_id,
       actorId || null,
-      device.hostname || null,
     ]
   );
 
@@ -813,7 +809,7 @@ async function ensureConsentRequestForDevice(device, actorId) {
       created.rows[0].consent_id,
       device.assigned_user_id,
       actorId || null,
-      `Consent request created for device ${device.hostname || device.device_uuid}.`,
+      "General consent request created for all devices assigned to the employee.",
     ]
   ).catch((error) => console.error("[laptop-monitoring:consent-audit]", error.message));
 
@@ -821,10 +817,10 @@ async function ensureConsentRequestForDevice(device, actorId) {
     await createNotification({
       userId: device.assigned_user_id,
       title: "Monitoring agreement required",
-      message: "Your assigned company device requires a monitoring agreement before advanced monitoring can begin.",
+      message: "Complete the general monitoring agreement once to cover your assigned company devices.",
       type: "privacy_consent",
-      metadata: { consentId: created.rows[0].consent_id, deviceUuid: device.device_uuid, assetId: device.asset_id },
-      dedupeKey: `consent-request-${device.device_uuid}-${device.assigned_user_id}`,
+      metadata: { consentId: created.rows[0].consent_id, consentScope: "general" },
+      dedupeKey: `general-consent-request-${device.assigned_user_id}`,
     }).catch((error) => console.error("[laptop-monitoring:consent-notification]", error.message));
   }
 
@@ -1716,13 +1712,14 @@ router.put("/devices/:id/assign", requireAdmin, async (req, res) => {
       const approvedConsent = await db.query(
         `SELECT consent_id FROM consent_documents
          WHERE employee_id=$1 AND status='approved' AND active=true
-         ORDER BY approved_at DESC NULLS LAST LIMIT 1`,
-        [assigned_user_id]
+           AND (device_uuid IS NULL OR device_uuid=$2::uuid)
+         ORDER BY (device_uuid IS NOT NULL) DESC, approved_at DESC NULLS LAST LIMIT 1`,
+        [assigned_user_id, check.rows[0].device_uuid]
       );
       if (!approvedConsent.rows.length) {
         return res.status(409).json({
           success: false,
-          message: "Asset and device assignment is locked until an active approved consent record exists.",
+          message: "Assignment requires an approved general consent or an approved consent for this device.",
         });
       }
 
