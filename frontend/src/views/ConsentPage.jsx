@@ -779,7 +779,7 @@ export default function ConsentPage() {
     return (
       <div className="space-y-6">
         {/* Hero — AstreaBlue gradient */}
-        <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
+        <section className="astrea-page-hero flex flex-col gap-4 rounded-[28px] border border-white/15 p-7 text-white shadow-[var(--astrea-hero-shadow)] lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-widest text-blue-300">
               RA 10173 — Data Privacy Act
@@ -947,7 +947,7 @@ export default function ConsentPage() {
   return (
     <div className="space-y-6">
       {/* Hero */}
-      <section className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl lg:flex-row lg:items-center lg:justify-between">
+      <section className="astrea-page-hero flex flex-col gap-4 rounded-[28px] border border-white/15 p-7 text-white shadow-[var(--astrea-hero-shadow)] lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-widest text-blue-300">
             RA 10173 — Data Privacy Act

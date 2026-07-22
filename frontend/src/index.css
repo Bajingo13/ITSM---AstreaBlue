@@ -931,6 +931,33 @@ html[data-theme="dark"] .astrea-notification-panel {
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
 }
 
+/* Keep date-range controls visually integrated with the AstreaBlue hero.
+   This must follow the shared light workspace-control rules above. */
+.astrea-page-hero .astrea-hero-select {
+  border-color: rgba(165, 243, 252, 0.42) !important;
+  background: linear-gradient(135deg, rgba(7, 22, 47, 0.78), rgba(18, 83, 156, 0.72)) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 25px rgba(2, 12, 32, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  outline: none;
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.astrea-page-hero .astrea-hero-select:hover {
+  border-color: rgba(165, 243, 252, 0.75) !important;
+  background: linear-gradient(135deg, rgba(7, 22, 47, 0.9), rgba(18, 101, 184, 0.82)) !important;
+  transform: translateY(-1px);
+}
+
+.astrea-page-hero .astrea-hero-select:focus {
+  border-color: #a5f3fc !important;
+  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.2), 0 12px 28px rgba(2, 12, 32, 0.24) !important;
+}
+
+.astrea-page-hero .astrea-hero-select option {
+  background: #0b2550;
+  color: #ffffff;
+}
+
 .space-y-6:has(> .astrea-context-nav) tbody tr {
   transition: background-color 160ms ease, box-shadow 160ms ease;
 }
