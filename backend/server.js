@@ -95,7 +95,9 @@ const corsOptions = {
     return callback(null, false);
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key"],
+  // Cache-Control is accepted during rolling deployments so older lifecycle
+  // bundles cannot be blocked at the browser preflight before the API runs.
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "Cache-Control"],
   credentials: true,
   optionsSuccessStatus: 204,
 };

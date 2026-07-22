@@ -45,7 +45,6 @@ async function lifecycleRequest(path, options = {}) {
   const token = getAuthToken();
   const headers = {
     Authorization: `Bearer ${token}`,
-    "Cache-Control": "no-cache",
     ...(options.headers || {}),
   };
   if (options.body) headers["Content-Type"] = "application/json";
