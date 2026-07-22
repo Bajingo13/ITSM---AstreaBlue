@@ -110,6 +110,15 @@ function addTicketAccessFilter(req, params, alias = "t") {
       WHERE category.category_id = ${alias}.category_id
     ), 'standard') = 'standard'`);
 
+    // Onboarding is coordinated in the HR/Admin lifecycle workspace. Its
+    // generated Service Desk record is not actionable technician queue work.
+    clauses.push(`NOT EXISTS (
+      SELECT 1
+      FROM employee_lifecycle_cases onboarding_case
+      WHERE onboarding_case.related_ticket_id = ${alias}.id
+        AND LOWER(onboarding_case.lifecycle_type) = 'onboarding'
+    )`);
+
     return clauses;
   }
 

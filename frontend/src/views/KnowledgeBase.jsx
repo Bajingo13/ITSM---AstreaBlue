@@ -46,6 +46,14 @@ export default function KnowledgeBase() {
 
   const isSuperAdmin = (role || user?.role_name) === "SuperAdmin";
   const canManage = ["Admin", "Technician"].includes(role || user?.role_name) || isSuperAdmin;
+  const isTechnician = String(role || user?.role_name || "").toLowerCase() === "technician";
+
+  const linkableTickets = useMemo(() => {
+    if (!isTechnician) return tickets;
+    const technicianId = Number(user?.user_id || user?.id);
+    if (!Number.isInteger(technicianId)) return [];
+    return tickets.filter((ticket) => Number(ticket.assigned_to) === technicianId);
+  }, [isTechnician, tickets, user?.id, user?.user_id]);
 
   const fetchArticles = useCallback(async () => {
     try {
@@ -284,7 +292,7 @@ export default function KnowledgeBase() {
       {articleForm && (
         <ArticleFormModal
           article={articleForm}
-          tickets={tickets}
+          tickets={linkableTickets}
           branches={branches}
           isSuperAdmin={isSuperAdmin}
           user={user}

@@ -48,6 +48,8 @@ test("branch technician is restricted to that branch for assigned and available 
   assert.ok(clauses.includes("t.branch_id = $2"));
   assert.ok(clauses.includes("(t.assigned_to = $1 OR t.assigned_to IS NULL)"));
   assert.ok(clauses.some((clause) => clause.includes("visibility_scope")));
+  assert.ok(clauses.some((clause) => clause.includes("employee_lifecycle_cases")));
+  assert.ok(clauses.some((clause) => clause.includes("lifecycle_type") && clause.includes("onboarding")));
   assert.ok(clauses.some((clause) => clause.includes("COALESCE")), "uncategorized standard tickets must remain visible");
   assert.deepEqual(params, [9001, 12]);
 });

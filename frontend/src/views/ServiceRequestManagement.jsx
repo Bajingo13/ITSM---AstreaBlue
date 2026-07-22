@@ -155,20 +155,26 @@ function RequestModal({ requestId, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-3xl border border-blue-200 bg-slate-50 shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-7 py-5">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
+        <div className="flex items-start justify-between gap-5 border-b border-blue-700 bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 px-7 py-6 text-white">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-200">
               Request Details
             </p>
-            <h2 className="mt-1 text-xl font-black text-slate-900">
+            <p className="mt-2 text-sm font-bold text-blue-200">
               {loading ? "Loading…" : detail?.ticket_number || `#${requestId}`}
-            </h2>
+            </p>
+            {!loading && detail?.title && (
+              <h2 className="mt-1 break-words text-2xl font-black leading-tight text-white">
+                {detail.title}
+              </h2>
+            )}
           </div>
           <button
             onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close request details"
+            className="shrink-0 rounded-xl border border-white/20 bg-white/10 p-2 text-white transition hover:bg-white/20"
           >
             <X size={20} />
           </button>
@@ -191,7 +197,6 @@ function RequestModal({ requestId, onClose }) {
             <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {[
                 { label: "Ticket Number", value: detail.ticket_number },
-                { label: "Title", value: detail.title },
                 {
                   label: "Service Category",
                   value: detail.service_category || detail.category || "—",
@@ -238,8 +243,8 @@ function RequestModal({ requestId, onClose }) {
                   value: formatDate(detail.created_at),
                 },
               ].map(({ label, value }) => (
-                <div key={label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                <div key={label} className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+                  <dt className="text-xs font-black uppercase tracking-wider text-slate-500">
                     {label}
                   </dt>
                   <dd className="mt-1 text-sm font-semibold text-slate-800">{value}</dd>
@@ -247,8 +252,8 @@ function RequestModal({ requestId, onClose }) {
               ))}
 
               {/* Full-width description */}
-              <div className="col-span-full rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              <div className="col-span-full rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+                <dt className="text-xs font-black uppercase tracking-wider text-slate-500">
                   Description
                 </dt>
                 <dd className="mt-2 text-sm leading-7 text-slate-700 whitespace-pre-wrap">
@@ -259,7 +264,7 @@ function RequestModal({ requestId, onClose }) {
           )}
         </div>
 
-        <div className="border-t border-slate-100 px-7 py-4 text-right">
+        <div className="border-t border-blue-100 bg-white px-7 py-4 text-right">
           <button
             onClick={onClose}
             className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50"
