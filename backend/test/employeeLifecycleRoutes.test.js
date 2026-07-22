@@ -8,6 +8,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const db = require("../config/db");
 const employeeLifecycleRoutes = require("../src/routes/employeeLifecycle");
+const { deriveOnboardingEvidence } = require("../src/services/onboardingReconciliationService");
 
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 let server;
@@ -200,7 +201,9 @@ test("HR creates a branch-scoped onboarding case with a complete template", asyn
   assert.equal(details.status, 200);
   const data = (await details.json()).data;
   assert.equal(data.tasks.length, 9);
-  assert.equal(data.required_pending_count, 9);
+  assert.equal(data.required_pending_count, 7);
+  assert.equal(data.tasks.find((task) => task.task_key === "create_account").status, "Completed");
+  assert.equal(data.tasks.find((task) => task.task_key === "complete_profile").status, "Completed");
 });
 
 test("HR can oversee IT tasks but cannot falsely complete them", async () => {
@@ -216,7 +219,7 @@ test("HR can oversee IT tasks but cannot falsely complete them", async () => {
   assert.equal(response.status, 403);
 });
 
-test("required tasks block completion until an authorized administrator finishes verification", async () => {
+test("required evidence tasks cannot be falsely checked and continue to block completion", async () => {
   const headers = authHeaders(superAdminId, "SuperAdmin", null);
   let response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}/status`, {
     method: "PATCH", headers, body: JSON.stringify({ status: "In Progress" }),
@@ -232,17 +235,55 @@ test("required tasks block completion until an authorized administrator finishes
   assert.equal(response.status, 409);
 
   const details = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}`, { headers });
-  for (const task of (await details.json()).data.tasks) {
-    const taskResponse = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}/tasks/${task.lifecycle_task_id}`, {
-      method: "PATCH", headers, body: JSON.stringify({ status: "Completed" }),
-    });
-    assert.equal(taskResponse.status, 200);
-  }
-  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}/status`, {
+  const consentTask = (await details.json()).data.tasks.find((task) => task.task_key === "general_consent");
+  const taskResponse = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}/tasks/${consentTask.lifecycle_task_id}`, {
     method: "PATCH", headers, body: JSON.stringify({ status: "Completed" }),
   });
-  assert.equal(response.status, 200);
-  assert.equal((await response.json()).data.status, "Completed");
+  assert.equal(taskResponse.status, 409);
+  assert.match((await taskResponse.json()).message, /synchronized automatically/i);
+
+  const refreshed = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}`, { headers });
+  const finalTask = (await refreshed.json()).data.tasks.find((task) => task.task_key === "final_verification");
+  const finalResponse = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}/tasks/${finalTask.lifecycle_task_id}`, {
+    method: "PATCH", headers, body: JSON.stringify({ status: "Completed" }),
+  });
+  assert.equal(finalResponse.status, 409);
+  assert.match((await finalResponse.json()).message, /still need evidence/i);
+});
+
+test("onboarding evidence requires real account, consent, asset, heartbeat, inventories, and policy download", () => {
+  const now = Date.now();
+  const evidence = deriveOnboardingEvidence({
+    lifecycleCase: {
+      employee_id: 10,
+      employee_is_active: true,
+      employee_name: "Evidence Employee",
+      employee_email: "evidence@example.test",
+      employee_role_id: 4,
+      branch_id: 1,
+      privacy_notice_viewed_at: new Date(now - 60_000),
+    },
+    consent: {
+      consent_id: 55,
+      status: "approved",
+      active: true,
+      signed_at: new Date(now - 120_000),
+      submitted_at: new Date(now - 110_000),
+    },
+    assets: { hardware_asset_count: 1, linked_device_asset_count: 1 },
+    devices: [{
+      device_id: 7,
+      device_uuid: "11111111-1111-4111-8111-111111111111",
+      hostname: "QA-LAPTOP",
+      last_seen_at: new Date(now - 30_000),
+      last_hardware_inventory_at: new Date(now - 60_000),
+      last_software_inventory_at: new Date(now - 60_000),
+      policy_generated_at: new Date(now - 120_000),
+      last_policy_downloaded_at: new Date(now - 60_000),
+    }],
+    now,
+  });
+  assert.ok(Object.values(evidence).every((item) => item.complete));
 });
 
 test("offboarding executes only internal AstreaBlue actions and preserves endpoint identity", async () => {

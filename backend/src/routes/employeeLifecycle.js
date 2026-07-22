@@ -12,6 +12,10 @@ const {
   canUpdateLifecycleTask,
 } = require("../services/employeeLifecycleService");
 const { executeInternalOffboardingTask } = require("../services/internalOffboardingService");
+const {
+  AUTOMATED_ONBOARDING_TASK_KEYS,
+  reconcileOnboardingCase,
+} = require("../services/onboardingReconciliationService");
 const { createServiceDeskTicket } = require("../services/serviceDeskTicketService");
 const { emitTicketChanged } = require("../services/socketService");
 const {
@@ -432,6 +436,9 @@ router.post("/cases", async (req, res) => {
       );
     }
     await addHistory(client, caseId, req.lifecycleActor.user_id, "case_created", `${type} case ${caseNumber} created.`);
+    if (type === "Onboarding") {
+      await reconcileOnboardingCase(client, caseId);
+    }
     await client.query("COMMIT");
     if (createdLifecycleTicket) {
       emitTicketChanged({
@@ -650,6 +657,7 @@ router.post("/cases/:id/account-invitation/resend", async (req, res) => {
 router.get("/cases/:id", async (req, res) => {
   try {
     if (!(await assertScopedCase(req, db, req.params.id))) return res.status(404).json({ success: false, message: "Lifecycle case not found." });
+    await reconcileOnboardingCase(db, req.params.id);
     const [caseData, tasks, history] = await Promise.all([
       loadCase(db, req.params.id),
       db.query(
@@ -699,6 +707,9 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
     if (!canUpdateLifecycleTask(req.lifecycleActor.role, task.assigned_role)) {
       throw Object.assign(new Error("You do not have permission to complete this checklist item."), { status: 403 });
     }
+    if (task.lifecycle_type === "Onboarding" && AUTOMATED_ONBOARDING_TASK_KEYS.has(task.task_key)) {
+      throw Object.assign(new Error("This onboarding item is synchronized automatically from system evidence and cannot be checked manually."), { status: 409 });
+    }
     if (nextStatus === "Completed" && task.lifecycle_type === "Onboarding" && !task.employee_id) {
       if (task.task_key === "create_account") {
         throw Object.assign(new Error("Use Create account invitation to complete this checklist item."), { status: 409 });
@@ -713,6 +724,17 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
     }
     if (nextStatus === "Not Applicable" && task.is_required) {
       throw Object.assign(new Error("Required checklist tasks cannot be marked Not Applicable."), { status: 400 });
+    }
+    if (nextStatus === "Completed" && task.lifecycle_type === "Onboarding" && task.task_key === "final_verification") {
+      await reconcileOnboardingCase(client, req.params.id);
+      const remaining = await client.query(
+        `SELECT COUNT(*)::int count FROM employee_lifecycle_tasks
+          WHERE lifecycle_case_id=$1 AND is_required AND status='Pending' AND task_key<>'final_verification'`,
+        [req.params.id]
+      );
+      if (remaining.rows[0].count > 0) {
+        throw Object.assign(new Error(`${remaining.rows[0].count} required onboarding item(s) still need evidence before final verification.`), { status: 409 });
+      }
     }
     if (task.lifecycle_type === "Offboarding" && task.status === "Completed" && nextStatus !== "Completed") {
       throw Object.assign(new Error("Completed offboarding actions cannot be reopened because their internal changes are already committed."), { status: 409 });
@@ -779,6 +801,9 @@ router.patch("/cases/:id/status", async (req, res) => {
       throw Object.assign(new Error(`Status cannot change from ${lifecycleCase.status} to ${nextStatus}.`), { status: 409 });
     }
     if (nextStatus === "Completed") {
+      if (lifecycleCase.lifecycle_type === "Onboarding") {
+        await reconcileOnboardingCase(client, req.params.id);
+      }
       const pending = await client.query(
         `SELECT COUNT(*)::int count FROM employee_lifecycle_tasks
           WHERE lifecycle_case_id=$1 AND is_required AND status='Pending'`,
