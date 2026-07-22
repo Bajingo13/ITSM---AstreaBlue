@@ -275,8 +275,8 @@ function SummaryCards({ statistics }) {
    ───────────────────────────────────────────── */
 function ConfigItemCard({ ci, onDelete, canDelete }) {
   return (
-    <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
-      <div className="p-5">
+    <article className="h-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+      <div className="flex h-full flex-col p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -322,7 +322,7 @@ function ConfigItemCard({ ci, onDelete, canDelete }) {
           )}
         </div>
 
-        <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-400">
+        <div className="mt-auto border-t border-slate-100 pt-3 text-xs text-slate-400">
           Created: {formatDate(ci.created_at)}
         </div>
 
