@@ -38,7 +38,6 @@ const EMPTY_FORM = {
   subject_job_title: "",
   subject_start_date: "",
   target_date: "",
-  related_ticket_id: "",
   notes: "",
 };
 
@@ -169,12 +168,11 @@ export default function EmployeeLifecycle() {
           ...form,
           employee_id: newEmployee ? null : Number(form.employee_id),
           branch_id: newEmployee ? Number(form.branch_id) : null,
-          related_ticket_id: form.related_ticket_id ? Number(form.related_ticket_id) : null,
         }),
       });
       setShowCreate(false);
       setForm(EMPTY_FORM);
-      setNotice(`${created.case_number} created with its required checklist.`);
+      setNotice(`${created.case_number} created with its required checklist${created.related_ticket_number ? ` and linked ticket ${created.related_ticket_number}` : ""}.`);
       await loadWorkspace();
       await openCase(created.lifecycle_case_id);
     } catch (requestError) {
@@ -340,7 +338,7 @@ export default function EmployeeLifecycle() {
 
       {showCreate && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
         <form onSubmit={createCase} className="w-full max-w-2xl overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-2xl">
-          <header className="flex items-center justify-between border-b border-blue-100 p-6"><div><h2 className="text-2xl font-black">Create lifecycle case</h2><p className="text-sm text-slate-500">A complete required checklist is added automatically.</p></div><button type="button" onClick={() => setShowCreate(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X/></button></header>
+          <header className="flex items-center justify-between border-b border-blue-100 p-6"><div><h2 className="text-2xl font-black">Create lifecycle case</h2><p className="text-sm text-slate-500">The required checklist and linked internal ticket are created automatically.</p></div><button type="button" onClick={() => setShowCreate(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X/></button></header>
           <div className="grid max-h-[70vh] gap-4 overflow-y-auto p-6 sm:grid-cols-2">
             <Field label="Lifecycle type"><select value={form.lifecycle_type} onChange={(event) => setForm((current) => ({ ...current, lifecycle_type: event.target.value, subject_mode: event.target.value === "Offboarding" ? "existing" : current.subject_mode }))} className="field"><option>Onboarding</option><option>Offboarding</option></select></Field>
             {form.lifecycle_type === "Onboarding" && <Field label="Employee record"><select value={form.subject_mode} onChange={(event) => setForm((current) => ({ ...current, subject_mode: event.target.value }))} className="field"><option value="new">New employee (no account yet)</option><option value="existing">Existing employee account</option></select></Field>}
@@ -354,7 +352,6 @@ export default function EmployeeLifecycle() {
               <Field label="Start date"><input type="date" value={form.subject_start_date} onChange={(event) => setForm((current) => ({ ...current, subject_start_date: event.target.value }))} className="field"/></Field>
             </>}
             <Field label="Target date"><input type="date" value={form.target_date} onChange={(event) => setForm((current) => ({ ...current, target_date: event.target.value }))} className="field"/></Field>
-            <Field label="Related ticket ID (optional)"><input type="number" min="1" value={form.related_ticket_id} onChange={(event) => setForm((current) => ({ ...current, related_ticket_id: event.target.value }))} className="field" placeholder="Database ticket ID"/></Field>
             <label className="sm:col-span-2"><span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-600">Notes</span><textarea rows="3" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="field resize-none" placeholder="Add relevant onboarding or offboarding context"/></label>
           </div>
           <footer className="flex justify-end gap-3 border-t border-blue-100 bg-slate-50 p-5"><button type="button" onClick={() => setShowCreate(false)} className="rounded-xl border border-slate-200 px-5 py-2.5 font-bold">Cancel</button><button disabled={busy} className="rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white disabled:opacity-50">{busy ? "Creating…" : "Create case"}</button></footer>
