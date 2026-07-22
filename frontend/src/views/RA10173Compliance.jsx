@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Navigate } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -1140,7 +1141,10 @@ export default function RA10173Compliance() {
   const userIsEmployee = isEmployee(activeRole);
 
   if (userIsEmployee) {
-    return <EmployeeView user={user} />;
+    // The endpoint consent workflow is the authoritative employee record.
+    // Keep this legacy reporting route for administrators, but do not expose a
+    // second consent wizard to employees.
+    return <Navigate to="/employee/consent" replace />;
   }
 
   if (isAdminOrSuper(activeRole)) {

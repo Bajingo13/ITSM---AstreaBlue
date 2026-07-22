@@ -784,7 +784,7 @@ export default function ConsentPage() {
             <p className="text-xs font-black uppercase tracking-widest text-blue-300">
               RA 10173 — Data Privacy Act
             </p>
-            <h1 className="mt-1 text-3xl font-black">Consent Document</h1>
+            <h1 className="mt-1 text-3xl font-black">Privacy & Monitoring Consent</h1>
             <p className="mt-2 text-blue-100">
               Your consent has been approved and is now legally binding.
             </p>
@@ -952,7 +952,7 @@ export default function ConsentPage() {
           <p className="text-xs font-black uppercase tracking-widest text-blue-300">
             RA 10173 — Data Privacy Act
           </p>
-          <h1 className="mt-1 text-3xl font-black">Monitoring Consent</h1>
+          <h1 className="mt-1 text-3xl font-black">Privacy & Monitoring Consent</h1>
           <p className="mt-2 text-blue-100">
             {consent?.device_uuid
               ? `Device-specific agreement for ${consent.hostname || consent.device_name || consent.asset_tag || "your assigned company device"}.`

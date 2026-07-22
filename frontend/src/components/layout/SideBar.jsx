@@ -157,8 +157,7 @@ const employeeNavItems = [
     label: "Endpoint Management",
     icon: Monitor,
     children: [
-      { label: "General Privacy Record", icon: Shield, path: "/ra-10173-compliance" },
-      { label: "Device Monitoring Consent", icon: Shield, path: "/employee/consent" },
+      { label: "Privacy & Monitoring Consent", icon: Shield, path: "/employee/consent" },
     ],
   },
   {
