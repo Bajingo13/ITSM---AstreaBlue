@@ -12,6 +12,8 @@ const {
   canUpdateLifecycleTask,
 } = require("../services/employeeLifecycleService");
 const { executeInternalOffboardingTask } = require("../services/internalOffboardingService");
+const { createServiceDeskTicket } = require("../services/serviceDeskTicketService");
+const { emitTicketChanged } = require("../services/socketService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -254,6 +256,7 @@ router.get("/cases", async (req, res) => {
 
 router.post("/cases", async (req, res) => {
   const client = await db.rawPool.connect();
+  let createdLifecycleTicket = null;
   try {
     const type = normalizeLifecycleType(req.body.lifecycle_type);
     const employeeId = Number(req.body.employee_id) || null;
@@ -301,20 +304,50 @@ router.post("/cases", async (req, res) => {
     if (req.lifecycleActor.role !== "superadmin" && Number(branchId) !== Number(req.lifecycleActor.branch_id)) {
       throw Object.assign(new Error("The selected employee or branch is outside your branch."), { status: 403 });
     }
-    if (req.body.related_ticket_id) {
+    let relatedTicketId = Number(req.body.related_ticket_id) || null;
+    if (relatedTicketId) {
       const ticket = await client.query(`SELECT id,branch_id FROM tickets WHERE id=$1`, [Number(req.body.related_ticket_id)]);
       if (!ticket.rows.length || Number(ticket.rows[0].branch_id) !== Number(branchId)) {
         throw Object.assign(new Error("The linked ticket must exist in the employee branch."), { status: 400 });
       }
     }
     const caseNumber = await nextCaseNumber(client, type);
+    if (!relatedTicketId) {
+      const subjectName = employee?.full_name || subjectFullName;
+      const ticketResult = await createServiceDeskTicket({
+        client,
+        emitAfterCreate: false,
+        title: `${type} Request — ${subjectName}`,
+        description: `${type} lifecycle request for ${subjectName}. Complete and verify the operational checklist in lifecycle case ${caseNumber}.`,
+        priority: "P3-Medium",
+        status: "Open Queue",
+        requesterId: req.lifecycleActor.user_id,
+        branchId,
+        source: "employee_lifecycle",
+        impact: "Medium",
+        urgency: "Medium",
+        actorId: req.lifecycleActor.user_id,
+        requireBranch: true,
+        metadata: {
+          origin_module: "Employee Lifecycle",
+          origin_feature: type,
+          created_via: "Lifecycle Workflow",
+        },
+        auditEvent: `${type} Lifecycle Ticket Created`,
+        requestMethod: req.method,
+        requestPath: req.originalUrl,
+        sourceIp: req.ip,
+      });
+      createdLifecycleTicket = ticketResult.ticket;
+      relatedTicketId = createdLifecycleTicket.id;
+    }
     const created = await client.query(
       `INSERT INTO employee_lifecycle_cases
          (case_number,lifecycle_type,employee_id,branch_id,related_ticket_id,target_date,notes,created_by,
           subject_full_name,subject_contact_email,subject_employee_number,subject_department,
           subject_job_title,subject_start_date)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING lifecycle_case_id`,
-      [caseNumber, type, employeeId, branchId, req.body.related_ticket_id || null,
+      [caseNumber, type, employeeId, branchId, relatedTicketId,
         req.body.target_date || null, normalizeOptionalText(req.body.notes, 5000), req.lifecycleActor.user_id,
         employee?.full_name || subjectFullName,
         employee?.personal_email || employee?.email || subjectContactEmail,
@@ -333,6 +366,17 @@ router.post("/cases", async (req, res) => {
     }
     await addHistory(client, caseId, req.lifecycleActor.user_id, "case_created", `${type} case ${caseNumber} created.`);
     await client.query("COMMIT");
+    if (createdLifecycleTicket) {
+      emitTicketChanged({
+        action: "created",
+        ticket_id: createdLifecycleTicket.id,
+        ticket_number: createdLifecycleTicket.ticket_number,
+        branch_id: createdLifecycleTicket.branch_id,
+        requester_id: createdLifecycleTicket.requester_id,
+        assigned_to: createdLifecycleTicket.assigned_to,
+        status: createdLifecycleTicket.status,
+      });
+    }
     return res.status(201).json({ success: true, data: await loadCase(db, caseId) });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});

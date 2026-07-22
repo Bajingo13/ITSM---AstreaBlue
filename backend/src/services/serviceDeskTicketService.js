@@ -73,10 +73,13 @@ async function createServiceDeskTicket(input) {
   const originSystem = String(metadata.origin_system || "").trim() || null;
   const normalized = { branchId, requesterId, categoryId, categoryName, title, description, priority, metadata };
   const requestFingerprint = fingerprint(normalized);
-  const client = await rawPool.connect();
+  // Internal workflows may supply their existing transaction so the ticket and
+  // its owning business record commit or roll back together.
+  const ownsClient = !input.client;
+  const client = input.client || await rawPool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (ownsClient) await client.query("BEGIN");
 
     if (branchId) {
       const branch = await client.query("SELECT branch_id, branch_name FROM branches WHERE branch_id = $1", [branchId]);
@@ -125,7 +128,7 @@ async function createServiceDeskTicket(input) {
       if (existing.external_request_fingerprint !== requestFingerprint) {
         throw httpError(409, "external_reference already exists with conflicting ticket data.");
       }
-      await client.query("COMMIT");
+      if (ownsClient) await client.query("COMMIT");
       return { ticket: existing, idempotentReplay: true };
     }
 
@@ -199,23 +202,25 @@ async function createServiceDeskTicket(input) {
       JSON.stringify({ ticket_id: ticket.id, ticket_number: ticketNumber, origin_system: originSystem })]);
 
     if (input.failBeforeCommit) throw new Error("Injected ticket creation failure");
-    await client.query("COMMIT");
-    emitTicketChanged({
-      action: "created",
-      ticket_id: ticket.id,
-      ticket_number: ticket.ticket_number,
-      branch_id: ticket.branch_id,
-      requester_id: ticket.requester_id,
-      assigned_to: ticket.assigned_to,
-      status: ticket.status,
-    });
+    if (ownsClient) await client.query("COMMIT");
+    if (input.emitAfterCreate !== false) {
+      emitTicketChanged({
+        action: "created",
+        ticket_id: ticket.id,
+        ticket_number: ticket.ticket_number,
+        branch_id: ticket.branch_id,
+        requester_id: ticket.requester_id,
+        assigned_to: ticket.assigned_to,
+        status: ticket.status,
+      });
+    }
     return { ticket, idempotentReplay: false };
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
+    if (ownsClient) await client.query("ROLLBACK").catch(() => {});
     console.error(JSON.stringify({ event: "ticket_creation_rollback", message: error.message, source: input.source || "portal" }));
     throw error;
   } finally {
-    client.release();
+    if (ownsClient) client.release();
   }
 }
 

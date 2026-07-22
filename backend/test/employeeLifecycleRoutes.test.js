@@ -23,6 +23,7 @@ let deviceId;
 let ticketId;
 let preHireCaseId;
 let preHireUserId;
+const automaticTicketIds = [];
 
 function authHeaders(userId, role, branch) {
   const token = jwt.sign({ userId, role, branchId: branch || null }, secret, { expiresIn: "5m" });
@@ -76,6 +77,12 @@ test.after(async () => {
   if (ticketId) await db.query(`DELETE FROM tickets WHERE id=$1`, [ticketId]);
   if (preHireCaseId) await db.query(`DELETE FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`, [preHireCaseId]);
   if (caseId) await db.query(`DELETE FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`, [caseId]);
+  if (automaticTicketIds.length) {
+    await db.query(`DELETE FROM notifications WHERE related_ticket_id=ANY($1::int[])`, [automaticTicketIds]);
+    await db.query(`DELETE FROM ticket_history WHERE ticket_id=ANY($1::int[])`, [automaticTicketIds]);
+    await db.query(`DELETE FROM integration_audit_logs WHERE metadata->>'ticket_id'=ANY($1::text[])`, [automaticTicketIds.map(String)]);
+    await db.query(`DELETE FROM tickets WHERE id=ANY($1::int[])`, [automaticTicketIds]);
+  }
   await db.query(`DELETE FROM users WHERE user_id=ANY($1::int[])`, [[employeeId, hrId, superAdminId, preHireUserId].filter(Boolean)]);
   if (server) await new Promise((resolve) => server.close(resolve));
   await db.rawPool.end();
@@ -103,6 +110,17 @@ test("HR starts onboarding before an account exists and an administrator provisi
   preHireCaseId = createdCase.lifecycle_case_id;
   assert.equal(createdCase.employee_id, null);
   assert.equal(createdCase.employee_name, "Pre Hire Employee");
+  assert.ok(createdCase.related_ticket_id, "pre-hire onboarding must create a linked Service Desk ticket");
+  automaticTicketIds.push(Number(createdCase.related_ticket_id));
+  const linkedTicket = await db.query(
+    `SELECT requester_id,branch_id,title,status,source FROM tickets WHERE id=$1`,
+    [createdCase.related_ticket_id]
+  );
+  assert.equal(Number(linkedTicket.rows[0].requester_id), Number(hrId));
+  assert.equal(Number(linkedTicket.rows[0].branch_id), Number(branchId));
+  assert.equal(linkedTicket.rows[0].status, "Open Queue");
+  assert.equal(linkedTicket.rows[0].source, "employee_lifecycle");
+  assert.match(linkedTicket.rows[0].title, /Onboarding Request/);
 
   response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}/account-invitation`, {
     method: "POST",
@@ -155,6 +173,7 @@ test("HR creates a branch-scoped onboarding case with a complete template", asyn
   assert.equal(response.status, 201);
   const payload = await response.json();
   caseId = payload.data.lifecycle_case_id;
+  automaticTicketIds.push(Number(payload.data.related_ticket_id));
   assert.match(payload.data.case_number, /^ONB-\d{8}-\d{4}$/);
 
   const details = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}`, {
