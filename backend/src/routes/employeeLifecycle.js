@@ -17,6 +17,7 @@ const { emitTicketChanged } = require("../services/socketService");
 const {
   getMissingSmtpConfig,
   sendInvitationEmail,
+  sendInvitationReminderEmail,
 } = require("../services/emailService");
 
 const router = express.Router();
@@ -48,12 +49,17 @@ function buildInviteLink(req, token) {
   return `${origin.replace(/\/$/, "")}/invite/${token}`;
 }
 
-async function deliverLifecycleInvitation({ recipients, fullName, branchName, inviteLink }) {
-  const uniqueRecipients = [...new Set(recipients.filter(Boolean).map((value) => String(value).trim().toLowerCase()))];
+async function deliverLifecycleInvitation({ companyEmail, personalEmail, fullName, branchName, inviteLink }) {
+  const primaryEmail = String(companyEmail || personalEmail || "").trim().toLowerCase();
+  const reminderEmail = String(personalEmail || "").trim().toLowerCase();
   if (process.env.NODE_ENV === "test") {
     return {
       email_sent: false,
       email_recipients: [],
+      primary_email: primaryEmail || null,
+      primary_email_sent: false,
+      reminder_email: reminderEmail && reminderEmail !== primaryEmail ? reminderEmail : null,
+      reminder_email_sent: false,
       email_warning: "Invitation email delivery is disabled during automated tests.",
     };
   }
@@ -66,25 +72,39 @@ async function deliverLifecycleInvitation({ recipients, fullName, branchName, in
     };
   }
 
-  const attempts = await Promise.all(uniqueRecipients.map(async (to) => ({
-    to,
-    result: await sendInvitationEmail({
-      to,
+  const primaryResult = await sendInvitationEmail({
+      to: primaryEmail,
       fullName,
       roleName: "Employee",
       branchName,
       inviteLink,
       expiresInHours: 48,
-    }),
-  })));
-  const delivered = attempts.filter(({ result }) => result?.success).map(({ to }) => to);
-  const failed = attempts.filter(({ result }) => !result?.success);
+    });
+  const shouldSendReminder = Boolean(reminderEmail && reminderEmail !== primaryEmail);
+  const reminderResult = shouldSendReminder
+    ? await sendInvitationReminderEmail({
+        to: reminderEmail,
+        fullName,
+        companyEmail: primaryEmail,
+        expiresInHours: 48,
+      })
+    : null;
+  const delivered = [
+    primaryResult?.success && primaryEmail,
+    reminderResult?.success && reminderEmail,
+  ].filter(Boolean);
+  const failures = [
+    !primaryResult?.success && `${primaryEmail}: ${primaryResult?.error || "delivery failed"}`,
+    shouldSendReminder && !reminderResult?.success && `${reminderEmail}: ${reminderResult?.error || "delivery failed"}`,
+  ].filter(Boolean);
   return {
-    email_sent: delivered.length > 0,
+    email_sent: Boolean(primaryResult?.success),
     email_recipients: delivered,
-    email_warning: failed.length
-      ? `Email delivery failed for: ${failed.map(({ to }) => to).join(", ")}. ${failed[0].result?.error || "Check the SMTP configuration."}`
-      : null,
+    primary_email: primaryEmail,
+    primary_email_sent: Boolean(primaryResult?.success),
+    reminder_email: shouldSendReminder ? reminderEmail : null,
+    reminder_email_sent: Boolean(reminderResult?.success),
+    email_warning: failures.length ? `Email delivery failed for ${failures.join("; ")}.` : null,
   };
 }
 
@@ -461,17 +481,17 @@ router.post("/cases/:id/account-invitation", async (req, res) => {
     if (lifecycleCase.employee_id) {
       throw Object.assign(new Error("This onboarding case is already linked to an employee account."), { status: 409 });
     }
-    const loginEmail = companyEmail || personalEmail || normalizeOptionalEmail(lifecycleCase.subject_contact_email);
-    if (!loginEmail) {
-      throw Object.assign(new Error("Add a personal or company email before creating the account invitation."), { status: 400 });
-    }
+    const personalRecipient = personalEmail || normalizeOptionalEmail(lifecycleCase.subject_contact_email);
+    if (!companyEmail) throw Object.assign(new Error("A company/login email is required for the secure account invitation."), { status: 400 });
+    if (!personalRecipient) throw Object.assign(new Error("A personal email is required for the invitation reminder."), { status: 400 });
+    const loginEmail = companyEmail;
     const existing = await client.query(
       `SELECT user_id FROM users
         WHERE LOWER(email)=LOWER($1)
            OR ($2::text IS NOT NULL AND LOWER(personal_email)=LOWER($2))
            OR ($3::text IS NOT NULL AND LOWER(company_email)=LOWER($3))
         LIMIT 1`,
-      [loginEmail, personalEmail, companyEmail]
+      [loginEmail, personalRecipient, companyEmail]
     );
     if (existing.rows.length) {
       throw Object.assign(new Error("An AstreaBlue account already uses this email. Create the case using Existing employee instead."), { status: 409 });
@@ -492,7 +512,7 @@ router.post("/cases/:id/account-invitation", async (req, res) => {
           'Inactive',FALSE,'Pending',$7,CURRENT_TIMESTAMP + INTERVAL '48 hours',$8,CURRENT_TIMESTAMP,
           'Invited',TRUE,$9,$10)
        RETURNING user_id,full_name,email,personal_email,company_email,branch_id,invite_status,invite_expires_at`,
-      [lifecycleCase.subject_full_name, loginEmail, personalEmail, companyEmail,
+      [lifecycleCase.subject_full_name, loginEmail, personalRecipient, companyEmail,
         roleResult.rows[0].role_id, lifecycleCase.branch_id, token, req.lifecycleActor.user_id,
         employeeNumber, department]
     );
@@ -504,7 +524,7 @@ router.post("/cases/:id/account-invitation", async (req, res) => {
               subject_department=COALESCE($4,subject_department),
               account_provisioned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
         WHERE lifecycle_case_id=$5`,
-      [user.user_id, personalEmail || companyEmail, employeeNumber, department, req.params.id]
+      [user.user_id, personalRecipient, employeeNumber, department, req.params.id]
     );
     await client.query(
       `UPDATE employee_lifecycle_tasks
@@ -521,11 +541,9 @@ router.post("/cases/:id/account-invitation", async (req, res) => {
     await client.query("COMMIT");
     const inviteLink = buildInviteLink(req, token);
     const caseData = await loadCase(db, req.params.id);
-    const personalRecipient = personalEmail || normalizeOptionalEmail(lifecycleCase.subject_contact_email);
     const delivery = await deliverLifecycleInvitation({
-      // The company-controlled mailbox is the primary address. The employee's
-      // personal address receives the same single-use link as a backup.
-      recipients: [companyEmail, personalRecipient],
+      companyEmail,
+      personalEmail: personalRecipient,
       fullName: lifecycleCase.subject_full_name,
       branchName: caseData?.branch_name,
       inviteLink,
@@ -602,7 +620,8 @@ router.post("/cases/:id/account-invitation/resend", async (req, res) => {
 
     const inviteLink = buildInviteLink(req, token);
     const delivery = await deliverLifecycleInvitation({
-      recipients: [record.company_email, record.personal_email, record.email],
+      companyEmail: record.company_email || record.email,
+      personalEmail: record.personal_email,
       fullName: record.full_name || record.subject_full_name,
       branchName: record.branch_name,
       inviteLink,

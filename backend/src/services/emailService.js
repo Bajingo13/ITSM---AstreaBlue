@@ -220,8 +220,100 @@ async function sendInvitationEmail({
   }
 }
 
-async function sendWelcomeEmail() {
-  throw new Error("sendWelcomeEmail is not implemented yet.");
+async function sendInvitationReminderEmail({
+  to,
+  fullName,
+  companyEmail,
+  expiresInHours = 48,
+}) {
+  const safeName = escapeHtml(fullName || "there");
+  const safeCompanyEmail = escapeHtml(companyEmail || "your company email address");
+
+  try {
+    return await sendMail({
+      from: fromAddress(),
+      to,
+      subject: "AstreaBlue ITSM account invitation reminder",
+      text: [
+        `Hello ${fullName || "there"},`,
+        "",
+        "Your AstreaBlue ITSM account invitation has been sent to your company email address.",
+        `Company email: ${companyEmail || "Contact your administrator for the assigned address."}`,
+        `The invitation expires in ${expiresInHours} hours.`,
+        "",
+        "For security, this reminder does not contain the activation link. Check your company mailbox or contact your administrator.",
+      ].join("\n"),
+      html: generateEmailHtml("Account invitation reminder", `
+        <p>Hello ${safeName},</p>
+        <p>Your AstreaBlue ITSM account invitation has been sent to your company email address:</p>
+        <div class="info-block"><strong>${safeCompanyEmail}</strong></div>
+        <p>The invitation expires in <strong>${expiresInHours} hours</strong>.</p>
+        <p style="color:#64748b;">For security, this personal-email reminder does not contain the activation link. Check your company mailbox or contact your administrator.</p>
+      `),
+    });
+  } catch (error) {
+    return { success: false, provider: "smtp", error: exactEmailError(error) };
+  }
+}
+
+async function sendAccountActivatedEmail({ to, fullName, loginEmail }) {
+  const safeName = escapeHtml(fullName || "there");
+  const safeLoginEmail = escapeHtml(loginEmail || to);
+
+  try {
+    return await sendMail({
+      from: fromAddress(),
+      to,
+      subject: "AstreaBlue ITSM account activated",
+      text: [
+        `Hello ${fullName || "there"},`,
+        "",
+        "Your AstreaBlue ITSM account registration is complete and your account is active.",
+        `Login email: ${loginEmail || to}`,
+        "You may now sign in using the password you created.",
+      ].join("\n"),
+      html: generateEmailHtml("Account activated", `
+        <p>Hello ${safeName},</p>
+        <p>Your AstreaBlue ITSM account registration is complete and your account is now active.</p>
+        <div class="info-block"><strong>Login email:</strong> ${safeLoginEmail}</div>
+        <p>You may now sign in using the password you created.</p>
+      `),
+    });
+  } catch (error) {
+    return { success: false, provider: "smtp", error: exactEmailError(error) };
+  }
+}
+
+async function sendAccountActivatedReminderEmail({ to, fullName, companyEmail }) {
+  const safeName = escapeHtml(fullName || "there");
+  const safeCompanyEmail = escapeHtml(companyEmail || "your company email address");
+
+  try {
+    return await sendMail({
+      from: fromAddress(),
+      to,
+      subject: "AstreaBlue ITSM account setup completed",
+      text: [
+        `Hello ${fullName || "there"},`,
+        "",
+        "This is a reminder that your AstreaBlue ITSM account setup has been completed.",
+        `Use your company email (${companyEmail || "the address assigned by your administrator"}) to sign in.`,
+        "This personal-email notice does not contain a password or activation link.",
+      ].join("\n"),
+      html: generateEmailHtml("Account setup completed", `
+        <p>Hello ${safeName},</p>
+        <p>This is a reminder that your AstreaBlue ITSM account setup has been completed.</p>
+        <p>Use your company email, <strong>${safeCompanyEmail}</strong>, to sign in.</p>
+        <p style="color:#64748b;">This personal-email notice does not contain a password or activation link.</p>
+      `),
+    });
+  } catch (error) {
+    return { success: false, provider: "smtp", error: exactEmailError(error) };
+  }
+}
+
+async function sendWelcomeEmail(options = {}) {
+  return sendAccountActivatedEmail(options);
 }
 
 async function sendTestEmail(to) {
@@ -504,6 +596,9 @@ module.exports = {
   sendMail,
   sendTestEmail,
   sendInvitationEmail,
+  sendInvitationReminderEmail,
+  sendAccountActivatedEmail,
+  sendAccountActivatedReminderEmail,
   sendWelcomeEmail,
   sendTicketCreatedEmail,
   sendTicketAssignedEmail,

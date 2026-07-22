@@ -533,8 +533,8 @@ function UserFormModal({
         setError(branchesError || "No active branches are available for invites.");
         return;
       }
-      if (!form.full_name || !form.personal_email || !form.role_id || !finalBranchId) {
-        setError("Please complete full name, personal email, role, and branch.");
+      if (!form.full_name || !form.personal_email || !form.company_email || !form.role_id || !finalBranchId) {
+        setError("Please complete full name, personal email, company/login email, role, and branch.");
         return;
       }
     } else if (!form.full_name || !form.email || !form.role_id || (!isEditing && !form.password)) {
@@ -610,7 +610,7 @@ function UserFormModal({
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               {isInvite
-                ? "Create a one-time onboarding link for the user's personal email."
+                ? "Send the activation link to the company email and a link-free reminder to the personal email."
                 : "Configure account profile, branch, role, and access status."}
             </p>
           </div>
@@ -663,6 +663,7 @@ function UserFormModal({
                 />
                 <Field
                   label="Company Email"
+                  required
                   value={form.company_email}
                   onChange={(value) => updateForm("company_email", value)}
                 />

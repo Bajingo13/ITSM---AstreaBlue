@@ -4,6 +4,9 @@ const db = require("../../config/db");
 const {
   getMissingSmtpConfig,
   sendInvitationEmail,
+  sendInvitationReminderEmail,
+  sendAccountActivatedEmail,
+  sendAccountActivatedReminderEmail,
 } = require("../services/emailService");
 
 const router = express.Router();
@@ -51,6 +54,7 @@ async function sendInviteResponse({
   inviteLink,
   fullName,
   personalEmail,
+  companyEmail,
   branchId,
   customMessage,
 }) {
@@ -72,8 +76,9 @@ async function sendInviteResponse({
 
   try {
     const branchName = await getBranchName(branchId);
+    const primaryEmail = companyEmail || personalEmail;
     const emailResult = await sendInvitationEmail({
-      to: personalEmail,
+      to: primaryEmail,
       fullName,
       roleName: inviteRole.role_name,
       branchName,
@@ -83,10 +88,27 @@ async function sendInviteResponse({
     if (!emailResult?.success) {
       throw new Error(emailResult?.error || "Email provider did not confirm delivery.");
     }
+    const shouldSendReminder = Boolean(personalEmail && personalEmail.toLowerCase() !== primaryEmail.toLowerCase());
+    const reminderResult = shouldSendReminder
+      ? await sendInvitationReminderEmail({
+          to: personalEmail,
+          fullName,
+          companyEmail: primaryEmail,
+          expiresInHours: 48,
+        })
+      : null;
 
     return res.status(201).json({
       success: true,
       email_sent: true,
+      email_recipients: [primaryEmail, reminderResult?.success && personalEmail].filter(Boolean),
+      primary_email: primaryEmail,
+      primary_email_sent: true,
+      reminder_email: shouldSendReminder ? personalEmail : null,
+      reminder_email_sent: Boolean(reminderResult?.success),
+      warning: shouldSendReminder && !reminderResult?.success
+        ? `The company invitation was sent, but the personal reminder failed: ${reminderResult?.error || "Email provider did not confirm delivery."}`
+        : null,
       message: safeCustomMessage,
       invitation: {
         ...invitation,
@@ -254,10 +276,10 @@ router.post("/", async (req, res) => {
       });
     }
 
-    if (!full_name || !personal_email || !(role || role_name || role_id) || !branch_id) {
+    if (!full_name || !personal_email || !company_email || !(role || role_name || role_id) || !branch_id) {
       return res.status(400).json({
         success: false,
-        error: "Full name, personal email, role, and branch are required.",
+        error: "Full name, personal email, company/login email, role, and branch are required.",
       });
     }
 
@@ -376,6 +398,7 @@ router.post("/", async (req, res) => {
         inviteLink: buildInviteLink(req, token),
         fullName: full_name,
         personalEmail: personal_email,
+        companyEmail: company_email,
         branchId: branch_id,
       });
     }
@@ -437,6 +460,7 @@ router.post("/", async (req, res) => {
       inviteLink: buildInviteLink(req, token),
       fullName: full_name,
       personalEmail: personal_email,
+      companyEmail: company_email,
       branchId: branch_id,
     });
   } catch (err) {
@@ -549,9 +573,42 @@ router.post("/:token/complete", async (req, res) => {
       [invite.user_id]
     );
 
+    let completionDelivery = {
+      company_email_sent: false,
+      personal_reminder_sent: false,
+      email_warning: null,
+    };
+    if (process.env.NODE_ENV !== "test" && !getMissingSmtpConfig().length) {
+      const primaryEmail = invite.company_email || invite.email || invite.personal_email;
+      const personalEmail = invite.personal_email;
+      const primaryResult = await sendAccountActivatedEmail({
+        to: primaryEmail,
+        fullName: invite.full_name,
+        loginEmail: invite.email,
+      });
+      const shouldSendReminder = Boolean(personalEmail && personalEmail.toLowerCase() !== primaryEmail.toLowerCase());
+      const reminderResult = shouldSendReminder
+        ? await sendAccountActivatedReminderEmail({
+            to: personalEmail,
+            fullName: invite.full_name,
+            companyEmail: invite.company_email || invite.email,
+          })
+        : null;
+      completionDelivery = {
+        company_email_sent: Boolean(primaryResult?.success),
+        personal_reminder_sent: Boolean(reminderResult?.success),
+        email_warning: !primaryResult?.success
+          ? primaryResult?.error || "Account activation email delivery failed."
+          : (shouldSendReminder && !reminderResult?.success
+            ? reminderResult?.error || "Personal reminder delivery failed."
+            : null),
+      };
+    }
+
     res.json({
       success: true,
       message: "Invite accepted successfully. Account is now active.",
+      email_delivery: completionDelivery,
     });
   } catch (err) {
     console.error("Complete invite error:", err.message);
@@ -661,6 +718,7 @@ router.post("/:id/resend", async (req, res) => {
       inviteLink: buildInviteLink(req, token),
       fullName: user.full_name,
       personalEmail: user.personal_email,
+      companyEmail: user.company_email,
       branchId: user.branch_id,
       customMessage
     });
