@@ -98,10 +98,14 @@ export default function AssetDiscovery() {
     if (response.ok) load();
   };
   const createAsset = async (id, branchId) => {
-    const response = await fetch(`${API_BASE}/hardware-assets/discovery/${id}/create-asset`, { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ branch_id: branchId || null }) });
-    const body = await response.json();
-    setMessage(body.message || body.error);
-    if (response.ok) load();
+    try {
+      const response = await fetch(`${API_BASE}/hardware-assets/discovery/${id}/create-asset`, { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ branch_id: branchId || null }) });
+      const body = await response.json().catch(() => ({}));
+      setMessage(body.message || body.error || (response.ok ? "Hardware asset created." : "Failed to create the hardware asset."));
+      if (response.ok) await load();
+    } catch (error) {
+      setMessage(error.message || "Unable to reach the asset service.");
+    }
   };
   const importCsv = async (file) => {
     if (!file) return;
@@ -131,8 +135,19 @@ export default function AssetDiscovery() {
 
 function DiscoveryRow({ record, assets, branches, onLink, onCreate }) {
   const [assetId, setAssetId] = useState("");
+  const [branchId, setBranchId] = useState(record.branch_id ? String(record.branch_id) : "");
+  const [creating, setCreating] = useState(false);
   const matched = Boolean(record.matched_asset_id);
   const reconciliation = matched ? "Matched" : record.reconciliation_status === "Matched" ? "Needs Review" : record.reconciliation_status;
+  const create = async () => {
+    if (!branchId || creating) return;
+    setCreating(true);
+    try {
+      await onCreate(record.discovery_id, branchId);
+    } finally {
+      setCreating(false);
+    }
+  };
   return <tr className="border-t border-slate-100">
     <td className="px-4 py-4"><p className="font-black">{record.hostname}</p><p className="text-xs text-slate-500">{record.device_type || "Unknown device"}</p></td>
     <td className="px-4 py-4 text-sm">{record.ip_address || "—"}<br/>{record.mac_address || "—"}</td>
@@ -144,7 +159,21 @@ function DiscoveryRow({ record, assets, branches, onLink, onCreate }) {
     <td className="px-4 py-4"><span className={`rounded-full border px-2.5 py-1 text-xs font-black ${matched ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{reconciliation}</span></td>
     <td className="px-4 py-4">{matched
       ? <div><p className="font-bold text-emerald-700">Linked to {record.matched_asset_tag || record.asset_name || "managed asset"}</p><p className="mt-1 text-xs text-slate-500">No reconciliation action required.</p></div>
-      : <div><p className="mb-2 text-xs font-semibold text-slate-500">Link this observation to an existing asset, or create a new asset.</p><div className="flex gap-2"><select value={assetId} onChange={(event) => setAssetId(event.target.value)} className="max-w-44 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm"><option value="">Choose managed asset</option>{assets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag} — {asset.asset_name}</option>)}</select><button disabled={!assetId} title="Link selected asset" onClick={() => onLink(record.discovery_id, assetId)} className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><Link2 size={14}/></button><button onClick={() => onCreate(record.discovery_id, record.branch_id || branches[0]?.branch_id)} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700">Create New Asset</button></div></div>}
+      : <div>
+          <p className="mb-2 text-xs font-semibold text-slate-500">Link this observation to an existing asset, or create a new asset.</p>
+          <div className="flex flex-wrap gap-2">
+            <select value={assetId} onChange={(event) => setAssetId(event.target.value)} className="max-w-44 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm">
+              <option value="">Choose managed asset</option>
+              {assets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag} — {asset.asset_name}</option>)}
+            </select>
+            <button disabled={!assetId} title="Link selected asset" onClick={() => onLink(record.discovery_id, assetId)} className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><Link2 size={14}/></button>
+            <select aria-label="Branch for the new asset" value={branchId} onChange={(event) => setBranchId(event.target.value)} className="max-w-44 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm">
+              <option value="">Select asset branch</option>
+              {branches.map((branch) => <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_name}</option>)}
+            </select>
+            <button disabled={!branchId || creating} onClick={create} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">{creating ? "Creating..." : "Create New Asset"}</button>
+          </div>
+        </div>}
     </td>
   </tr>;
 }

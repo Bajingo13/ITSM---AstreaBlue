@@ -384,8 +384,8 @@ router.post("/discovery/:id/create-asset", requireAssetManager, async (req, res)
       return res.status(400).json({ success: false, message: "A branch is required before creating an asset.", error: "Branch is required." });
     }
     const inserted = await client.query(
-      `INSERT INTO hardware_assets (asset_name,asset_type,brand,manufacturer,model,serial_number,asset_tag,branch_id,status)
-       VALUES ($1,$2,$3,$3,$4,$5,$6,$7,'Active') RETURNING *`,
+      `INSERT INTO hardware_assets (asset_name,asset_type,brand,model,serial_number,asset_tag,branch_id,status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'Active') RETURNING *`,
       [discovery.hostname, discovery.device_type || "Other", discovery.manufacturer || "Unknown", "Discovered Device", serial, assetTag, branchId]
     );
     await client.query(`UPDATE asset_discoveries SET matched_asset_id=$1,reconciliation_status='Matched',updated_at=CURRENT_TIMESTAMP WHERE discovery_id=$2`, [inserted.rows[0].asset_id, discovery.discovery_id]);
@@ -394,7 +394,18 @@ router.post("/discovery/:id/create-asset", requireAssetManager, async (req, res)
     return res.status(201).json({ success: true, message: "Hardware asset created from discovery.", data: inserted.rows[0] });
   } catch (error) {
     if (client) await client.query("ROLLBACK").catch(() => {});
-    return res.status(500).json({ success: false, message: "Failed to create hardware asset from discovery.", error: error.message });
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "An asset with this serial number or asset tag already exists. Link the discovery to the existing asset instead.",
+        error: "Duplicate hardware asset identity.",
+      });
+    }
+    if (error.code === "23503") {
+      return res.status(400).json({ success: false, message: "Select a valid branch before creating the asset.", error: "Invalid branch." });
+    }
+    console.error("Asset discovery create-asset failed:", error);
+    return res.status(500).json({ success: false, message: "Failed to create hardware asset from discovery.", error: "Asset creation failed." });
   } finally {
     client?.release();
   }

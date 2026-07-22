@@ -73,7 +73,7 @@ export default function MandatoryOnboarding() {
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 md:px-8">
       <div className="mx-auto max-w-6xl space-y-6">
-        <header className="rounded-3xl bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-7 text-white shadow-xl">
+        <header className="astrea-page-hero rounded-[28px] border border-white/15 p-7 text-white shadow-[var(--astrea-hero-shadow)]">
           <div className="flex items-center gap-3"><ShieldCheck /><div><p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">AstreaBlue Employee Onboarding</p><h1 className="text-3xl font-black">Privacy and Endpoint Monitoring Agreement</h1></div></div>
           <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-6">
             {steps.map((label, index) => <div key={label} className={`rounded-xl px-3 py-2 text-xs font-bold ${step >= index + 1 ? "bg-white text-blue-900" : "bg-white/10 text-blue-100"}`}><span className="mr-2">{step > index + 1 ? "✓" : index + 1}</span>{label}</div>)}
