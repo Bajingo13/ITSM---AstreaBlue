@@ -3,6 +3,7 @@ import {
   ArrowRight,
   CheckCircle2,
   ClipboardCheck,
+  Copy,
   RefreshCw,
   Search,
   UserMinus,
@@ -22,6 +23,22 @@ const STATUS_TRANSITIONS = {
   "Ready for Verification": ["In Progress", "Completed", "Cancelled"],
   Completed: [],
   Cancelled: [],
+};
+
+const EMPTY_FORM = {
+  lifecycle_type: "Onboarding",
+  subject_mode: "new",
+  employee_id: "",
+  branch_id: "",
+  subject_full_name: "",
+  subject_contact_email: "",
+  subject_employee_number: "",
+  subject_department: "",
+  subject_job_title: "",
+  subject_start_date: "",
+  target_date: "",
+  related_ticket_id: "",
+  notes: "",
 };
 
 async function lifecycleRequest(path, options = {}) {
@@ -68,6 +85,7 @@ export default function EmployeeLifecycle() {
   const [summary, setSummary] = useState({});
   const [cases, setCases] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -75,7 +93,8 @@ export default function EmployeeLifecycle() {
   const [notice, setNotice] = useState("");
   const [filters, setFilters] = useState({ type: "", status: "", search: "" });
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ lifecycle_type: "Onboarding", employee_id: "", target_date: "", related_ticket_id: "", notes: "" });
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [invitation, setInvitation] = useState(null);
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
@@ -89,14 +108,16 @@ export default function EmployeeLifecycle() {
     setLoading(true);
     setError("");
     try {
-      const [summaryData, caseData, employeeData] = await Promise.all([
+      const [summaryData, caseData, employeeData, branchData] = await Promise.all([
         lifecycleRequest("/summary"),
         lifecycleRequest(`/cases${query ? `?${query}` : ""}`),
         lifecycleRequest("/employees"),
+        lifecycleRequest("/branches"),
       ]);
       setSummary(summaryData || {});
       setCases(caseData || []);
       setEmployees(employeeData || []);
+      setBranches(branchData || []);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -106,9 +127,10 @@ export default function EmployeeLifecycle() {
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
 
-  async function openCase(id) {
+  async function openCase(id, preserveInvitation = false) {
     setBusy(true);
     setError("");
+    if (!preserveInvitation) setInvitation(null);
     try {
       await loadWorkspace(); // Reload latest version
       setDetails(await lifecycleRequest(`/cases/${id}`));
@@ -121,7 +143,11 @@ export default function EmployeeLifecycle() {
 
   async function createCase(event) {
     event.preventDefault();
-    if (!form.employee_id) return setError("Select an employee.");
+    const newEmployee = form.lifecycle_type === "Onboarding" && form.subject_mode === "new";
+    if (!newEmployee && !form.employee_id) return setError("Select an existing employee.");
+    if (newEmployee && (!form.subject_full_name.trim() || !form.branch_id)) {
+      return setError("Employee name and branch are required.");
+    }
     setBusy(true);
     setError("");
     try {
@@ -129,12 +155,13 @@ export default function EmployeeLifecycle() {
         method: "POST",
         body: JSON.stringify({
           ...form,
-          employee_id: Number(form.employee_id),
+          employee_id: newEmployee ? null : Number(form.employee_id),
+          branch_id: newEmployee ? Number(form.branch_id) : null,
           related_ticket_id: form.related_ticket_id ? Number(form.related_ticket_id) : null,
         }),
       });
       setShowCreate(false);
-      setForm({ lifecycle_type: "Onboarding", employee_id: "", target_date: "", related_ticket_id: "", notes: "" });
+      setForm(EMPTY_FORM);
       setNotice(`${created.case_number} created with its required checklist.`);
       await loadWorkspace();
       await openCase(created.lifecycle_case_id);
@@ -142,6 +169,25 @@ export default function EmployeeLifecycle() {
       setError(requestError.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function createAccountInvitation(values) {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await lifecycleRequest(`/cases/${details.lifecycle_case_id}/account-invitation`, {
+        method: "POST",
+        body: JSON.stringify(values),
+      });
+      setInvitation(result);
+      setNotice("AstreaBlue account invitation created and linked to the onboarding case.");
+      await Promise.all([openCase(details.lifecycle_case_id, true), loadWorkspace()]);
+      return result;
+    } catch (requestError) {
+      setError(requestError.message);
+      setBusy(false);
+      return null;
     }
   }
 
@@ -239,9 +285,18 @@ export default function EmployeeLifecycle() {
       {showCreate && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
         <form onSubmit={createCase} className="w-full max-w-2xl overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-2xl">
           <header className="flex items-center justify-between border-b border-blue-100 p-6"><div><h2 className="text-2xl font-black">Create lifecycle case</h2><p className="text-sm text-slate-500">A complete required checklist is added automatically.</p></div><button type="button" onClick={() => setShowCreate(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X/></button></header>
-          <div className="grid gap-4 p-6 sm:grid-cols-2">
-            <Field label="Lifecycle type"><select value={form.lifecycle_type} onChange={(event) => setForm((current) => ({ ...current, lifecycle_type: event.target.value }))} className="field"><option>Onboarding</option><option>Offboarding</option></select></Field>
-            <Field label="Employee"><select required value={form.employee_id} onChange={(event) => setForm((current) => ({ ...current, employee_id: event.target.value }))} className="field"><option value="">Select employee</option>{employees.map((employee) => <option key={employee.user_id} value={employee.user_id}>{employee.full_name} — {employee.branch_name}</option>)}</select></Field>
+          <div className="grid max-h-[70vh] gap-4 overflow-y-auto p-6 sm:grid-cols-2">
+            <Field label="Lifecycle type"><select value={form.lifecycle_type} onChange={(event) => setForm((current) => ({ ...current, lifecycle_type: event.target.value, subject_mode: event.target.value === "Offboarding" ? "existing" : current.subject_mode }))} className="field"><option>Onboarding</option><option>Offboarding</option></select></Field>
+            {form.lifecycle_type === "Onboarding" && <Field label="Employee record"><select value={form.subject_mode} onChange={(event) => setForm((current) => ({ ...current, subject_mode: event.target.value }))} className="field"><option value="new">New employee (no account yet)</option><option value="existing">Existing employee account</option></select></Field>}
+            {form.subject_mode === "existing" || form.lifecycle_type === "Offboarding" ? <Field label="Existing employee"><select required value={form.employee_id} onChange={(event) => setForm((current) => ({ ...current, employee_id: event.target.value }))} className="field"><option value="">Select employee</option>{employees.map((employee) => <option key={employee.user_id} value={employee.user_id}>{employee.full_name} — {employee.branch_name}</option>)}</select></Field> : <>
+              <Field label="Employee full name"><input required value={form.subject_full_name} onChange={(event) => setForm((current) => ({ ...current, subject_full_name: event.target.value }))} className="field" placeholder="Full legal name"/></Field>
+              <Field label="Branch"><select required value={form.branch_id} onChange={(event) => setForm((current) => ({ ...current, branch_id: event.target.value }))} className="field"><option value="">Select branch</option>{branches.map((branch) => <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_name}</option>)}</select></Field>
+              <Field label="Contact email (optional)"><input type="email" value={form.subject_contact_email} onChange={(event) => setForm((current) => ({ ...current, subject_contact_email: event.target.value }))} className="field" placeholder="Personal or contact email"/></Field>
+              <Field label="Employee number (optional)"><input value={form.subject_employee_number} onChange={(event) => setForm((current) => ({ ...current, subject_employee_number: event.target.value }))} className="field"/></Field>
+              <Field label="Department"><input value={form.subject_department} onChange={(event) => setForm((current) => ({ ...current, subject_department: event.target.value }))} className="field"/></Field>
+              <Field label="Job title"><input value={form.subject_job_title} onChange={(event) => setForm((current) => ({ ...current, subject_job_title: event.target.value }))} className="field"/></Field>
+              <Field label="Start date"><input type="date" value={form.subject_start_date} onChange={(event) => setForm((current) => ({ ...current, subject_start_date: event.target.value }))} className="field"/></Field>
+            </>}
             <Field label="Target date"><input type="date" value={form.target_date} onChange={(event) => setForm((current) => ({ ...current, target_date: event.target.value }))} className="field"/></Field>
             <Field label="Related ticket ID (optional)"><input type="number" min="1" value={form.related_ticket_id} onChange={(event) => setForm((current) => ({ ...current, related_ticket_id: event.target.value }))} className="field" placeholder="Database ticket ID"/></Field>
             <label className="sm:col-span-2"><span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-600">Notes</span><textarea rows="3" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="field resize-none" placeholder="Add relevant onboarding or offboarding context"/></label>
@@ -250,7 +305,7 @@ export default function EmployeeLifecycle() {
         </form>
       </div>}
 
-      {details && <CaseDrawer details={details} role={normalizedRole} busy={busy} onClose={() => setDetails(null)} onTask={updateTask} onStatus={updateStatus}/>} 
+      {details && <CaseDrawer key={details.lifecycle_case_id} details={details} role={normalizedRole} busy={busy} invitation={invitation} onClose={() => setDetails(null)} onTask={updateTask} onStatus={updateStatus} onProvision={createAccountInvitation}/>}
       <style>{`.field{width:100%;border:1px solid #bfdbfe;border-radius:.75rem;background:#f8fafc;padding:.75rem 1rem;font-size:.875rem;outline:none}.field:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12)}`}</style>
     </div>
   );
@@ -260,8 +315,14 @@ function Field({ label, children }) {
   return <label><span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-600">{label}</span>{children}</label>;
 }
 
-function CaseDrawer({ details, role, busy, onClose, onTask, onStatus }) {
+function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus, onProvision }) {
   const [taskNotes, setTaskNotes] = useState({});
+  const [accountForm, setAccountForm] = useState({
+    personal_email: details.subject_contact_email || "",
+    company_email: "",
+    employee_number: details.subject_employee_number || "",
+    department: details.subject_department || "",
+  });
   const progress = details.task_count ? Math.round((details.completed_task_count / details.task_count) * 100) : 0;
   const transitions = STATUS_TRANSITIONS[details.status] || [];
   return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60 backdrop-blur-sm">
@@ -271,15 +332,29 @@ function CaseDrawer({ details, role, busy, onClose, onTask, onStatus }) {
         <section className="grid gap-3 sm:grid-cols-3">
           <Info label="Status" value={details.status}/><Info label="Target Date" value={formatDate(details.target_date)}/><Info label="Related Ticket" value={details.related_ticket_number || "Not linked"}/>
         </section>
+        {details.lifecycle_type === "Onboarding" && <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-black text-slate-950">AstreaBlue employee account</h3><p className="mt-1 text-sm text-slate-500">The onboarding case can exist before the employee receives a login.</p></div><span className={`rounded-full border px-3 py-1 text-xs font-black ${details.employee_id ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{details.employee_id ? (details.employee_is_active ? "Active" : details.employee_invite_status || "Linked") : "Not created"}</span></div>
+          {!details.employee_id && ["superadmin", "admin"].includes(role) && <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); void onProvision(accountForm); }}>
+            <Field label="Personal email"><input type="email" value={accountForm.personal_email} onChange={(event) => setAccountForm((current) => ({ ...current, personal_email: event.target.value }))} className="field" placeholder="Optional when company email is provided"/></Field>
+            <Field label="Company/login email"><input type="email" value={accountForm.company_email} onChange={(event) => setAccountForm((current) => ({ ...current, company_email: event.target.value }))} className="field" placeholder="employee@company.com"/></Field>
+            <Field label="Employee number"><input value={accountForm.employee_number} onChange={(event) => setAccountForm((current) => ({ ...current, employee_number: event.target.value }))} className="field"/></Field>
+            <Field label="Department"><input value={accountForm.department} onChange={(event) => setAccountForm((current) => ({ ...current, department: event.target.value }))} className="field"/></Field>
+            <button disabled={busy || (!accountForm.personal_email.trim() && !accountForm.company_email.trim() && !details.subject_contact_email)} className="sm:col-span-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Creating invitation…" : "Create account invitation"}</button>
+          </form>}
+          {!details.employee_id && role === "hr" && <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">The onboarding case is ready. An authorized administrator can create and link the account invitation.</p>}
+          {invitation?.invite_link && <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm font-black text-emerald-800">Account invitation created</p><p className="mt-1 text-xs text-emerald-700">Copy this one-time activation link and provide it securely to the employee. It expires in 48 hours.</p><div className="mt-3 flex gap-2"><input readOnly value={invitation.invite_link} className="min-w-0 flex-1 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs"/><button type="button" onClick={() => navigator.clipboard?.writeText(invitation.invite_link)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-black text-emerald-800"><Copy size={14}/> Copy</button></div></div>}
+        </section>}
         <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between"><div><h3 className="font-black text-slate-950">Required checklist</h3><p className="text-sm text-slate-500">{details.completed_task_count} of {details.task_count} tasks complete</p></div><span className="text-2xl font-black text-blue-600">{progress}%</span></div>
           <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" style={{ width: `${progress}%` }}/></div>
           <div className="mt-5 space-y-3">{details.tasks?.map((task) => {
             const completed = task.status === "Completed";
             const accessBlocked = role === "hr" && String(task.assigned_role).toLowerCase() !== "hr";
+            const awaitingAccount = details.lifecycle_type === "Onboarding" && !details.employee_id && task.task_key !== "confirm_employment";
+            const awaitingActivation = details.lifecycle_type === "Onboarding" && details.employee_id && details.employee_is_active === false && !["confirm_employment", "create_account"].includes(task.task_key);
             const notesRequired = details.lifecycle_type === "Offboarding" && ["audit_licenses", "secure_data", "classify_assets"].includes(task.task_key);
             return <article key={task.lifecycle_task_id} className={`rounded-2xl border p-4 ${completed ? "border-emerald-200 bg-emerald-50/60" : "border-blue-100 bg-slate-50"}`}>
-              <div className="flex gap-3"><button disabled={busy || (completed && details.lifecycle_type === "Offboarding") || accessBlocked || ["Completed", "Cancelled"].includes(details.status) || (notesRequired && String(taskNotes[task.lifecycle_task_id] || "").trim().length < 5)} onClick={() => void onTask(task, completed ? "Pending" : "Completed", taskNotes[task.lifecycle_task_id] || "")} title={accessBlocked ? "You do not have permission to complete this checklist item" : completed && details.lifecycle_type === "Offboarding" ? "The internal action is complete and cannot be reversed here" : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
+              <div className="flex gap-3"><button disabled={busy || (completed && details.lifecycle_type === "Offboarding") || accessBlocked || awaitingAccount || awaitingActivation || ["Completed", "Cancelled"].includes(details.status) || (notesRequired && String(taskNotes[task.lifecycle_task_id] || "").trim().length < 5)} onClick={() => void onTask(task, completed ? "Pending" : "Completed", taskNotes[task.lifecycle_task_id] || "")} title={awaitingAccount ? "Create and link the employee account first" : awaitingActivation ? "The employee must activate the account first" : accessBlocked ? "You do not have permission to complete this checklist item" : completed && details.lifecycle_type === "Offboarding" ? "The internal action is complete and cannot be reversed here" : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
                 <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-slate-900">{task.task_label}</h4>{task.is_required && <span className="text-[10px] font-black uppercase text-rose-600">Required</span>}</div><p className="mt-1 text-sm leading-6 text-slate-600">{task.task_description}</p>{completed && <p className="mt-2 text-xs font-semibold text-emerald-700">Completed by {task.completed_by_name || "authorized user"} · {formatDate(task.completed_at, true)}</p>}{accessBlocked && !completed && <p className="mt-2 text-xs font-semibold text-amber-700">You can track this item, but your role cannot mark it complete.</p>}</div>
               </div>
               {notesRequired && !completed && !accessBlocked && <label className="mt-3 block pl-9"><span className="mb-1 block text-xs font-bold text-slate-600">Required completion evidence</span><textarea rows="2" value={taskNotes[task.lifecycle_task_id] || ""} onChange={(event) => setTaskNotes((current) => ({ ...current, [task.lifecycle_task_id]: event.target.value }))} className="field resize-none" placeholder="Record the handover or asset inspection result before completing this task."/></label>}

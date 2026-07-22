@@ -21,6 +21,8 @@ let offboardingCaseId;
 let assetId;
 let deviceId;
 let ticketId;
+let preHireCaseId;
+let preHireUserId;
 
 function authHeaders(userId, role, branch) {
   const token = jwt.sign({ userId, role, branchId: branch || null }, secret, { expiresIn: "5m" });
@@ -32,6 +34,8 @@ test.before(async () => {
   await db.query(migration);
   const automationMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-07-21-internal-offboarding-automation.sql"), "utf8");
   await db.query(automationMigration);
+  const preHireMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-07-22-prehire-onboarding.sql"), "utf8");
+  await db.query(preHireMigration);
   const branch = await db.query(`SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1`);
   assert.ok(branch.rows[0]?.branch_id);
   branchId = branch.rows[0].branch_id;
@@ -70,10 +74,76 @@ test.after(async () => {
   if (assetId) await db.query(`DELETE FROM hardware_assets WHERE asset_id=$1`, [assetId]);
   if (offboardingCaseId) await db.query(`DELETE FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`, [offboardingCaseId]);
   if (ticketId) await db.query(`DELETE FROM tickets WHERE id=$1`, [ticketId]);
+  if (preHireCaseId) await db.query(`DELETE FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`, [preHireCaseId]);
   if (caseId) await db.query(`DELETE FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`, [caseId]);
-  await db.query(`DELETE FROM users WHERE user_id=ANY($1::int[])`, [[employeeId, hrId, superAdminId].filter(Boolean)]);
+  await db.query(`DELETE FROM users WHERE user_id=ANY($1::int[])`, [[employeeId, hrId, superAdminId, preHireUserId].filter(Boolean)]);
   if (server) await new Promise((resolve) => server.close(resolve));
   await db.rawPool.end();
+});
+
+test("HR starts onboarding before an account exists and an administrator provisions it without touching monitoring", async () => {
+  const suffix = Date.now();
+  const deviceCountBefore = await db.query(`SELECT COUNT(*)::int count FROM monitored_devices`);
+  let response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases`, {
+    method: "POST",
+    headers: authHeaders(hrId, "HR", branchId),
+    body: JSON.stringify({
+      lifecycle_type: "Onboarding",
+      branch_id: branchId,
+      subject_full_name: "Pre Hire Employee",
+      subject_contact_email: `prehire-${suffix}@example.test`,
+      subject_department: "Operations",
+      subject_job_title: "Analyst",
+      subject_start_date: "2026-08-01",
+    }),
+  });
+  const createBody = await response.text();
+  assert.equal(response.status, 201, createBody);
+  const createdCase = JSON.parse(createBody).data;
+  preHireCaseId = createdCase.lifecycle_case_id;
+  assert.equal(createdCase.employee_id, null);
+  assert.equal(createdCase.employee_name, "Pre Hire Employee");
+
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}/account-invitation`, {
+    method: "POST",
+    headers: authHeaders(hrId, "HR", branchId),
+    body: JSON.stringify({}),
+  });
+  assert.equal(response.status, 403);
+
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}/account-invitation`, {
+    method: "POST",
+    headers: authHeaders(superAdminId, "SuperAdmin", null),
+    body: JSON.stringify({ company_email: `prehire-${suffix}@astreablue.test`, employee_number: `PRE-${suffix}` }),
+  });
+  const provisionBody = await response.text();
+  assert.equal(response.status, 201, provisionBody);
+  const provisioned = JSON.parse(provisionBody).data;
+  preHireUserId = provisioned.invitation.user_id;
+  assert.match(provisioned.invite_link, /\/invite\/[a-f0-9]{64}$/);
+  assert.equal(Number(provisioned.case.employee_id), Number(preHireUserId));
+
+  const detailsResponse = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}`, {
+    headers: authHeaders(superAdminId, "SuperAdmin", null),
+  });
+  const profileTask = (await detailsResponse.json()).data.tasks.find((task) => task.task_key === "complete_profile");
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}/tasks/${profileTask.lifecycle_task_id}`, {
+    method: "PATCH",
+    headers: authHeaders(superAdminId, "SuperAdmin", null),
+    body: JSON.stringify({ status: "Completed" }),
+  });
+  assert.equal(response.status, 409);
+
+  const [user, tasks, deviceCountAfter] = await Promise.all([
+    db.query(`SELECT is_active,invite_status,onboarding_status FROM users WHERE user_id=$1`, [preHireUserId]),
+    db.query(`SELECT status FROM employee_lifecycle_tasks WHERE lifecycle_case_id=$1 AND task_key='create_account'`, [preHireCaseId]),
+    db.query(`SELECT COUNT(*)::int count FROM monitored_devices`),
+  ]);
+  assert.equal(user.rows[0].is_active, false);
+  assert.equal(user.rows[0].invite_status, "Pending");
+  assert.equal(user.rows[0].onboarding_status, "Invited");
+  assert.equal(tasks.rows[0].status, "Completed");
+  assert.equal(deviceCountAfter.rows[0].count, deviceCountBefore.rows[0].count);
 });
 
 test("HR creates a branch-scoped onboarding case with a complete template", async () => {

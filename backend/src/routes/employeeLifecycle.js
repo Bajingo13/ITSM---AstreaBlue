@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const db = require("../../config/db");
 const {
@@ -18,6 +19,24 @@ const ACCESS_ROLES = new Set(["superadmin", "admin", "hr"]);
 
 function normalizeRole(value) {
   return String(value || "").trim().toLowerCase().replace(/[\s_-]/g, "");
+}
+
+function normalizeOptionalText(value, maxLength = 255) {
+  const normalized = String(value || "").trim();
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function normalizeOptionalEmail(value) {
+  const normalized = normalizeOptionalText(value, 255)?.toLowerCase() || null;
+  if (normalized && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    throw Object.assign(new Error("Enter a valid email address."), { status: 400 });
+  }
+  return normalized;
+}
+
+function buildInviteLink(req, token) {
+  const origin = process.env.FRONTEND_URL || req.get("origin") || "http://localhost:5173";
+  return `${String(origin).replace(/\/$/, "")}/invite/${token}`;
 }
 
 async function requireLifecycleAccess(req, res, next) {
@@ -66,15 +85,19 @@ function addCaseScope(req, alias, params, requestedBranch = null) {
 
 async function loadCase(queryable, caseId) {
   const result = await queryable.query(
-    `SELECT lc.*,employee.full_name employee_name,employee.email employee_email,
-            employee.department employee_department,b.branch_name,
+    `SELECT lc.*,COALESCE(employee.full_name,lc.subject_full_name) employee_name,
+            COALESCE(employee.personal_email,employee.email,lc.subject_contact_email) employee_email,
+            COALESCE(employee.employee_number,lc.subject_employee_number) employee_number,
+            COALESCE(employee.department,lc.subject_department) employee_department,
+            employee.is_active employee_is_active,employee.invite_status employee_invite_status,
+            b.branch_name,
             creator.full_name created_by_name,verifier.full_name verified_by_name,
             t.ticket_number related_ticket_number,t.title related_ticket_title,
             COUNT(lt.lifecycle_task_id)::int task_count,
             COUNT(lt.lifecycle_task_id) FILTER (WHERE lt.status='Completed')::int completed_task_count,
             COUNT(lt.lifecycle_task_id) FILTER (WHERE lt.is_required AND lt.status='Pending')::int required_pending_count
        FROM employee_lifecycle_cases lc
-       JOIN users employee ON employee.user_id=lc.employee_id
+       LEFT JOIN users employee ON employee.user_id=lc.employee_id
        JOIN branches b ON b.branch_id=lc.branch_id
        JOIN users creator ON creator.user_id=lc.created_by
        LEFT JOIN users verifier ON verifier.user_id=lc.verified_by
@@ -122,6 +145,23 @@ async function nextCaseNumber(client, type) {
 }
 
 router.use(requireLifecycleAccess);
+
+router.get("/branches", async (req, res) => {
+  try {
+    const params = [];
+    const scope = req.lifecycleActor.role === "superadmin"
+      ? "1=1"
+      : (params.push(Number(req.lifecycleActor.branch_id)), `branch_id=$${params.length}`);
+    const result = await db.query(
+      `SELECT branch_id,branch_name FROM branches WHERE ${scope} ORDER BY branch_name`,
+      params
+    );
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error("[employee-lifecycle:branches]", error.message);
+    return res.status(500).json({ success: false, message: "Failed to load lifecycle branches." });
+  }
+});
 
 router.get("/employees", async (req, res) => {
   try {
@@ -180,16 +220,22 @@ router.get("/cases", async (req, res) => {
     }
     if (req.query.search) {
       params.push(`%${String(req.query.search).trim()}%`);
-      clauses.push(`(lc.case_number ILIKE $${params.length} OR employee.full_name ILIKE $${params.length} OR employee.email ILIKE $${params.length})`);
+      clauses.push(`(lc.case_number ILIKE $${params.length}
+        OR COALESCE(employee.full_name,lc.subject_full_name) ILIKE $${params.length}
+        OR COALESCE(employee.personal_email,employee.email,lc.subject_contact_email,'') ILIKE $${params.length}
+        OR COALESCE(employee.employee_number,lc.subject_employee_number,'') ILIKE $${params.length})`);
     }
     const result = await db.query(
-      `SELECT lc.*,employee.full_name employee_name,employee.email employee_email,b.branch_name,
+      `SELECT lc.*,COALESCE(employee.full_name,lc.subject_full_name) employee_name,
+              COALESCE(employee.personal_email,employee.email,lc.subject_contact_email) employee_email,
+              employee.is_active employee_is_active,employee.invite_status employee_invite_status,
+              b.branch_name,
               t.ticket_number related_ticket_number,
               COUNT(lt.lifecycle_task_id)::int task_count,
               COUNT(lt.lifecycle_task_id) FILTER (WHERE lt.status='Completed')::int completed_task_count,
               COUNT(lt.lifecycle_task_id) FILTER (WHERE lt.is_required AND lt.status='Pending')::int required_pending_count
          FROM employee_lifecycle_cases lc
-         JOIN users employee ON employee.user_id=lc.employee_id
+         LEFT JOIN users employee ON employee.user_id=lc.employee_id
          JOIN branches b ON b.branch_id=lc.branch_id
          LEFT JOIN tickets t ON t.id=lc.related_ticket_id
          LEFT JOIN employee_lifecycle_tasks lt ON lt.lifecycle_case_id=lc.lifecycle_case_id
@@ -210,35 +256,71 @@ router.post("/cases", async (req, res) => {
   const client = await db.rawPool.connect();
   try {
     const type = normalizeLifecycleType(req.body.lifecycle_type);
-    const employeeId = Number(req.body.employee_id);
-    if (!type || !employeeId) return res.status(400).json({ success: false, message: "Lifecycle type and employee are required." });
-    await client.query("BEGIN");
-    const employeeResult = await client.query(
-      `SELECT u.user_id,u.branch_id,u.full_name,r.role_name
-         FROM users u JOIN system_roles r ON r.role_id=u.role_id
-        WHERE u.user_id=$1 FOR UPDATE OF u`,
-      [employeeId]
-    );
-    const employee = employeeResult.rows[0];
-    if (!employee || normalizeRole(employee.role_name) !== "employee") {
-      throw Object.assign(new Error("The selected employee does not exist."), { status: 404 });
+    const employeeId = Number(req.body.employee_id) || null;
+    const preHire = type === "Onboarding" && !employeeId;
+    const subjectFullName = normalizeOptionalText(req.body.subject_full_name);
+    const subjectContactEmail = normalizeOptionalEmail(req.body.subject_contact_email);
+    const requestedBranchId = Number(req.body.branch_id) || null;
+    if (!type) return res.status(400).json({ success: false, message: "Lifecycle type is required." });
+    if (type === "Offboarding" && !employeeId) {
+      return res.status(400).json({ success: false, message: "Offboarding requires an existing employee." });
     }
-    if (req.lifecycleActor.role !== "superadmin" && Number(employee.branch_id) !== Number(req.lifecycleActor.branch_id)) {
-      throw Object.assign(new Error("The selected employee is outside your branch."), { status: 403 });
+    if (preHire && (!subjectFullName || !requestedBranchId)) {
+      return res.status(400).json({ success: false, message: "Employee name and branch are required for new onboarding." });
+    }
+    await client.query("BEGIN");
+    let employee = null;
+    let branchId = requestedBranchId;
+    if (employeeId) {
+      const employeeResult = await client.query(
+        `SELECT u.user_id,u.branch_id,u.full_name,u.personal_email,u.email,u.employee_number,u.department,r.role_name
+           FROM users u JOIN system_roles r ON r.role_id=u.role_id
+          WHERE u.user_id=$1 FOR UPDATE OF u`,
+        [employeeId]
+      );
+      employee = employeeResult.rows[0];
+      if (!employee || normalizeRole(employee.role_name) !== "employee") {
+        throw Object.assign(new Error("The selected employee does not exist."), { status: 404 });
+      }
+      branchId = Number(employee.branch_id);
+    } else {
+      const branch = await client.query(`SELECT branch_id FROM branches WHERE branch_id=$1`, [branchId]);
+      if (!branch.rows.length) throw Object.assign(new Error("The selected branch does not exist."), { status: 404 });
+      const duplicate = await client.query(
+        `SELECT lifecycle_case_id FROM employee_lifecycle_cases
+          WHERE employee_id IS NULL AND lifecycle_type='Onboarding'
+            AND branch_id=$1 AND LOWER(subject_full_name)=LOWER($2)
+            AND COALESCE(subject_start_date,DATE '1900-01-01')=COALESCE($3::date,DATE '1900-01-01')
+            AND status NOT IN ('Completed','Cancelled') LIMIT 1`,
+        [branchId, subjectFullName, req.body.subject_start_date || null]
+      );
+      if (duplicate.rows.length) {
+        throw Object.assign(new Error("This new employee already has an active onboarding case."), { status: 409 });
+      }
+    }
+    if (req.lifecycleActor.role !== "superadmin" && Number(branchId) !== Number(req.lifecycleActor.branch_id)) {
+      throw Object.assign(new Error("The selected employee or branch is outside your branch."), { status: 403 });
     }
     if (req.body.related_ticket_id) {
       const ticket = await client.query(`SELECT id,branch_id FROM tickets WHERE id=$1`, [Number(req.body.related_ticket_id)]);
-      if (!ticket.rows.length || Number(ticket.rows[0].branch_id) !== Number(employee.branch_id)) {
+      if (!ticket.rows.length || Number(ticket.rows[0].branch_id) !== Number(branchId)) {
         throw Object.assign(new Error("The linked ticket must exist in the employee branch."), { status: 400 });
       }
     }
     const caseNumber = await nextCaseNumber(client, type);
     const created = await client.query(
       `INSERT INTO employee_lifecycle_cases
-         (case_number,lifecycle_type,employee_id,branch_id,related_ticket_id,target_date,notes,created_by)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING lifecycle_case_id`,
-      [caseNumber, type, employeeId, employee.branch_id, req.body.related_ticket_id || null,
-        req.body.target_date || null, String(req.body.notes || "").trim() || null, req.lifecycleActor.user_id]
+         (case_number,lifecycle_type,employee_id,branch_id,related_ticket_id,target_date,notes,created_by,
+          subject_full_name,subject_contact_email,subject_employee_number,subject_department,
+          subject_job_title,subject_start_date)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING lifecycle_case_id`,
+      [caseNumber, type, employeeId, branchId, req.body.related_ticket_id || null,
+        req.body.target_date || null, normalizeOptionalText(req.body.notes, 5000), req.lifecycleActor.user_id,
+        employee?.full_name || subjectFullName,
+        employee?.personal_email || employee?.email || subjectContactEmail,
+        employee?.employee_number || normalizeOptionalText(req.body.subject_employee_number, 100),
+        employee?.department || normalizeOptionalText(req.body.subject_department),
+        normalizeOptionalText(req.body.subject_job_title), req.body.subject_start_date || null]
     );
     const caseId = created.rows[0].lifecycle_case_id;
     for (const task of getDefaultTasks(type)) {
@@ -257,6 +339,110 @@ router.post("/cases", async (req, res) => {
     if (error.code === "23505") return res.status(409).json({ success: false, message: "This employee already has an active case of this type." });
     console.error("[employee-lifecycle:create]", error.message);
     return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : "Failed to create lifecycle case." });
+  } finally {
+    client.release();
+  }
+});
+
+router.post("/cases/:id/account-invitation", async (req, res) => {
+  if (!["superadmin", "admin"].includes(req.lifecycleActor.role)) {
+    return res.status(403).json({ success: false, message: "You do not have permission to create employee accounts." });
+  }
+  const client = await db.rawPool.connect();
+  try {
+    const personalEmail = normalizeOptionalEmail(req.body.personal_email);
+    const companyEmail = normalizeOptionalEmail(req.body.company_email);
+    await client.query("BEGIN");
+    if (!(await assertScopedCase(req, client, req.params.id, true))) {
+      throw Object.assign(new Error("Lifecycle case not found."), { status: 404 });
+    }
+    const caseResult = await client.query(
+      `SELECT * FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1 FOR UPDATE`,
+      [req.params.id]
+    );
+    const lifecycleCase = caseResult.rows[0];
+    if (lifecycleCase.lifecycle_type !== "Onboarding") {
+      throw Object.assign(new Error("Account invitations can only be created from onboarding cases."), { status: 409 });
+    }
+    if (TERMINAL_STATUSES.has(lifecycleCase.status)) {
+      throw Object.assign(new Error("A completed or cancelled case cannot create an account."), { status: 409 });
+    }
+    if (lifecycleCase.employee_id) {
+      throw Object.assign(new Error("This onboarding case is already linked to an employee account."), { status: 409 });
+    }
+    const loginEmail = companyEmail || personalEmail || normalizeOptionalEmail(lifecycleCase.subject_contact_email);
+    if (!loginEmail) {
+      throw Object.assign(new Error("Add a personal or company email before creating the account invitation."), { status: 400 });
+    }
+    const existing = await client.query(
+      `SELECT user_id FROM users
+        WHERE LOWER(email)=LOWER($1)
+           OR ($2::text IS NOT NULL AND LOWER(personal_email)=LOWER($2))
+           OR ($3::text IS NOT NULL AND LOWER(company_email)=LOWER($3))
+        LIMIT 1`,
+      [loginEmail, personalEmail, companyEmail]
+    );
+    if (existing.rows.length) {
+      throw Object.assign(new Error("An AstreaBlue account already uses this email. Create the case using Existing employee instead."), { status: 409 });
+    }
+    const roleResult = await client.query(
+      `SELECT role_id FROM system_roles WHERE LOWER(role_name)='employee' LIMIT 1`
+    );
+    if (!roleResult.rows.length) throw new Error("Employee role is not configured.");
+    const token = crypto.randomBytes(32).toString("hex");
+    const employeeNumber = normalizeOptionalText(req.body.employee_number || lifecycleCase.subject_employee_number, 100);
+    const department = normalizeOptionalText(req.body.department || lifecycleCase.subject_department);
+    const created = await client.query(
+      `INSERT INTO users
+         (full_name,email,personal_email,company_email,password_hash,role_id,company_name,branch_id,
+          status,is_active,invite_status,invite_token,invite_expires_at,invited_by,invited_at,
+          onboarding_status,onboarding_required,employee_number,department)
+       VALUES($1,$2,$3,$4,'INVITE_PENDING',$5,'AstreaBlue',$6,
+          'Inactive',FALSE,'Pending',$7,CURRENT_TIMESTAMP + INTERVAL '48 hours',$8,CURRENT_TIMESTAMP,
+          'Invited',TRUE,$9,$10)
+       RETURNING user_id,full_name,email,personal_email,company_email,branch_id,invite_status,invite_expires_at`,
+      [lifecycleCase.subject_full_name, loginEmail, personalEmail, companyEmail,
+        roleResult.rows[0].role_id, lifecycleCase.branch_id, token, req.lifecycleActor.user_id,
+        employeeNumber, department]
+    );
+    const user = created.rows[0];
+    await client.query(
+      `UPDATE employee_lifecycle_cases
+          SET employee_id=$1,subject_contact_email=COALESCE($2,subject_contact_email),
+              subject_employee_number=COALESCE($3,subject_employee_number),
+              subject_department=COALESCE($4,subject_department),
+              account_provisioned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+        WHERE lifecycle_case_id=$5`,
+      [user.user_id, personalEmail || companyEmail, employeeNumber, department, req.params.id]
+    );
+    await client.query(
+      `UPDATE employee_lifecycle_tasks
+          SET status='Completed',completed_by=$1,completed_at=CURRENT_TIMESTAMP,
+              completion_notes='AstreaBlue account invitation created and linked.',
+              automation_result=$2::jsonb,automation_completed_at=CURRENT_TIMESTAMP,
+              updated_at=CURRENT_TIMESTAMP
+        WHERE lifecycle_case_id=$3 AND task_key='create_account'`,
+      [req.lifecycleActor.user_id, JSON.stringify({ action: "account_invitation_created", userId: user.user_id }), req.params.id]
+    );
+    await addHistory(client, req.params.id, req.lifecycleActor.user_id, "account_invitation_created",
+      `AstreaBlue account invitation created and linked to ${lifecycleCase.case_number}.`, null, null,
+      { userId: user.user_id, inviteStatus: user.invite_status });
+    await client.query("COMMIT");
+    return res.status(201).json({
+      success: true,
+      data: {
+        case: await loadCase(db, req.params.id),
+        invitation: user,
+        invite_link: buildInviteLink(req, token),
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[employee-lifecycle:account-invitation]", error.message);
+    if (error.code === "23505") {
+      return res.status(409).json({ success: false, message: "An account already uses the supplied email or employee number." });
+    }
+    return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : "Failed to create the account invitation." });
   } finally {
     client.release();
   }
@@ -299,11 +485,12 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
     const taskResult = await client.query(
       `SELECT lt.*,lc.status case_status,lc.lifecycle_type,lc.case_number,lc.employee_id,
               lc.branch_id,lc.related_ticket_id,lc.created_by,
-              employee.full_name employee_name,employee.email employee_email,
-              employee.employee_number
+              COALESCE(employee.full_name,lc.subject_full_name) employee_name,
+              COALESCE(employee.personal_email,employee.email,lc.subject_contact_email) employee_email,
+              employee.employee_number,employee.is_active employee_is_active
        FROM employee_lifecycle_tasks lt
        JOIN employee_lifecycle_cases lc ON lc.lifecycle_case_id=lt.lifecycle_case_id
-       JOIN users employee ON employee.user_id=lc.employee_id
+       LEFT JOIN users employee ON employee.user_id=lc.employee_id
        WHERE lt.lifecycle_case_id=$1 AND lt.lifecycle_task_id=$2 FOR UPDATE OF lt`,
       [req.params.id, req.params.taskId]
     );
@@ -312,6 +499,18 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
     if (TERMINAL_STATUSES.has(task.case_status)) throw Object.assign(new Error("A completed or cancelled case cannot be edited."), { status: 409 });
     if (!canUpdateLifecycleTask(req.lifecycleActor.role, task.assigned_role)) {
       throw Object.assign(new Error("You do not have permission to complete this checklist item."), { status: 403 });
+    }
+    if (nextStatus === "Completed" && task.lifecycle_type === "Onboarding" && !task.employee_id) {
+      if (task.task_key === "create_account") {
+        throw Object.assign(new Error("Use Create account invitation to complete this checklist item."), { status: 409 });
+      }
+      if (task.task_key !== "confirm_employment") {
+        throw Object.assign(new Error("Create and link the employee account before completing this checklist item."), { status: 409 });
+      }
+    }
+    if (nextStatus === "Completed" && task.lifecycle_type === "Onboarding" && task.employee_id
+        && task.employee_is_active === false && !["confirm_employment", "create_account"].includes(task.task_key)) {
+      throw Object.assign(new Error("The employee must activate the AstreaBlue account before this checklist item can be completed."), { status: 409 });
     }
     if (nextStatus === "Not Applicable" && task.is_required) {
       throw Object.assign(new Error("Required checklist tasks cannot be marked Not Applicable."), { status: 400 });

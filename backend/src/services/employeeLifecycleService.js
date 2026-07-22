@@ -22,7 +22,7 @@ const VALID_TRANSITIONS = Object.freeze({
 
 const ONBOARDING_TASKS = Object.freeze([
   ["confirm_employment", "Confirm employment details", "Verify employee identity, role, branch, department, and start date.", "HR"],
-  ["create_account", "Create or activate ITSM account", "Issue the employee invitation and confirm account activation.", "IT"],
+  ["create_account", "Create AstreaBlue account invitation", "Create and link the employee account invitation before asset assignment or consent.", "IT"],
   ["complete_profile", "Complete employee profile", "Employee reviews their branch, role, and profile details.", "Employee"],
   ["privacy_notice", "Review privacy notice", "Employee acknowledges the RA 10173 privacy notice.", "Employee"],
   ["general_consent", "Sign general monitoring consent", "Obtain one employee consent record used for assigned managed devices.", "Employee"],
