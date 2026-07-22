@@ -10,6 +10,7 @@ import {
   priorityOptions,
 } from "../utils/ticketVisuals";
 import PageHero from "../components/layout/PageHero";
+import { authHeaders } from "../services/authHeaders";
 
 const API_BASE = `${API_URL}/api/v1`;
 const priorityDotStyle = {
@@ -55,7 +56,10 @@ export default function CreateTicket() {
   useEffect(() => {
     if (!isHr) return;
     let active = true;
-    fetch(`${API_BASE}/employee-lifecycle/employees`)
+    fetch(`${API_BASE}/employee-lifecycle/employees`, {
+      headers: authHeaders(),
+      cache: "no-store",
+    })
       .then(async (res) => {
         const body = await res.json();
         if (!res.ok || body.success === false) throw new Error(body.message || "Failed to load employees.");
@@ -108,7 +112,7 @@ export default function CreateTicket() {
       if (isOtherCategory) {
         const categoryResponse = await fetch(`${API_BASE}/ticket-categories`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ category_name: customCategory.trim() }),
         });
         const categoryBody = await categoryResponse.json();
@@ -119,7 +123,7 @@ export default function CreateTicket() {
       }
       const res = await fetch(`${API_BASE}/tickets`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(buildTicketPayload(user, {
           ...form,
           impact: "Medium",
@@ -283,6 +287,7 @@ async function uploadTicketAttachments(ticketId, files, uploadedBy) {
 
   const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
     method: "POST",
+    headers: authHeaders(),
     body: formData,
   });
 
