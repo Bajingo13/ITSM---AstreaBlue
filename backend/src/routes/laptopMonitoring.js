@@ -1741,7 +1741,17 @@ router.put("/devices/:id/assign", requireAdmin, async (req, res) => {
     if (targetAssetId) {
       await db.query(
         `UPDATE hardware_assets
-         SET employee_id=$1, assigned_name=$2, department=$3, branch_id=$4, assigned_date=CURRENT_DATE, updated_at=CURRENT_TIMESTAMP
+         SET employee_id=$1,
+             assigned_name=$2,
+             department=$3,
+             branch_id=$4,
+             assigned_date=CASE WHEN $1::integer IS NOT NULL THEN CURRENT_DATE ELSE assigned_date END,
+             status=CASE
+               WHEN $1::integer IS NOT NULL AND status IN ('Active', 'Available', 'In Stock') THEN 'In Use'
+               WHEN $1::integer IS NULL AND status='In Use' THEN 'Available'
+               ELSE status
+             END,
+             updated_at=CURRENT_TIMESTAMP
          WHERE asset_id=$5`,
         [assigned_user_id || null, assignedName, finalDepartment, branch_id || null, targetAssetId]
       );

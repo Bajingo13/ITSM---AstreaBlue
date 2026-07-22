@@ -39,6 +39,7 @@ const migrationFiles = [
   "2026-07-21-ticket-rbac-hardening.sql",
   "2026-07-22-prehire-onboarding.sql",
   "2026-07-22-employee-lifecycle-soft-delete.sql",
+  "2026-07-22-assigned-asset-status.sql",
 ];
 
 const defaultTicketCategories = [
