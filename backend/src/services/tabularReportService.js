@@ -8,6 +8,7 @@ const COLORS = { navy: "123A6D", blue: "2563EB", line: "CBD5E1", ink: "172033", 
 
 function logoPath() {
   return [
+    path.resolve(__dirname, "../assets/astrea-blue-logo.png"),
     path.resolve(__dirname, "../../../frontend/public/astrea-blue-logo.png"),
     path.resolve(process.cwd(), "../frontend/public/astrea-blue-logo.png"),
     path.resolve(process.cwd(), "frontend/public/astrea-blue-logo.png"),

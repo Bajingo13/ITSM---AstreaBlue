@@ -15,6 +15,7 @@ const BRAND = {
 };
 
 const LOGO_CANDIDATES = [
+  path.resolve(__dirname, "../assets/astrea-blue-logo.png"),
   path.resolve(__dirname, "../../../frontend/public/astrea-blue-logo.png"),
   path.resolve(process.cwd(), "../frontend/public/astrea-blue-logo.png"),
   path.resolve(process.cwd(), "frontend/public/astrea-blue-logo.png"),

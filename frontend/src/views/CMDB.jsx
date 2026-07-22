@@ -471,6 +471,7 @@ function AddCIForm({ onClose, onSubmit, user, branches, ciCategories, editingCi 
                   placeholder="Select CI type"
                   required
                 />
+                <p className="mt-1.5 text-xs font-medium text-slate-500">Technical class, such as Application, Database, Server, or Network Device.</p>
               </CiField>
 
               <CiField label="Category" error={fieldErrors.category}>
@@ -480,6 +481,7 @@ function AddCIForm({ onClose, onSubmit, user, branches, ciCategories, editingCi 
                   options={categoryOptions}
                   placeholder="Select category"
                 />
+                <p className="mt-1.5 text-xs font-medium text-slate-500">Optional business grouping used for ownership and reporting; it does not replace CI Type.</p>
               </CiField>
 
               <CiField label="Status" required error={fieldErrors.status}>
@@ -1311,6 +1313,7 @@ function ChangeImpactPanel({ user, role, branches }) {
   const [impactData, setImpactData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [impactLoading, setImpactLoading] = useState(false);
+  const analysisSelectorRef = useRef(null);
 
   const fetchCiList = useCallback(async () => {
     try {
@@ -1344,7 +1347,7 @@ function ChangeImpactPanel({ user, role, branches }) {
       });
       const res = await fetch(`${API_BASE}/cmdb/change-impact/${ciId}?${params.toString()}`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Unable to fetch impact data");
+      if (!res.ok) throw new Error(data.message || data.error || "Unable to fetch impact data");
       setImpactData(data);
     } catch (err) {
       console.error("Fetch impact data failed:", err);
@@ -1362,6 +1365,14 @@ function ChangeImpactPanel({ user, role, branches }) {
     setSelectedCI(ciId);
     if (ciId) fetchImpactData(ciId);
     else setImpactData(null);
+  };
+
+  const startNewAnalysis = () => {
+    handleSelectCI("");
+    window.requestAnimationFrame(() => {
+      analysisSelectorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      analysisSelectorRef.current?.focus();
+    });
   };
 
   const selectedCiInfo = useMemo(() => {
@@ -1386,7 +1397,8 @@ function ChangeImpactPanel({ user, role, branches }) {
             </p>
           </div>
           <button
-            onClick={() => handleSelectCI("")}
+            type="button"
+            onClick={startNewAnalysis}
             className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900 shadow-lg shadow-slate-900/10 transition hover:bg-slate-100"
           >
             <Plus size={18} />
@@ -1408,6 +1420,7 @@ function ChangeImpactPanel({ user, role, branches }) {
               </div>
             ) : (
               <select
+                ref={analysisSelectorRef}
                 value={selectedCI}
                 onChange={(e) => handleSelectCI(e.target.value)}
                 className="w-full max-w-lg rounded-2xl border border-[#D8E5F6] bg-white px-4 py-3 text-slate-900 outline-none transition hover:border-blue-300 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-600/15"
@@ -1492,7 +1505,7 @@ function ChangeImpactPanel({ user, role, branches }) {
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                   <div className="mb-4 flex items-center gap-2">
                     <AlertTriangle size={18} className="text-rose-600" />
-                    <h3 className="text-base font-black text-slate-900">Affected CIs (Downstream)</h3>
+                    <h3 className="text-base font-black text-slate-900">Affected CIs (Dependents)</h3>
                   </div>
                   {impactData.affected_cis && impactData.affected_cis.length > 0 ? (
                     <div className="space-y-2">
@@ -1501,13 +1514,14 @@ function ChangeImpactPanel({ user, role, branches }) {
                           <Box size={16} className="shrink-0 text-rose-600" />
                           <div>
                             <p className="text-sm font-bold text-slate-900">{ci.ci_name || ci.name || ci}</p>
-                            {ci.ci_type && <p className="text-xs text-slate-500">{ci.ci_type}</p>}
+                            {ci.ci_type && <p className="text-xs text-slate-500">{ci.ci_type} · {Number(ci.depth) === 1 ? "Directly affected" : `Indirectly affected (level ${ci.depth})`}</p>}
+                            {ci.relationship_type && <p className="mt-1 text-xs font-semibold text-rose-700">Impact path: {ci.relationship_type}</p>}
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-slate-400">No downstream CIs affected.</p>
+                    <p className="text-sm text-slate-400">No CI currently depends on this item.</p>
                   )}
                 </div>
 
@@ -1524,7 +1538,8 @@ function ChangeImpactPanel({ user, role, branches }) {
                           <Link size={16} className="shrink-0 text-blue-600" />
                           <div>
                             <p className="text-sm font-bold text-slate-900">{dep.ci_name || dep.name || dep}</p>
-                            {dep.ci_type && <p className="text-xs text-slate-500">{dep.ci_type}</p>}
+                            {dep.ci_type && <p className="text-xs text-slate-500">{dep.ci_type} · {Number(dep.depth) === 1 ? "Direct dependency" : `Indirect dependency (level ${dep.depth})`}</p>}
+                            {dep.relationship_type && <p className="mt-1 text-xs font-semibold text-blue-700">Relationship: {dep.relationship_type}</p>}
                           </div>
                         </div>
                       ))}
@@ -1543,10 +1558,15 @@ function ChangeImpactPanel({ user, role, branches }) {
                     <LayoutDashboard size={18} className="text-violet-600" />
                     <h3 className="text-sm font-black text-slate-900">Dependent Applications</h3>
                   </div>
-                  <p className="text-3xl font-black text-slate-900">
-                    {impactData.dependent_applications?.length ?? 0}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">applications</p>
+                  {impactData.dependent_applications?.length ? (
+                    <div className="space-y-2">
+                      {impactData.dependent_applications.map((application) => (
+                        <div key={application.ci_id} className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-sm font-bold text-violet-800">
+                          {application.ci_name}
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-sm text-slate-400">No dependent applications.</p>}
                 </div>
 
                 {/* Related Branches */}
@@ -1578,6 +1598,26 @@ function ChangeImpactPanel({ user, role, branches }) {
                     {impactData.recommended_action || impactData.recommendation || "No specific recommendation available."}
                   </p>
                 </div>
+              </div>
+
+              <div className="rounded-3xl border border-blue-200 bg-blue-50/70 p-6 shadow-sm">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <BarChart3 size={18} className="text-blue-700" />
+                      <h3 className="text-base font-black text-slate-900">How this impact was calculated</h3>
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-slate-600">{impactData.impact_source || "Live CMDB relationship data"}</p>
+                  </div>
+                  <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-3 lg:max-w-2xl">
+                    <div className="rounded-2xl border border-blue-100 bg-white p-4"><p className="text-2xl font-black text-slate-900">{impactData.impact_basis?.affected_ci_count ?? 0}</p><p className="text-xs font-bold text-slate-500">Affected CIs</p></div>
+                    <div className="rounded-2xl border border-blue-100 bg-white p-4"><p className="text-2xl font-black text-slate-900">{impactData.impact_basis?.production_ci_count ?? 0}</p><p className="text-xs font-bold text-slate-500">Production CIs</p></div>
+                    <div className="rounded-2xl border border-blue-100 bg-white p-4"><p className="text-2xl font-black text-slate-900">{impactData.impact_basis?.dependent_application_count ?? 0}</p><p className="text-xs font-bold text-slate-500">Applications</p></div>
+                  </div>
+                </div>
+                <p className="mt-4 text-xs font-semibold leading-5 text-slate-600">
+                  Low: below 2 affected and no production CI · Medium: 2+ affected or 1+ production · High: 5+ affected or 2+ production · Critical: 10+ affected or 5+ production.
+                </p>
               </div>
             </div>
           ) : null}

@@ -501,7 +501,7 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
                 type="button"
                 onClick={downloadPdf}
                 disabled={Boolean(documentAction)}
-                className="flex items-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800"
+                className="flex items-center gap-2 rounded-xl border border-blue-800 bg-blue-700 px-5 py-2.5 text-sm font-bold !text-white shadow-sm hover:bg-blue-800 disabled:cursor-wait disabled:opacity-70"
               >
                 <Download size={16} /> {documentAction === "download" ? "Downloading…" : "Download PDF"}
               </button>
@@ -521,7 +521,7 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
                 <button
                   type="button"
                   onClick={openAdminAction}
-                  className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-5 py-2.5 text-sm font-bold text-amber-800 hover:bg-amber-100"
+                  className="flex items-center gap-2 rounded-xl border border-amber-400 bg-amber-50 px-5 py-2.5 text-sm font-bold text-amber-900 shadow-sm hover:bg-amber-100"
                 >
                   <PenLine size={16} /> Admin Action
                 </button>

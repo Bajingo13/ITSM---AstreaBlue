@@ -442,32 +442,47 @@ const SVGGraph = forwardRef(function SVGGraph({
   const [nodePositions, setNodePositions] = useState({});
   const [draggingNode, setDraggingNode] = useState(null);
 
+  const fitPositionsToViewport = useCallback((positions) => {
+    const vals = Object.values(positions || {});
+    if (vals.length === 0) return;
+    const rect = svgRef.current?.getBoundingClientRect();
+    const viewportWidth = Math.max(320, rect?.width || 900);
+    const viewportHeight = Math.max(420, rect?.height || 500);
+    const nodePaddingX = 135;
+    const nodePaddingY = 95;
+    const minX = Math.min(...vals.map((value) => value.x)) - nodePaddingX;
+    const maxX = Math.max(...vals.map((value) => value.x)) + nodePaddingX;
+    const minY = Math.min(...vals.map((value) => value.y)) - nodePaddingY;
+    const maxY = Math.max(...vals.map((value) => value.y)) + nodePaddingY;
+    const boundsWidth = Math.max(1, maxX - minX);
+    const boundsHeight = Math.max(1, maxY - minY);
+    const scale = Math.min(
+      (viewportWidth - 48) / boundsWidth,
+      (viewportHeight - 48) / boundsHeight,
+      1.5,
+    );
+    setZoom(scale);
+    setPan({
+      x: (viewportWidth - boundsWidth * scale) / 2 - minX * scale,
+      y: (viewportHeight - boundsHeight * scale) / 2 - minY * scale,
+    });
+  }, []);
+
   // Expose control methods to parent
   useImperativeHandle(ref, () => ({
     zoomIn: () => setZoom((z) => Math.min(z + 0.15, 3)),
     zoomOut: () => setZoom((z) => Math.max(z - 0.15, 0.2)),
-    fitToScreen: () => {
-      const vals = Object.values(nodePositions);
-      if (vals.length === 0) return;
-      const minX = Math.min(...vals.map((v) => v.x)) - 100;
-      const maxX = Math.max(...vals.map((v) => v.x)) + 100;
-      const minY = Math.min(...vals.map((v) => v.y)) - 100;
-      const maxY = Math.max(...vals.map((v) => v.y)) + 100;
-      const bw = maxX - minX;
-      const bh = maxY - minY;
-      const scale = Math.min(900 / bw, 600 / bh, 1.5);
-      setZoom(scale);
-      setPan({ x: -minX * scale + 50, y: -minY * scale + 50 });
-    },
+    fitToScreen: () => fitPositionsToViewport(nodePositions),
     resetView: () => { setZoom(1); setPan({ x: 0, y: 0 }); },
-  }), [nodePositions]);
+  }), [fitPositionsToViewport, nodePositions]);
 
   // Initialize positions from layout
   useEffect(() => {
     const pos = {};
     graphNodes.forEach((n) => { pos[n.id] = { x: n.x || 0, y: n.y || 0 }; });
     setNodePositions(pos);
-  }, [graphNodes]);
+    window.requestAnimationFrame(() => fitPositionsToViewport(pos));
+  }, [fitPositionsToViewport, graphNodes]);
 
   // Pan handlers
   const handleMouseDown = useCallback((e) => {
@@ -742,6 +757,8 @@ function CreateRelationshipModal({ ciList, onClose, onSubmit, saving, error }) {
   const RELATIONSHIP_TYPES = [
     "Depends On", "Connected To", "Uses", "Hosts", "Runs On", "Contains", "Linked To"
   ];
+  const sourceName = ciList.find((ci) => String(ci.ci_id) === String(sourceId))?.ci_name;
+  const destinationName = ciList.find((ci) => String(ci.ci_id) === String(destId))?.ci_name;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -787,6 +804,13 @@ function CreateRelationshipModal({ ciList, onClose, onSubmit, saving, error }) {
               </select>
               {sourceId && destId && sourceId === destId && <p className="mt-1 text-xs font-bold text-rose-600">Source and destination cannot be the same.</p>}
             </label>
+            {sourceName && destinationName && sourceId !== destId && (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                <p className="text-[11px] font-black uppercase tracking-[0.12em] text-blue-600">Relationship statement</p>
+                <p className="mt-2 text-sm font-black text-slate-900">{sourceName} <span className="text-blue-700">{relType}</span> {destinationName}</p>
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">If the destination changes or fails, the source is treated as an affected dependent in Change Impact Analysis.</p>
+              </div>
+            )}
           </div>
           <div className="mt-7 flex justify-end gap-3 border-t border-slate-100 pt-5">
             <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 bg-white px-6 py-3 font-black text-slate-600 transition hover:bg-slate-50">Cancel</button>

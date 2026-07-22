@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Link2, Plus, Radar, Upload, X } from "lucide-react";
+import { Link2, Plus, Radar, Upload, X } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
 import { API_URL } from "../config/api";
 import { authHeaders } from "../services/authHeaders";
@@ -31,18 +31,6 @@ function parseCsv(text) {
   if (rows.length < 2) return [];
   const headers = rows.shift().map((value) => value.replace(/^\uFEFF/, "").trim());
   return rows.map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] || ""])));
-}
-
-function downloadDiscoveryTemplate() {
-  const content = "hostname,ip_address,mac_address,serial_number,asset_tag,os_name,manufacturer,device_type,status,branch_id\r\n";
-  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = "astreablue-asset-discovery-template.csv";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
 }
 
 export default function AssetDiscovery() {
@@ -118,7 +106,7 @@ export default function AssetDiscovery() {
   const importCsv = async (file) => {
     if (!file) return;
     const imported = parseCsv(await file.text());
-    if (!imported.length) return setMessage("The CSV is empty or invalid. Download the template and keep its header row.");
+    if (!imported.length) return setMessage("The CSV is empty or invalid. Include a header row followed by at least one device record.");
     const response = await fetch(`${API_BASE}/hardware-assets/discovery/import`, { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ records: imported }) });
     const body = await response.json();
     setMessage(body.message || body.error);
@@ -129,7 +117,6 @@ export default function AssetDiscovery() {
     <PageHero eyebrow="Asset Discovery" title="Asset Discovery & Inventory" subtitle="Register observed devices, reconcile them with managed hardware, and prepare agent-based network discovery." actions={<>
       <button onClick={scan} className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 font-black text-blue-700"><Radar size={17}/> Scan Network</button>
       <button onClick={() => setShowManual(true)} className="inline-flex items-center gap-2 rounded-xl bg-cyan-100 px-4 py-3 font-black text-blue-900"><Plus size={17}/> Manual Registration</button>
-      <button type="button" onClick={downloadDiscoveryTemplate} className="inline-flex items-center gap-2 rounded-xl border border-white/40 bg-white/10 px-4 py-3 font-black text-white hover:bg-white/20"><Download size={17}/> CSV Template</button>
       <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/40 bg-white/10 px-4 py-3 font-black text-white hover:bg-white/20"><Upload size={17}/> Import CSV<input type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => { importCsv(event.target.files?.[0]); event.target.value = ""; }}/></label>
     </>} />
     {message && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 font-semibold text-blue-800">{message}</div>}

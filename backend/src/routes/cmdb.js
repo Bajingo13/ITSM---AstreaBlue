@@ -441,28 +441,72 @@ router.get("/change-impact/:id", async (req, res) => {
 
     const ci = ciResult.rows[0];
 
-    // Find all downstream dependencies (CIs that depend on this one)
+    // A relationship is stored as a readable statement:
+    //   source CI --relationship--> target CI
+    // Example: Employee Portal --Uses--> Payroll API.
+    // When the target changes, the source is affected. Walk the graph in
+    // reverse to find every directly and indirectly affected CI.
     const downstreamResult = await db.query(`
-      SELECT
-        tgt.ci_id, tgt.ci_name, tgt.ci_type, tgt.environment, tgt.status,
-        b.branch_name, d.relationship_type, d.description
-      FROM ci_dependencies d
-      JOIN config_items tgt ON d.target_ci_id = tgt.ci_id
-      LEFT JOIN branches b ON tgt.branch_id = b.branch_id
-      WHERE d.source_ci_id = $1
-      ORDER BY tgt.ci_name
+      WITH RECURSIVE affected AS (
+        SELECT
+          src.ci_id, src.ci_name, src.ci_type, src.environment, src.status,
+          src.branch_id, d.relationship_type, d.description,
+          1 AS depth, ARRAY[$1::int, src.ci_id] AS path
+        FROM ci_dependencies d
+        JOIN config_items src ON d.source_ci_id = src.ci_id
+        WHERE d.target_ci_id = $1
+
+        UNION ALL
+
+        SELECT
+          src.ci_id, src.ci_name, src.ci_type, src.environment, src.status,
+          src.branch_id, d.relationship_type, d.description,
+          affected.depth + 1, affected.path || src.ci_id
+        FROM affected
+        JOIN ci_dependencies d ON d.target_ci_id = affected.ci_id
+        JOIN config_items src ON d.source_ci_id = src.ci_id
+        WHERE NOT src.ci_id = ANY(affected.path)
+      )
+      SELECT DISTINCT ON (affected.ci_id)
+        affected.ci_id, affected.ci_name, affected.ci_type,
+        affected.environment, affected.status, b.branch_name,
+        affected.relationship_type, affected.description, affected.depth
+      FROM affected
+      LEFT JOIN branches b ON affected.branch_id = b.branch_id
+      ORDER BY affected.ci_id, affected.depth
     `, [ciId]);
 
-    // Find all upstream dependencies (CIs this one depends on)
+    // Follow the statement forward to find the services/infrastructure the
+    // selected CI relies on (its direct and indirect prerequisites).
     const upstreamResult = await db.query(`
-      SELECT
-        src.ci_id, src.ci_name, src.ci_type, src.environment, src.status,
-        b.branch_name, d.relationship_type, d.description
-      FROM ci_dependencies d
-      JOIN config_items src ON d.source_ci_id = src.ci_id
-      LEFT JOIN branches b ON src.branch_id = b.branch_id
-      WHERE d.target_ci_id = $1
-      ORDER BY src.ci_name
+      WITH RECURSIVE prerequisites AS (
+        SELECT
+          tgt.ci_id, tgt.ci_name, tgt.ci_type, tgt.environment, tgt.status,
+          tgt.branch_id, d.relationship_type, d.description,
+          1 AS depth, ARRAY[$1::int, tgt.ci_id] AS path
+        FROM ci_dependencies d
+        JOIN config_items tgt ON d.target_ci_id = tgt.ci_id
+        WHERE d.source_ci_id = $1
+
+        UNION ALL
+
+        SELECT
+          tgt.ci_id, tgt.ci_name, tgt.ci_type, tgt.environment, tgt.status,
+          tgt.branch_id, d.relationship_type, d.description,
+          prerequisites.depth + 1, prerequisites.path || tgt.ci_id
+        FROM prerequisites
+        JOIN ci_dependencies d ON d.source_ci_id = prerequisites.ci_id
+        JOIN config_items tgt ON d.target_ci_id = tgt.ci_id
+        WHERE NOT tgt.ci_id = ANY(prerequisites.path)
+      )
+      SELECT DISTINCT ON (prerequisites.ci_id)
+        prerequisites.ci_id, prerequisites.ci_name, prerequisites.ci_type,
+        prerequisites.environment, prerequisites.status, b.branch_name,
+        prerequisites.relationship_type, prerequisites.description,
+        prerequisites.depth
+      FROM prerequisites
+      LEFT JOIN branches b ON prerequisites.branch_id = b.branch_id
+      ORDER BY prerequisites.ci_id, prerequisites.depth
     `, [ciId]);
 
     // Calculate risk level and impact score
@@ -478,10 +522,10 @@ router.get("/change-impact/:id", async (req, res) => {
       impactScore = 90 + Math.min(affectedCis.length, 10);
     } else if (affectedCis.length >= 5 || productionAffected.length >= 2) {
       riskLevel = "High";
-      impactScore = 60 + affectedCis.length * 5;
+      impactScore = Math.min(89, 60 + affectedCis.length * 5);
     } else if (affectedCis.length >= 2 || productionAffected.length >= 1) {
       riskLevel = "Medium";
-      impactScore = 25 + affectedCis.length * 10;
+      impactScore = Math.min(59, 25 + affectedCis.length * 10);
     } else {
       impactScore = affectedCis.length > 0 ? 10 : 0;
     }
@@ -520,6 +564,18 @@ router.get("/change-impact/:id", async (req, res) => {
       dependent_applications: dependentApps,
       related_branches: [...relatedBranchSet],
       recommended_action: recommendedAction,
+      impact_source: "Live CMDB dependency relationships and CI environment data",
+      impact_basis: {
+        affected_ci_count: affectedCis.length,
+        production_ci_count: productionAffected.length,
+        dependent_application_count: dependentApps.length,
+        thresholds: {
+          critical: "10+ affected CIs or 5+ production CIs",
+          high: "5+ affected CIs or 2+ production CIs",
+          medium: "2+ affected CIs or 1+ production CI",
+          low: "Below the medium threshold",
+        },
+      },
     });
   } catch (err) {
     console.error("GET /change-impact/:id error:", err.message);
