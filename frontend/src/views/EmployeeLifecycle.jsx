@@ -132,7 +132,20 @@ export default function EmployeeLifecycle() {
     setError("");
     if (!preserveInvitation) setInvitation(null);
     try {
-      setDetails(await lifecycleRequest(`/cases/${id}`));
+      const caseDetails = await lifecycleRequest(`/cases/${id}`);
+      setDetails(caseDetails);
+      setCases((current) => current.map((item) => (
+        Number(item.lifecycle_case_id) === Number(caseDetails.lifecycle_case_id)
+          ? {
+              ...item,
+              status: caseDetails.status,
+              task_count: caseDetails.task_count,
+              completed_task_count: caseDetails.completed_task_count,
+              required_pending_count: caseDetails.required_pending_count,
+              updated_at: caseDetails.updated_at,
+            }
+          : item
+      )));
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -183,7 +196,8 @@ export default function EmployeeLifecycle() {
       setNotice(result.email_sent
         ? `Account invitation emailed to ${result.email_recipients.join(", ")}.`
         : "Account invitation created, but email delivery was unsuccessful. Use the activation link below or correct SMTP and resend it.");
-      await Promise.all([openCase(details.lifecycle_case_id, true), loadWorkspace()]);
+      await openCase(details.lifecycle_case_id, true);
+      await loadWorkspace();
       return result;
     } catch (requestError) {
       setError(requestError.message);
@@ -203,7 +217,8 @@ export default function EmployeeLifecycle() {
       setNotice(result.email_sent
         ? `Account invitation emailed to ${result.email_recipients.join(", ")}.`
         : "A fresh activation link was created, but email delivery failed. Use the link below or correct SMTP and try again.");
-      await Promise.all([openCase(details.lifecycle_case_id, true), loadWorkspace()]);
+      await openCase(details.lifecycle_case_id, true);
+      await loadWorkspace();
     } catch (requestError) {
       setError(requestError.message);
       setBusy(false);
@@ -218,7 +233,8 @@ export default function EmployeeLifecycle() {
         method: "PATCH",
         body: JSON.stringify({ status, notes }),
       });
-      await Promise.all([openCase(details.lifecycle_case_id), loadWorkspace()]);
+      await openCase(details.lifecycle_case_id);
+      await loadWorkspace();
     } catch (requestError) {
       setError(requestError.message);
       setBusy(false);
@@ -234,7 +250,8 @@ export default function EmployeeLifecycle() {
         body: JSON.stringify({ status }),
       });
       setNotice(`Case status updated to ${status}.`);
-      await Promise.all([openCase(details.lifecycle_case_id), loadWorkspace()]);
+      await openCase(details.lifecycle_case_id);
+      await loadWorkspace();
     } catch (requestError) {
       setError(requestError.message);
       setBusy(false);
