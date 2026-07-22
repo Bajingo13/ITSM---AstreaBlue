@@ -14,6 +14,10 @@ const {
 const { executeInternalOffboardingTask } = require("../services/internalOffboardingService");
 const { createServiceDeskTicket } = require("../services/serviceDeskTicketService");
 const { emitTicketChanged } = require("../services/socketService");
+const {
+  getMissingSmtpConfig,
+  sendInvitationEmail,
+} = require("../services/emailService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -37,8 +41,51 @@ function normalizeOptionalEmail(value) {
 }
 
 function buildInviteLink(req, token) {
-  const origin = process.env.FRONTEND_URL || req.get("origin") || "http://localhost:5173";
-  return `${String(origin).replace(/\/$/, "")}/invite/${token}`;
+  const configuredOrigin = String(process.env.FRONTEND_URL || req.get("origin") || "http://localhost:5173").trim();
+  const origin = /^https?:\/\//i.test(configuredOrigin)
+    ? configuredOrigin
+    : `${/^(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configuredOrigin) ? "http" : "https"}://${configuredOrigin}`;
+  return `${origin.replace(/\/$/, "")}/invite/${token}`;
+}
+
+async function deliverLifecycleInvitation({ recipients, fullName, branchName, inviteLink }) {
+  const uniqueRecipients = [...new Set(recipients.filter(Boolean).map((value) => String(value).trim().toLowerCase()))];
+  if (process.env.NODE_ENV === "test") {
+    return {
+      email_sent: false,
+      email_recipients: [],
+      email_warning: "Invitation email delivery is disabled during automated tests.",
+    };
+  }
+  const missingConfig = getMissingSmtpConfig();
+  if (missingConfig.length) {
+    return {
+      email_sent: false,
+      email_recipients: [],
+      email_warning: `Invitation created, but email was not sent. Missing SMTP configuration: ${missingConfig.join(", ")}.`,
+    };
+  }
+
+  const attempts = await Promise.all(uniqueRecipients.map(async (to) => ({
+    to,
+    result: await sendInvitationEmail({
+      to,
+      fullName,
+      roleName: "Employee",
+      branchName,
+      inviteLink,
+      expiresInHours: 48,
+    }),
+  })));
+  const delivered = attempts.filter(({ result }) => result?.success).map(({ to }) => to);
+  const failed = attempts.filter(({ result }) => !result?.success);
+  return {
+    email_sent: delivered.length > 0,
+    email_recipients: delivered,
+    email_warning: failed.length
+      ? `Email delivery failed for: ${failed.map(({ to }) => to).join(", ")}. ${failed[0].result?.error || "Check the SMTP configuration."}`
+      : null,
+  };
 }
 
 async function requireLifecycleAccess(req, res, next) {
@@ -472,12 +519,24 @@ router.post("/cases/:id/account-invitation", async (req, res) => {
       `AstreaBlue account invitation created and linked to ${lifecycleCase.case_number}.`, null, null,
       { userId: user.user_id, inviteStatus: user.invite_status });
     await client.query("COMMIT");
+    const inviteLink = buildInviteLink(req, token);
+    const caseData = await loadCase(db, req.params.id);
+    const personalRecipient = personalEmail || normalizeOptionalEmail(lifecycleCase.subject_contact_email);
+    const delivery = await deliverLifecycleInvitation({
+      // The company-controlled mailbox is the primary address. The employee's
+      // personal address receives the same single-use link as a backup.
+      recipients: [companyEmail, personalRecipient],
+      fullName: lifecycleCase.subject_full_name,
+      branchName: caseData?.branch_name,
+      inviteLink,
+    });
     return res.status(201).json({
       success: true,
       data: {
-        case: await loadCase(db, req.params.id),
+        case: caseData,
         invitation: user,
-        invite_link: buildInviteLink(req, token),
+        invite_link: inviteLink,
+        ...delivery,
       },
     });
   } catch (error) {
@@ -487,6 +546,83 @@ router.post("/cases/:id/account-invitation", async (req, res) => {
       return res.status(409).json({ success: false, message: "An account already uses the supplied email or employee number." });
     }
     return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : "Failed to create the account invitation." });
+  } finally {
+    client.release();
+  }
+});
+
+router.post("/cases/:id/account-invitation/resend", async (req, res) => {
+  if (!["superadmin", "admin"].includes(req.lifecycleActor.role)) {
+    return res.status(403).json({ success: false, message: "You do not have permission to resend employee invitations." });
+  }
+  const client = await db.rawPool.connect();
+  try {
+    await client.query("BEGIN");
+    if (!(await assertScopedCase(req, client, req.params.id, true))) {
+      throw Object.assign(new Error("Lifecycle case not found."), { status: 404 });
+    }
+    const result = await client.query(
+      `SELECT lc.lifecycle_case_id,lc.case_number,lc.lifecycle_type,lc.status,lc.subject_full_name,
+              u.user_id,u.full_name,u.email,u.personal_email,u.company_email,u.invite_status,u.is_active,
+              b.branch_name
+         FROM employee_lifecycle_cases lc
+         JOIN users u ON u.user_id=lc.employee_id
+         JOIN branches b ON b.branch_id=lc.branch_id
+        WHERE lc.lifecycle_case_id=$1
+        FOR UPDATE OF lc,u`,
+      [req.params.id]
+    );
+    const record = result.rows[0];
+    if (!record || record.lifecycle_type !== "Onboarding") {
+      throw Object.assign(new Error("An onboarding invitation was not found."), { status: 404 });
+    }
+    if (TERMINAL_STATUSES.has(record.status)) {
+      throw Object.assign(new Error("A completed or cancelled onboarding case cannot resend an invitation."), { status: 409 });
+    }
+    if (record.is_active || String(record.invite_status).toLowerCase() === "accepted") {
+      throw Object.assign(new Error("The employee account is already active."), { status: 409 });
+    }
+    if (String(record.invite_status).toLowerCase() === "revoked") {
+      throw Object.assign(new Error("This invitation was revoked. Reactivate it from User & Role Management first."), { status: 409 });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const updated = await client.query(
+      `UPDATE users
+          SET invite_status='Pending',invite_token=$1,
+              invite_expires_at=CURRENT_TIMESTAMP + INTERVAL '48 hours',invite_used_at=NULL
+        WHERE user_id=$2
+        RETURNING user_id,full_name,email,personal_email,company_email,branch_id,invite_status,invite_expires_at`,
+      [token, record.user_id]
+    );
+    await addHistory(client, req.params.id, req.lifecycleActor.user_id, "account_invitation_resent",
+      `AstreaBlue account invitation regenerated for ${record.case_number}.`, null, null,
+      { userId: record.user_id, inviteStatus: "Pending" });
+    await client.query("COMMIT");
+
+    const inviteLink = buildInviteLink(req, token);
+    const delivery = await deliverLifecycleInvitation({
+      recipients: [record.company_email, record.personal_email, record.email],
+      fullName: record.full_name || record.subject_full_name,
+      branchName: record.branch_name,
+      inviteLink,
+    });
+    return res.status(200).json({
+      success: true,
+      data: {
+        case: await loadCase(db, req.params.id),
+        invitation: updated.rows[0],
+        invite_link: inviteLink,
+        ...delivery,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[employee-lifecycle:account-invitation-resend]", error.message);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : "Failed to resend the account invitation.",
+    });
   } finally {
     client.release();
   }

@@ -131,7 +131,6 @@ export default function EmployeeLifecycle() {
     setError("");
     if (!preserveInvitation) setInvitation(null);
     try {
-      await loadWorkspace(); // Reload latest version
       setDetails(await lifecycleRequest(`/cases/${id}`));
     } catch (requestError) {
       setError(requestError.message);
@@ -180,13 +179,33 @@ export default function EmployeeLifecycle() {
         body: JSON.stringify(values),
       });
       setInvitation(result);
-      setNotice("AstreaBlue account invitation created and linked to the onboarding case.");
+      setNotice(result.email_sent
+        ? `Account invitation emailed to ${result.email_recipients.join(", ")}.`
+        : "Account invitation created, but email delivery was unsuccessful. Use the activation link below or correct SMTP and resend it.");
       await Promise.all([openCase(details.lifecycle_case_id, true), loadWorkspace()]);
       return result;
     } catch (requestError) {
       setError(requestError.message);
       setBusy(false);
       return null;
+    }
+  }
+
+  async function resendAccountInvitation() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await lifecycleRequest(`/cases/${details.lifecycle_case_id}/account-invitation/resend`, {
+        method: "POST",
+      });
+      setInvitation(result);
+      setNotice(result.email_sent
+        ? `Account invitation emailed to ${result.email_recipients.join(", ")}.`
+        : "A fresh activation link was created, but email delivery failed. Use the link below or correct SMTP and try again.");
+      await Promise.all([openCase(details.lifecycle_case_id, true), loadWorkspace()]);
+    } catch (requestError) {
+      setError(requestError.message);
+      setBusy(false);
     }
   }
 
@@ -304,7 +323,7 @@ export default function EmployeeLifecycle() {
         </form>
       </div>}
 
-      {details && <CaseDrawer key={details.lifecycle_case_id} details={details} role={normalizedRole} busy={busy} invitation={invitation} onClose={() => setDetails(null)} onTask={updateTask} onStatus={updateStatus} onProvision={createAccountInvitation}/>}
+      {details && <CaseDrawer key={details.lifecycle_case_id} details={details} role={normalizedRole} busy={busy} invitation={invitation} onClose={() => setDetails(null)} onTask={updateTask} onStatus={updateStatus} onProvision={createAccountInvitation} onResend={resendAccountInvitation}/>}
       <style>{`.field{width:100%;border:1px solid #bfdbfe;border-radius:.75rem;background:#f8fafc;padding:.75rem 1rem;font-size:.875rem;outline:none}.field:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12)}`}</style>
     </div>
   );
@@ -314,7 +333,7 @@ function Field({ label, children }) {
   return <label><span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-600">{label}</span>{children}</label>;
 }
 
-function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus, onProvision }) {
+function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus, onProvision, onResend }) {
   const [taskNotes, setTaskNotes] = useState({});
   const [accountForm, setAccountForm] = useState({
     personal_email: details.subject_contact_email || "",
@@ -341,7 +360,8 @@ function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus
             <button disabled={busy || (!accountForm.personal_email.trim() && !accountForm.company_email.trim() && !details.subject_contact_email)} className="sm:col-span-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Creating invitation…" : "Create account invitation"}</button>
           </form>}
           {!details.employee_id && role === "hr" && <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">The onboarding case is ready. An authorized administrator can create and link the account invitation.</p>}
-          {invitation?.invite_link && <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm font-black text-emerald-800">Account invitation created</p><p className="mt-1 text-xs text-emerald-700">Copy this one-time activation link and provide it securely to the employee. It expires in 48 hours.</p><div className="mt-3 flex gap-2"><input readOnly value={invitation.invite_link} className="min-w-0 flex-1 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs"/><button type="button" onClick={() => navigator.clipboard?.writeText(invitation.invite_link)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-black text-emerald-800"><Copy size={14}/> Copy</button></div></div>}
+          {details.employee_id && !details.employee_is_active && ["superadmin", "admin"].includes(role) && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4"><div><p className="text-sm font-black text-blue-950">Employee activation is pending</p><p className="mt-1 text-xs text-blue-700">Generate a fresh 48-hour link and email it again.</p></div><button type="button" disabled={busy} onClick={() => void onResend()} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:opacity-50">{busy ? "Sending…" : "Resend invitation"}</button></div>}
+          {invitation?.invite_link && <div className={`mt-4 rounded-xl border p-4 ${invitation.email_sent ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}><p className={`text-sm font-black ${invitation.email_sent ? "text-emerald-800" : "text-amber-900"}`}>{invitation.email_sent ? "Invitation created and emailed" : "Invitation created — email not delivered"}</p><p className={`mt-1 text-xs ${invitation.email_sent ? "text-emerald-700" : "text-amber-800"}`}>{invitation.email_sent ? `Sent to ${invitation.email_recipients.join(", ")}. The link expires in 48 hours.` : (invitation.email_warning || "Copy the one-time activation link and provide it securely to the employee.")}</p><div className="mt-3 flex flex-wrap gap-2"><input readOnly value={invitation.invite_link} className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"/><a href={invitation.invite_link} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50">Open link</a><button type="button" onClick={() => navigator.clipboard?.writeText(invitation.invite_link)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-800 hover:bg-slate-50"><Copy size={14}/> Copy</button></div></div>}
         </section>}
         <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between"><div><h3 className="font-black text-slate-950">Required checklist</h3><p className="text-sm text-slate-500">{details.completed_task_count} of {details.task_count} tasks complete</p></div><span className="text-2xl font-black text-blue-600">{progress}%</span></div>

@@ -153,6 +153,7 @@ async function sendInvitationEmail({
   roleName,
   branchName,
   inviteLink,
+  expiresInHours = 24,
 }) {
   const safeName = escapeHtml(fullName || "there");
   const safeRole = escapeHtml(roleName || "Employee");
@@ -174,7 +175,7 @@ async function sendInvitationEmail({
           </tr>
         </table>
       </div>
-      <p>Complete your registration to activate your account. This invitation is valid for <strong>24 hours</strong>.</p>
+      <p>Complete your registration to activate your account. This invitation is valid for <strong>${expiresInHours} hours</strong>.</p>
       <div class="button-wrapper" style="text-align:center;margin:28px 0;">
         <!--[if mso]>
         <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${inviteLink}" style="height:48px;v-text-anchor:middle;width:260px;" arcsize="25%" strokecolor="#2563EB" fillcolor="#2563EB">
@@ -204,7 +205,7 @@ async function sendInvitationEmail({
       "",
       inviteLink,
       "",
-      "This invitation expires in 24 hours.",
+      `This invitation expires in ${expiresInHours} hours.`,
       "Regards,",
       "AstreaBlue ITSM Team",
       ].join("\n"),

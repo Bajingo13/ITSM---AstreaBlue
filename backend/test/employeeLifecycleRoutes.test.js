@@ -138,8 +138,26 @@ test("HR starts onboarding before an account exists and an administrator provisi
   assert.equal(response.status, 201, provisionBody);
   const provisioned = JSON.parse(provisionBody).data;
   preHireUserId = provisioned.invitation.user_id;
+  assert.match(provisioned.invite_link, /^https?:\/\//);
   assert.match(provisioned.invite_link, /\/invite\/[a-f0-9]{64}$/);
+  assert.equal(provisioned.email_sent, false);
+  assert.deepEqual(provisioned.email_recipients, []);
   assert.equal(Number(provisioned.case.employee_id), Number(preHireUserId));
+
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}/account-invitation/resend`, {
+    method: "POST",
+    headers: authHeaders(hrId, "HR", branchId),
+  });
+  assert.equal(response.status, 403);
+
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}/account-invitation/resend`, {
+    method: "POST",
+    headers: authHeaders(superAdminId, "SuperAdmin", null),
+  });
+  assert.equal(response.status, 200);
+  const resent = (await response.json()).data;
+  assert.notEqual(resent.invite_link, provisioned.invite_link);
+  assert.match(resent.invite_link, /^https?:\/\//);
 
   const detailsResponse = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}`, {
     headers: authHeaders(superAdminId, "SuperAdmin", null),
