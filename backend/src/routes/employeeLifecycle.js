@@ -176,7 +176,7 @@ async function loadCase(queryable, caseId) {
        LEFT JOIN users verifier ON verifier.user_id=lc.verified_by
        LEFT JOIN tickets t ON t.id=lc.related_ticket_id
        LEFT JOIN employee_lifecycle_tasks lt ON lt.lifecycle_case_id=lc.lifecycle_case_id
-      WHERE lc.lifecycle_case_id=$1
+      WHERE lc.lifecycle_case_id=$1 AND lc.deleted_at IS NULL
       GROUP BY lc.lifecycle_case_id,employee.user_id,b.branch_id,creator.user_id,verifier.user_id,t.id`,
     [caseId]
   );
@@ -188,7 +188,7 @@ async function assertScopedCase(req, queryable, caseId, lock = false) {
   const scope = addCaseScope(req, "lc", params);
   const result = await queryable.query(
     `SELECT lc.lifecycle_case_id FROM employee_lifecycle_cases lc
-      WHERE lc.lifecycle_case_id=$1 AND ${scope}${lock ? " FOR UPDATE" : ""}`,
+      WHERE lc.lifecycle_case_id=$1 AND lc.deleted_at IS NULL AND ${scope}${lock ? " FOR UPDATE" : ""}`,
     params
   );
   return Boolean(result.rows.length);
@@ -266,7 +266,7 @@ router.get("/summary", async (req, res) => {
               COUNT(*) FILTER (WHERE lc.lifecycle_type='Offboarding' AND lc.status NOT IN ('Completed','Cancelled'))::int active_offboarding,
               COUNT(*) FILTER (WHERE lc.status='Ready for Verification')::int ready_for_verification,
               COUNT(*) FILTER (WHERE lc.status='Completed')::int completed
-         FROM employee_lifecycle_cases lc WHERE ${scope}`,
+         FROM employee_lifecycle_cases lc WHERE lc.deleted_at IS NULL AND ${scope}`,
       params
     );
     return res.json({ success: true, data: result.rows[0] });
@@ -279,7 +279,7 @@ router.get("/summary", async (req, res) => {
 router.get("/cases", async (req, res) => {
   try {
     const params = [];
-    const clauses = [addCaseScope(req, "lc", params, req.query.branch_id)];
+    const clauses = ["lc.deleted_at IS NULL", addCaseScope(req, "lc", params, req.query.branch_id)];
     const type = normalizeLifecycleType(req.query.type);
     if (req.query.type && !type) return res.status(400).json({ success: false, message: "Invalid lifecycle type." });
     if (type) {
@@ -648,6 +648,67 @@ router.post("/cases/:id/account-invitation/resend", async (req, res) => {
     return res.status(error.status || 500).json({
       success: false,
       message: error.status ? error.message : "Failed to resend the account invitation.",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+router.delete("/cases/:id", async (req, res) => {
+  if (req.lifecycleActor.role !== "superadmin") {
+    return res.status(403).json({ success: false, message: "Only SuperAdmin can delete lifecycle cases." });
+  }
+  const client = await db.rawPool.connect();
+  try {
+    await client.query("BEGIN");
+    if (!(await assertScopedCase(req, client, req.params.id, true))) {
+      throw Object.assign(new Error("Lifecycle case not found."), { status: 404 });
+    }
+    const result = await client.query(
+      `SELECT lifecycle_case_id,case_number,status,related_ticket_id
+         FROM employee_lifecycle_cases
+        WHERE lifecycle_case_id=$1 AND deleted_at IS NULL
+        FOR UPDATE`,
+      [req.params.id]
+    );
+    const lifecycleCase = result.rows[0];
+    if (lifecycleCase.status === "Completed") {
+      throw Object.assign(new Error("Completed lifecycle cases are protected audit records and cannot be deleted."), { status: 409 });
+    }
+    const reason = normalizeOptionalText(req.body?.reason, 1000) || "Removed from the lifecycle workspace by SuperAdmin.";
+    await client.query(
+      `UPDATE employee_lifecycle_cases
+          SET status='Cancelled',cancelled_at=COALESCE(cancelled_at,CURRENT_TIMESTAMP),
+              deleted_at=CURRENT_TIMESTAMP,deleted_by=$1,deletion_reason=$2,updated_at=CURRENT_TIMESTAMP
+        WHERE lifecycle_case_id=$3`,
+      [req.lifecycleActor.user_id, reason, req.params.id]
+    );
+    await addHistory(
+      client,
+      req.params.id,
+      req.lifecycleActor.user_id,
+      "case_deleted",
+      `Lifecycle case ${lifecycleCase.case_number} was removed from the active workspace.`,
+      lifecycleCase.status,
+      "Cancelled",
+      { reason, relatedTicketId: lifecycleCase.related_ticket_id, softDelete: true }
+    );
+    await client.query("COMMIT");
+    return res.json({
+      success: true,
+      data: {
+        lifecycle_case_id: Number(lifecycleCase.lifecycle_case_id),
+        case_number: lifecycleCase.case_number,
+        deleted: true,
+        linked_ticket_preserved: Boolean(lifecycleCase.related_ticket_id),
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[employee-lifecycle:delete]", error.message);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : "Failed to delete lifecycle case.",
     });
   } finally {
     client.release();

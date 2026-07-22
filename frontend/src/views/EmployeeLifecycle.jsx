@@ -6,6 +6,7 @@ import {
   Copy,
   RefreshCw,
   Search,
+  Trash2,
   UserMinus,
   UserPlus,
   X,
@@ -240,6 +241,26 @@ export default function EmployeeLifecycle() {
     }
   }
 
+  async function deleteCase(lifecycleCase) {
+    if (!lifecycleCase || normalizedRole !== "superadmin" || lifecycleCase.status === "Completed") return;
+    const confirmed = window.confirm(
+      `Delete ${lifecycleCase.case_number} from the lifecycle workspace? The audit record and linked Service Desk ticket will be preserved.`
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await lifecycleRequest(`/cases/${lifecycleCase.lifecycle_case_id}`, { method: "DELETE" });
+      setDetails(null);
+      setInvitation(null);
+      setNotice(`${result.case_number} was removed. Its audit record${result.linked_ticket_preserved ? " and linked ticket were" : " was"} preserved.`);
+      await loadWorkspace();
+    } catch (requestError) {
+      setError(requestError.message);
+      setBusy(false);
+    }
+  }
+
   const metrics = [
     ["Active Onboarding", summary.active_onboarding || 0, UserPlus, "text-blue-600", "bg-blue-50"],
     ["Active Offboarding", summary.active_offboarding || 0, UserMinus, "text-rose-600", "bg-rose-50"],
@@ -292,7 +313,7 @@ export default function EmployeeLifecycle() {
                   <td className="px-4 py-4"><span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusClass(item.status)}`}>{item.status}</span></td>
                   <td className="min-w-[150px] px-4 py-4"><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${progress}%` }}/></div><p className="mt-1 text-xs text-slate-500">{item.completed_task_count}/{item.task_count} complete</p></td>
                   <td className="px-4 py-4 text-slate-600">{formatDate(item.target_date)}</td>
-                  <td className="px-4 py-4"><button disabled={busy} onClick={() => void openCase(item.lifecycle_case_id)} className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700">Open <ArrowRight size={14}/></button></td>
+                  <td className="px-4 py-4"><div className="flex items-center gap-2"><button disabled={busy} onClick={() => void openCase(item.lifecycle_case_id)} className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700">Open <ArrowRight size={14}/></button>{normalizedRole === "superadmin" && item.status !== "Completed" && <button disabled={busy} onClick={() => void deleteCase(item)} className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100"><Trash2 size={14}/> Delete</button>}</div></td>
                 </tr>;
               }) : <tr><td colSpan="7" className="px-4 py-14 text-center text-slate-500">No lifecycle cases match the current filters.</td></tr>}
             </tbody>
@@ -323,7 +344,7 @@ export default function EmployeeLifecycle() {
         </form>
       </div>}
 
-      {details && <CaseDrawer key={details.lifecycle_case_id} details={details} role={normalizedRole} busy={busy} invitation={invitation} onClose={() => setDetails(null)} onTask={updateTask} onStatus={updateStatus} onProvision={createAccountInvitation} onResend={resendAccountInvitation}/>}
+      {details && <CaseDrawer key={details.lifecycle_case_id} details={details} role={normalizedRole} busy={busy} invitation={invitation} onClose={() => setDetails(null)} onTask={updateTask} onStatus={updateStatus} onDelete={deleteCase} onProvision={createAccountInvitation} onResend={resendAccountInvitation}/>}
       <style>{`.field{width:100%;border:1px solid #bfdbfe;border-radius:.75rem;background:#f8fafc;padding:.75rem 1rem;font-size:.875rem;outline:none}.field:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12)}`}</style>
     </div>
   );
@@ -333,7 +354,7 @@ function Field({ label, children }) {
   return <label><span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-600">{label}</span>{children}</label>;
 }
 
-function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus, onProvision, onResend }) {
+function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus, onDelete, onProvision, onResend }) {
   const [taskNotes, setTaskNotes] = useState({});
   const [accountForm, setAccountForm] = useState({
     personal_email: details.subject_contact_email || "",
@@ -345,7 +366,7 @@ function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus
   const transitions = STATUS_TRANSITIONS[details.status] || [];
   return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60 backdrop-blur-sm">
     <aside className="h-full w-full max-w-3xl overflow-y-auto border-l border-blue-100 bg-[#f7faff] shadow-2xl">
-      <header className="sticky top-0 z-10 flex items-start justify-between border-b border-blue-100 bg-white p-6"><div><p className="text-xs font-black uppercase tracking-widest text-blue-600">{details.case_number}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{details.employee_name}</h2><p className="text-sm text-slate-500">{details.lifecycle_type} · {details.branch_name}</p></div><button onClick={onClose} className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-100"><X/></button></header>
+      <header className="sticky top-0 z-10 flex items-start justify-between border-b border-blue-100 bg-white p-6"><div><p className="text-xs font-black uppercase tracking-widest text-blue-600">{details.case_number}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{details.employee_name}</h2><p className="text-sm text-slate-500">{details.lifecycle_type} · {details.branch_name}</p></div><div className="flex items-center gap-2">{role === "superadmin" && details.status !== "Completed" && <button disabled={busy} onClick={() => void onDelete(details)} className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100 disabled:opacity-50"><Trash2 size={15}/> Delete</button>}<button onClick={onClose} className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-100"><X/></button></div></header>
       <div className="space-y-5 p-6">
         <section className="grid gap-3 sm:grid-cols-3">
           <Info label="Status" value={details.status}/><Info label="Target Date" value={formatDate(details.target_date)}/><Info label="Related Ticket" value={details.related_ticket_number || "Not linked"}/>

@@ -38,6 +38,8 @@ test.before(async () => {
   await db.query(automationMigration);
   const preHireMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-07-22-prehire-onboarding.sql"), "utf8");
   await db.query(preHireMigration);
+  const softDeleteMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-07-22-employee-lifecycle-soft-delete.sql"), "utf8");
+  await db.query(softDeleteMigration);
   const branch = await db.query(`SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1`);
   assert.ok(branch.rows[0]?.branch_id);
   branchId = branch.rows[0].branch_id;
@@ -284,6 +286,40 @@ test("onboarding evidence requires real account, consent, asset, heartbeat, inve
     now,
   });
   assert.ok(Object.values(evidence).every((item) => item.complete));
+});
+
+test("only SuperAdmin can safely remove a non-completed lifecycle case", async () => {
+  let response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}`, {
+    method: "DELETE",
+    headers: authHeaders(hrId, "HR", branchId),
+  });
+  assert.equal(response.status, 403);
+
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}`, {
+    method: "DELETE",
+    headers: authHeaders(superAdminId, "SuperAdmin", null),
+  });
+  const deleteBody = await response.text();
+  assert.equal(response.status, 200, deleteBody);
+  const deleted = JSON.parse(deleteBody).data;
+  assert.equal(deleted.deleted, true);
+  assert.equal(deleted.linked_ticket_preserved, true);
+
+  const [caseRecord, userRecord, linkedTicket] = await Promise.all([
+    db.query(`SELECT status,deleted_at,deleted_by FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`, [preHireCaseId]),
+    db.query(`SELECT user_id FROM users WHERE user_id=$1`, [preHireUserId]),
+    db.query(`SELECT id FROM tickets WHERE id=$1`, [automaticTicketIds[0]]),
+  ]);
+  assert.equal(caseRecord.rows[0].status, "Cancelled");
+  assert.ok(caseRecord.rows[0].deleted_at);
+  assert.equal(Number(caseRecord.rows[0].deleted_by), Number(superAdminId));
+  assert.equal(Number(userRecord.rows[0].user_id), Number(preHireUserId));
+  assert.equal(Number(linkedTicket.rows[0].id), Number(automaticTicketIds[0]));
+
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}`, {
+    headers: authHeaders(superAdminId, "SuperAdmin", null),
+  });
+  assert.equal(response.status, 404);
 });
 
 test("offboarding executes only internal AstreaBlue actions and preserves endpoint identity", async () => {
