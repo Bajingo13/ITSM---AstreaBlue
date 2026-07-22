@@ -808,6 +808,20 @@ router.put("/:id", async (req, res) => {
     }
 
     const existing = existingResult.rows[0];
+    const normalizedUpdateRole = String(requestContext.roleName || "").toLowerCase();
+    const priorityChanged = priority !== undefined && priority !== existing.priority;
+    if (priorityChanged && !["admin", "superadmin"].includes(normalizedUpdateRole)) {
+      return res.status(403).json({
+        success: false,
+        error: "Only an Admin or SuperAdmin can correct ticket priority.",
+      });
+    }
+    if (priorityChanged && !["P1-Critical", "P2-High", "P3-Medium", "P4-Low"].includes(priority)) {
+      return res.status(400).json({
+        success: false,
+        error: "Priority must be P1-Critical, P2-High, P3-Medium, or P4-Low.",
+      });
+    }
 
     const finalDescription =
       description !== undefined
@@ -977,6 +991,19 @@ router.put("/:id", async (req, res) => {
             [id, changedById, "Status Updated", existing.status, status]
           );
         } catch(e) { console.warn("History insert failed:", e.message); }
+      }
+
+      if (priorityChanged) {
+        try {
+          await db.query(
+            `
+            INSERT INTO ticket_history
+            (ticket_id, changed_by, action, old_value, new_value)
+            VALUES ($1, $2, $3, $4, $5)
+            `,
+            [id, changedById, "Priority Corrected", existing.priority, priority]
+          );
+        } catch(e) { console.warn("Priority history insert failed:", e.message); }
       }
 
       if (resSlaStat !== existing.response_sla_status) {
@@ -1207,6 +1234,7 @@ router.patch("/:id/assign", async (req, res) => {
           error: `Technician must belong to the same branch as the ticket. Ticket branch: ${ticket.branch_name}, Technician branch: ${technician.branch_name}`,
         });
       }
+
     }
 
     const result = await db.query(

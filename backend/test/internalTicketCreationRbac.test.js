@@ -14,10 +14,12 @@ let baseUrl;
 let superAdmin;
 let employee;
 let hr;
+let admin;
 let categoryId;
 let alternateBranchId;
 let createdBranchId;
 let createdHrUserId;
+let createdAdminUserId;
 const ticketIds = [];
 const socketEvents = [];
 
@@ -58,6 +60,17 @@ test.before(async () => {
   hr = createdHr.rows[0];
   createdHrUserId = hr.user_id;
 
+  const adminRole = await db.query(`SELECT role_id FROM system_roles WHERE LOWER(role_name)='admin' LIMIT 1`);
+  assert.ok(adminRole.rows[0]?.role_id, "ticket tests require the Admin role");
+  const createdAdmin = await db.query(
+    `INSERT INTO users(full_name,email,password_hash,role_id,company_name,branch_id,status,is_active,onboarding_status,onboarding_required)
+     VALUES('Ticket Test Admin',$1,'test',$2,'AstreaBlue',$3,'Active',TRUE,'Completed',FALSE)
+     RETURNING user_id,branch_id`,
+    [`ticket-admin-${Date.now()}@example.test`, adminRole.rows[0].role_id, employee.branch_id]
+  );
+  admin = createdAdmin.rows[0];
+  createdAdminUserId = admin.user_id;
+
   const branch = await db.query(
     `INSERT INTO branches (branch_name,branch_location,is_active) VALUES ($1,'Test',TRUE) RETURNING branch_id`,
     [`Ticket RBAC Test ${Date.now()}`]
@@ -87,6 +100,7 @@ test.after(async () => {
   }
   if (createdBranchId) await db.query(`DELETE FROM branches WHERE branch_id=$1`, [createdBranchId]);
   if (createdHrUserId) await db.query(`DELETE FROM users WHERE user_id=$1`, [createdHrUserId]);
+  if (createdAdminUserId) await db.query(`DELETE FROM users WHERE user_id=$1`, [createdAdminUserId]);
   if (server) await new Promise((resolve) => server.close(resolve));
   setSocketServer(null);
   await db.rawPool.end();
@@ -250,6 +264,65 @@ test("Ticket status updates broadcast a real-time dashboard refresh", async () =
   const updated = await updateResponse.json();
   assert.equal(updateResponse.status, 200, updated.error || JSON.stringify(updated));
   assert.ok(socketEvents.some((event) => event.eventName === "ticket_changed" && event.payload.action === "updated"));
+});
+
+test("Admin can correct same-branch priority and the correction is audited", async () => {
+  const createResponse = await createTicket(employee, "Employee", {
+    title: "Admin priority correction test",
+    description: "The filer selected a lower priority than the branch administrator determines.",
+    priority: "P4-Low",
+    category_id: categoryId,
+    requester_id: employee.user_id,
+    branch_id: employee.branch_id,
+  });
+  const created = await createResponse.json();
+  assert.equal(createResponse.status, 201, created.error || JSON.stringify(created));
+  ticketIds.push(created.data.id);
+
+  const updateResponse = await fetch(`${baseUrl}/api/v1/tickets/${created.data.id}`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${tokenFor(admin, "Admin")}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ priority: "P1-Critical" }),
+  });
+  const updated = await updateResponse.json();
+  assert.equal(updateResponse.status, 200, updated.error || JSON.stringify(updated));
+  assert.equal(updated.data.priority, "P1-Critical");
+
+  const history = await db.query(
+    `SELECT changed_by,old_value,new_value FROM ticket_history
+      WHERE ticket_id=$1 AND action='Priority Corrected'`,
+    [created.data.id]
+  );
+  assert.equal(Number(history.rows[0]?.changed_by), Number(admin.user_id));
+  assert.equal(history.rows[0]?.old_value, "P4-Low");
+  assert.equal(history.rows[0]?.new_value, "P1-Critical");
+});
+
+test("Employee cannot change ticket priority after filing", async () => {
+  const createResponse = await createTicket(employee, "Employee", {
+    title: "Employee priority escalation guard test",
+    description: "Employees may suggest priority when filing but cannot revise it afterward.",
+    priority: "P3-Medium",
+    category_id: categoryId,
+    requester_id: employee.user_id,
+    branch_id: employee.branch_id,
+  });
+  const created = await createResponse.json();
+  assert.equal(createResponse.status, 201, created.error || JSON.stringify(created));
+  ticketIds.push(created.data.id);
+
+  const updateResponse = await fetch(`${baseUrl}/api/v1/tickets/${created.data.id}`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${tokenFor(employee, "Employee")}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ priority: "P1-Critical" }),
+  });
+  assert.equal(updateResponse.status, 403);
 });
 
 test("SuperAdmin cancellation records both SLA transitions as Cancelled", async () => {

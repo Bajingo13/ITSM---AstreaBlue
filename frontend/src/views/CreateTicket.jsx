@@ -243,9 +243,9 @@ export default function CreateTicket() {
           />
         )}
 
-        {!isHr && <div>
+        <div>
           <label className="astrea-field-label">
-            Attach Screenshots or PDF
+            Attach Photo, Screenshot, or PDF
           </label>
           <label className="astrea-upload-zone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setFiles(Array.from(event.dataTransfer.files || [])); }}>
             <span className="rounded-full bg-blue-100 p-3 text-blue-700"><Paperclip size={22} /></span>
@@ -262,7 +262,7 @@ export default function CreateTicket() {
               className="hidden"
             />
           </label>
-        </div>}
+        </div>
 
         <div className="flex justify-end border-t border-slate-200 pt-5">
           <button

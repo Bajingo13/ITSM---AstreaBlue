@@ -25,6 +25,7 @@ import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import {
   getPriorityBadgeClass, formatPriority,
   getSeverityLevel,
+  priorityOptions,
 } from "../utils/ticketVisuals";
 import { API_URL } from "../config/api";
 import PageHero from "../components/layout/PageHero";
@@ -394,6 +395,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   const [savingComment, setSavingComment] = useState(false);
 
   const [selectedStatus, setSelectedStatus] = useState(ticket.status || "");
+  const [selectedPriority, setSelectedPriority] = useState(ticket.priority || "P3-Medium");
 
   const [technicians, setTechnicians] = useState([]);
   const [selectedTechnician, setSelectedTechnician] = useState("");
@@ -506,6 +508,10 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
     setSelectedStatus(details?.status || ticket.status || "");
   }, [details?.status, ticket.status]);
 
+  useEffect(() => {
+    setSelectedPriority(details?.priority || ticket.priority || "P3-Medium");
+  }, [details?.priority, ticket.priority]);
+
   const addComment = async () => {
     if (!comment.trim()) return;
 
@@ -546,8 +552,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   const currentStatus = item.status || "";
   const isCancelled = currentStatus === "Cancelled";
   const hasStatusChange = selectedStatus !== currentStatus;
-  const hasUnsavedChanges =
-    !isCancelled && (hasAssignmentChange || hasStatusChange);
+  const currentPriority = item.priority || "P3-Medium";
+  const hasPriorityChange = selectedPriority !== currentPriority;
   const isOwnBranchTicket =
     user?.branch_id &&
     item.branch_id &&
@@ -555,6 +561,9 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   const canAssignTicket =
     activeRole === "SuperAdmin" ||
     (activeRole === "Admin" && isOwnBranchTicket);
+  const canEditPriority = canAssignTicket;
+  const hasUnsavedChanges =
+    !isCancelled && (hasAssignmentChange || hasStatusChange || (canEditPriority && hasPriorityChange));
   const canCancelTicket =
     (activeRole === "SuperAdmin" ||
       (activeRole === "Admin" && isOwnBranchTicket)) &&
@@ -578,16 +587,19 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
       setAssigning(true);
       setActionError("");
 
-      if (hasStatusChange) {
-        const statusRes = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+      if (hasStatusChange || (canEditPriority && hasPriorityChange)) {
+        const updateRes = await fetch(`${API_BASE}/tickets/${ticket.id}`, {
           method: "PUT",
           headers: authHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify(buildTicketPayload(user, { status: selectedStatus })),
+          body: JSON.stringify(buildTicketPayload(user, {
+            ...(hasStatusChange ? { status: selectedStatus } : {}),
+            ...(canEditPriority && hasPriorityChange ? { priority: selectedPriority } : {}),
+          })),
         });
 
-        const statusData = await readJsonSafely(statusRes);
-        if (!statusRes.ok || statusData.success === false) {
-          throw new Error(statusData.message || statusData.error || "Failed to update status");
+        const updateData = await readJsonSafely(updateRes);
+        if (!updateRes.ok || updateData.success === false) {
+          throw new Error(updateData.message || updateData.error || "Failed to update ticket");
         }
       }
 
@@ -796,11 +808,30 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
               <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
                 <p className="text-xs font-bold text-slate-400">Priority</p>
-                <p className="mt-1">
-                  <span className={getPriorityBadgeClass(item.priority)}>
-                    {formatPriority(item.priority)}
-                  </span>
-                </p>
+                {canEditPriority && !isCancelled ? (
+                  <div className="mt-2">
+                    <select
+                      value={selectedPriority}
+                      onChange={(event) => setSelectedPriority(event.target.value)}
+                      disabled={assigning || loading}
+                      className="astrea-control py-2 text-sm font-black"
+                      aria-label="Correct ticket priority"
+                    >
+                      {priorityOptions.map((priority) => (
+                        <option key={priority} value={priority}>{formatPriority(priority)}</option>
+                      ))}
+                    </select>
+                    <p className="mt-2 text-[11px] font-semibold text-blue-700">
+                      Admin correction is recorded in the activity timeline.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-1">
+                    <span className={getPriorityBadgeClass(item.priority)}>
+                      {formatPriority(item.priority)}
+                    </span>
+                  </p>
+                )}
               </div>
 
               <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
