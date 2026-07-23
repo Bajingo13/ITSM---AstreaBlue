@@ -17,13 +17,16 @@ async function assertPrerequisites(queryable, lifecycleCaseId, taskKey) {
   const required = TASK_PREREQUISITES[taskKey] || [];
   if (!required.length) return;
   const result = await queryable.query(
-    `SELECT task_key,status FROM employee_lifecycle_tasks
+    `SELECT task_key,task_label,status FROM employee_lifecycle_tasks
       WHERE lifecycle_case_id=$1 AND task_key=ANY($2::text[])`,
     [lifecycleCaseId, required]
   );
   const completed = new Set(result.rows.filter((row) => row.status === "Completed").map((row) => row.task_key));
   const missing = required.filter((key) => !completed.has(key));
-  if (missing.length) throw httpError(409, `Complete these prerequisite tasks first: ${missing.join(", ")}.`);
+  if (missing.length) {
+    const labels = new Map(result.rows.map((row) => [row.task_key, row.task_label]));
+    throw httpError(409, `Complete these prerequisite tasks first: ${missing.map((key) => labels.get(key) || key).join(", ")}.`);
+  }
 }
 
 async function assignedAssets(queryable, employee) {

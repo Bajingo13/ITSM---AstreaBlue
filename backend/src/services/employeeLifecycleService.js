@@ -71,6 +71,36 @@ function canCompleteCase({ requiredPending = 0 }) {
   return Number(requiredPending) === 0;
 }
 
+function philippineCalendarDay(value = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day));
+}
+
+function lifecycleDateValue(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function calculateLifecycleTicketPriority({ lifecycleType, targetDate, startDate, now = new Date() }) {
+  const relevantDate = normalizeLifecycleType(lifecycleType) === "Onboarding"
+    ? (startDate || targetDate)
+    : targetDate;
+  const dueDay = lifecycleDateValue(relevantDate);
+  if (dueDay === null) return "P3-Medium";
+  const daysRemaining = Math.ceil((dueDay - philippineCalendarDay(now)) / 86_400_000);
+  if (daysRemaining <= 1) return "P1-Critical";
+  if (daysRemaining <= 3) return "P2-High";
+  if (daysRemaining <= 7) return "P3-Medium";
+  return "P4-Low";
+}
+
 function deriveOffboardingStatusAfterTask({ lifecycleType, currentStatus, taskStatus, requiredPending }) {
   if (normalizeLifecycleType(lifecycleType) !== "Offboarding" || taskStatus !== "Completed") {
     return currentStatus;
@@ -104,6 +134,7 @@ module.exports = {
   getDefaultTasks,
   canTransition,
   canCompleteCase,
+  calculateLifecycleTicketPriority,
   deriveOffboardingStatusAfterTask,
   canUpdateLifecycleTask,
   lifecycleTaskOwnerLabel,

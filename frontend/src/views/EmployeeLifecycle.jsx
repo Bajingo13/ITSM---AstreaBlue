@@ -26,6 +26,38 @@ const STATUS_TRANSITIONS = {
   Cancelled: [],
 };
 
+const STATUS_LABELS = {
+  "In Progress": "Checklist in Progress",
+  "Awaiting Employee": "Waiting for Employee Action",
+  "Awaiting IT": "Waiting for Administrator Action",
+  "Ready for Verification": "Ready for Final Review",
+};
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status;
+}
+
+function workflowMessage(message) {
+  return String(message || "")
+    .replaceAll("Awaiting Employee", STATUS_LABELS["Awaiting Employee"])
+    .replaceAll("Awaiting IT", STATUS_LABELS["Awaiting IT"])
+    .replaceAll("Ready for Verification", STATUS_LABELS["Ready for Verification"])
+    .replaceAll("In Progress", STATUS_LABELS["In Progress"]);
+}
+
+const OFFBOARDING_TASK_PREREQUISITES = {
+  classify_assets: ["recover_assets"],
+  verify_checklist: ["disable_access", "recover_assets", "audit_licenses", "secure_data", "classify_assets"],
+  notify_parties: ["verify_checklist"],
+  close_linked_ticket: ["notify_parties"],
+};
+
+const OFFBOARDING_EVIDENCE_GUIDANCE = {
+  audit_licenses: "Example: Microsoft 365 and Canva assignments released to the available pool; no active assignments remain.",
+  secure_data: "Example: Required company files were backed up and ownership was transferred to the designated custodian.",
+  classify_assets: "Example: Asset AST-001 was inspected and classified as In Stock for redeployment.",
+};
+
 const EMPTY_FORM = {
   lifecycle_type: "Onboarding",
   subject_mode: "new",
@@ -247,7 +279,7 @@ export default function EmployeeLifecycle() {
         method: "PATCH",
         body: JSON.stringify({ status }),
       });
-      setNotice(`Case status updated to ${status}.`);
+      setNotice(`Case status updated to ${statusLabel(status)}.`);
       await openCase(details.lifecycle_case_id);
       await loadWorkspace();
     } catch (requestError) {
@@ -279,7 +311,7 @@ export default function EmployeeLifecycle() {
   const metrics = [
     ["Active Onboarding", summary.active_onboarding || 0, UserPlus, "text-blue-600", "bg-blue-50"],
     ["Active Offboarding", summary.active_offboarding || 0, UserMinus, "text-rose-600", "bg-rose-50"],
-    ["Ready to Verify", summary.ready_for_verification || 0, ClipboardCheck, "text-violet-600", "bg-violet-50"],
+    ["Ready for Final Review", summary.ready_for_verification || 0, ClipboardCheck, "text-violet-600", "bg-violet-50"],
     ["Completed", summary.completed || 0, CheckCircle2, "text-emerald-600", "bg-emerald-50"],
   ];
 
@@ -312,7 +344,7 @@ export default function EmployeeLifecycle() {
         <div className="mt-5 grid gap-3 md:grid-cols-[1fr_190px_220px]">
           <label className="flex items-center gap-2 rounded-xl border border-blue-200 bg-slate-50 px-4"><Search size={17} className="text-blue-500"/><input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Search employee, email, or case number" className="w-full bg-transparent py-3 text-sm outline-none"/></label>
           <select value={filters.type} onChange={(event) => setFilters((current) => ({ ...current, type: event.target.value }))} className="rounded-xl border border-blue-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none"><option value="">All lifecycle types</option><option>Onboarding</option><option>Offboarding</option></select>
-          <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))} className="rounded-xl border border-blue-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none"><option value="">All statuses</option>{Object.keys(STATUS_TRANSITIONS).map((status) => <option key={status}>{status}</option>)}</select>
+          <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))} className="rounded-xl border border-blue-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none"><option value="">All statuses</option>{Object.keys(STATUS_TRANSITIONS).map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select>
         </div>
 
         <div className="mt-5 overflow-x-auto rounded-2xl border border-blue-100">
@@ -325,7 +357,7 @@ export default function EmployeeLifecycle() {
                   <td className="px-4 py-4"><p className="font-black text-blue-700">{item.case_number}</p><p className="text-xs text-slate-500">{item.lifecycle_type}</p></td>
                   <td className="px-4 py-4"><p className="font-bold text-slate-900">{item.employee_name}</p><p className="text-xs text-slate-500">{item.employee_email}</p></td>
                   <td className="px-4 py-4 text-slate-600">{item.branch_name}</td>
-                  <td className="px-4 py-4"><span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusClass(item.status)}`}>{item.status}</span></td>
+                  <td className="px-4 py-4"><span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusClass(item.status)}`}>{statusLabel(item.status)}</span></td>
                   <td className="min-w-[150px] px-4 py-4"><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${progress}%` }}/></div><p className="mt-1 text-xs text-slate-500">{item.completed_task_count}/{item.task_count} complete</p></td>
                   <td className="px-4 py-4 text-slate-600">{formatDate(item.target_date)}</td>
                   <td className="px-4 py-4"><div className="flex items-center gap-2"><button disabled={busy} onClick={() => void openCase(item.lifecycle_case_id)} className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700">Open <ArrowRight size={14}/></button>{normalizedRole === "superadmin" && item.status !== "Completed" && <button disabled={busy} onClick={() => void deleteCase(item)} className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100"><Trash2 size={14}/> Delete</button>}</div></td>
@@ -378,6 +410,10 @@ function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus
   });
   const progress = details.task_count ? Math.round((details.completed_task_count / details.task_count) * 100) : 0;
   const transitions = STATUS_TRANSITIONS[details.status] || [];
+  const completedTaskKeys = new Set(details.tasks?.filter((task) => task.status === "Completed").map((task) => task.task_key));
+  const workflowTransitions = details.lifecycle_type === "Offboarding"
+    ? transitions.filter((status) => ["Completed", "Cancelled"].includes(status))
+    : transitions;
   return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60 backdrop-blur-sm">
     <aside className="h-full w-full max-w-3xl overflow-y-auto border-l border-blue-100 bg-[#f7faff] shadow-2xl">
       <header className="sticky top-0 z-10 flex items-start justify-between border-b border-blue-100 bg-white p-6"><div><p className="text-xs font-black uppercase tracking-widest text-blue-600">{details.case_number}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{details.employee_name}</h2><p className="text-sm text-slate-500">{details.lifecycle_type} · {details.branch_name}</p></div><div className="flex items-center gap-2">{role === "superadmin" && details.status !== "Completed" && <button disabled={busy} onClick={() => void onDelete(details)} className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100 disabled:opacity-50"><Trash2 size={15}/> Delete</button>}<button onClick={onClose} className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-100"><X/></button></div></header>
@@ -408,19 +444,25 @@ function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus
             const awaitingAccount = details.lifecycle_type === "Onboarding" && !details.employee_id && task.task_key !== "confirm_employment";
             const awaitingActivation = details.lifecycle_type === "Onboarding" && details.employee_id && details.employee_is_active === false && !["confirm_employment", "create_account"].includes(task.task_key);
             const notesRequired = details.lifecycle_type === "Offboarding" && ["audit_licenses", "secure_data", "classify_assets"].includes(task.task_key);
+            const unmetPrerequisites = details.lifecycle_type === "Offboarding"
+              ? (OFFBOARDING_TASK_PREREQUISITES[task.task_key] || []).filter((taskKey) => !completedTaskKeys.has(taskKey))
+              : [];
+            const prerequisiteLabels = unmetPrerequisites.map((taskKey) => details.tasks?.find((candidate) => candidate.task_key === taskKey)?.task_label || taskKey);
             return <article key={task.lifecycle_task_id} className={`rounded-2xl border p-4 ${completed ? "border-emerald-200 bg-emerald-50/60" : "border-blue-100 bg-slate-50"}`}>
-              <div className="flex gap-3"><button disabled={busy || evidenceSynchronized || (completed && details.lifecycle_type === "Offboarding") || accessBlocked || awaitingAccount || awaitingActivation || ["Completed", "Cancelled"].includes(details.status) || (notesRequired && String(taskNotes[task.lifecycle_task_id] || "").trim().length < 5)} onClick={() => void onTask(task, completed ? "Pending" : "Completed", taskNotes[task.lifecycle_task_id] || "")} title={evidenceSynchronized ? "This item is synchronized from system evidence" : awaitingAccount ? "Create and link the employee account first" : awaitingActivation ? "The employee must activate the account first" : accessBlocked ? "You do not have permission to complete this checklist item" : completed && details.lifecycle_type === "Offboarding" ? "The internal action is complete and cannot be reversed here" : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
+              <div className="flex gap-3"><button disabled={busy || evidenceSynchronized || (completed && details.lifecycle_type === "Offboarding") || accessBlocked || awaitingAccount || awaitingActivation || unmetPrerequisites.length > 0 || ["Completed", "Cancelled"].includes(details.status) || (notesRequired && String(taskNotes[task.lifecycle_task_id] || "").trim().length < 5)} onClick={() => void onTask(task, completed ? "Pending" : "Completed", taskNotes[task.lifecycle_task_id] || "")} title={evidenceSynchronized ? "This item is synchronized from system evidence" : awaitingAccount ? "Create and link the employee account first" : awaitingActivation ? "The employee must activate the account first" : accessBlocked ? "You do not have permission to complete this checklist item" : unmetPrerequisites.length ? `Complete first: ${prerequisiteLabels.join(", ")}` : completed && details.lifecycle_type === "Offboarding" ? "The internal action is complete and cannot be reversed here" : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
                 <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-slate-900">{task.task_label}</h4>{task.is_required && <span className="text-[10px] font-black uppercase text-rose-600">Required</span>}{evidenceSynchronized && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">Auto-synced</span>}</div><p className="mt-1 text-sm leading-6 text-slate-600">{task.task_description}</p>{completed && <p className="mt-2 text-xs font-semibold text-emerald-700">{evidenceSynchronized ? "Verified automatically" : `Completed by ${task.completed_by_name || "authorized user"}`} · {formatDate(task.completed_at, true)}</p>}{accessBlocked && !completed && !evidenceSynchronized && <p className="mt-2 text-xs font-semibold text-amber-700">You can track this item, but your role cannot mark it complete.</p>}</div>
               </div>
               {evidenceSynchronized && <p className={`mt-2 pl-9 text-xs font-bold ${completed ? "text-emerald-700" : "text-amber-700"}`}>{completed ? "Verified automatically from current AstreaBlue records." : "Auto-synced item; it will complete when the required evidence is available."}</p>}
+              {!completed && unmetPrerequisites.length > 0 && <p className="mt-2 pl-9 text-xs font-semibold text-amber-700">Complete first: {prerequisiteLabels.join(", ")}.</p>}
               {notesRequired && !completed && !accessBlocked && <label className="mt-3 block pl-9"><span className="mb-1 block text-xs font-bold text-slate-600">Required completion evidence</span><textarea rows="2" value={taskNotes[task.lifecycle_task_id] || ""} onChange={(event) => setTaskNotes((current) => ({ ...current, [task.lifecycle_task_id]: event.target.value }))} className="field resize-none" placeholder="Record the handover or asset inspection result before completing this task."/></label>}
+              {notesRequired && !completed && !accessBlocked && <p className="mt-2 pl-9 text-xs leading-5 text-slate-500">{OFFBOARDING_EVIDENCE_GUIDANCE[task.task_key]}</p>}
               {task.completion_notes && (completed || evidenceSynchronized) && <p className={`mt-3 rounded-xl border bg-white px-3 py-2 text-xs text-slate-600 ${completed ? "border-emerald-200" : "border-amber-200"}`}><strong>{completed ? "Evidence" : "Waiting for evidence"}:</strong> {task.completion_notes}</p>}
               {completed && task.automation_result?.action && <p className="mt-2 pl-9 text-xs font-semibold text-emerald-700">Internal result: {String(task.automation_result.action).replaceAll("_", " ")}{Number.isFinite(Number(task.automation_result.affected)) ? ` (${task.automation_result.affected} record${Number(task.automation_result.affected) === 1 ? "" : "s"})` : ""}</p>}
             </article>;
           })}</div>
         </section>
-        <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm"><h3 className="font-black">Workflow action</h3><p className="mt-1 text-sm text-slate-500">Completion is available only from Ready for Verification and after all required tasks are complete.</p><div className="mt-4 flex flex-wrap gap-2">{transitions.length ? transitions.map((status) => <button key={status} disabled={busy} onClick={() => void onStatus(status)} className={`rounded-xl border px-4 py-2.5 text-sm font-black ${status === "Cancelled" ? "border-rose-200 text-rose-700 hover:bg-rose-50" : "border-blue-200 bg-blue-600 text-white hover:bg-blue-700"}`}>{status}</button>) : <span className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-500">No further actions</span>}</div></section>
-        <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm"><h3 className="font-black">Audit history</h3><div className="mt-4 space-y-4 border-l-2 border-blue-100 pl-5">{details.history?.map((event) => <div key={event.lifecycle_history_id} className="relative"><span className="absolute -left-[27px] top-1 h-3 w-3 rounded-full border-2 border-blue-600 bg-white"/><p className="font-bold text-slate-900">{event.message}</p><p className="text-xs text-slate-500">{event.changed_by_name || "System"} · {formatDate(event.created_at, true)}</p></div>)}</div></section>
+        <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm"><h3 className="font-black">Case actions</h3><p className="mt-1 text-sm text-slate-500">{details.lifecycle_type === "Offboarding" ? "Start with the checklist. The case begins automatically after the first completed action and becomes ready for final review after every required task is complete." : "The case can be completed only after every required checklist item is complete and it is ready for final review."}</p><div className="mt-4 flex flex-wrap gap-2">{workflowTransitions.length ? workflowTransitions.map((status) => <button key={status} disabled={busy} onClick={() => void onStatus(status)} className={`rounded-xl border px-4 py-2.5 text-sm font-black ${status === "Cancelled" ? "border-rose-200 text-rose-700 hover:bg-rose-50" : "border-blue-200 bg-blue-600 text-white hover:bg-blue-700"}`}>{statusLabel(status)}</button>) : <span className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-500">{details.lifecycle_type === "Offboarding" && details.status !== "Completed" ? "Complete the checklist in order to continue" : "No further actions"}</span>}</div></section>
+        <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm"><h3 className="font-black">Audit history</h3><div className="mt-4 space-y-4 border-l-2 border-blue-100 pl-5">{details.history?.map((event) => <div key={event.lifecycle_history_id} className="relative"><span className="absolute -left-[27px] top-1 h-3 w-3 rounded-full border-2 border-blue-600 bg-white"/><p className="font-bold text-slate-900">{workflowMessage(event.message)}</p><p className="text-xs text-slate-500">{event.changed_by_name || "System"} · {formatDate(event.created_at, true)}</p></div>)}</div></section>
         <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-sm text-cyan-900"><strong>Monitoring safeguard:</strong> lifecycle actions never reinstall an agent or rotate a healthy device credential. Endpoint assignment and diagnostics continue through the existing Endpoint Management workflow.</div>
       </div>
     </aside>

@@ -6,6 +6,7 @@ const {
   getDefaultTasks,
   canTransition,
   canCompleteCase,
+  calculateLifecycleTicketPriority,
   deriveOffboardingStatusAfterTask,
   canUpdateLifecycleTask,
 } = require("../src/services/employeeLifecycleService");
@@ -42,6 +43,23 @@ test("offboarding progresses automatically but keeps final completion as a human
   assert.equal(deriveOffboardingStatusAfterTask({
     lifecycleType: "Offboarding", currentStatus: "Completed", taskStatus: "Completed", requiredPending: 0,
   }), "Completed");
+});
+
+test("lifecycle ticket priority is driven by the onboarding start date or offboarding target date", () => {
+  const now = new Date("2026-07-23T01:00:00.000Z");
+  assert.equal(calculateLifecycleTicketPriority({
+    lifecycleType: "Onboarding", startDate: "2026-07-24", targetDate: "2026-08-30", now,
+  }), "P1-Critical");
+  assert.equal(calculateLifecycleTicketPriority({
+    lifecycleType: "Offboarding", targetDate: "2026-07-26", now,
+  }), "P2-High");
+  assert.equal(calculateLifecycleTicketPriority({
+    lifecycleType: "Offboarding", targetDate: "2026-07-30", now,
+  }), "P3-Medium");
+  assert.equal(calculateLifecycleTicketPriority({
+    lifecycleType: "Offboarding", targetDate: "2026-08-15", now,
+  }), "P4-Low");
+  assert.equal(calculateLifecycleTicketPriority({ lifecycleType: "Onboarding", now }), "P3-Medium");
 });
 
 test("HR is limited to HR checklist work while Admin and SuperAdmin retain IT authority", () => {

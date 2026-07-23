@@ -9,6 +9,7 @@ const {
   getDefaultTasks,
   canTransition,
   canCompleteCase,
+  calculateLifecycleTicketPriority,
   deriveOffboardingStatusAfterTask,
   canUpdateLifecycleTask,
 } = require("../services/employeeLifecycleService");
@@ -386,12 +387,17 @@ router.post("/cases", async (req, res) => {
     const caseNumber = await nextCaseNumber(client, type);
     if (!relatedTicketId) {
       const subjectName = employee?.full_name || subjectFullName;
+      const lifecyclePriority = calculateLifecycleTicketPriority({
+        lifecycleType: type,
+        targetDate: req.body.target_date,
+        startDate: req.body.subject_start_date,
+      });
       const ticketResult = await createServiceDeskTicket({
         client,
         emitAfterCreate: false,
         title: `${type} Request — ${subjectName}`,
         description: `${type} lifecycle request for ${subjectName}. Complete and verify the operational checklist in lifecycle case ${caseNumber}.`,
-        priority: "P3-Medium",
+        priority: lifecyclePriority,
         status: "Open Queue",
         requesterId: req.lifecycleActor.user_id,
         branchId,
@@ -404,6 +410,8 @@ router.post("/cases", async (req, res) => {
           origin_module: "Employee Lifecycle",
           origin_feature: type,
           created_via: "Lifecycle Workflow",
+          lifecycle_target_date: req.body.target_date || null,
+          lifecycle_start_date: req.body.subject_start_date || null,
         },
         auditEvent: `${type} Lifecycle Ticket Created`,
         requestMethod: req.method,
