@@ -77,7 +77,7 @@ function ProtectedSignature({ consent }) {
       .catch(() => setSource(""));
     return () => { if (objectUrl) window.URL.revokeObjectURL(objectUrl); };
   }, [consent.consent_id, consent.signature_object_key]);
-  return source ? <img src={source} alt="Employee E-Signature" className="max-h-24 w-full object-contain" /> : <p className="text-sm italic text-slate-400">Protected signature unavailable.</p>;
+  return source ? <img src={source} alt="Employee E-Signature" className="max-h-24 w-full object-contain" /> : <p className="text-sm font-medium italic text-slate-600">Protected signature unavailable.</p>;
 }
 
 // ─── Printable Consent Modal ───────────────────────────────────────────────────
@@ -279,7 +279,7 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
                 const activeIndex = waitingForEmployee ? 1 : waitingForAdmin ? 2 : isApproved ? 4 : 0;
                 const completed = index < activeIndex;
                 const current = index === activeIndex;
-                return <div key={step} className={`rounded-xl px-3 py-2 text-center ${completed ? "bg-emerald-100 text-emerald-700" : current ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300" : "bg-white/80 text-slate-400"}`}>{completed ? "✓ " : current ? "● " : "○ "}{step}</div>;
+                return <div key={step} className={`rounded-xl px-3 py-2 text-center ${completed ? "bg-emerald-100 text-emerald-700" : current ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300" : "bg-white/80 text-slate-600"}`}>{completed ? "✓ " : current ? "● " : "○ "}{step}</div>;
               })}
             </div>
           </section>
@@ -300,7 +300,7 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
               ["Branch", consent.branch_name || "—"],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl bg-slate-50 p-3.5">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-600">{label}</p>
                 <p className="mt-1 text-sm font-black text-slate-900">{value}</p>
               </div>
             ))}
@@ -341,27 +341,27 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
             <h3 className="font-black text-slate-900 mb-4">Employee Acknowledgement & Signature</h3>
             <div className="grid grid-cols-2 gap-6">
               <div>
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">E-Signature</p>
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">E-Signature</p>
                 {consent.e_signature_image || consent.signature_object_key ? (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                     <ProtectedSignature consent={consent} />
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-400 italic">No signature on file.</p>
+                  <p className="text-sm font-medium text-slate-600 italic">No signature on file.</p>
                 )}
               </div>
               <div className="space-y-3">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Printed Name</p>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Printed Name</p>
                   <p className="mt-1 text-lg font-black text-slate-900">{consent.printed_name || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Date & Time Signed</p>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Date & Time Signed</p>
                   <p className="mt-1 text-sm font-bold text-slate-700">{signedAt}</p>
-                  <p className="text-xs text-slate-400">(Asia/Manila time)</p>
+                  <p className="text-xs font-medium text-slate-600">(Asia/Manila time)</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Consent Version</p>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Consent Version</p>
                   <p className="mt-1 text-sm font-bold text-slate-700">v{consent.consent_version}</p>
                 </div>
               </div>
@@ -371,15 +371,15 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
           <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
             <h3 className="font-black text-slate-900">Private document storage</h3>
             <div className="mt-3 grid gap-3 text-sm sm:grid-cols-4">
-              <p><span className="block text-xs font-bold uppercase text-slate-400">Onboarding</span><span className="font-black text-slate-800">{consent.onboarding_status || "Unknown"}</span></p>
-              <p><span className="block text-xs font-bold uppercase text-slate-400">R2 status</span><span className="font-black text-slate-800">{consent.storage_status || "not generated"}</span></p>
-              <p><span className="block text-xs font-bold uppercase text-slate-400">Document hash</span><span className="font-mono text-xs text-slate-700">{consent.document_file_hash ? `${consent.document_file_hash.slice(0, 16)}…` : "Unavailable"}</span></p>
-              <p><span className="block text-xs font-bold uppercase text-slate-400">File size</span><span className="font-black text-slate-800">{consent.document_file_size ? `${Math.ceil(Number(consent.document_file_size) / 1024)} KB` : "Unavailable"}</span></p>
+              <p><span className="block text-xs font-bold uppercase text-slate-600">Onboarding</span><span className="font-black text-slate-900">{consent.onboarding_status || "Unknown"}</span></p>
+              <p><span className="block text-xs font-bold uppercase text-slate-600">R2 status</span><span className="font-black text-slate-900">{consent.storage_status || "not generated"}</span></p>
+              <p><span className="block text-xs font-bold uppercase text-slate-600">Document hash</span><span className="font-mono text-xs font-semibold text-slate-800">{consent.document_file_hash ? `${consent.document_file_hash.slice(0, 16)}…` : "Unavailable"}</span></p>
+              <p><span className="block text-xs font-bold uppercase text-slate-600">File size</span><span className="font-black text-slate-900">{consent.document_file_size ? `${Math.ceil(Number(consent.document_file_size) / 1024)} KB` : "Unavailable"}</span></p>
             </div>
           </section>
 
           {/* System note */}
-          <p className="text-center text-xs text-slate-400">
+          <p className="text-center text-xs font-medium text-slate-600">
             Generated by AstreaBlue Enterprise ITSM · Consent Document #{consent.consent_id} · This is a system-generated record.
           </p>
 
@@ -387,14 +387,14 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
           <section className="rounded-2xl border border-slate-200 bg-white p-5">
             <h3 className="font-black text-slate-900 mb-3">Audit Trail</h3>
             {auditLoading ? (
-              <p className="text-sm text-slate-400">Loading...</p>
+              <p className="text-sm font-medium text-slate-600">Loading...</p>
             ) : auditLogs.length === 0 ? (
-              <p className="text-sm text-slate-400">No audit events yet.</p>
+              <p className="text-sm font-medium text-slate-600">No audit events yet.</p>
             ) : (
               <div className="space-y-2 text-sm">
                 {auditLogs.map((log) => (
                   <div key={log.log_id} className="flex gap-3 items-start">
-                    <span className="shrink-0 w-32 text-xs font-bold text-slate-400">
+                    <span className="shrink-0 w-32 text-xs font-bold text-slate-600">
                       {new Date(log.created_at).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "short", timeStyle: "short" })}
                     </span>
                     <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black text-blue-700 shrink-0">{log.event_type}</span>
@@ -634,7 +634,7 @@ export default function ConsentManagement() {
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-5 flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px]">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -666,9 +666,9 @@ export default function ConsentManagement() {
         </div>
 
         {loading ? (
-          <p className="py-10 text-center text-slate-400 font-semibold">Loading consent documents...</p>
+                  <p className="py-10 text-center text-slate-600 font-semibold">Loading consent documents...</p>
         ) : filtered.length === 0 ? (
-          <p className="py-10 text-center text-slate-400 font-semibold">No consent documents found.</p>
+                  <p className="py-10 text-center text-slate-600 font-semibold">No consent documents found.</p>
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-slate-200">
             <table className="w-full text-left">

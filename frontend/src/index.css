@@ -18,6 +18,7 @@
   --astrea-navy: #07172a;
   --astrea-text: #07172a;
   --astrea-secondary: #50627a;
+  --astrea-muted-text: #5b6f89;
   --astrea-shadow: 0 12px 30px rgba(20, 60, 120, 0.08);
   --astrea-card-shadow: 0 12px 30px rgba(20, 60, 120, 0.08);
   --astrea-hero-shadow: 0 24px 60px rgba(15, 74, 160, 0.24);
@@ -40,6 +41,31 @@
 body {
   background: var(--astrea-bg);
   color: var(--astrea-text);
+}
+
+/*
+ * Legacy screens used slate-400 for ordinary labels and empty states. On the
+ * light AstreaBlue workspace that color is too faint for readable body text.
+ * Keep the existing utility hooks, but map them to the shared accessible
+ * secondary-text token so every module receives the same contrast correction.
+ */
+body .text-slate-400 {
+  color: var(--astrea-muted-text);
+}
+
+/* Preserve light secondary text when a legacy slate utility sits on a dark panel. */
+.astrea-page-hero .text-slate-400,
+.bg-slate-950 .text-slate-400,
+.bg-slate-900 .text-slate-400,
+.bg-slate-800 .text-slate-400,
+.bg-slate-950.text-slate-400,
+.bg-slate-900.text-slate-400,
+.bg-slate-800.text-slate-400 {
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] {
+  --astrea-muted-text: #a9bdd4;
 }
 
 .astrea-no-scrollbar {
