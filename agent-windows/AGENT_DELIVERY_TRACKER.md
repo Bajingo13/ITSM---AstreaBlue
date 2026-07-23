@@ -1,6 +1,6 @@
 # AstreaBlue Windows Agent Delivery Tracker
 
-Updated: 2026-07-17
+Updated: 2026-07-23
 
 ## P0 — Secure enrollment foundation
 
@@ -42,11 +42,11 @@ Updated: 2026-07-17
 - [ ] Validate screenshot capture across restart and repair on the second pilot laptop
 - [x] Consent/policy-gated native USB insertion/removal collector
 - [x] USB write-transfer metadata collector (file contents are never collected)
-- [x] Server-authoritative DLP risk scoring and matched-rule audit data
-- [x] RBAC/branch-scoped USB and DLP operations dashboard
+- [x] Server-authoritative, policy-configurable DLP risk scoring and matched-rule audit data
+- [x] RBAC/branch-scoped USB and DLP operations dashboard with search, filters, and pagination
 - [x] High/Critical DLP alerts and policy-controlled automatic incident creation
 - [x] Automated critical-transfer test verifies DLP alert, `DLP-` P1 ticket creation, and endpoint source metadata
-- [x] Offline-safe USB event queue with idempotent batch ingestion
+- [x] Restart-safe, disk-backed USB event queue with idempotent batch ingestion
 - [x] Validate USB insertion, removal, and file-write detection on the first pilot laptop
 - [ ] Validate USB monitoring across a Windows restart on the first pilot laptop
 - [ ] Validate DLP alert and optional automatic incident creation on the testing laptop

@@ -35,6 +35,7 @@ namespace AstreaBlue.Agent
             : Path.Combine(Root, "legacy-device.json");
         internal static readonly string Credential = Path.Combine(Root, "credential.bin");
         internal static readonly string Policy = Path.Combine(Root, "policy.json");
+        internal static readonly string UsbEventQueue = Path.Combine(Root, "usb-event-queue.json");
         internal static readonly string Logs = Path.Combine(Root, "logs");
     }
 
@@ -93,12 +94,13 @@ namespace AstreaBlue.Agent
 
     internal static class AgentRuntime
     {
-        internal const string Version = "native-1.3.0";
+        internal const string Version = "native-1.4.0";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
         private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("AstreaBlue.Endpoint.DeviceCredential.v1");
         private static readonly Dictionary<string, UsbDriveState> UsbDrives = new Dictionary<string, UsbDriveState>(StringComparer.OrdinalIgnoreCase);
         private static readonly List<object> PendingUsbEvents = new List<object>();
         private static readonly object UsbLock = new object();
+        private static bool UsbQueueLoaded;
 
         internal static void EnsureDirectories()
         {
@@ -376,10 +378,12 @@ namespace AstreaBlue.Agent
             EffectivePolicy policy = LoadPolicy();
             lock (UsbLock)
             {
+                LoadPendingUsbEvents();
                 if (!policy.usb_monitoring_enabled)
                 {
                     UsbDrives.Clear();
                     PendingUsbEvents.Clear();
+                    PersistPendingUsbEvents();
                     return;
                 }
 
@@ -425,6 +429,7 @@ namespace AstreaBlue.Agent
                 }
 
                 if (PendingUsbEvents.Count > 500) PendingUsbEvents.RemoveRange(0, PendingUsbEvents.Count - 500);
+                PersistPendingUsbEvents();
                 if (PendingUsbEvents.Count == 0) return;
                 List<object> batch = PendingUsbEvents.GetRange(0, Math.Min(100, PendingUsbEvents.Count));
                 Dictionary<string, object> body = new Dictionary<string, object>();
@@ -434,8 +439,48 @@ namespace AstreaBlue.Agent
                 AgentConfig config = LoadConfig();
                 SendJson(config.BackendUrl + "/api/v1/laptop-monitoring/usb-events/batch", body, LoadCredential());
                 PendingUsbEvents.RemoveRange(0, batch.Count);
+                PersistPendingUsbEvents();
                 Log("INFO", "Consent-approved USB events synchronized. Records=" + batch.Count + ".");
             }
+        }
+
+        private static void LoadPendingUsbEvents()
+        {
+            if (UsbQueueLoaded) return;
+            UsbQueueLoaded = true;
+            if (!File.Exists(AgentPaths.UsbEventQueue)) return;
+            try
+            {
+                List<object> queued = Json.Deserialize<List<object>>(File.ReadAllText(AgentPaths.UsbEventQueue));
+                if (queued != null) PendingUsbEvents.AddRange(queued);
+                if (PendingUsbEvents.Count > 500) PendingUsbEvents.RemoveRange(0, PendingUsbEvents.Count - 500);
+                Log("INFO", "Recovered queued USB events from disk. Records=" + PendingUsbEvents.Count + ".");
+            }
+            catch (Exception error)
+            {
+                string corruptPath = AgentPaths.UsbEventQueue + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+                try { File.Move(AgentPaths.UsbEventQueue, corruptPath); } catch { }
+                PendingUsbEvents.Clear();
+                Log("WARN", "The USB event queue was invalid and was quarantined: " + error.Message);
+            }
+        }
+
+        private static void PersistPendingUsbEvents()
+        {
+            EnsureDirectories();
+            string temporaryPath = AgentPaths.UsbEventQueue + ".tmp";
+            string serialized = Json.Serialize(PendingUsbEvents);
+            File.WriteAllText(temporaryPath, serialized, Encoding.UTF8);
+            if (File.Exists(AgentPaths.UsbEventQueue))
+            {
+                try
+                {
+                    File.Replace(temporaryPath, AgentPaths.UsbEventQueue, null);
+                    return;
+                }
+                catch { File.Delete(AgentPaths.UsbEventQueue); }
+            }
+            File.Move(temporaryPath, AgentPaths.UsbEventQueue);
         }
 
         private static UsbDriveState ReadUsbDrive(DriveInfo drive)
@@ -564,6 +609,15 @@ namespace AstreaBlue.Agent
             report["config_present"] = File.Exists(AgentPaths.Config);
             report["identity_present"] = File.Exists(AgentPaths.Identity);
             report["credential_present"] = File.Exists(AgentPaths.Credential);
+            report["usb_queue_present"] = File.Exists(AgentPaths.UsbEventQueue);
+            try
+            {
+                List<object> queued = File.Exists(AgentPaths.UsbEventQueue)
+                    ? Json.Deserialize<List<object>>(File.ReadAllText(AgentPaths.UsbEventQueue))
+                    : null;
+                report["usb_events_pending"] = queued == null ? 0 : queued.Count;
+            }
+            catch { report["usb_events_pending"] = "unreadable"; }
             try
             {
                 AgentConfig config = LoadConfig();

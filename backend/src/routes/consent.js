@@ -13,6 +13,10 @@ const multer = require("multer");
 const sharp = require("sharp");
 const { PDFDocument: PDFLibDocument, StandardFonts, rgb } = require("pdf-lib");
 const { createNotification } = require("../services/notificationService");
+const {
+  DEFAULT_HIGH_RISK_EXTENSIONS,
+  DEFAULT_SENSITIVE_FILENAME_KEYWORDS,
+} = require("../services/dlpRiskService");
 const { getPrivateObject, getR2Status, putPrivateObject } = require("../services/r2StorageService");
 
 const router = express.Router();
@@ -293,6 +297,8 @@ async function regenerateEffectiveEndpointPolicy(deviceUuid, actor) {
     screenshot_retention_days: 30,
     usb_scan_interval_seconds: 15,
     dlp_large_transfer_mb: 100,
+    dlp_high_risk_extensions: DEFAULT_HIGH_RISK_EXTENSIONS,
+    dlp_sensitive_filename_keywords: DEFAULT_SENSITIVE_FILENAME_KEYWORDS,
     intervals: { heartbeat: 60, activity: 60 },
     retention: { logs_days: 30 },
   };

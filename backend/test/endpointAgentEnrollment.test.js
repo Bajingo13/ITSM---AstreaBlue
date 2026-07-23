@@ -554,6 +554,26 @@ test("approved consent policy becomes the agent baseline without a manual policy
   assert.equal(usbList.status, 200);
   assert.equal((await usbList.json()).data.some((event) => event.event_reference === usbReference), true);
 
+  const filteredUsbList = await adminRequest("/usb-events?page=1&page_size=10&event_type=file_written&search=confidential");
+  assert.equal(filteredUsbList.status, 200);
+  const filteredUsbBody = await filteredUsbList.json();
+  assert.equal(filteredUsbBody.pagination.page, 1);
+  assert.equal(filteredUsbBody.pagination.page_size, 10);
+  assert.equal(filteredUsbBody.data.some((event) => event.event_reference === usbReference), true);
+
+  const usbOptions = await adminRequest("/usb-events/options");
+  assert.equal(usbOptions.status, 200);
+  const usbOptionsBody = await usbOptions.json();
+  assert.equal(usbOptionsBody.data.event_types.includes("file_written"), true);
+  assert.equal(usbOptionsBody.data.devices.some((device) => device.device_uuid === deviceUuid), true);
+
+  const dlpRules = await adminRequest("/dlp-rules");
+  assert.equal(dlpRules.status, 200);
+  const dlpRulesBody = await dlpRules.json();
+  assert.equal(dlpRulesBody.data.collection_mode, "metadata_only");
+  assert.equal(dlpRulesBody.data.enforcement_mode, "detect_and_alert");
+  assert.equal(dlpRulesBody.data.thresholds.critical, 70);
+
   await db.query(
     `UPDATE consent_documents SET monitoring_preferences=$1::jsonb WHERE consent_id=$2`,
     [JSON.stringify(["app_usage", "usb_monitoring"]), consentId]

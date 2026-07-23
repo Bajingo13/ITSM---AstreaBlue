@@ -75,6 +75,17 @@ test("native agent enrolls, protects its credential, and sends a bound heartbeat
     assert.equal(policy.screenshot_retention_days, 30);
     assert.equal(policy.usb_scan_interval_seconds, 15);
     assert.equal(policy.dlp_large_transfer_mb, 100);
+    const queuedEvent = [{
+      event_reference: crypto.randomUUID(),
+      event_type: "device_connected",
+      drive_letter: "E:",
+      occurred_at: new Date().toISOString(),
+    }];
+    fs.writeFileSync(path.join(dataDirectory, "usb-event-queue.json"), JSON.stringify(queuedEvent), "utf8");
+    const diagnostics = await execFileAsync(executable, ["--diagnostics"], { env: environment, windowsHide: true });
+    const diagnosticReport = JSON.parse(diagnostics.stdout.trim().split(/\r?\n/).at(-1));
+    assert.equal(diagnosticReport.usb_queue_present, true);
+    assert.equal(diagnosticReport.usb_events_pending, 1);
     assert.equal((await db.query(`SELECT COUNT(*)::int AS count FROM endpoint_hardware_inventory WHERE device_id=$1`, [deviceId])).rows[0].count > 0, true);
     assert.equal((await db.query(`SELECT COUNT(*)::int AS count FROM endpoint_software_scan_runs WHERE device_id=$1`, [deviceId])).rows[0].count > 0, true);
   } finally {

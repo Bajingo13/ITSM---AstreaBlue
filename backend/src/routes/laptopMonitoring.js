@@ -9,7 +9,12 @@ const { createNotification } = require("../services/notificationService");
 const { reconcileDevice } = require("../services/reconciliationService");
 const { upsertAgentInventoryDiscovery } = require("../services/assetDiscoveryInventoryService");
 const { deletePrivateObject, getPrivateObject, putPrivateObject } = require("../services/r2StorageService");
-const { evaluateUsbTransfer } = require("../services/dlpRiskService");
+const {
+  DEFAULT_HIGH_RISK_EXTENSIONS,
+  DEFAULT_SENSITIVE_FILENAME_KEYWORDS,
+  evaluateUsbTransfer,
+  resolveDlpRules,
+} = require("../services/dlpRiskService");
 const { createServiceDeskTicket } = require("../services/serviceDeskTicketService");
 const { emitEndpointStatusChanged } = require("../services/socketService");
 
@@ -1955,22 +1960,113 @@ router.post("/usb-events/batch", requireAgent, async (req, res) => {
   }
 });
 
+router.get("/dlp-rules", requireAdmin, async (req, res) => {
+  if (req.monitoringIsEmployee) {
+    return res.status(403).json({ success: false, message: "Employees cannot view DLP rule configuration." });
+  }
+  const rules = resolveDlpRules({});
+  return res.json({
+    success: true,
+    data: {
+      ...rules,
+      collection_mode: "metadata_only",
+      enforcement_mode: "detect_and_alert",
+      note: "Endpoint policies can override extensions, filename keywords, and the large-transfer threshold.",
+    },
+  });
+});
+
+router.get("/usb-events/options", requireAdmin, async (req, res) => {
+  try {
+    const employeeId = req.monitoringIsEmployee ? req.monitoringUser.userId : null;
+    const devices = await db.query(
+      `SELECT DISTINCT d.device_uuid,d.hostname,d.device_name
+       FROM endpoint_usb_events e
+       JOIN monitored_devices d ON d.device_id=e.device_id
+       WHERE ($1::int IS NULL OR e.branch_id=$1)
+         AND ($2::int IS NULL OR e.assigned_user_id=$2)
+       ORDER BY d.hostname`,
+      [req.monitoringBranchId, employeeId]
+    );
+    return res.json({
+      success: true,
+      data: {
+        devices: devices.rows,
+        event_types: ["device_connected", "device_disconnected", "file_written"],
+        risk_levels: ["Critical", "High", "Medium", "Low"],
+      },
+    });
+  } catch (error) {
+    console.error("[laptop-monitoring:usb-event-options]", error.message);
+    return res.status(500).json({ success: false, message: "Failed to load USB filter options." });
+  }
+});
+
 router.get("/usb-events", requireAdmin, async (req, res) => {
   try {
     const employeeId = req.monitoringIsEmployee ? req.monitoringUser.userId : null;
-    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
-    const result = await db.query(
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const pageSize = Math.min(100, Math.max(10, Number(req.query.page_size || req.query.limit) || 25));
+    const riskLevel = ["Critical", "High", "Medium", "Low"].includes(req.query.risk_level) ? req.query.risk_level : null;
+    const eventType = ["device_connected", "device_disconnected", "file_written"].includes(req.query.event_type)
+      ? req.query.event_type
+      : null;
+    const deviceUuid = /^[0-9a-f-]{36}$/i.test(String(req.query.device_uuid || "")) ? String(req.query.device_uuid) : null;
+    const search = String(req.query.search || "").trim().slice(0, 200) || null;
+    const parseBoundary = (value, endOfDay = false) => {
+      if (!value) return null;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return null;
+      if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(String(value))) date.setUTCDate(date.getUTCDate() + 1);
+      return date.toISOString();
+    };
+    const from = parseBoundary(req.query.date_from);
+    const toExclusive = parseBoundary(req.query.date_to, true);
+    const params = [
+      req.monitoringBranchId,
+      employeeId,
+      riskLevel,
+      eventType,
+      deviceUuid,
+      search ? `%${search}%` : null,
+      from,
+      toExclusive,
+    ];
+    const where = `WHERE ($1::int IS NULL OR e.branch_id=$1)
+      AND ($2::int IS NULL OR e.assigned_user_id=$2)
+      AND ($3::text IS NULL OR e.risk_level=$3)
+      AND ($4::text IS NULL OR e.event_type=$4)
+      AND ($5::text IS NULL OR e.device_uuid::text=$5)
+      AND ($6::text IS NULL OR e.file_name ILIKE $6 OR e.relative_path ILIKE $6
+        OR d.hostname ILIKE $6 OR u.full_name ILIKE $6 OR e.volume_label ILIKE $6)
+      AND ($7::timestamptz IS NULL OR e.occurred_at >= $7)
+      AND ($8::timestamptz IS NULL OR e.occurred_at < $8)`;
+    const [result, countResult] = await Promise.all([
+      db.query(
       `SELECT e.*,d.hostname,d.device_name,u.full_name AS assigned_user,b.branch_name
        FROM endpoint_usb_events e
        JOIN monitored_devices d ON d.device_id=e.device_id
        LEFT JOIN users u ON u.user_id=e.assigned_user_id
        LEFT JOIN branches b ON b.branch_id=e.branch_id
-       WHERE ($1::int IS NULL OR e.branch_id=$1) AND ($2::int IS NULL OR e.assigned_user_id=$2)
-         AND ($3::text IS NULL OR e.risk_level=$3)
-       ORDER BY e.occurred_at DESC LIMIT $4`,
-      [req.monitoringBranchId, employeeId, req.query.risk_level || null, limit]
-    );
-    return res.json({ success: true, data: result.rows });
+       ${where}
+       ORDER BY e.occurred_at DESC LIMIT $9 OFFSET $10`,
+        [...params, pageSize, (page - 1) * pageSize]
+      ),
+      db.query(
+        `SELECT COUNT(*)::int AS total
+         FROM endpoint_usb_events e
+         JOIN monitored_devices d ON d.device_id=e.device_id
+         LEFT JOIN users u ON u.user_id=e.assigned_user_id
+         ${where}`,
+        params
+      ),
+    ]);
+    const total = countResult.rows[0]?.total || 0;
+    return res.json({
+      success: true,
+      data: result.rows,
+      pagination: { page, page_size: pageSize, total, total_pages: Math.max(1, Math.ceil(total / pageSize)) },
+    });
   } catch (error) {
     console.error("[laptop-monitoring:usb-events-list]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load USB events." });
@@ -2664,6 +2760,22 @@ function normalizePolicyConfig(body = {}) {
   if (body.collection_interval_seconds && typeof body.collection_interval_seconds === "object") {
     config.intervals = { ...(config.intervals || {}), ...body.collection_interval_seconds };
   }
+  if (config.usb_scan_interval_seconds !== undefined) {
+    config.usb_scan_interval_seconds = Math.min(3600, Math.max(10, Number(config.usb_scan_interval_seconds) || 15));
+  }
+  if (config.dlp_large_transfer_mb !== undefined) {
+    config.dlp_large_transfer_mb = Math.min(102400, Math.max(1, Number(config.dlp_large_transfer_mb) || 100));
+  }
+  if (config.dlp_high_risk_extensions !== undefined) {
+    config.dlp_high_risk_extensions = resolveDlpRules({
+      dlp_high_risk_extensions: config.dlp_high_risk_extensions,
+    }).highRiskExtensions;
+  }
+  if (config.dlp_sensitive_filename_keywords !== undefined) {
+    config.dlp_sensitive_filename_keywords = resolveDlpRules({
+      dlp_sensitive_filename_keywords: config.dlp_sensitive_filename_keywords,
+    }).sensitiveFilenameKeywords;
+  }
   return config;
 }
 
@@ -2853,6 +2965,8 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
     screenshot_retention_days: 30,
     usb_scan_interval_seconds: 15,
     dlp_large_transfer_mb: 100,
+    dlp_high_risk_extensions: DEFAULT_HIGH_RISK_EXTENSIONS,
+    dlp_sensitive_filename_keywords: DEFAULT_SENSITIVE_FILENAME_KEYWORDS,
     intervals: { heartbeat: 60, activity: 60 },
     retention: { logs_days: 30 }
   };

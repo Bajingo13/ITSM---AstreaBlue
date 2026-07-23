@@ -83,6 +83,12 @@ export default function EndpointPolicies() {
         screenshots: 600,
         hardware_inventory: 86400,
         software_inventory: 86400
+      },
+      config_json: {
+        usb_scan_interval_seconds: 15,
+        dlp_large_transfer_mb: 100,
+        dlp_high_risk_extensions: [".pem", ".key", ".pfx", ".p12", ".sql", ".bak", ".pst"],
+        dlp_sensitive_filename_keywords: ["confidential", "restricted", "payroll", "salary", "password", "secret", "employee-data"]
       }
     });
     setView("form");
@@ -241,6 +247,13 @@ function PolicyForm({ policy, onCancel, onSave }) {
     }));
   };
 
+  const handleDlpConfigChange = (key, value) => {
+    setForm((current) => ({
+      ...current,
+      config_json: { ...(current.config_json || {}), [key]: value },
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -337,7 +350,7 @@ function PolicyForm({ policy, onCancel, onSave }) {
                       <span className="font-bold text-sm text-slate-700 capitalize">{feature.replace('_', ' ')}</span>
                     </label>
                   </div>
-                  {form.features_enabled[feature] && (
+                  {form.features_enabled[feature] && ['heartbeat', 'activity', 'screenshots', 'hardware_inventory', 'software_inventory'].includes(feature) && (
                     <div className="flex items-center gap-2">
                       <input 
                         type="number" 
@@ -353,6 +366,57 @@ function PolicyForm({ policy, onCancel, onSave }) {
             </div>
           </div>
         </div>
+
+        <section className="mt-8 rounded-3xl border border-blue-200 bg-blue-50/60 p-6">
+          <div className="mb-5">
+            <h3 className="font-black text-slate-900">USB & DLP Rules</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              These server-authoritative rules classify USB file-transfer metadata. File contents are never collected and this policy detects and alerts; it does not block transfers.
+            </p>
+          </div>
+          <div className="grid gap-5 md:grid-cols-2">
+            <label className="text-sm font-bold text-slate-700">
+              USB scan interval (seconds)
+              <input
+                type="number"
+                min="10"
+                max="3600"
+                value={form.config_json?.usb_scan_interval_seconds ?? 15}
+                onChange={(event) => handleDlpConfigChange("usb_scan_interval_seconds", Number(event.target.value))}
+                className="mt-2 w-full rounded-xl border border-blue-200 bg-white p-3 outline-none focus:border-blue-500"
+              />
+            </label>
+            <label className="text-sm font-bold text-slate-700">
+              Large-transfer threshold (MB)
+              <input
+                type="number"
+                min="1"
+                max="102400"
+                value={form.config_json?.dlp_large_transfer_mb ?? 100}
+                onChange={(event) => handleDlpConfigChange("dlp_large_transfer_mb", Number(event.target.value))}
+                className="mt-2 w-full rounded-xl border border-blue-200 bg-white p-3 outline-none focus:border-blue-500"
+              />
+            </label>
+            <label className="text-sm font-bold text-slate-700">
+              High-risk file extensions
+              <input
+                value={(form.config_json?.dlp_high_risk_extensions || [".pem", ".key", ".pfx", ".p12", ".sql", ".bak", ".pst"]).join(", ")}
+                onChange={(event) => handleDlpConfigChange("dlp_high_risk_extensions", event.target.value.split(",").map((item) => item.trim()).filter(Boolean))}
+                className="mt-2 w-full rounded-xl border border-blue-200 bg-white p-3 outline-none focus:border-blue-500"
+              />
+              <span className="mt-1 block text-xs font-medium text-slate-500">Comma-separated, for example: .sql, .bak, .pfx</span>
+            </label>
+            <label className="text-sm font-bold text-slate-700">
+              Sensitive filename keywords
+              <input
+                value={(form.config_json?.dlp_sensitive_filename_keywords || ["confidential", "restricted", "payroll", "salary", "password", "secret", "employee-data"]).join(", ")}
+                onChange={(event) => handleDlpConfigChange("dlp_sensitive_filename_keywords", event.target.value.split(",").map((item) => item.trim()).filter(Boolean))}
+                className="mt-2 w-full rounded-xl border border-blue-200 bg-white p-3 outline-none focus:border-blue-500"
+              />
+              <span className="mt-1 block text-xs font-medium text-slate-500">Case-insensitive filename matching; no file content is read.</span>
+            </label>
+          </div>
+        </section>
 
         <div className="mt-8 flex justify-end gap-3 pt-6 border-t border-slate-100">
           <button type="button" onClick={onCancel} className="rounded-xl px-6 py-3 font-bold text-slate-500 hover:bg-slate-100 transition">Cancel</button>
