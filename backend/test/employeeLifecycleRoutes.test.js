@@ -363,11 +363,23 @@ test("offboarding executes only internal AstreaBlue actions and preserves endpoi
     assert.equal(response.status, 200, `${task.task_key}: ${await response.text()}`);
   }
 
-  const [employee, assetAfter, deviceAfter, ticketAfter] = await Promise.all([
+  const readyCase = await db.query(
+    `SELECT status FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`,
+    [offboardingCaseId]
+  );
+  assert.equal(readyCase.rows[0].status, "Ready for Verification");
+
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${offboardingCaseId}/status`, {
+    method: "PATCH", headers, body: JSON.stringify({ status: "Completed" }),
+  });
+  assert.equal(response.status, 200, await response.text());
+
+  const [employee, assetAfter, deviceAfter, ticketAfter, completedCase] = await Promise.all([
     db.query(`SELECT is_active,status FROM users WHERE user_id=$1`, [employeeId]),
     db.query(`SELECT status,assigned_to,employee_id FROM hardware_assets WHERE asset_id=$1`, [assetId]),
     db.query(`SELECT assigned_user_id,device_uuid,status FROM monitored_devices WHERE device_id=$1`, [deviceId]),
     db.query(`SELECT status FROM tickets WHERE id=$1`, [ticketId]),
+    db.query(`SELECT status,verified_by,completed_at FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`, [offboardingCaseId]),
   ]);
   assert.equal(employee.rows[0].is_active, false);
   assert.equal(employee.rows[0].status, "Inactive");
@@ -378,4 +390,7 @@ test("offboarding executes only internal AstreaBlue actions and preserves endpoi
   assert.equal(deviceAfter.rows[0].device_uuid, deviceUuid);
   assert.equal(deviceAfter.rows[0].status, "Online");
   assert.equal(ticketAfter.rows[0].status, "Closed");
+  assert.equal(completedCase.rows[0].status, "Completed");
+  assert.equal(Number(completedCase.rows[0].verified_by), Number(superAdminId));
+  assert.ok(completedCase.rows[0].completed_at);
 });

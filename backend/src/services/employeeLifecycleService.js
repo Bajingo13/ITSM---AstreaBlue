@@ -71,6 +71,16 @@ function canCompleteCase({ requiredPending = 0 }) {
   return Number(requiredPending) === 0;
 }
 
+function deriveOffboardingStatusAfterTask({ lifecycleType, currentStatus, taskStatus, requiredPending }) {
+  if (normalizeLifecycleType(lifecycleType) !== "Offboarding" || taskStatus !== "Completed") {
+    return currentStatus;
+  }
+  if (TERMINAL_STATUSES.has(currentStatus)) return currentStatus;
+  if (Number(requiredPending) === 0) return "Ready for Verification";
+  if (currentStatus === "Draft") return "In Progress";
+  return currentStatus;
+}
+
 function normalizeActorRole(value) {
   return String(value || "").trim().toLowerCase().replace(/[\s_-]/g, "");
 }
@@ -94,6 +104,7 @@ module.exports = {
   getDefaultTasks,
   canTransition,
   canCompleteCase,
+  deriveOffboardingStatusAfterTask,
   canUpdateLifecycleTask,
   lifecycleTaskOwnerLabel,
 };

@@ -9,6 +9,7 @@ const {
   getDefaultTasks,
   canTransition,
   canCompleteCase,
+  deriveOffboardingStatusAfterTask,
   canUpdateLifecycleTask,
 } = require("../services/employeeLifecycleService");
 const { executeInternalOffboardingTask } = require("../services/internalOffboardingService");
@@ -835,9 +836,39 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
       [nextStatus, req.lifecycleActor.user_id, String(req.body.notes || "").trim() || null,
         JSON.stringify(automationResult), req.params.taskId]
     );
-    await client.query(`UPDATE employee_lifecycle_cases SET updated_at=CURRENT_TIMESTAMP WHERE lifecycle_case_id=$1`, [req.params.id]);
+    let automaticallyDerivedCaseStatus = task.case_status;
+    if (task.lifecycle_type === "Offboarding") {
+      const remaining = await client.query(
+        `SELECT COUNT(*)::int count FROM employee_lifecycle_tasks
+          WHERE lifecycle_case_id=$1 AND is_required AND status='Pending'`,
+        [req.params.id]
+      );
+      automaticallyDerivedCaseStatus = deriveOffboardingStatusAfterTask({
+        lifecycleType: task.lifecycle_type,
+        currentStatus: task.case_status,
+        taskStatus: nextStatus,
+        requiredPending: remaining.rows[0].count,
+      });
+    }
+    await client.query(
+      `UPDATE employee_lifecycle_cases SET status=$1::text,updated_at=CURRENT_TIMESTAMP
+        WHERE lifecycle_case_id=$2`,
+      [automaticallyDerivedCaseStatus, req.params.id]
+    );
     await addHistory(client, req.params.id, req.lifecycleActor.user_id, "task_updated", `${task.task_label} marked ${nextStatus}.`, null, null,
       { taskKey: task.task_key, taskStatus: nextStatus, automation: automationResult });
+    if (automaticallyDerivedCaseStatus !== task.case_status) {
+      await addHistory(
+        client,
+        req.params.id,
+        req.lifecycleActor.user_id,
+        "status_changed",
+        `Status automatically changed from ${task.case_status} to ${automaticallyDerivedCaseStatus}.`,
+        task.case_status,
+        automaticallyDerivedCaseStatus,
+        { source: "offboarding_task_progression", taskKey: task.task_key }
+      );
+    }
     await client.query("COMMIT");
     return res.json({ success: true, data: await loadCase(db, req.params.id) });
   } catch (error) {

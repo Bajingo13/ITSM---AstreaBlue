@@ -6,6 +6,7 @@ const {
   getDefaultTasks,
   canTransition,
   canCompleteCase,
+  deriveOffboardingStatusAfterTask,
   canUpdateLifecycleTask,
 } = require("../src/services/employeeLifecycleService");
 
@@ -26,6 +27,21 @@ test("completion is gated and terminal cases cannot be reopened implicitly", () 
   assert.equal(canTransition("Ready for Verification", "Completed"), true);
   assert.equal(canTransition("In Progress", "Completed"), false);
   assert.equal(canTransition("Completed", "In Progress"), false);
+});
+
+test("offboarding progresses automatically but keeps final completion as a human verification gate", () => {
+  assert.equal(deriveOffboardingStatusAfterTask({
+    lifecycleType: "Offboarding", currentStatus: "Draft", taskStatus: "Completed", requiredPending: 7,
+  }), "In Progress");
+  assert.equal(deriveOffboardingStatusAfterTask({
+    lifecycleType: "Offboarding", currentStatus: "In Progress", taskStatus: "Completed", requiredPending: 0,
+  }), "Ready for Verification");
+  assert.equal(deriveOffboardingStatusAfterTask({
+    lifecycleType: "Onboarding", currentStatus: "Draft", taskStatus: "Completed", requiredPending: 0,
+  }), "Draft");
+  assert.equal(deriveOffboardingStatusAfterTask({
+    lifecycleType: "Offboarding", currentStatus: "Completed", taskStatus: "Completed", requiredPending: 0,
+  }), "Completed");
 });
 
 test("HR is limited to HR checklist work while Admin and SuperAdmin retain IT authority", () => {
