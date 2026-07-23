@@ -191,7 +191,7 @@ const ACTIONS = Object.freeze({
 async function executeInternalOffboardingTask({ queryable, lifecycleCase, task, employee, actor, notes = "" }) {
   if (lifecycleCase.lifecycle_type !== "Offboarding") return { action: "manual_checklist_completion" };
   if (NOTE_REQUIRED_TASKS.has(task.task_key) && String(notes).trim().length < 5) {
-    throw httpError(400, "Add completion notes so this internal action has auditable evidence.");
+    throw httpError(400, "Completion evidence must contain at least 5 non-whitespace characters.");
   }
   await assertPrerequisites(queryable, lifecycleCase.lifecycle_case_id, task.task_key);
   const action = ACTIONS[task.task_key];

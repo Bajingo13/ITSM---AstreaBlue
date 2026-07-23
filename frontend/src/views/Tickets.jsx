@@ -47,10 +47,10 @@ const columns = [
 const nonCancellableStatuses = ["Cancelled", "Resolved", "Closed"];
 
 const priorityStyle = {
-  "P1-Critical": "bg-red-600 text-white border-red-700",
-  "P2-High": "bg-red-50 text-red-700 border-red-200",
-  "P3-Medium": "bg-yellow-50 text-yellow-800 border-yellow-200",
-  "P4-Low": "bg-green-50 text-green-700 border-green-200",
+  "P1-Critical": "bg-rose-50 text-rose-700 border-rose-200",
+  "P2-High": "bg-orange-50 text-orange-700 border-orange-200",
+  "P3-Medium": "bg-amber-50 text-amber-800 border-amber-200",
+  "P4-Low": "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
 const priorityDotStyle = {
@@ -565,8 +565,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
   const hasUnsavedChanges =
     !isCancelled && (hasAssignmentChange || hasStatusChange || (canEditPriority && hasPriorityChange));
   const canCancelTicket =
-    (activeRole === "SuperAdmin" ||
-      (activeRole === "Admin" && isOwnBranchTicket)) &&
+    activeRole === "SuperAdmin" &&
     !nonCancellableStatuses.includes(currentStatus);
 
   const selectStatus = (newStatus) => {
@@ -810,17 +809,22 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 <p className="text-xs font-bold text-slate-400">Priority</p>
                 {canEditPriority && !isCancelled ? (
                   <div className="mt-2">
-                    <select
-                      value={selectedPriority}
-                      onChange={(event) => setSelectedPriority(event.target.value)}
-                      disabled={assigning || loading}
-                      className="astrea-control py-2 text-sm font-black"
-                      aria-label="Correct ticket priority"
-                    >
-                      {priorityOptions.map((priority) => (
-                        <option key={priority} value={priority}>{formatPriority(priority)}</option>
-                      ))}
-                    </select>
+                    <div className="grid grid-cols-2 gap-2" role="group" aria-label="Correct ticket priority">
+                      {priorityOptions.map((priority) => {
+                        const selected = selectedPriority === priority;
+                        return <button
+                          key={priority}
+                          type="button"
+                          disabled={assigning || loading}
+                          onClick={() => setSelectedPriority(priority)}
+                          aria-pressed={selected}
+                          className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-black transition ${priorityStyle[priority]} ${selected ? "ring-2 ring-slate-900 ring-offset-1" : "opacity-80 hover:opacity-100"} disabled:cursor-not-allowed disabled:opacity-50`}
+                        >
+                          <span className={`h-2 w-2 rounded-full ${priorityDotStyle[priority]}`} />
+                          {formatPriority(priority)}
+                        </button>;
+                      })}
+                    </div>
                     <p className="mt-2 text-[11px] font-semibold text-blue-700">
                       Admin correction is recorded in the activity timeline.
                     </p>
