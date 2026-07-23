@@ -141,7 +141,10 @@ router.post("/forgot-password", async (req, res) => {
 
   let pendingToken = null;
   try {
-    const userResult = await db.query("SELECT user_id FROM users WHERE LOWER(email) = $1 LIMIT 1", [email]);
+    const userResult = await db.query(
+      "SELECT user_id FROM users WHERE LOWER(email) = $1 AND COALESCE(is_active, TRUE) = TRUE LIMIT 1",
+      [email]
+    );
     
     if (userResult.rows.length > 0) {
       const userId = userResult.rows[0].user_id;
@@ -202,7 +205,13 @@ router.post("/reset-password", async (req, res) => {
 
   try {
     const resetResult = await db.query(
-      "SELECT reset_id, user_id FROM password_resets WHERE token = $1 AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP",
+      `SELECT pr.reset_id, pr.user_id
+         FROM password_resets pr
+         JOIN users u ON u.user_id = pr.user_id
+        WHERE pr.token = $1
+          AND pr.used_at IS NULL
+          AND pr.expires_at > CURRENT_TIMESTAMP
+          AND COALESCE(u.is_active, TRUE) = TRUE`,
       [token]
     );
 

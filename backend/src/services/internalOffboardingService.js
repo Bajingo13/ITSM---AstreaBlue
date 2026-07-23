@@ -45,6 +45,10 @@ async function disableAccess(queryable, context) {
       RETURNING user_id`,
     [context.employee.user_id]
   );
+  await queryable.query(
+    "UPDATE password_resets SET used_at=CURRENT_TIMESTAMP WHERE user_id=$1 AND used_at IS NULL",
+    [context.employee.user_id]
+  );
   return { action: "astreablue_account_deactivated", employeeId: context.employee.user_id, affected: result.rowCount };
 }
 

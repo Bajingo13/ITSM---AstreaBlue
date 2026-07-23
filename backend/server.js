@@ -2558,13 +2558,23 @@ app.patch("/api/v1/users/:id/reset-password", requireSuperAdminRequest, async (r
       `
       UPDATE users
       SET password_hash = $1
-      WHERE user_id = $2
+      WHERE user_id = $2 AND COALESCE(is_active, TRUE) = TRUE
       RETURNING user_id
       `,
       [hashedPwd, id]
     );
 
     if (result.rows.length === 0) {
+      const userResult = await db.query(
+        "SELECT COALESCE(is_active, TRUE) AS is_active FROM users WHERE user_id = $1",
+        [id]
+      );
+      if (userResult.rows.length && !userResult.rows[0].is_active) {
+        return res.status(409).json({
+          success: false,
+          error: "Reactivate this account before resetting its password.",
+        });
+      }
       return res.status(404).json({ success: false, error: "User not found" });
     }
 
@@ -2610,6 +2620,13 @@ app.patch("/api/v1/users/:id/status", requireSuperAdminRequest, async (req, res)
         success: false,
         error: "User not found",
       });
+    }
+
+    if (!nextIsActive) {
+      await db.query(
+        "UPDATE password_resets SET used_at=CURRENT_TIMESTAMP WHERE user_id=$1 AND used_at IS NULL",
+        [id]
+      );
     }
 
     res.json(result.rows[0]);
