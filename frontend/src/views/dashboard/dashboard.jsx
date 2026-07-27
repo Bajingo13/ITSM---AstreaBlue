@@ -1,5 +1,6 @@
 import { API_URL } from "../../config/api";
 import { useState, useEffect, useCallback } from "react";
+import { formatPriority } from "../../utils/ticketVisuals";
 
 // ─── Constants & Configuration ────────────────────────────────────────────────
 const API_BASE = `${API_URL}/api/v1`;

@@ -58,6 +58,7 @@ import {
   getStatusClasses,
   isMissingAssetValue,
   joinAssetValues,
+  normalizeAssetType,
   toggleArrayValue,
 } from "./assets/assetViewUtils";
 
