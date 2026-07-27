@@ -18,6 +18,8 @@ const codeIds = [];
 const consentIds = [];
 const policyIds = [];
 const ticketIds = [];
+const assetIds = [];
+const userIds = [];
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 
 function managerToken(role = "Admin") {
@@ -111,6 +113,8 @@ test.after(async () => {
   if (codeIds.length) await db.query(`DELETE FROM endpoint_enrollment_codes WHERE enrollment_code_id=ANY($1::bigint[])`, [codeIds]);
   if (consentIds.length) await db.query(`DELETE FROM consent_documents WHERE consent_id=ANY($1::bigint[])`, [consentIds]);
   if (deviceIds.length) await db.query(`DELETE FROM monitored_devices WHERE device_id=ANY($1::bigint[])`, [deviceIds]);
+  if (assetIds.length) await db.query(`DELETE FROM hardware_assets WHERE asset_id=ANY($1::int[])`, [assetIds]);
+  if (userIds.length) await db.query(`DELETE FROM users WHERE user_id=ANY($1::int[])`, [userIds]);
   if (server) await new Promise((resolve) => server.close(resolve));
   await db.rawPool.end();
 });
@@ -324,6 +328,82 @@ test("legacy global token remains available during migration", async () => {
   const response = await agentRequest("/heartbeat", process.env.MONITORING_AGENT_TOKEN, "POST", heartbeatBody(deviceUuid, hostname));
   assert.equal(response.status, 200);
   deviceIds.push((await response.json()).data.device_id);
+});
+
+test("device assignment synchronizes a text employee ID to the linked hardware asset", async () => {
+  const role = await db.query(
+    `SELECT role_id FROM roles WHERE LOWER(role_name)='employee' ORDER BY role_id LIMIT 1`
+  );
+  assert.ok(role.rows[0]?.role_id);
+
+  const unique = crypto.randomUUID();
+  const employee = await db.query(
+    `INSERT INTO users (
+       full_name, email, password_hash, role_id, company_name, branch_id,
+       department, onboarding_status, onboarding_required, is_active
+     ) VALUES ($1,$2,'assignment-test-password-hash',$3,'AstreaBlue',$4,'IT','Completed',false,true)
+     RETURNING user_id`,
+    ["Endpoint Assignment Test", `endpoint-assignment-${unique}@astreablue.test`, role.rows[0].role_id, branchId]
+  );
+  const employeeId = employee.rows[0].user_id;
+  userIds.push(employeeId);
+
+  const consent = await db.query(
+    `INSERT INTO consent_documents (
+       employee_id, employee_full_name, employee_email, form_title, consent_version,
+       monitoring_preferences, status, active, approved_at
+     ) VALUES ($1,'Endpoint Assignment Test',$2,'Endpoint Monitoring Consent','1.0',
+       '[]'::jsonb,'approved',true,CURRENT_TIMESTAMP)
+     RETURNING consent_id`,
+    [employeeId, `endpoint-assignment-${unique}@astreablue.test`]
+  );
+  consentIds.push(consent.rows[0].consent_id);
+
+  const asset = await db.query(
+    `INSERT INTO hardware_assets (
+       serial_number, brand, model_name, asset_name, asset_type, status, branch_id
+     ) VALUES ($1,'AstreaBlue','Assignment Test','Assignment Test Laptop','Laptop','Active',$2)
+     RETURNING asset_id`,
+    [`ASSIGN-${unique}`, branchId]
+  );
+  const assetId = asset.rows[0].asset_id;
+  assetIds.push(assetId);
+
+  const deviceUuid = crypto.randomUUID();
+  const hostname = `ASSIGN-${unique.slice(0, 8)}`;
+  const code = await createEnrollmentCode(hostname);
+  const enrolled = await enroll(code, deviceUuid, hostname);
+  assert.equal(enrolled.response.status, 201);
+
+  const assignment = await adminRequest(
+    `/devices/${enrolled.body.data.device_id}/assign`,
+    "PUT",
+    {
+      assigned_user_id: employeeId,
+      branch_id: branchId,
+      asset_id: assetId,
+      department: "IT",
+      reason: "Assignment regression test",
+    }
+  );
+  const assignmentBody = await assignment.json();
+  assert.equal(assignment.status, 200, JSON.stringify(assignmentBody));
+
+  const linkedAsset = await db.query(
+    `SELECT employee_id, assigned_name, status FROM hardware_assets WHERE asset_id=$1`,
+    [assetId]
+  );
+  assert.equal(linkedAsset.rows[0].employee_id, String(employeeId));
+  assert.equal(linkedAsset.rows[0].assigned_name, "Endpoint Assignment Test");
+  assert.equal(linkedAsset.rows[0].status, "In Use");
+
+  const linkedDevice = await db.query(
+    `SELECT assigned_user_id, branch_id, asset_id FROM monitored_devices WHERE device_id=$1`,
+    [enrolled.body.data.device_id]
+  );
+  assert.equal(linkedDevice.rows[0].assigned_user_id, employeeId);
+  assert.equal(linkedDevice.rows[0].branch_id, branchId);
+  assert.equal(linkedDevice.rows[0].asset_id, assetId);
 });
 
 test("approved consent policy becomes the agent baseline without a manual policy assignment", async () => {

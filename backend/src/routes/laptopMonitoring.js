@@ -1750,10 +1750,10 @@ router.put("/devices/:id/assign", requireAdmin, async (req, res) => {
              assigned_name=$2,
              department=$3,
              branch_id=$4,
-             assigned_date=CASE WHEN $1::integer IS NOT NULL THEN CURRENT_DATE ELSE assigned_date END,
+             assigned_date=CASE WHEN $1::varchar IS NOT NULL THEN CURRENT_DATE ELSE assigned_date END,
              status=CASE
-               WHEN $1::integer IS NOT NULL AND status IN ('Active', 'Available', 'In Stock') THEN 'In Use'
-               WHEN $1::integer IS NULL AND status='In Use' THEN 'Available'
+               WHEN $1::varchar IS NOT NULL AND status IN ('Active', 'Available', 'In Stock') THEN 'In Use'
+               WHEN $1::varchar IS NULL AND status='In Use' THEN 'Available'
                ELSE status
              END,
              updated_at=CURRENT_TIMESTAMP
