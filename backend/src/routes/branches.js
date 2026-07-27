@@ -1,99 +1,36 @@
 const express = require("express");
 const db = require("../../config/db");
+const {
+  getAuthFromRequest,
+  requireAuthenticatedRequest,
+  requireSuperAdminRequest,
+} = require("../middleware/legacyJwtAuth");
 
 const router = express.Router();
 
-async function ensureRoleBranchManagement() {
+router.get("/", requireAuthenticatedRequest, async (req, res) => {
   try {
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS branches (
-        branch_id SERIAL PRIMARY KEY,
-        branch_code VARCHAR(50),
-        branch_name VARCHAR(150) NOT NULL,
-        region VARCHAR(100),
-        province VARCHAR(100),
-        city_municipality VARCHAR(150),
-        branch_location VARCHAR(255),
-        is_headquarters BOOLEAN DEFAULT FALSE,
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    const auth = getAuthFromRequest(req);
+    let whereClause = "";
+    const params = [];
 
-    await db.query(`
-      ALTER TABLE branches
-      ADD COLUMN IF NOT EXISTS branch_code VARCHAR(50),
-      ADD COLUMN IF NOT EXISTS region VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS province VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS city_municipality VARCHAR(150),
-      ADD COLUMN IF NOT EXISTS is_headquarters BOOLEAN DEFAULT FALSE
-    `);
+    const role = String(auth.role || "").toLowerCase();
+    if (role !== "superadmin") {
+      if (!auth.branchId) {
+        return res
+          .status(403)
+          .json({ success: false, error: "Branch access denied." });
+      }
 
-    await db.query(`
-      ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id),
-      ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE,
-      ADD COLUMN IF NOT EXISTS mobile_number VARCHAR(20)
-    `);
+      whereClause = "WHERE b.branch_id = $1";
+      params.push(auth.branchId);
+    }
 
-    await db.query(`
-      ALTER TABLE tickets
-      ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id)
-    `);
-
-    await db.query(`
-      INSERT INTO system_roles (role_name)
-      SELECT role_name
-      FROM (VALUES
-        ('SuperAdmin'),
-        ('Admin'),
-        ('Technician'),
-        ('Employee')
-      ) AS required_roles(role_name)
-      WHERE NOT EXISTS (
-        SELECT 1
-        FROM system_roles sr
-        WHERE LOWER(sr.role_name) = LOWER(required_roles.role_name)
-      )
-    `);
-
-    await db.query(`
-      INSERT INTO users
-      (full_name, email, password_hash, role_id, company_name, status, is_active)
-      SELECT
-        'Super Administrator',
-        'superadmin@astreablue.com',
-        'superadmin123',
-        sr.role_id,
-        'AstreaBlue',
-        'Active',
-        TRUE
-      FROM system_roles sr
-      WHERE LOWER(sr.role_name) = 'superadmin'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM users u
-          WHERE LOWER(u.email) = 'superadmin@astreablue.com'
-        )
-      LIMIT 1
-    `);
-  } catch (err) {
-    console.error("Role/branch setup error:", err.message);
-  }
-}
-
-ensureRoleBranchManagement();
-
-router.get("/", async (req, res) => {
-  try {
-    const result = await db.query(`
+    const result = await db.query(
+      `
       SELECT
         b.branch_id,
-        b.branch_code,
-        COALESCE(b.branch_name, 'Unassigned Branch') AS branch_name,
-        b.region,
-        b.province,
-        b.city_municipality,
+        b.branch_name,
         b.branch_location,
         b.is_headquarters,
         b.is_active,
@@ -113,13 +50,15 @@ router.get("/", async (req, res) => {
         ORDER BY u.user_id ASC
         LIMIT 1
       ) admin ON TRUE
+      ${whereClause}
       ORDER BY b.branch_name ASC
-    `);
+      `,
+      params
+    );
 
     res.json(result.rows);
   } catch (err) {
     console.error("Fetch branches error:", err.message);
-
     res.status(500).json({
       success: false,
       error: "Failed to fetch branches",
@@ -127,14 +66,10 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.post("/", async (req, res) => {
+router.post("/", requireSuperAdminRequest, async (req, res) => {
   try {
     const {
       branch_name,
-      branch_code = null,
-      region = null,
-      province = null,
-      city_municipality = null,
       branch_location = null,
       is_active = true,
       is_headquarters = false,
@@ -150,26 +85,16 @@ router.post("/", async (req, res) => {
 
     const result = await db.query(
       `
-      INSERT INTO branches
-      (branch_name, branch_code, region, province, city_municipality, branch_location, is_active, is_headquarters)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO branches (branch_name, branch_location, is_active, is_headquarters)
+      VALUES ($1, $2, $3, $4)
       RETURNING *
       `,
-      [
-        branch_name,
-        branch_code,
-        region,
-        province,
-        city_municipality,
-        branch_location,
-        is_active,
-        is_headquarters,
-      ]
+      [branch_name, branch_location, is_active, is_headquarters]
     );
 
     if (admin_user_id) {
       await db.query(
-        `UPDATE users SET branch_id = $1 WHERE user_id = $2`,
+        "UPDATE users SET branch_id = $1 WHERE user_id = $2",
         [result.rows[0].branch_id, admin_user_id]
       );
     }
@@ -177,7 +102,6 @@ router.post("/", async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("Create branch error:", err.message);
-
     res.status(500).json({
       success: false,
       error: "Failed to create branch",
@@ -185,15 +109,11 @@ router.post("/", async (req, res) => {
   }
 });
 
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const {
       branch_name,
-      branch_code = null,
-      region = null,
-      province = null,
-      city_municipality = null,
       branch_location = null,
       is_active = true,
       is_headquarters = false,
@@ -212,27 +132,13 @@ router.put("/:id", async (req, res) => {
       UPDATE branches
       SET
         branch_name = $1,
-        branch_code = $2,
-        region = $3,
-        province = $4,
-        city_municipality = $5,
-        branch_location = $6,
-        is_active = $7,
-        is_headquarters = $8
-      WHERE branch_id = $9
+        branch_location = $2,
+        is_active = $3,
+        is_headquarters = $4
+      WHERE branch_id = $5
       RETURNING *
       `,
-      [
-        branch_name,
-        branch_code,
-        region,
-        province,
-        city_municipality,
-        branch_location,
-        is_active,
-        is_headquarters,
-        id,
-      ]
+      [branch_name, branch_location, is_active, is_headquarters, id]
     );
 
     if (result.rows.length === 0) {
@@ -244,7 +150,7 @@ router.put("/:id", async (req, res) => {
 
     if (admin_user_id) {
       await db.query(
-        `UPDATE users SET branch_id = $1 WHERE user_id = $2`,
+        "UPDATE users SET branch_id = $1 WHERE user_id = $2",
         [id, admin_user_id]
       );
     }
@@ -252,7 +158,6 @@ router.put("/:id", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error("Update branch error:", err.message);
-
     res.status(500).json({
       success: false,
       error: "Failed to update branch",
@@ -260,7 +165,7 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-router.patch("/:id/status", async (req, res) => {
+router.patch("/:id/status", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const { is_active } = req.body;
@@ -292,7 +197,6 @@ router.patch("/:id/status", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error("Update branch status error:", err.message);
-
     res.status(500).json({
       success: false,
       error: "Failed to update branch status",
@@ -300,7 +204,7 @@ router.patch("/:id/status", async (req, res) => {
   }
 });
 
-router.patch("/:id/admin", async (req, res) => {
+router.patch("/:id/admin", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const { user_id } = req.body;
@@ -332,7 +236,6 @@ router.patch("/:id/admin", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error("Assign branch admin error:", err.message);
-
     res.status(500).json({
       success: false,
       error: "Failed to assign branch admin",

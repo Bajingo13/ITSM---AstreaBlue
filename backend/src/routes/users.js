@@ -1,61 +1,42 @@
 const express = require("express");
 const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
 const db = require("../../config/db");
+const {
+  getAuthFromRequest,
+  requireAuthenticatedRequest,
+  requireSuperAdminRequest,
+} = require("../middleware/legacyJwtAuth");
 
 const router = express.Router();
 
-async function ensureUserStatusColumn() {
+router.get("/", requireAuthenticatedRequest, async (req, res) => {
   try {
-    await db.query(`
-      ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Active',
-      ADD COLUMN IF NOT EXISTS personal_email VARCHAR(255),
-      ADD COLUMN IF NOT EXISTS company_email VARCHAR(255),
-      ADD COLUMN IF NOT EXISTS invite_token VARCHAR(120),
-      ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMP,
-      ADD COLUMN IF NOT EXISTS invite_used_at TIMESTAMP,
-      ADD COLUMN IF NOT EXISTS invite_status VARCHAR(20)
-    `);
-  } catch (err) {
-    console.error("User status column setup error:", err.message);
-  }
-}
+    const auth = getAuthFromRequest(req);
+    let whereClause = "";
+    const params = [];
 
-async function ensureInvitesTable() {
-  try {
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS user_invites (
-        invite_id SERIAL PRIMARY KEY,
-        token VARCHAR(120) UNIQUE NOT NULL,
-        email VARCHAR(255) NOT NULL,
-        full_name VARCHAR(255),
-        role_id INTEGER REFERENCES system_roles(role_id),
-        branch_id INTEGER REFERENCES branches(branch_id),
-        company_name VARCHAR(255),
-        mobile_number VARCHAR(20),
-        invited_by INTEGER REFERENCES users(user_id),
-        accepted_at TIMESTAMP,
-        expires_at TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-  } catch (err) {
-    console.error("Invites setup error:", err.message);
-  }
-}
+    const role = String(auth.role || "").toLowerCase();
+    if (role === "employee") {
+      whereClause = "WHERE u.user_id = $1";
+      params.push(auth.userId);
+    } else if (role !== "superadmin") {
+      if (!auth.branchId) {
+        return res
+          .status(403)
+          .json({ success: false, error: "Branch access denied." });
+      }
 
-ensureUserStatusColumn();
-ensureInvitesTable();
+      whereClause = "WHERE u.branch_id = $1";
+      params.push(auth.branchId);
+    }
 
-router.get("/", async (req, res) => {
-  try {
-    const result = await db.query(`
+    const result = await db.query(
+      `
       SELECT
         u.user_id,
         u.full_name,
         u.email,
-        u.personal_email,
-        u.company_email,
         u.company_name,
         u.mobile_number,
         u.branch_id,
@@ -73,8 +54,11 @@ router.get("/", async (req, res) => {
         ON u.role_id = sr.role_id
       LEFT JOIN branches b
         ON u.branch_id = b.branch_id
+      ${whereClause}
       ORDER BY u.created_at DESC, u.user_id DESC
-    `);
+      `,
+      params
+    );
 
     res.json(result.rows);
   } catch (err) {
@@ -87,13 +71,11 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.post("/", async (req, res) => {
+router.post("/", requireSuperAdminRequest, async (req, res) => {
   try {
     const {
       full_name,
       email,
-      personal_email = null,
-      company_email = null,
       password,
       password_hash,
       role_id,
@@ -115,19 +97,19 @@ router.post("/", async (req, res) => {
       });
     }
 
+    const hashedPwd = bcrypt.hashSync(finalPassword, 12);
+
     const result = await db.query(
       `
       INSERT INTO users
-      (full_name, email, personal_email, company_email, password_hash, role_id, company_name, branch_id, mobile_number, status, is_active)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING user_id, full_name, email, personal_email, company_email, company_name, branch_id, mobile_number, role_id, status, is_active, created_at
+      (full_name, email, password_hash, role_id, company_name, branch_id, mobile_number, status, is_active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING user_id, full_name, email, company_name, branch_id, mobile_number, role_id, status, is_active, created_at
       `,
       [
         full_name,
         email,
-        personal_email,
-        company_email,
-        finalPassword,
+        hashedPwd,
         role_id,
         company_name,
         branch_id || null,
@@ -155,14 +137,12 @@ router.post("/", async (req, res) => {
   }
 });
 
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const {
       full_name,
       email,
-      personal_email = null,
-      company_email = null,
       role_id,
       company_name = null,
       branch_id = null,
@@ -186,22 +166,18 @@ router.put("/:id", async (req, res) => {
       SET
         full_name = $1,
         email = $2,
-        personal_email = $3,
-        company_email = $4,
-        role_id = $5,
-        company_name = $6,
-        status = $7,
-        is_active = $8,
-        branch_id = $9,
-        mobile_number = $10
-      WHERE user_id = $11
-      RETURNING user_id, full_name, email, personal_email, company_email, company_name, branch_id, mobile_number, role_id, status, is_active, created_at
+        role_id = $3,
+        company_name = $4,
+        status = $5,
+        is_active = $6,
+        branch_id = $7,
+        mobile_number = $8
+      WHERE user_id = $9
+      RETURNING user_id, full_name, email, company_name, branch_id, mobile_number, role_id, status, is_active, created_at
       `,
       [
         full_name,
         email,
-        personal_email,
-        company_email,
         role_id,
         company_name,
         finalIsActive ? "Active" : "Inactive",
@@ -230,58 +206,64 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-router.patch("/:id/reset-password", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { password, password_hash } = req.body;
-    const finalPassword = password_hash || password;
+router.patch(
+  "/:id/reset-password",
+  requireSuperAdminRequest,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { password, password_hash } = req.body;
+      const finalPassword = password_hash || password;
 
-    if (!finalPassword) {
-      return res.status(400).json({
-        success: false,
-        error: "Temporary password is required",
-      });
-    }
-
-    const result = await db.query(
-      `
-      UPDATE users
-      SET password_hash = $1
-      WHERE user_id = $2 AND COALESCE(is_active, TRUE) = TRUE
-      RETURNING user_id
-      `,
-      [finalPassword, id]
-    );
-
-    if (result.rows.length === 0) {
-      const userResult = await db.query(
-        "SELECT COALESCE(is_active, TRUE) AS is_active FROM users WHERE user_id = $1",
-        [id]
-      );
-      if (userResult.rows.length && !userResult.rows[0].is_active) {
-        return res.status(409).json({
+      if (!finalPassword) {
+        return res.status(400).json({
           success: false,
-          error: "Reactivate this account before resetting its password.",
+          error: "Temporary password is required",
         });
       }
-      return res.status(404).json({
+
+      const hashedPwd = bcrypt.hashSync(finalPassword, 12);
+
+      const result = await db.query(
+        `
+        UPDATE users
+        SET password_hash = $1
+        WHERE user_id = $2 AND COALESCE(is_active, TRUE) = TRUE
+        RETURNING user_id
+        `,
+        [hashedPwd, id]
+      );
+
+      if (result.rows.length === 0) {
+        const userResult = await db.query(
+          "SELECT COALESCE(is_active, TRUE) AS is_active FROM users WHERE user_id = $1",
+          [id]
+        );
+        if (userResult.rows.length && !userResult.rows[0].is_active) {
+          return res.status(409).json({
+            success: false,
+            error: "Reactivate this account before resetting its password.",
+          });
+        }
+        return res.status(404).json({
+          success: false,
+          error: "User not found",
+        });
+      }
+
+      res.json({ success: true, message: "Password reset successfully" });
+    } catch (err) {
+      console.error("Reset password error:", err.message);
+
+      res.status(500).json({
         success: false,
-        error: "User not found",
+        error: "Failed to reset password",
       });
     }
-
-    res.json({ success: true, message: "Password reset successfully" });
-  } catch (err) {
-    console.error("Reset password error:", err.message);
-
-    res.status(500).json({
-      success: false,
-      error: "Failed to reset password",
-    });
   }
-});
+);
 
-router.patch("/:id/status", async (req, res) => {
+router.patch("/:id/status", requireSuperAdminRequest, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -332,7 +314,7 @@ router.patch("/:id/status", async (req, res) => {
   }
 });
 
-router.post("/invite", async (req, res) => {
+router.post("/invite", requireSuperAdminRequest, async (req, res) => {
   try {
     const {
       full_name,

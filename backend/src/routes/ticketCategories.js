@@ -1,5 +1,8 @@
 const express = require("express");
 const db = require("../../config/db");
+const {
+  getAuthFromRequest,
+} = require("../middleware/legacyJwtAuth");
 
 const router = express.Router();
 
@@ -26,48 +29,89 @@ router.get("/", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
+  const user = getAuthFromRequest(req);
+  if (!user) {
+    return res
+      .status(401)
+      .json({ success: false, error: "Authentication required." });
+  }
+
+  const categoryName = String(req.body?.category_name || "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (
+    !categoryName ||
+    categoryName.length > 100 ||
+    categoryName.toLowerCase() === "other"
+  ) {
+    return res.status(400).json({
+      success: false,
+      error: "Specify a valid category up to 100 characters.",
+    });
+  }
+
   try {
-    const { category_name } = req.body;
-
-    if (!category_name || !category_name.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: "Category name is required.",
-      });
-    }
-
-    const trimmed = category_name.trim();
-
-    // Case-insensitive duplicate check
     const existing = await db.query(
-      `SELECT category_id, category_name FROM ticket_categories WHERE LOWER(category_name) = LOWER($1)`,
-      [trimmed]
+      `
+      SELECT category_id, category_name, description
+      FROM ticket_categories
+      WHERE LOWER(category_name) = LOWER($1)
+      LIMIT 1
+      `,
+      [categoryName]
     );
 
-    if (existing.rows.length > 0) {
+    if (existing.rows.length) {
       return res.json({
         success: true,
-        category: existing.rows[0],
         message: "Category already exists.",
+        category: existing.rows[0],
+        created: false,
       });
     }
 
-    const result = await db.query(
-      `INSERT INTO ticket_categories (category_name) VALUES ($1) RETURNING category_id, category_name`,
-      [trimmed]
-    );
+    try {
+      const inserted = await db.query(
+        `
+        INSERT INTO ticket_categories (category_name)
+        VALUES ($1)
+        RETURNING category_id, category_name, description
+        `,
+        [categoryName]
+      );
 
-    res.status(201).json({
-      success: true,
-      category: result.rows[0],
-      message: "Category created.",
-    });
-  } catch (err) {
-    console.error("Create category error:", err.message);
+      return res.status(201).json({
+        success: true,
+        message: "Category created.",
+        category: inserted.rows[0],
+        created: true,
+      });
+    } catch (insertError) {
+      if (insertError.code !== "23505") throw insertError;
 
-    res.status(500).json({
+      const concurrent = await db.query(
+        `
+        SELECT category_id, category_name, description
+        FROM ticket_categories
+        WHERE LOWER(category_name) = LOWER($1)
+        LIMIT 1
+        `,
+        [categoryName]
+      );
+
+      return res.json({
+        success: true,
+        message: "Category already exists.",
+        category: concurrent.rows[0],
+        created: false,
+      });
+    }
+  } catch (error) {
+    console.error("Create ticket category error:", error.message);
+    return res.status(500).json({
       success: false,
-      error: "Failed to create ticket category",
+      error: "Failed to save ticket category.",
     });
   }
 });

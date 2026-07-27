@@ -1,9 +1,12 @@
 const express = require("express");
 const db = require("../../config/db");
+const {
+  requireAuthenticatedRequest,
+} = require("../middleware/legacyJwtAuth");
 
 const router = express.Router();
 
-router.get("/", async (req, res) => {
+router.get("/", requireAuthenticatedRequest, async (req, res) => {
   try {
     const result = await db.query(`
       SELECT role_id, role_name
@@ -12,8 +15,9 @@ router.get("/", async (req, res) => {
         CASE LOWER(role_name)
           WHEN 'superadmin' THEN 1
           WHEN 'admin' THEN 2
-          WHEN 'technician' THEN 3
-          WHEN 'employee' THEN 4
+          WHEN 'hr' THEN 3
+          WHEN 'technician' THEN 4
+          WHEN 'employee' THEN 5
           ELSE 5
         END,
         role_name ASC

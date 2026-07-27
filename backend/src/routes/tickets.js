@@ -1528,5 +1528,46 @@ router.patch("/:id/cancel", async (req, res) => {
   }
 });
 
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await db.query(
+      `SELECT id, ticket_number, status FROM tickets WHERE id = $1`,
+      [id]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Ticket not found",
+      });
+    }
+
+    await db.query(
+      `UPDATE knowledge_base
+       SET related_ticket_id = NULL
+       WHERE related_ticket_id = $1`,
+      [id]
+    );
+
+    await db.query(
+      `DELETE FROM tickets
+       WHERE id = $1`,
+      [id]
+    );
+
+    res.json({
+      success: true,
+      message: "Ticket deleted successfully",
+    });
+  } catch (err) {
+    console.error("Delete ticket error:", err.message);
+    res.status(500).json({
+      success: false,
+      error: "Failed to delete ticket",
+    });
+  }
+});
+
 module.exports = router;
 module.exports.ticketSchemaReady = ticketSchemaReady;

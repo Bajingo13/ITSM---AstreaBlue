@@ -510,7 +510,7 @@ router.get("/:token", async (req, res) => {
   }
 });
 
-router.post("/:token/complete", async (req, res) => {
+async function completeInvite(req, res) {
   try {
     const { password, confirm_password } = req.body;
 
@@ -614,6 +614,15 @@ router.post("/:token/complete", async (req, res) => {
     console.error("Complete invite error:", err.message);
     res.status(500).json({ success: false, error: "Failed to complete invite." });
   }
+}
+
+router.post("/:token/complete", completeInvite);
+
+router.post("/:token/accept", (req, res) => {
+  if (!req.body?.confirm_password && req.body?.password) {
+    req.body.confirm_password = req.body.password;
+  }
+  return completeInvite(req, res);
 });
 
 

@@ -29,13 +29,20 @@ Thumbs.db
 # Cache
 .cache/
 .eslintcache
+.npx-cache/
+.venv-pdf/
+tmp/
 
 # Vite
 .vite/
 
 # Coverage
 coverage/
+output/
+outputs/
 
 agent/
 agent-windows/agent-config.local.json
 agent-windows/AstreaBlue-Native-Agent-Windows.zip
+agent-windows.zip
+AstreaBlue-Agent-Windows.zip
