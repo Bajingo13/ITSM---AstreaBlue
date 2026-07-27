@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { CheckCircle } from "lucide-react";
 import { resetPassword } from "./context/AuthService";
+import { isStrongPassword, STRONG_PASSWORD_MESSAGE } from "./utils/passwordPolicy";
 
 export default function ResetPassword() {
   const { token } = useParams();
@@ -23,8 +24,8 @@ export default function ResetPassword() {
       return setError("Passwords do not match.");
     }
     
-    if (password.length < 8) {
-      return setError("Password must be at least 8 characters.");
+    if (!isStrongPassword(password)) {
+      return setError(STRONG_PASSWORD_MESSAGE);
     }
 
     setLoading(true);
@@ -62,7 +63,7 @@ export default function ResetPassword() {
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#2563EB] shadow-sm">
                 <CheckCircle size={17} />
               </span>
-              <span>Must be at least 8 characters</span>
+              <span>{STRONG_PASSWORD_MESSAGE}</span>
             </div>
           </div>
         </div>

@@ -28,9 +28,18 @@ const STATUS_TRANSITIONS = {
 
 const STATUS_LABELS = {
   "In Progress": "Checklist in Progress",
-  "Awaiting Employee": "Waiting for Employee Action",
-  "Awaiting IT": "Waiting for Administrator Action",
-  "Ready for Verification": "Ready for Final Review",
+  "Awaiting Employee": "Paused — Employee Action Required",
+  "Awaiting IT": "Paused — Administrator Action Required",
+  "Ready for Verification": "Ready for Authorized Final Review",
+};
+
+const STATUS_HELP = {
+  "In Progress": "Required checklist work is currently being completed.",
+  "Awaiting Employee": "Use this when progress is blocked until the employee activates the account, completes required consent or profile steps, or performs another requested employee action.",
+  "Awaiting IT": "Use this when progress is blocked until an authorized administrator creates the invitation, approves consent, assigns an asset, verifies the endpoint, or completes another administrator-owned task.",
+  "Ready for Verification": "All required checklist evidence should be complete. An authorized HR, Admin, or SuperAdmin with access to the case performs the final review before completion.",
+  Cancelled: "Stops this lifecycle case without completing it. The cancellation remains in the audit history.",
+  Completed: "Closes the lifecycle case after every required checklist item has evidence.",
 };
 
 function statusLabel(status) {
@@ -461,7 +470,13 @@ function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus
             </article>;
           })}</div>
         </section>
-        <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm"><h3 className="font-black">Case actions</h3><p className="mt-1 text-sm text-slate-500">{details.lifecycle_type === "Offboarding" ? "Start with the checklist. The case begins automatically after the first completed action and becomes ready for final review after every required task is complete." : "The case can be completed only after every required checklist item is complete and it is ready for final review."}</p><div className="mt-4 flex flex-wrap gap-2">{workflowTransitions.length ? workflowTransitions.map((status) => <button key={status} disabled={busy} onClick={() => void onStatus(status)} className={`rounded-xl border px-4 py-2.5 text-sm font-black ${status === "Cancelled" ? "border-rose-200 text-rose-700 hover:bg-rose-50" : "border-blue-200 bg-blue-600 text-white hover:bg-blue-700"}`}>{statusLabel(status)}</button>) : <span className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-500">{details.lifecycle_type === "Offboarding" && details.status !== "Completed" ? "Complete the checklist in order to continue" : "No further actions"}</span>}</div></section>
+        <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+          <h3 className="font-black">Case actions</h3>
+          <p className="mt-1 text-sm text-slate-500">{details.lifecycle_type === "Offboarding" ? "Start with the checklist. The case begins automatically after the first completed action and becomes ready for final review after every required task is complete." : "Choose a pause state only when work is genuinely blocked. Completion is allowed only after all required checklist evidence is complete."}</p>
+          <div className="mt-4 grid gap-2">
+            {workflowTransitions.length ? workflowTransitions.map((status) => <button key={status} disabled={busy} onClick={() => void onStatus(status)} className={`rounded-xl border px-4 py-3 text-left transition ${status === "Cancelled" ? "border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100" : "border-blue-200 bg-blue-50 text-blue-950 hover:border-blue-400 hover:bg-blue-100"}`}><span className="block text-sm font-black">{statusLabel(status)}</span><span className="mt-1 block text-xs font-semibold leading-5 opacity-80">{STATUS_HELP[status]}</span></button>) : <span className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-500">{details.lifecycle_type === "Offboarding" && details.status !== "Completed" ? "Complete the checklist in order to continue" : "No further actions"}</span>}
+          </div>
+        </section>
         <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm"><h3 className="font-black">Audit history</h3><div className="mt-4 space-y-4 border-l-2 border-blue-100 pl-5">{details.history?.map((event) => <div key={event.lifecycle_history_id} className="relative"><span className="absolute -left-[27px] top-1 h-3 w-3 rounded-full border-2 border-blue-600 bg-white"/><p className="font-bold text-slate-900">{workflowMessage(event.message)}</p><p className="text-xs text-slate-500">{event.changed_by_name || "System"} · {formatDate(event.created_at, true)}</p></div>)}</div></section>
         <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-sm text-cyan-900"><strong>Monitoring safeguard:</strong> lifecycle actions never reinstall an agent or rotate a healthy device credential. Endpoint assignment and diagnostics continue through the existing Endpoint Management workflow.</div>
       </div>

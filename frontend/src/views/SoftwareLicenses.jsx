@@ -515,8 +515,9 @@ function RenewLicenseModal({ license, history, historyLoading, onClose, onRenew,
             <Field label="Current Expiry"><input value={formatDateInput(license.expiry_date)} disabled className={inputClass}/></Field>
             <Field label="New Expiry Date" required><input type="date" required value={form.new_expiry_date} onChange={(event) => setForm((current) => ({ ...current, new_expiry_date: event.target.value }))} className={inputClass}/></Field>
             <Field label="Renewal Cost"><input type="number" min="0" step="0.01" value={form.annual_cost} onChange={(event) => setForm((current) => ({ ...current, annual_cost: event.target.value }))} className={inputClass}/></Field>
-            <Field label="Invoice / Reference"><input value={form.renewal_reference} onChange={(event) => setForm((current) => ({ ...current, renewal_reference: event.target.value }))} placeholder="Optional reference number" className={inputClass}/></Field>
+            <Field label="Invoice / Purchase Reference"><input value={form.renewal_reference} onChange={(event) => setForm((current) => ({ ...current, renewal_reference: event.target.value }))} placeholder="e.g. INV-2026-0042 or PO-1187" className={inputClass}/></Field>
           </div>
+          <p className="-mt-2 text-xs font-semibold text-slate-500">This identifies the vendor invoice, purchase order, or approval record. It is saved with this renewal and remains visible in Renewal History below.</p>
           <Field label="Renewal Notes"><textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} rows={3} placeholder="Vendor, procurement, or approval notes" className={inputClass}/></Field>
 
           {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">{error}</div>}
@@ -528,7 +529,7 @@ function RenewLicenseModal({ license, history, historyLoading, onClose, onRenew,
                 {history.map((item) => <div key={item.renewal_id} className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
                   <p className="font-black text-slate-800">{formatDate(item.previous_expiry_date)} → {formatDate(item.new_expiry_date)}</p>
                   <p className="mt-1">{item.renewed_by_name || "System"} · {new Date(item.renewed_at).toLocaleString("en-PH")}</p>
-                  {item.renewal_reference && <p className="mt-1">Reference: {item.renewal_reference}</p>}
+                  <p className="mt-1"><span className="font-bold text-slate-700">Invoice / purchase reference:</span> {item.renewal_reference || "Not recorded"}</p>
                 </div>)}
               </div>
             )}

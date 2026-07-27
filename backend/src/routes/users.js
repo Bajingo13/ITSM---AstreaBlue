@@ -7,6 +7,7 @@ const {
   requireAuthenticatedRequest,
   requireSuperAdminRequest,
 } = require("../middleware/legacyJwtAuth");
+const { validateStrongPassword } = require("../services/passwordPolicyService");
 
 const router = express.Router();
 
@@ -94,6 +95,14 @@ router.post("/", requireSuperAdminRequest, async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Full name, email, temporary password, and role are required",
+      });
+    }
+
+    const passwordValidation = validateStrongPassword(finalPassword);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: passwordValidation.message,
       });
     }
 
@@ -219,6 +228,14 @@ router.patch(
         return res.status(400).json({
           success: false,
           error: "Temporary password is required",
+        });
+      }
+
+      const passwordValidation = validateStrongPassword(finalPassword);
+      if (!passwordValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: passwordValidation.message,
         });
       }
 

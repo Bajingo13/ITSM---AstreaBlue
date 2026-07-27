@@ -9,6 +9,7 @@ const JWT_EXPIRES = "8h";
 
 const bcrypt = require("bcryptjs");
 const { getMissingSmtpConfig, sendPasswordResetEmail } = require("../services/emailService");
+const { validateStrongPassword } = require("../services/passwordPolicyService");
 
 function passwordMatches(inputPassword, storedPassword) {
   if (!storedPassword) return false;
@@ -199,8 +200,9 @@ router.post("/reset-password", async (req, res) => {
     return res.status(400).json({ success: false, message: "Token and password are required" });
   }
 
-  if (password.length < 8) {
-    return res.status(400).json({ success: false, message: "Password must be at least 8 characters" });
+  const passwordValidation = validateStrongPassword(password);
+  if (!passwordValidation.valid) {
+    return res.status(400).json({ success: false, message: passwordValidation.message });
   }
 
   try {

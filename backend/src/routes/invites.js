@@ -8,6 +8,7 @@ const {
   sendAccountActivatedEmail,
   sendAccountActivatedReminderEmail,
 } = require("../services/emailService");
+const { validateStrongPassword } = require("../services/passwordPolicyService");
 
 const router = express.Router();
 
@@ -603,6 +604,14 @@ async function completeInvite(req, res) {
             ? reminderResult?.error || "Personal reminder delivery failed."
             : null),
       };
+    }
+
+    const passwordValidation = validateStrongPassword(password);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: passwordValidation.message,
+      });
     }
 
     res.json({

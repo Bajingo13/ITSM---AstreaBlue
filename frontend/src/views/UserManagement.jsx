@@ -14,6 +14,7 @@ import { useAuth } from "../context/AuthContext";
 import { getAuthToken } from "../context/AuthService";
 import InviteManagement from "./InviteManagement";
 import PageHero from "../components/layout/PageHero";
+import { isStrongPassword, STRONG_PASSWORD_MESSAGE } from "../utils/passwordPolicy";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -553,6 +554,10 @@ function UserFormModal({
       setError("Full name, email, role, and temporary password are required.");
       return;
     }
+    if (!isEditing && !isInvite && !isStrongPassword(form.password)) {
+      setError(STRONG_PASSWORD_MESSAGE);
+      return;
+    }
 
     try {
       setSaving(true);
@@ -782,6 +787,10 @@ function ResetPasswordModal({ user, onClose, onSaved }) {
       setError("Temporary password is required.");
       return;
     }
+    if (!isStrongPassword(password)) {
+      setError(STRONG_PASSWORD_MESSAGE);
+      return;
+    }
 
     try {
       setSaving(true);
@@ -825,6 +834,7 @@ function ResetPasswordModal({ user, onClose, onSaved }) {
             </div>
           )}
           <Field label="New Temporary Password" required value={password} onChange={setPassword} />
+          <p className="-mt-3 text-xs font-semibold text-slate-500">{STRONG_PASSWORD_MESSAGE}</p>
           <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
             <button
               type="button"

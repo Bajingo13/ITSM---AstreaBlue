@@ -1,6 +1,7 @@
 import { API_URL } from "../config/api";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { isStrongPassword, STRONG_PASSWORD_MESSAGE } from "../utils/passwordPolicy";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -39,6 +40,11 @@ export default function InviteRegistration() {
 
     if (!password) {
       setError("Password is required.");
+      return;
+    }
+
+    if (!isStrongPassword(password)) {
+      setError(STRONG_PASSWORD_MESSAGE);
       return;
     }
 
@@ -135,6 +141,7 @@ export default function InviteRegistration() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
               />
+              <p className="mt-2 text-xs font-semibold text-slate-500">{STRONG_PASSWORD_MESSAGE}</p>
             </div>
 
             <div>
