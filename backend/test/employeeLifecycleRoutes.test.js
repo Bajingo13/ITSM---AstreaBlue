@@ -353,6 +353,21 @@ test("offboarding executes only internal AstreaBlue actions and preserves endpoi
   offboardingCaseId = (await response.json()).data.lifecycle_case_id;
 
   const headers = authHeaders(superAdminId, "SuperAdmin", null);
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/employees`, {
+    headers: authHeaders(hrId, "HR", branchId),
+  });
+  assert.equal(response.status, 200);
+  const selectableEmployees = (await response.json()).data;
+  assert.equal(selectableEmployees.some((employee) => Number(employee.user_id) === Number(employeeId)), false);
+
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ lifecycle_type: "Offboarding", employee_id: employeeId }),
+  });
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).message, /active offboarding case/i);
+
   const detailsResponse = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${offboardingCaseId}`, { headers });
   const tasks = (await detailsResponse.json()).data.tasks;
   for (const task of tasks) {
@@ -393,4 +408,12 @@ test("offboarding executes only internal AstreaBlue actions and preserves endpoi
   assert.equal(completedCase.rows[0].status, "Completed");
   assert.equal(Number(completedCase.rows[0].verified_by), Number(superAdminId));
   assert.ok(completedCase.rows[0].completed_at);
+
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ lifecycle_type: "Offboarding", employee_id: employeeId }),
+  });
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).message, /already inactive/i);
 });

@@ -250,7 +250,17 @@ router.get("/employees", async (req, res) => {
               u.onboarding_status,u.onboarding_required,u.is_active
          FROM users u JOIN system_roles r ON r.role_id=u.role_id
          JOIN branches b ON b.branch_id=u.branch_id
-        WHERE LOWER(r.role_name)='employee' AND ${scope}
+        WHERE LOWER(r.role_name)='employee'
+          AND u.is_active=TRUE
+          AND NOT EXISTS (
+            SELECT 1
+              FROM employee_lifecycle_cases active_offboarding
+             WHERE active_offboarding.employee_id=u.user_id
+               AND active_offboarding.lifecycle_type='Offboarding'
+               AND active_offboarding.status NOT IN ('Completed','Cancelled')
+               AND active_offboarding.deleted_at IS NULL
+          )
+          AND ${scope}
         ORDER BY u.full_name`,
       params
     );
@@ -357,7 +367,8 @@ router.post("/cases", async (req, res) => {
     let branchId = requestedBranchId;
     if (employeeId) {
       const employeeResult = await client.query(
-        `SELECT u.user_id,u.branch_id,u.full_name,u.personal_email,u.email,u.employee_number,u.department,r.role_name
+        `SELECT u.user_id,u.branch_id,u.full_name,u.personal_email,u.email,u.employee_number,u.department,
+                u.is_active,r.role_name
            FROM users u JOIN system_roles r ON r.role_id=u.role_id
           WHERE u.user_id=$1 FOR UPDATE OF u`,
         [employeeId]
@@ -365,6 +376,30 @@ router.post("/cases", async (req, res) => {
       employee = employeeResult.rows[0];
       if (!employee || normalizeRole(employee.role_name) !== "employee") {
         throw Object.assign(new Error("The selected employee does not exist."), { status: 404 });
+      }
+      if (type === "Offboarding" && employee.is_active === false) {
+        throw Object.assign(
+          new Error("This employee account is already inactive and cannot be offboarded again."),
+          { status: 409 }
+        );
+      }
+      if (type === "Offboarding") {
+        const activeOffboarding = await client.query(
+          `SELECT lifecycle_case_id,case_number
+             FROM employee_lifecycle_cases
+            WHERE employee_id=$1
+              AND lifecycle_type='Offboarding'
+              AND status NOT IN ('Completed','Cancelled')
+              AND deleted_at IS NULL
+            LIMIT 1`,
+          [employeeId]
+        );
+        if (activeOffboarding.rows.length) {
+          throw Object.assign(
+            new Error(`This employee already has an active offboarding case (${activeOffboarding.rows[0].case_number}).`),
+            { status: 409 }
+          );
+        }
       }
       branchId = Number(employee.branch_id);
     } else {
