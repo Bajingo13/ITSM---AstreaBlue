@@ -149,14 +149,14 @@ export default function UsbDlpMonitoring() {
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="font-black text-slate-900">Active risk scoring guide</h2>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-            <div className="rounded-xl border border-rose-200 bg-rose-50 p-2"><strong>+55</strong><br />Risk extension</div>
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-2"><strong>+35</strong><br />Sensitive name</div>
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-2"><strong>+25</strong><br />Large transfer</div>
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-2"><strong>+55</strong><br />High-risk file extension</div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-2"><strong>+35</strong><br />Sensitive filename keyword</div>
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-2"><strong>+25</strong><br />Large file transfer</div>
           </div>
           <p className="mt-3 text-xs font-semibold text-slate-600">
-            Medium {rules?.thresholds?.medium ?? 25}+ · High {rules?.thresholds?.high ?? 50}+ · Critical {rules?.thresholds?.critical ?? 70}+
+            Low 0–{(rules?.thresholds?.medium ?? 25) - 1} · Medium {rules?.thresholds?.medium ?? 25}–{(rules?.thresholds?.high ?? 50) - 1} · High {rules?.thresholds?.high ?? 50}–{(rules?.thresholds?.critical ?? 70) - 1} · Critical {rules?.thresholds?.critical ?? 70}–100
           </p>
-          <p className="mt-1 text-xs text-slate-500">Current large-transfer threshold: {rules?.largeTransferMb ?? 100} MB. Device-specific policies may override it.</p>
+          <p className="mt-1 text-xs text-slate-500">Matching conditions are added together, up to a maximum score of 100. Current large-transfer threshold: {rules?.largeTransferMb ?? 100} MB. Device-specific policies may override it.</p>
         </div>
       </section>
 
