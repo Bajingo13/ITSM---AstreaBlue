@@ -1097,7 +1097,7 @@ function EmployeeView({ user }) {
           <button
             onClick={handleDownloadPdf}
             disabled={downloading}
-            className={`flex w-full items-center justify-center gap-2 rounded-xl border border-[#2563EB] px-4 py-3 font-bold text-[#2563EB] transition hover:bg-blue-50 ${
+            className={`astrea-button astrea-button-primary w-full ${
               downloading ? "cursor-not-allowed opacity-60" : ""
             }`}
           >

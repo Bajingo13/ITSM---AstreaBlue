@@ -471,7 +471,7 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
               </button>
               <button
                 onClick={() => onLogPrint("download")}
-                className="flex items-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800"
+                className="astrea-button astrea-button-primary"
               >
                 <Download size={16} /> Download PDF
               </button>

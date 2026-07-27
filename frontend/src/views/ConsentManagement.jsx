@@ -501,7 +501,7 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
                 type="button"
                 onClick={downloadPdf}
                 disabled={Boolean(documentAction)}
-                className="flex items-center gap-2 rounded-xl border border-blue-800 bg-blue-700 px-5 py-2.5 text-sm font-bold !text-white shadow-sm hover:bg-blue-800 disabled:cursor-wait disabled:opacity-70"
+                className="astrea-button astrea-button-primary disabled:cursor-wait"
               >
                 <Download size={16} /> {documentAction === "download" ? "Downloading…" : "Download PDF"}
               </button>

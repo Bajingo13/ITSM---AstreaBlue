@@ -1,6 +1,6 @@
 # AstreaBlue Windows Agent Delivery Tracker
 
-Updated: 2026-07-16
+Updated: 2026-07-23
 
 ## P0 — Secure enrollment foundation
 
@@ -35,16 +35,20 @@ Updated: 2026-07-16
 - [x] Per-device authenticated screenshot upload through the Windows service
 - [x] AES-256-GCM encryption before private Cloudflare R2 storage
 - [x] Authenticated, RBAC-scoped screenshot viewing with integrity verification
+- [x] Audited SuperAdmin pause/resume control for employee screenshot capture
 - [x] Configurable screenshot interval and automatic retention deletion
-- [ ] Validate screenshot notification, capture, encrypted storage, and viewing on the first pilot laptop
+- [x] Automated retention test verifies R2 object deletion, metadata removal, and audit recording
+- [x] Validate screenshot notification, capture, encrypted storage, and viewing on the first pilot laptop
 - [ ] Validate screenshot capture across restart and repair on the second pilot laptop
 - [x] Consent/policy-gated native USB insertion/removal collector
 - [x] USB write-transfer metadata collector (file contents are never collected)
-- [x] Server-authoritative DLP risk scoring and matched-rule audit data
-- [x] RBAC/branch-scoped USB and DLP operations dashboard
+- [x] Server-authoritative, policy-configurable DLP risk scoring and matched-rule audit data
+- [x] RBAC/branch-scoped USB and DLP operations dashboard with search, filters, and pagination
 - [x] High/Critical DLP alerts and policy-controlled automatic incident creation
-- [x] Offline-safe USB event queue with idempotent batch ingestion
-- [ ] Validate USB insertion, removal, file-write detection, and restart on the first pilot laptop
+- [x] Automated critical-transfer test verifies DLP alert, `DLP-` P1 ticket creation, and endpoint source metadata
+- [x] Restart-safe, disk-backed USB event queue with idempotent batch ingestion
+- [x] Validate USB insertion, removal, and file-write detection on the first pilot laptop
+- [ ] Validate USB monitoring across a Windows restart on the first pilot laptop
 - [ ] Validate DLP alert and optional automatic incident creation on the testing laptop
 
 ## P2 — Installation and support lifecycle
@@ -71,8 +75,9 @@ Updated: 2026-07-16
 
 ## P4 — Pilot migration and legacy retirement
 
-- [ ] Deploy the native package to one test laptop
-- [ ] Verify enrollment, online state, restart, repair, and uninstall
+- [x] Deploy the native package to at least one pilot laptop
+- [x] Verify enrollment, online state, diagnostics, and repair
+- [ ] Verify Windows restart and uninstall behavior on a pilot laptop
 - [ ] Migrate remaining pilot laptops in controlled batches
 - [ ] Confirm every active laptop uses a unique device credential
 - [ ] Remove `MONITORING_AGENT_TOKEN` from Railway
