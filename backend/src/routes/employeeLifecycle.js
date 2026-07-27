@@ -134,7 +134,10 @@ async function requireLifecycleAccess(req, res, next) {
       return res.status(401).json({ success: false, message: "Authentication required." });
     }
     if (!ACCESS_ROLES.has(role)) {
-      return res.status(403).json({ success: false, message: "Employee lifecycle access denied." });
+      return res.status(403).json({
+        success: false,
+        message: "Employee Lifecycle is limited to HR, Admin, and SuperAdmin accounts.",
+      });
     }
     if (role !== "superadmin" && !actor.branch_id) {
       return res.status(403).json({ success: false, message: "An assigned branch is required." });
@@ -336,13 +339,18 @@ router.post("/cases", async (req, res) => {
     const preHire = type === "Onboarding" && !employeeId;
     const subjectFullName = normalizeOptionalText(req.body.subject_full_name);
     const subjectContactEmail = normalizeOptionalEmail(req.body.subject_contact_email);
+    const subjectDepartment = normalizeOptionalText(req.body.subject_department);
+    const subjectJobTitle = normalizeOptionalText(req.body.subject_job_title);
     const requestedBranchId = Number(req.body.branch_id) || null;
     if (!type) return res.status(400).json({ success: false, message: "Lifecycle type is required." });
     if (type === "Offboarding" && !employeeId) {
       return res.status(400).json({ success: false, message: "Offboarding requires an existing employee." });
     }
-    if (preHire && (!subjectFullName || !requestedBranchId)) {
-      return res.status(400).json({ success: false, message: "Employee name and branch are required for new onboarding." });
+    if (preHire && (!subjectFullName || !subjectContactEmail || !subjectDepartment || !requestedBranchId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Employee name, personal contact email, department, and branch are required for new onboarding.",
+      });
     }
     await client.query("BEGIN");
     let employee = null;
@@ -432,8 +440,8 @@ router.post("/cases", async (req, res) => {
         employee?.full_name || subjectFullName,
         employee?.personal_email || employee?.email || subjectContactEmail,
         employee?.employee_number || normalizeOptionalText(req.body.subject_employee_number, 100),
-        employee?.department || normalizeOptionalText(req.body.subject_department),
-        normalizeOptionalText(req.body.subject_job_title), req.body.subject_start_date || null]
+        employee?.department || subjectDepartment,
+        subjectJobTitle, req.body.subject_start_date || null]
     );
     const caseId = created.rows[0].lifecycle_case_id;
     for (const task of getDefaultTasks(type)) {

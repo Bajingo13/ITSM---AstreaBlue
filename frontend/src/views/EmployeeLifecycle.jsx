@@ -197,8 +197,16 @@ export default function EmployeeLifecycle() {
     event.preventDefault();
     const newEmployee = form.lifecycle_type === "Onboarding" && form.subject_mode === "new";
     if (!newEmployee && !form.employee_id) return setError("Select an existing employee.");
-    if (newEmployee && (!form.subject_full_name.trim() || !form.branch_id)) {
-      return setError("Employee name and branch are required.");
+    if (
+      newEmployee &&
+      (
+        !form.subject_full_name.trim() ||
+        !form.subject_contact_email.trim() ||
+        !form.subject_department.trim() ||
+        !form.branch_id
+      )
+    ) {
+      return setError("Employee name, personal contact email, department, and branch are required.");
     }
     setBusy(true);
     setError("");
@@ -386,10 +394,10 @@ export default function EmployeeLifecycle() {
             {form.subject_mode === "existing" || form.lifecycle_type === "Offboarding" ? <Field label="Existing employee"><select required value={form.employee_id} onChange={(event) => setForm((current) => ({ ...current, employee_id: event.target.value }))} className="field"><option value="">Select employee</option>{employees.map((employee) => <option key={employee.user_id} value={employee.user_id}>{employee.full_name} — {employee.branch_name}</option>)}</select></Field> : <>
               <Field label="Employee full name"><input required value={form.subject_full_name} onChange={(event) => setForm((current) => ({ ...current, subject_full_name: event.target.value }))} className="field" placeholder="Full legal name"/></Field>
               <Field label="Branch"><select required value={form.branch_id} onChange={(event) => setForm((current) => ({ ...current, branch_id: event.target.value }))} className="field"><option value="">Select branch</option>{branches.map((branch) => <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_name}</option>)}</select></Field>
-              <Field label="Contact email (optional)"><input type="email" value={form.subject_contact_email} onChange={(event) => setForm((current) => ({ ...current, subject_contact_email: event.target.value }))} className="field" placeholder="Personal or contact email"/></Field>
+              <Field label="Personal contact email"><input type="email" required value={form.subject_contact_email} onChange={(event) => setForm((current) => ({ ...current, subject_contact_email: event.target.value }))} className="field" placeholder="Used for the onboarding invitation reminder"/></Field>
               <Field label="Employee number (optional)"><input value={form.subject_employee_number} onChange={(event) => setForm((current) => ({ ...current, subject_employee_number: event.target.value }))} className="field"/></Field>
-              <Field label="Department"><input value={form.subject_department} onChange={(event) => setForm((current) => ({ ...current, subject_department: event.target.value }))} className="field"/></Field>
-              <Field label="Job title"><input value={form.subject_job_title} onChange={(event) => setForm((current) => ({ ...current, subject_job_title: event.target.value }))} className="field"/></Field>
+              <Field label="Department"><input required value={form.subject_department} onChange={(event) => setForm((current) => ({ ...current, subject_department: event.target.value }))} className="field" placeholder="Required for profile and resource assignment"/></Field>
+              <Field label="Job title (optional)"><input value={form.subject_job_title} onChange={(event) => setForm((current) => ({ ...current, subject_job_title: event.target.value }))} className="field" placeholder="Useful for role and equipment planning"/></Field>
               <Field label="Start date"><input type="date" value={form.subject_start_date} onChange={(event) => setForm((current) => ({ ...current, subject_start_date: event.target.value }))} className="field"/></Field>
             </>}
             <Field label="Target date"><input type="date" value={form.target_date} onChange={(event) => setForm((current) => ({ ...current, target_date: event.target.value }))} className="field"/></Field>
