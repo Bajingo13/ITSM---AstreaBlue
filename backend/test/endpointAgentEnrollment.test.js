@@ -304,6 +304,14 @@ test("single-use enrollment issues isolated per-device credentials", async () =>
   const syncedDevice = devicesBody.data.find((device) => device.device_uuid === secondUuid);
   assert.ok(syncedDevice.policy_synced_at);
 
+  const screenshotList = await adminRequest("/screenshots");
+  assert.equal(screenshotList.status, 200);
+  assert.ok(Array.isArray((await screenshotList.json()).data));
+  const screenshotStats = await adminRequest("/screenshots/stats");
+  assert.equal(screenshotStats.status, 200);
+  assert.equal(typeof (await screenshotStats.json()).data.storage_used_mb, "string");
+  assert.equal((await adminRequest("/screenshots/999999999/content")).status, 404);
+
   const crossDevice = await agentRequest("/heartbeat", second.body.data.device_credential, "POST", heartbeatBody(firstUuid, "ENROLLMENT-TEST-ONE"));
   assert.equal(crossDevice.status, 403);
   const missingIdentity = await agentRequest("/heartbeat", first.body.data.device_credential, "POST", { hostname: "ENROLLMENT-TEST-ONE" });
@@ -549,6 +557,13 @@ test("approved consent policy becomes the agent baseline without a manual policy
   assert.equal(usbPermission.status, 200);
   assert.equal((await usbPermission.json()).data.allowed, true);
 
+  const websitePermission = await agentRequest(
+    `/website-monitoring-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
+    credential
+  );
+  assert.equal(websitePermission.status, 200);
+  assert.equal((await websitePermission.json()).data.allowed, true);
+
   const activity = await agentRequest("/activity", credential, "POST", {
     device_uuid: deviceUuid,
     hostname,
@@ -681,6 +696,13 @@ test("approved consent policy becomes the agent baseline without a manual policy
   const awaitingApprovalBody = await awaitingApproval.json();
   assert.equal(awaitingApprovalBody.data.allowed, false);
   assert.match(awaitingApprovalBody.data.reason, /No active approved consent/i);
+
+  const websiteAwaitingApproval = await agentRequest(
+    `/website-monitoring-permission?device_uuid=${encodeURIComponent(deviceUuid)}`,
+    credential
+  );
+  assert.equal(websiteAwaitingApproval.status, 200);
+  assert.equal((await websiteAwaitingApproval.json()).data.allowed, false);
 
   await db.query(`UPDATE consent_documents SET status='withdrawn',active=false WHERE consent_id=$1`, [consentId]);
   const withdrawnUsb = await agentRequest(

@@ -222,6 +222,36 @@ test("hardware asset routes delegate SQL while preserving monitoring orchestrati
   assert.match(repositorySource, /\bdb\.query\b/);
 });
 
+test("laptop monitoring keeps orchestration separate from persistence and schema startup", () => {
+  const routeSource = readRouteSource("laptopMonitoring.js");
+  const repositorySource = fs.readFileSync(
+    path.join(
+      backendRoot,
+      "src",
+      "repositories",
+      "endpointMonitoringRepository.js"
+    ),
+    "utf8"
+  );
+  const schemaSource = fs.readFileSync(
+    path.join(
+      backendRoot,
+      "src",
+      "services",
+      "endpointMonitoringSchemaService.js"
+    ),
+    "utf8"
+  );
+
+  assert.doesNotMatch(routeSource, /config\/db/);
+  assert.doesNotMatch(routeSource, /\bdb\.(?:query|rawPool)\b/);
+  assert.match(routeSource, /repositories\/endpointMonitoringRepository/);
+  assert.match(routeSource, /services\/endpointMonitoringSchemaService/);
+  assert.match(repositorySource, /\bdb\.query\b/);
+  assert.match(schemaSource, /CREATE TABLE IF NOT EXISTS monitored_devices/);
+  assert.match(schemaSource, /CREATE TABLE IF NOT EXISTS endpoint_effective_policies/);
+});
+
 test("legacy invitation acceptance uses the current secure completion workflow", () => {
   const inviteSource = readRouteSource("invites.js");
 
