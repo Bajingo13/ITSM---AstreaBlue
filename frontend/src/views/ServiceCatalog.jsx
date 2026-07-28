@@ -102,13 +102,13 @@ function StatusBadge({ status }) {
     "open queue": "border-blue-200 bg-blue-50 text-blue-700",
     "in progress": "border-amber-200 bg-amber-50 text-amber-700",
     resolved: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    closed: "border-slate-200 bg-slate-100 text-slate-600",
+    closed: "border-slate-300 bg-slate-200 text-slate-800",
     cancelled: "border-red-200 bg-red-50 text-red-700",
     canceled: "border-red-200 bg-red-50 text-red-700",
   };
-  const cls = map[s] || "border-slate-200 bg-slate-100 text-slate-600";
+  const cls = map[s] || "border-slate-300 bg-slate-100 text-slate-700";
   return (
-    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${cls}`}>
+    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black shadow-sm ${cls}`}>
       {status || "—"}
     </span>
   );
@@ -119,17 +119,17 @@ function PriorityBadge({ priority }) {
   const map = {
     critical: "border-red-200 bg-red-100 text-red-800",
     "p1-critical": "border-red-200 bg-red-100 text-red-800",
-    high: "border-pink-200 bg-pink-50 text-pink-700",
-    "p2-high": "border-pink-200 bg-pink-50 text-pink-700",
+    high: "border-orange-200 bg-orange-50 text-orange-800",
+    "p2-high": "border-orange-200 bg-orange-50 text-orange-800",
     medium: "border-yellow-200 bg-yellow-50 text-yellow-800",
     "p3-medium": "border-yellow-200 bg-yellow-50 text-yellow-800",
     low: "border-green-200 bg-green-50 text-green-700",
     "p4-low": "border-green-200 bg-green-50 text-green-700",
   };
-  const cls = map[p] || "border-slate-200 bg-slate-100 text-slate-600";
+  const cls = map[p] || "border-slate-300 bg-slate-100 text-slate-700";
   if (!priority) return null;
   return (
-    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${cls}`}>
+    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black shadow-sm ${cls}`}>
       {priority}
     </span>
   );
@@ -155,15 +155,16 @@ function RequestModal({ requestId, onClose }) {
   }, [requestId]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-3xl border border-blue-200 bg-slate-50 shadow-2xl">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-[3px]">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-white/70 bg-[#F4F8FF] shadow-[0_28px_90px_rgba(15,23,42,0.38)]">
         {/* Header */}
-        <div className="flex items-start justify-between gap-5 border-b border-blue-700 bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 px-7 py-6 text-white">
+        <div className="relative flex items-start justify-between gap-5 overflow-hidden border-b border-cyan-400/30 bg-gradient-to-r from-[#082854] via-[#0D4C91] to-[#159BD7] px-7 py-6 text-white">
+          <div className="pointer-events-none absolute -right-12 -top-20 h-52 w-52 rounded-full border-[28px] border-white/10" />
           <div className="min-w-0">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-200">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-100">
               Request Details
             </p>
-            <p className="mt-2 text-sm font-bold text-blue-200">
+            <p className="mt-2 text-sm font-black text-white/90">
               {loading ? "Loading…" : detail?.ticket_number || `#${requestId}`}
             </p>
             {!loading && detail?.title && (
@@ -175,14 +176,14 @@ function RequestModal({ requestId, onClose }) {
           <button
             onClick={onClose}
             aria-label="Close request details"
-            className="shrink-0 rounded-xl border border-white/20 bg-white/10 p-2 text-white transition hover:bg-white/20"
+            className="relative shrink-0 rounded-xl border border-white/50 bg-white/15 p-2.5 text-white shadow-sm transition hover:scale-105 hover:bg-white hover:text-[#0D4C91]"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="space-y-5 px-7 py-6">
+        <div className="flex-1 space-y-5 overflow-y-auto px-7 py-6 [scrollbar-color:#94a3b8_transparent] [scrollbar-width:thin]">
           {loading && (
             <p className="text-center text-slate-500">Loading request details…</p>
           )}
@@ -244,20 +245,20 @@ function RequestModal({ requestId, onClose }) {
                   value: formatDate(detail.created_at),
                 },
               ].map(({ label, value }) => (
-                <div key={label} className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
-                  <dt className="text-xs font-black uppercase tracking-wider text-slate-500">
+                <div key={label} className="min-h-[82px] rounded-2xl border border-[#C8DCF5] bg-[#F8FBFF] p-4 shadow-[0_5px_16px_rgba(30,64,175,0.06)]">
+                  <dt className="text-[11px] font-black uppercase tracking-[0.08em] text-slate-600">
                     {label}
                   </dt>
-                  <dd className="mt-1 text-sm font-semibold text-slate-800">{value}</dd>
+                  <dd className="mt-1.5 break-words text-[15px] font-bold leading-5 text-slate-950">{value}</dd>
                 </div>
               ))}
 
               {/* Full-width description */}
-              <div className="col-span-full rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
-                <dt className="text-xs font-black uppercase tracking-wider text-slate-500">
+              <div className="col-span-full rounded-2xl border border-[#C8DCF5] bg-[#F8FBFF] p-5 shadow-[0_5px_16px_rgba(30,64,175,0.06)]">
+                <dt className="text-[11px] font-black uppercase tracking-[0.08em] text-slate-600">
                   Description
                 </dt>
-                <dd className="mt-2 text-sm leading-7 text-slate-700 whitespace-pre-wrap">
+                <dd className="mt-2 whitespace-pre-wrap text-[15px] font-medium leading-7 text-slate-800">
                   {detail.description || "No description provided."}
                 </dd>
               </div>
@@ -265,10 +266,10 @@ function RequestModal({ requestId, onClose }) {
           )}
         </div>
 
-        <div className="border-t border-blue-100 bg-white px-7 py-4 text-right">
+        <div className="border-t border-[#C8DCF5] bg-white px-7 py-4 text-right">
           <button
             onClick={onClose}
-            className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50"
+            className="rounded-xl bg-[#0B315F] px-6 py-2.5 text-sm font-black text-white shadow-md transition hover:bg-[#124C8C] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
           >
             Close
           </button>
