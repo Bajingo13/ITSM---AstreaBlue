@@ -9,6 +9,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { API_URL } from "../config/api";
 import DependencyGraphView from "./DependencyGraphView";
+import { appAlert, appConfirm } from "../services/appDialog";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -783,7 +784,13 @@ function ConfigItemsPanel({ user, role, branches }) {
   }, []);
 
   const handleDeleteCI = useCallback(async (ci) => {
-    if (!window.confirm(`Delete "${ci.ci_name}"? This action cannot be undone.`)) return;
+    const confirmed = await appConfirm({
+      title: "Delete configuration item?",
+      message: `Delete "${ci.ci_name}"? This action cannot be undone.`,
+      confirmLabel: "Delete item",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     try {
       const params = new URLSearchParams({
         current_user_id: user?.user_id || "",
@@ -801,7 +808,11 @@ function ConfigItemsPanel({ user, role, branches }) {
       await fetchStatistics();
     } catch (err) {
       console.error("Delete CI failed:", err);
-      alert(err.message || "Unable to delete CI");
+      void appAlert({
+        title: "Delete failed",
+        message: err.message || "Unable to delete CI",
+        tone: "danger",
+      });
     }
   }, [user, role, fetchCIs, fetchStatistics]);
 

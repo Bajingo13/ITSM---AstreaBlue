@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { appAlert } from "../services/appDialog";
 import {
   Activity,
   AlertTriangle,
@@ -961,11 +962,19 @@ function EmployeeView({ user }) {
         setWizardDone(true);
         setStep(4);
       } else {
-        alert(data.error || "Failed to submit consent.");
+        void appAlert({
+          title: "Consent submission failed",
+          message: data.error || "Failed to submit consent.",
+          tone: "danger",
+        });
       }
     } catch (err) {
       console.error("Submit consent error:", err);
-      alert("Failed to submit consent. Please try again.");
+      void appAlert({
+        title: "Consent submission failed",
+        message: "Failed to submit consent. Please try again.",
+        tone: "danger",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -977,7 +986,11 @@ function EmployeeView({ user }) {
       const res = await fetch(`${API_BASE}/pdf-download`, { headers: authHeaders() });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to generate PDF.");
+        void appAlert({
+          title: "PDF generation failed",
+          message: err.error || "Failed to generate PDF.",
+          tone: "danger",
+        });
         return;
       }
       const blob = await res.blob();
@@ -991,7 +1004,11 @@ function EmployeeView({ user }) {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error("PDF download error:", err);
-      alert("Failed to download consent summary. Please try again.");
+      void appAlert({
+        title: "Download failed",
+        message: "Failed to download consent summary. Please try again.",
+        tone: "danger",
+      });
     } finally {
       setDownloading(false);
     }

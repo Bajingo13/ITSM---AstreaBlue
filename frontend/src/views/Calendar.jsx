@@ -8,6 +8,7 @@ import { authHeaders } from "../services/authHeaders";
 import PageHero from "../components/layout/PageHero";
 import ExportReportModal from "../components/ExportReportModal";
 import { exportRowsAsReport } from "../utils/reportExport";
+import { appAlert } from "../services/appDialog";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -377,7 +378,11 @@ export default function CalendarPage() {
       await exportRowsAsReport({ filename, title: "Ticket Schedule", scope: headerLabel, format: exportFormat, columns: exportColumns, rows: sortedEvents });
       setExportOpen(false);
     } catch (error) {
-      window.alert(error.message || "Failed to export ticket schedule.");
+      void appAlert({
+        title: "Export failed",
+        message: error.message || "Failed to export ticket schedule.",
+        tone: "danger",
+      });
     }
   };
 

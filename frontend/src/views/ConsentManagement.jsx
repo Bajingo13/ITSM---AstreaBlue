@@ -17,6 +17,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { getAuthToken } from "../context/AuthService";
 import PageHero from "../components/layout/PageHero";
+import { appAlert, appConfirm } from "../services/appDialog";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -219,7 +220,11 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
       onAction(consent.consent_id, data.data?.status || (selectedAction === "approve_change" ? "approved" : data.new_status));
       onClose();
     } catch (err) {
-      alert("Error: " + err.message);
+      void appAlert({
+        title: "Consent action failed",
+        message: err.message,
+        tone: "danger",
+      });
     } finally {
       setActioning(false);
     }
@@ -508,8 +513,14 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
               {waitingForAdmin && (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (window.confirm("Approve this consent and complete the employee's onboarding?")) applyAction("approve");
+                  onClick={async () => {
+                    const confirmed = await appConfirm({
+                      title: "Approve employee consent?",
+                      message: "Approve this consent and complete the employee's onboarding?",
+                      confirmLabel: "Approve consent",
+                      tone: "success",
+                    });
+                    if (confirmed) applyAction("approve");
                   }}
                   disabled={actioning}
                   className="flex items-center gap-2 rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-60"

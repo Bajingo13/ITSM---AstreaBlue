@@ -16,6 +16,7 @@ import { API_URL } from "../config/api";
 import { getAuthToken } from "../context/AuthService";
 import { useAuth } from "../context/AuthContext";
 import PageHero from "../components/layout/PageHero";
+import { appConfirm } from "../services/appDialog";
 
 const STATUS_TRANSITIONS = {
   Draft: ["In Progress", "Cancelled"],
@@ -308,9 +309,13 @@ export default function EmployeeLifecycle() {
 
   async function deleteCase(lifecycleCase) {
     if (!lifecycleCase || normalizedRole !== "superadmin" || lifecycleCase.status === "Completed") return;
-    const confirmed = window.confirm(
-      `Delete ${lifecycleCase.case_number} from the lifecycle workspace? The audit record and linked Service Desk ticket will be preserved.`
-    );
+    const confirmed = await appConfirm({
+      title: "Remove lifecycle case?",
+      message: `Delete ${lifecycleCase.case_number} from the lifecycle workspace?`,
+      detail: "The audit record and linked Service Desk ticket will be preserved.",
+      confirmLabel: "Delete case",
+      tone: "danger",
+    });
     if (!confirmed) return;
     setBusy(true);
     setError("");

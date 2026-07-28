@@ -42,6 +42,24 @@ router.get("/", async (req, res) => {
   }
 });
 
+router.patch("/read-all", async (req, res) => {
+  const userId = req.authUser.userId;
+
+  try {
+    const result = await db.query(
+      `UPDATE notifications
+       SET read = TRUE
+       WHERE user_id = $1 AND read = FALSE
+       RETURNING id`,
+      [userId]
+    );
+    res.json({ success: true, updated_count: result.rowCount });
+  } catch (error) {
+    console.error("Error marking all notifications as read:", error.message);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
 // Mark a notification as read
 router.patch("/:id/read", async (req, res) => {
   const { id } = req.params;

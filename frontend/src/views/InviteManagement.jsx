@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL } from "../config/api";
 import { useAuth } from "../context/AuthContext";
 import { Mail, RefreshCw, XCircle, CheckCircle, Link as LinkIcon, ExternalLink } from "lucide-react";
+import { appAlert, appConfirm } from "../services/appDialog";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -38,7 +39,13 @@ export default function InviteManagement() {
   }, [fetchInvites]);
 
   const handleAction = async (invite, action) => {
-    if (!window.confirm(`Are you sure you want to ${action} this invitation?`)) return;
+    const confirmed = await appConfirm({
+      title: `${action.charAt(0).toUpperCase() + action.slice(1)} invitation?`,
+      message: `Are you sure you want to ${action} this invitation?`,
+      confirmLabel: action.charAt(0).toUpperCase() + action.slice(1),
+      tone: action === "revoke" ? "danger" : "primary",
+    });
+    if (!confirmed) return;
     
     try {
       setActionLoading(invite.user_id);
@@ -60,11 +67,19 @@ export default function InviteManagement() {
       if (action === "resend" && data.invite_link) {
         setLatestInviteLink(data.invite_link);
       }
-      alert(data.message || data.warning || `Invite ${action}ed successfully.`);
+      void appAlert({
+        title: "Invitation updated",
+        message: data.message || data.warning || `Invite ${action}ed successfully.`,
+        tone: data.warning ? "warning" : "success",
+      });
       fetchInvites();
     } catch (err) {
       console.error(err);
-      alert(err.message);
+      void appAlert({
+        title: "Invitation action failed",
+        message: err.message,
+        tone: "danger",
+      });
     } finally {
       setActionLoading(null);
     }
@@ -73,7 +88,11 @@ export default function InviteManagement() {
   const copyToClipboard = (link) => {
     if (!link) return;
     navigator.clipboard.writeText(link);
-    alert("Invite link copied to clipboard!");
+    void appAlert({
+      title: "Link copied",
+      message: "The invitation link is ready to paste.",
+      tone: "success",
+    });
   };
 
   if (!["SuperAdmin", "Admin"].includes(activeRole)) {

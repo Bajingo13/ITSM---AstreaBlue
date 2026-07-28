@@ -17,6 +17,7 @@ import PageHero from "../components/layout/PageHero";
 import { API_URL } from "../config/api";
 import { useAuth } from "../context/AuthContext";
 import { authHeaders } from "../services/authHeaders";
+import { appConfirm } from "../services/appDialog";
 
 const API_BASE = `${API_URL}/api/v1`;
 const tabs = ["Registered Systems", "API Keys", "Integration Console", "API Logs"];
@@ -485,7 +486,15 @@ function ApiKeysTable({ keys, confirmRegenerate, setConfirmRegenerate, keyAction
                       <button onClick={() => keyAction(`api-keys/${key.key_id}`, { method: "PATCH", body: { status: key.status === "Active" ? "Disabled" : "Active" } })} className="rounded-lg bg-slate-100 p-2 text-slate-700">{key.status === "Active" ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}</button>
                       <button onClick={() => setConfirmRegenerate(key.key_id)} className="rounded-lg bg-blue-50 p-2 text-blue-700"><KeyRound size={16} /></button>
                       <button onClick={() => keyAction(`api-keys/${key.key_id}/revoke`)} className="rounded-lg bg-rose-50 p-2 text-rose-700"><ShieldOff size={16} /></button>
-                      {key.status !== "Active" && !key.last_used_at && <button title="Delete unused key" aria-label={`Delete ${key.key_name}`} onClick={() => { if (window.confirm(`Delete unused key “${key.key_name}”?`)) keyAction(`api-keys/${key.key_id}`, { method: "DELETE" }); }} className="rounded-lg bg-rose-100 p-2 text-rose-800"><Trash2 size={16} /></button>}
+                      {key.status !== "Active" && !key.last_used_at && <button title="Delete unused key" aria-label={`Delete ${key.key_name}`} onClick={async () => {
+                        const confirmed = await appConfirm({
+                          title: "Delete unused API key?",
+                          message: `Delete "${key.key_name}"? This key has never been used.`,
+                          confirmLabel: "Delete key",
+                          tone: "danger",
+                        });
+                        if (confirmed) keyAction(`api-keys/${key.key_id}`, { method: "DELETE" });
+                      }} className="rounded-lg bg-rose-100 p-2 text-rose-800"><Trash2 size={16} /></button>}
                     </div>
                   )}
                 </td>

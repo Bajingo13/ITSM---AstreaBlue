@@ -17,6 +17,7 @@ import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import DashboardHero from "../components/DashboardHero";
 import { subscribeToTicketChanges } from "../services/realtimeTickets";
 import { getTicketCompletionLabel } from "../utils/ticketDuration";
+import { appAlert } from "../services/appDialog";
 import {
   getPriorityBadgeClass, formatPriority,
   getSeverityOptionStyle,
@@ -348,7 +349,11 @@ function CreateTicketModal({ categories, user, onClose, onCreated }) {
         await uploadTicketAttachments(createdTicket.id, files, user?.user_id);
       } catch(err) {
         console.warn("Attachment upload issue", err);
-        alert("⚠️ Ticket created successfully, but your attachments failed to upload.\n\nError: " + err.message);
+        void appAlert({
+          title: "Ticket created with an attachment warning",
+          message: `Your ticket was created successfully, but its attachments could not be uploaded.\n\n${err.message}`,
+          tone: "warning",
+        });
       }
 
       onCreated();

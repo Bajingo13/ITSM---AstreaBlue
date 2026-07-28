@@ -6,6 +6,7 @@ import "./index.css";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { installFetchClient } from "./services/installFetchClient";
 import { installChunkRecovery } from "./services/chunkRecovery";
+import AppDialogHost from "./components/feedback/AppDialogHost";
 
 installChunkRecovery();
 installFetchClient();
@@ -15,6 +16,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <BrowserRouter>
       <AuthProvider>
         <App />
+        <AppDialogHost />
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>

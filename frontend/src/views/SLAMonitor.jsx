@@ -10,6 +10,7 @@ import { getTicketCompletionLabel } from "../utils/ticketDuration";
 import { authHeaders } from "../services/authHeaders";
 import ExportReportModal from "../components/ExportReportModal";
 import { exportRowsAsReport } from "../utils/reportExport";
+import { appAlert } from "../services/appDialog";
 
 const API_BASE = `${API_URL}/api/v1`;
 const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -211,7 +212,11 @@ export default function SLAMonitor() {
       await exportRowsAsReport({ filename, title: "SLA Ticket Queue", scope, format: exportFormat, columns: exportColumns, rows: tickets });
       setExportOpen(false);
     } catch (error) {
-      window.alert(error.message || "Failed to export SLA ticket queue.");
+      void appAlert({
+        title: "Export failed",
+        message: error.message || "Failed to export SLA ticket queue.",
+        tone: "danger",
+      });
     }
   }, [exportFormat, branchFilter, branches, tickets]);
 

@@ -12,9 +12,11 @@ import {
   AlertCircle,
   RefreshCw,
   FileText,
+  CheckCheck,
   CheckCircle2,
   XCircle,
   Clock,
+  Inbox,
   UserPlus,
   Moon,
   Sun,
@@ -65,7 +67,7 @@ function PhilippineClock() {
 }
 
 function NotifIcon({ type, title }) {
-  const base = "flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-sm border";
+  const base = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-white shadow-md";
   const t = (title || "").toLowerCase();
 
   if (type === "success" || t.includes("resolved") || t.includes("closed")) {
@@ -115,6 +117,20 @@ function NotifIcon({ type, title }) {
   );
 }
 
+function formatNotificationTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Recently";
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (seconds < 60) return "Just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -126,6 +142,8 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
   const [quickOpen, setQuickOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [notificationFilter, setNotificationFilter] = useState("all");
+  const [markingAllRead, setMarkingAllRead] = useState(false);
   const notificationAuthFailed = useRef(false);
 
   const fetchNotifications = useCallback(async () => {
@@ -193,8 +211,30 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
     }
   };
 
+  const handleMarkAllAsRead = async () => {
+    if (!unreadCount || markingAllRead) return;
+    setMarkingAllRead(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/notifications/read-all`, {
+        method: "PATCH",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+      });
+      if (res.status === 401 || res.status === 403) notificationAuthFailed.current = true;
+      if (res.ok) {
+        setNotifications((items) => items.map((item) => ({ ...item, read: true })));
+      }
+    } catch (err) {
+      console.error("Failed to mark notifications as read:", err);
+    } finally {
+      setMarkingAllRead(false);
+    }
+  };
+
   const leftOffset = collapsed ? 68 : 260;
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const visibleNotifications = notificationFilter === "unread"
+    ? notifications.filter((notification) => !notification.read)
+    : notifications;
 
   const role = user?.role_name || user?.role || "Employee";
   const fullName = user?.full_name || "AstreaBlue User";
@@ -341,52 +381,109 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
           </button>
 
           {notifOpen && (
-            <div className="absolute right-0 top-full z-50 mt-2 w-96 rounded-xl border border-slate-200 bg-white shadow-xl">
-              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Notifications
-                </h3>
-                <button onClick={() => setNotifOpen(false)}>
-                  <X size={14} className="text-slate-400" />
-                </button>
+            <div className="absolute right-0 top-full z-50 mt-3 w-[min(420px,calc(100vw-24px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.24)]">
+              <div className="border-b border-slate-200 bg-white px-5 pb-3 pt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xl font-black text-slate-950">Notifications</h3>
+                      {unreadCount > 0 && (
+                        <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-black text-white">
+                          {unreadCount} new
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-500">Updates from your AstreaBlue workspace</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setNotifOpen(false)}
+                    aria-label="Close notifications"
+                    className="rounded-full border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                  >
+                    <X size={17} />
+                  </button>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <div className="flex rounded-full bg-slate-100 p-1">
+                    {[["all", "All"], ["unread", "Unread"]].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setNotificationFilter(value)}
+                        className={`rounded-full px-4 py-1.5 text-xs font-black transition ${
+                          notificationFilter === value
+                            ? "bg-white text-blue-700 shadow-sm"
+                            : "text-slate-500 hover:text-slate-800"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleMarkAllAsRead}
+                    disabled={!unreadCount || markingAllRead}
+                    className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-50 disabled:cursor-default disabled:text-slate-400 disabled:hover:bg-transparent"
+                  >
+                    <CheckCheck size={15} />
+                    {markingAllRead ? "Updating..." : "Mark all read"}
+                  </button>
+                </div>
               </div>
 
-              <div className="max-h-[400px] overflow-y-auto">
-                {notifications.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-slate-500">
-                    No new notifications
+              <div className="max-h-[min(520px,calc(100vh-150px))] overflow-y-auto bg-slate-50/60 p-2 [scrollbar-color:#94a3b8_transparent] [scrollbar-width:thin]">
+                {visibleNotifications.length === 0 ? (
+                  <div className="flex min-h-52 flex-col items-center justify-center px-8 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                      <Inbox size={25} />
+                    </div>
+                    <p className="mt-3 text-sm font-black text-slate-800">
+                      {notificationFilter === "unread" ? "You're all caught up" : "No notifications yet"}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      {notificationFilter === "unread"
+                        ? "New workspace updates will appear here."
+                        : "Ticket, lifecycle, consent, and system updates will appear here."}
+                    </p>
                   </div>
                 ) : (
-                  notifications.map((n) => (
-                    <div
+                  visibleNotifications.map((n) => (
+                    <button
+                      type="button"
                       key={n.id}
                       onClick={() => handleNotificationClick(n)}
-                      className={`group flex cursor-pointer items-start gap-4 p-4 transition-all hover:bg-slate-50 border-b border-slate-100 last:border-0 ${
-                        !n.read ? "bg-[#f8fafc]" : "opacity-80"
+                      className={`group relative mb-1 flex w-full items-start gap-3 rounded-2xl border p-3 text-left transition last:mb-0 ${
+                        !n.read
+                          ? "border-blue-100 bg-blue-50/80 shadow-sm hover:border-blue-200 hover:bg-blue-50"
+                          : "border-transparent bg-white/80 hover:border-slate-200 hover:bg-white"
                       }`}
                     >
                       <NotifIcon type={n.type} title={n.title} />
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className={`text-sm ${!n.read ? "font-bold text-slate-900" : "font-medium text-slate-700"}`}>
+                      <div className="min-w-0 flex-1 pt-0.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className={`line-clamp-1 text-sm ${!n.read ? "font-black text-slate-950" : "font-bold text-slate-700"}`}>
                             {n.title}
                           </p>
-                          {!n.read && (
-                            <span className="h-2 w-2 rounded-full bg-blue-600 shadow-[0_0_8px_rgba(37,99,235,0.6)]"></span>
-                          )}
+                          <span className={`shrink-0 text-[11px] font-bold ${!n.read ? "text-blue-600" : "text-slate-400"}`}>
+                            {formatNotificationTime(n.created_at)}
+                          </span>
                         </div>
-                        <p className={`mt-1 text-xs leading-relaxed ${!n.read ? "text-slate-600" : "text-slate-500"}`}>{n.message}</p>
-                        <p className="mt-2 flex items-center text-[11px] text-slate-400 font-medium">
-                          <Clock size={12} className="mr-1 opacity-70" />
-                          {new Date(n.created_at).toLocaleString(undefined, {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: 'numeric',
-                            minute: '2-digit'
-                          })}
+                        <p className={`mt-1 line-clamp-2 text-xs leading-5 ${!n.read ? "text-slate-700" : "text-slate-500"}`}>
+                          {n.message}
                         </p>
+                        {n.related_ticket_id && (
+                          <span className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-[10px] font-black text-blue-700 shadow-sm">
+                            View ticket
+                          </span>
+                        )}
                       </div>
-                    </div>
+                      {!n.read && (
+                        <span className="absolute bottom-3 right-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-blue-600 shadow-[0_0_0_2px_rgba(37,99,235,0.12)]" />
+                      )}
+                    </button>
                   ))
                 )}
               </div>

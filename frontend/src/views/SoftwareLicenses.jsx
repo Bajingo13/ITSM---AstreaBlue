@@ -24,6 +24,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { appAlert, appConfirm } from "../services/appDialog";
 import { API_URL } from "../config/api";
 import { useAuth } from "../context/AuthContext";
 import PageHero from "../components/layout/PageHero";
@@ -725,7 +726,13 @@ export default function SoftwareLicenses() {
   };
 
   const handleDelete = async (license) => {
-    if (!window.confirm(`Delete "${license.license_name}"? This cannot be undone.`)) return;
+    const confirmed = await appConfirm({
+      title: "Delete software license?",
+      message: `Delete "${license.license_name}"? This action cannot be undone.`,
+      confirmLabel: "Delete license",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     try {
       const res = await fetch(`${API_BASE}/software-licenses/${license.license_id}`, {
         method: "DELETE",
@@ -736,7 +743,11 @@ export default function SoftwareLicenses() {
       await fetchData();
     } catch (err) {
       console.error("Delete error:", err.message);
-      alert("Failed to delete license: " + err.message);
+      void appAlert({
+        title: "Delete failed",
+        message: err.message,
+        tone: "danger",
+      });
     }
   };
 
@@ -758,7 +769,11 @@ export default function SoftwareLicenses() {
       setExportOpen(false);
     } catch (err) {
       console.error("Export error:", err);
-      alert("Failed to export software licenses. Please try again.");
+      void appAlert({
+        title: "Export failed",
+        message: "Failed to export software licenses. Please try again.",
+        tone: "danger",
+      });
     }
   };
 

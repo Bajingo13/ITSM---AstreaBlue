@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { appAlert } from "../services/appDialog";
 import {
   AlertTriangle,
   Box,
@@ -1007,7 +1008,11 @@ export default function Assets() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: "Export failed" }));
-        alert(err.message || err.error || "No hardware assets found for the selected date range.");
+      void appAlert({
+        title: "Nothing to export",
+        message: err.message || err.error || "No hardware assets found for the selected date range.",
+        tone: "warning",
+      });
         return;
       }
 
@@ -1027,7 +1032,11 @@ export default function Assets() {
       setShowExportModal(false);
     } catch (err) {
       console.error("Export error:", err);
-      alert("Failed to export hardware assets. Please try again.");
+      void appAlert({
+        title: "Export failed",
+        message: "Failed to export hardware assets. Please try again.",
+        tone: "danger",
+      });
     } finally {
       setExporting(false);
     }

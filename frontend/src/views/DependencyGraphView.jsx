@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { API_URL } from "../config/api";
+import { appAlert, appConfirm } from "../services/appDialog";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -928,7 +929,13 @@ export default function DependencyGraphView({ user, role, branches }) {
   }, [user, role, fetchDependencies, fetchDepStats]);
 
   const deleteRelationship = useCallback(async (depId) => {
-    if (!window.confirm("Delete this relationship? This action cannot be undone.")) return;
+    const confirmed = await appConfirm({
+      title: "Delete relationship?",
+      message: "This configuration relationship will be removed and cannot be restored.",
+      confirmLabel: "Delete relationship",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     try {
       const params = new URLSearchParams({
         current_user_id: user?.user_id || "",
@@ -947,7 +954,11 @@ export default function DependencyGraphView({ user, role, branches }) {
       fetchDepStats();
     } catch (err) {
       console.error("Delete relationship failed:", err);
-      alert(err.message);
+      void appAlert({
+        title: "Delete failed",
+        message: err.message,
+        tone: "danger",
+      });
     }
   }, [user, role, fetchDependencies, fetchDepStats]);
 
