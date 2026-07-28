@@ -9,6 +9,47 @@ const assetManagementRoutes = require("../src/routes/assetManagement");
 
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 
+test("discovery registry derives mismatch from agent-to-asset identity checks", async () => {
+  const originalQuery = db.query;
+  const calls = [];
+  db.query = async (sql) => {
+    calls.push(sql);
+    if (/SELECT d\.\*,a\.asset_name/.test(sql)) {
+      return {
+        rows: [{
+          discovery_id: 18,
+          matched_asset_id: 91,
+          reconciliation_status: "Matched",
+          reconciliation_match_count: 2,
+          reconciliation_mismatch_count: 1,
+          reconciliation_unknown_count: 0,
+        }],
+      };
+    }
+    return { rows: [] };
+  };
+
+  const app = express();
+  app.use(express.json());
+  app.use("/api/v1/hardware-assets", assetManagementRoutes);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const token = jwt.sign({ userId: 1, role: "SuperAdmin", branchId: null }, secret, { expiresIn: "5m" });
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/hardware-assets/discovery`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(body));
+    assert.equal(body.data[0].verification_status, "Mismatched");
+    assert.ok(calls.some((sql) => /asset_inventory_reconciliation/.test(sql)));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    db.query = originalQuery;
+  }
+});
+
 test("creating an asset from discovery uses the real hardware_assets schema", async () => {
   const originalConnect = db.connect;
   const calls = [];

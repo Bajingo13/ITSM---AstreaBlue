@@ -9,6 +9,7 @@ const {
   createHardwareAssetTextReport,
   createHardwareAssetPdfReport,
 } = require("../services/hardwareAssetReportService");
+const { getDiscoveryVerificationStatus } = require("../services/assetDiscoveryInventoryService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -264,11 +265,36 @@ router.get("/discovery", requireAssetManager, async (req, res) => {
       [req.assetBranchId]
     );
     const result = await db.query(
-      `SELECT d.*,a.asset_name,a.asset_tag matched_asset_tag,b.branch_name FROM asset_discoveries d
-       LEFT JOIN hardware_assets a ON a.asset_id=d.matched_asset_id LEFT JOIN branches b ON b.branch_id=d.branch_id
+      `SELECT d.*,a.asset_name,a.asset_tag matched_asset_tag,b.branch_name,
+              COALESCE(rec.match_count,0) reconciliation_match_count,
+              COALESCE(rec.mismatch_count,0) reconciliation_mismatch_count,
+              COALESCE(rec.unknown_count,0) reconciliation_unknown_count,
+              rec.last_checked_at reconciliation_checked_at
+       FROM asset_discoveries d
+       LEFT JOIN hardware_assets a ON a.asset_id=d.matched_asset_id
+       LEFT JOIN branches b ON b.branch_id=d.branch_id
+       LEFT JOIN LATERAL (
+         SELECT
+           COUNT(*) FILTER (WHERE LOWER(r.status)='match')::INTEGER match_count,
+           COUNT(*) FILTER (WHERE LOWER(r.status)='mismatch')::INTEGER mismatch_count,
+           COUNT(*) FILTER (WHERE LOWER(r.status) NOT IN ('match','mismatch'))::INTEGER unknown_count,
+           MAX(r.checked_at) last_checked_at
+         FROM asset_inventory_reconciliation r
+         WHERE r.asset_id=d.matched_asset_id
+           AND r.field_name IN ('serial_number','manufacturer','model')
+           AND r.device_id=CASE
+             WHEN COALESCE(d.raw_data->>'device_id','') ~ '^[0-9]+$'
+               THEN (d.raw_data->>'device_id')::INTEGER
+             ELSE r.device_id
+           END
+       ) rec ON TRUE
        WHERE ($1::int IS NULL OR d.branch_id=$1) ORDER BY d.last_seen DESC`, [req.assetBranchId]
     );
-    return res.json({ success: true, message: "Discovery registry loaded.", data: result.rows });
+    const records = result.rows.map((record) => ({
+      ...record,
+      verification_status: getDiscoveryVerificationStatus(record),
+    }));
+    return res.json({ success: true, message: "Discovery registry loaded.", data: records });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to load discovery registry.", error: error.message });
   }

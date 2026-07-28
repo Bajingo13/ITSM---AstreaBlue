@@ -78,7 +78,7 @@ export default function AssetDiscovery() {
   }, [load]);
 
   const metrics = useMemo(() => ({
-    matched: records.filter((record) => Boolean(record.matched_asset_id)).length,
+    matched: records.filter((record) => record.verification_status === "Matched").length,
     unmanaged: records.filter((record) => !record.matched_asset_id && ["Matched", "Unmanaged"].includes(record.reconciliation_status)).length,
     offline: records.filter((record) => record.status === "Offline" || record.reconciliation_status === "Offline").length,
     duplicate: records.filter((record) => record.reconciliation_status === "Duplicate").length,
@@ -137,8 +137,21 @@ function DiscoveryRow({ record, assets, branches, onLink, onCreate }) {
   const [assetId, setAssetId] = useState("");
   const [branchId, setBranchId] = useState(record.branch_id ? String(record.branch_id) : "");
   const [creating, setCreating] = useState(false);
-  const matched = Boolean(record.matched_asset_id);
-  const reconciliation = matched ? "Matched" : record.reconciliation_status === "Matched" ? "Needs Review" : record.reconciliation_status;
+  const linked = Boolean(record.matched_asset_id);
+  const reconciliation = record.verification_status
+    || (linked ? "Pending Verification" : record.reconciliation_status === "Matched" ? "Needs Review" : record.reconciliation_status);
+  const reconciliationClasses = {
+    Matched: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    Mismatched: "border-rose-200 bg-rose-50 text-rose-700",
+    "Pending Verification": "border-amber-200 bg-amber-50 text-amber-800",
+    Duplicate: "border-violet-200 bg-violet-50 text-violet-700",
+    Offline: "border-slate-300 bg-slate-100 text-slate-700",
+  };
+  const reconciliationNote = reconciliation === "Mismatched"
+    ? `${Number(record.reconciliation_mismatch_count) || 0} identity field(s) do not match the linked asset.`
+    : reconciliation === "Matched"
+      ? "Agent identity matches the linked hardware asset."
+      : "Linked, but agent identity verification is not complete.";
   const create = async () => {
     if (!branchId || creating) return;
     setCreating(true);
@@ -156,9 +169,9 @@ function DiscoveryRow({ record, assets, branches, onLink, onCreate }) {
     <td className="px-4 py-4">{record.source}</td>
     <td className="px-4 py-4 text-sm">{new Date(record.last_seen).toLocaleString()}</td>
     <td className="px-4 py-4">{record.status}</td>
-    <td className="px-4 py-4"><span className={`rounded-full border px-2.5 py-1 text-xs font-black ${matched ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{reconciliation}</span></td>
-    <td className="px-4 py-4">{matched
-      ? <div><p className="font-bold text-emerald-700">Linked to {record.matched_asset_tag || record.asset_name || "managed asset"}</p><p className="mt-1 text-xs text-slate-500">No reconciliation action required.</p></div>
+    <td className="px-4 py-4"><span className={`whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-black ${reconciliationClasses[reconciliation] || "border-amber-200 bg-amber-50 text-amber-800"}`}>{reconciliation}</span></td>
+    <td className="px-4 py-4">{linked
+      ? <div><p className={`font-bold ${reconciliation === "Mismatched" ? "text-rose-700" : reconciliation === "Matched" ? "text-emerald-700" : "text-amber-700"}`}>Linked to {record.matched_asset_tag || record.asset_name || "managed asset"}</p><p className="mt-1 text-xs text-slate-600">{reconciliationNote}</p></div>
       : <div>
           <p className="mb-2 text-xs font-semibold text-slate-500">Link this observation to an existing asset, or create a new asset.</p>
           <div className="flex flex-wrap gap-2">

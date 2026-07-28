@@ -2,7 +2,10 @@ process.env.NODE_ENV = "test";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { upsertAgentInventoryDiscovery } = require("../src/services/assetDiscoveryInventoryService");
+const {
+  getDiscoveryVerificationStatus,
+  upsertAgentInventoryDiscovery,
+} = require("../src/services/assetDiscoveryInventoryService");
 
 function queryMock(results) {
   const calls = [];
@@ -60,4 +63,31 @@ test("unlinked endpoint inventory matches one existing asset by serial number", 
 
   assert.equal(result.matched_asset_id, 99);
   assert.equal(queryable.calls[2].params[9], 99);
+});
+
+test("linked discovery reports mismatched when identity reconciliation fails", () => {
+  assert.equal(getDiscoveryVerificationStatus({
+    matched_asset_id: 42,
+    reconciliation_match_count: 2,
+    reconciliation_mismatch_count: 1,
+    reconciliation_unknown_count: 0,
+  }), "Mismatched");
+});
+
+test("linked discovery remains pending until all identity fields are verified", () => {
+  assert.equal(getDiscoveryVerificationStatus({
+    matched_asset_id: 42,
+    reconciliation_match_count: 2,
+    reconciliation_mismatch_count: 0,
+    reconciliation_unknown_count: 1,
+  }), "Pending Verification");
+});
+
+test("linked discovery is matched only after all identity fields match", () => {
+  assert.equal(getDiscoveryVerificationStatus({
+    matched_asset_id: 42,
+    reconciliation_match_count: 3,
+    reconciliation_mismatch_count: 0,
+    reconciliation_unknown_count: 0,
+  }), "Matched");
 });

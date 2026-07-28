@@ -5,6 +5,22 @@ function clean(value) {
   return text || null;
 }
 
+function getDiscoveryVerificationStatus(discovery = {}) {
+  if (!discovery.matched_asset_id) {
+    return discovery.reconciliation_status === "Matched"
+      ? "Unmanaged"
+      : discovery.reconciliation_status || "Unmanaged";
+  }
+
+  const mismatchCount = Number(discovery.reconciliation_mismatch_count) || 0;
+  const unknownCount = Number(discovery.reconciliation_unknown_count) || 0;
+  const matchCount = Number(discovery.reconciliation_match_count) || 0;
+
+  if (mismatchCount > 0) return "Mismatched";
+  if (matchCount >= 3 && unknownCount === 0) return "Matched";
+  return "Pending Verification";
+}
+
 async function findMatchingAsset(inventory, branchId, queryable = db) {
   const result = await queryable.query(
     `SELECT asset_id
@@ -92,4 +108,7 @@ async function upsertAgentInventoryDiscovery(device, inventory, queryable = db) 
   return result.rows[0];
 }
 
-module.exports = { upsertAgentInventoryDiscovery };
+module.exports = {
+  getDiscoveryVerificationStatus,
+  upsertAgentInventoryDiscovery,
+};
