@@ -9,7 +9,7 @@ const {
   createHardwareAssetTextReport,
   createHardwareAssetPdfReport,
 } = require("../services/hardwareAssetReportService");
-const { getDiscoveryVerificationStatus } = require("../services/assetDiscoveryInventoryService");
+const { getDiscoveryVerification } = require("../services/assetDiscoveryInventoryService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -265,7 +265,11 @@ router.get("/discovery", requireAssetManager, async (req, res) => {
       [req.assetBranchId]
     );
     const result = await db.query(
-      `SELECT d.*,a.asset_name,a.asset_tag matched_asset_tag,b.branch_name,
+      `SELECT d.*,a.asset_name,a.asset_tag matched_asset_tag,
+              a.serial_number matched_asset_serial_number,
+              COALESCE(NULLIF(a.manufacturer,''),a.brand) matched_asset_manufacturer,
+              a.hostname matched_asset_hostname,
+              b.branch_name,
               COALESCE(rec.match_count,0) reconciliation_match_count,
               COALESCE(rec.mismatch_count,0) reconciliation_mismatch_count,
               COALESCE(rec.unknown_count,0) reconciliation_unknown_count,
@@ -282,18 +286,21 @@ router.get("/discovery", requireAssetManager, async (req, res) => {
          FROM asset_inventory_reconciliation r
          WHERE r.asset_id=d.matched_asset_id
            AND r.field_name IN ('serial_number','manufacturer','model')
-           AND r.device_id=CASE
-             WHEN COALESCE(d.raw_data->>'device_id','') ~ '^[0-9]+$'
-               THEN (d.raw_data->>'device_id')::INTEGER
-             ELSE r.device_id
-           END
+           AND COALESCE(d.raw_data->>'device_id','') ~ '^[0-9]+$'
+           AND r.device_id=(d.raw_data->>'device_id')::INTEGER
        ) rec ON TRUE
        WHERE ($1::int IS NULL OR d.branch_id=$1) ORDER BY d.last_seen DESC`, [req.assetBranchId]
     );
-    const records = result.rows.map((record) => ({
-      ...record,
-      verification_status: getDiscoveryVerificationStatus(record),
-    }));
+    const records = result.rows.map((record) => {
+      const verification = getDiscoveryVerification(record);
+      return {
+        ...record,
+        verification_status: verification.status,
+        reconciliation_match_count: verification.matchCount,
+        reconciliation_mismatch_count: verification.mismatchCount,
+        reconciliation_unknown_count: verification.unknownCount,
+      };
+    });
     return res.json({ success: true, message: "Discovery registry loaded.", data: records });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to load discovery registry.", error: error.message });
@@ -367,7 +374,7 @@ router.patch("/discovery/:id/link", requireAssetManager, async (req, res) => {
       return res.status(404).json({ success: false, message: "Hardware asset not found.", error: "Hardware asset not found." });
     }
     const result = await client.query(
-      `UPDATE asset_discoveries SET matched_asset_id=$1,reconciliation_status='Matched',updated_at=CURRENT_TIMESTAMP
+      `UPDATE asset_discoveries SET matched_asset_id=$1,reconciliation_status='Pending Verification',updated_at=CURRENT_TIMESTAMP
        WHERE discovery_id=$2 AND ($3::int IS NULL OR branch_id=$3) RETURNING *`,
       [req.body.asset_id, req.params.id, req.assetBranchId]
     );

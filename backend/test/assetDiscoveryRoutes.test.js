@@ -9,21 +9,41 @@ const assetManagementRoutes = require("../src/routes/assetManagement");
 
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 
-test("discovery registry derives mismatch from agent-to-asset identity checks", async () => {
+test("discovery registry derives row-specific agent and manual verification", async () => {
   const originalQuery = db.query;
   const calls = [];
   db.query = async (sql) => {
     calls.push(sql);
     if (/SELECT d\.\*,a\.asset_name/.test(sql)) {
       return {
-        rows: [{
-          discovery_id: 18,
-          matched_asset_id: 91,
-          reconciliation_status: "Matched",
-          reconciliation_match_count: 2,
-          reconciliation_mismatch_count: 1,
-          reconciliation_unknown_count: 0,
-        }],
+        rows: [
+          {
+            discovery_id: 18,
+            matched_asset_id: 91,
+            raw_data: { device_id: 17 },
+            reconciliation_status: "Matched",
+            reconciliation_match_count: 2,
+            reconciliation_mismatch_count: 1,
+            reconciliation_unknown_count: 0,
+          },
+          {
+            discovery_id: 19,
+            matched_asset_id: 91,
+            raw_data: {},
+            reconciliation_status: "Matched",
+            hostname: "UNRELATED-LAPTOP",
+            serial_number: "OTHER-SERIAL",
+            manufacturer: "Other Manufacturer",
+            asset_tag: "OTHER-TAG",
+            matched_asset_hostname: "MANAGED-LAPTOP",
+            matched_asset_serial_number: "ASSET-SERIAL",
+            matched_asset_manufacturer: "Asset Manufacturer",
+            matched_asset_tag: "ASSET-TAG",
+            reconciliation_match_count: 3,
+            reconciliation_mismatch_count: 0,
+            reconciliation_unknown_count: 0,
+          },
+        ],
       };
     }
     return { rows: [] };
@@ -43,6 +63,8 @@ test("discovery registry derives mismatch from agent-to-asset identity checks", 
     const body = await response.json();
     assert.equal(response.status, 200, JSON.stringify(body));
     assert.equal(body.data[0].verification_status, "Mismatched");
+    assert.equal(body.data[1].verification_status, "Mismatched");
+    assert.equal(body.data[1].reconciliation_mismatch_count, 4);
     assert.ok(calls.some((sql) => /asset_inventory_reconciliation/.test(sql)));
   } finally {
     await new Promise((resolve) => server.close(resolve));

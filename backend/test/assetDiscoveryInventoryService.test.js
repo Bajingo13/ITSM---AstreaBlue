@@ -3,6 +3,7 @@ process.env.NODE_ENV = "test";
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  getDiscoveryVerification,
   getDiscoveryVerificationStatus,
   upsertAgentInventoryDiscovery,
 } = require("../src/services/assetDiscoveryInventoryService");
@@ -68,6 +69,7 @@ test("unlinked endpoint inventory matches one existing asset by serial number", 
 test("linked discovery reports mismatched when identity reconciliation fails", () => {
   assert.equal(getDiscoveryVerificationStatus({
     matched_asset_id: 42,
+    raw_data: { device_id: 17 },
     reconciliation_match_count: 2,
     reconciliation_mismatch_count: 1,
     reconciliation_unknown_count: 0,
@@ -77,6 +79,7 @@ test("linked discovery reports mismatched when identity reconciliation fails", (
 test("linked discovery remains pending until all identity fields are verified", () => {
   assert.equal(getDiscoveryVerificationStatus({
     matched_asset_id: 42,
+    raw_data: { device_id: 17 },
     reconciliation_match_count: 2,
     reconciliation_mismatch_count: 0,
     reconciliation_unknown_count: 1,
@@ -86,8 +89,56 @@ test("linked discovery remains pending until all identity fields are verified", 
 test("linked discovery is matched only after all identity fields match", () => {
   assert.equal(getDiscoveryVerificationStatus({
     matched_asset_id: 42,
+    raw_data: { device_id: 17 },
     reconciliation_match_count: 3,
     reconciliation_mismatch_count: 0,
     reconciliation_unknown_count: 0,
   }), "Matched");
+});
+
+test("manual discoveries are compared to their linked asset instead of inheriting its agent result", () => {
+  const verification = getDiscoveryVerification({
+    matched_asset_id: 42,
+    source: "Manual",
+    hostname: "UNRELATED-LAPTOP",
+    serial_number: "DISCOVERED-SERIAL",
+    manufacturer: "Discovery Manufacturer",
+    asset_tag: "DISCOVERY-TAG",
+    matched_asset_hostname: "MANAGED-LAPTOP",
+    matched_asset_serial_number: "ASSET-SERIAL",
+    matched_asset_manufacturer: "Asset Manufacturer",
+    matched_asset_tag: "ASSET-TAG",
+    reconciliation_match_count: 3,
+    reconciliation_mismatch_count: 0,
+  });
+
+  assert.equal(verification.status, "Mismatched");
+  assert.equal(verification.mismatchCount, 4);
+});
+
+test("two manual discoveries linked to one asset keep independent reconciliation results", () => {
+  const asset = {
+    matched_asset_id: 42,
+    matched_asset_hostname: "MANAGED-LAPTOP",
+    matched_asset_serial_number: "ASSET-SERIAL",
+    matched_asset_manufacturer: "Asset Manufacturer",
+    matched_asset_tag: "ASSET-TAG",
+  };
+  const matching = getDiscoveryVerification({
+    ...asset,
+    hostname: "MANAGED-LAPTOP",
+    serial_number: "ASSET-SERIAL",
+    manufacturer: "Asset Manufacturer",
+    asset_tag: "ASSET-TAG",
+  });
+  const unrelated = getDiscoveryVerification({
+    ...asset,
+    hostname: "OTHER-LAPTOP",
+    serial_number: "OTHER-SERIAL",
+    manufacturer: "Other Manufacturer",
+    asset_tag: "OTHER-TAG",
+  });
+
+  assert.equal(matching.status, "Matched");
+  assert.equal(unrelated.status, "Mismatched");
 });

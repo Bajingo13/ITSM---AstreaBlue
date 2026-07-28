@@ -5,20 +5,58 @@ function clean(value) {
   return text || null;
 }
 
-function getDiscoveryVerificationStatus(discovery = {}) {
+function normalizedIdentity(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function compareIdentity(discoveredValue, assetValue) {
+  const discovered = normalizedIdentity(discoveredValue);
+  const asset = normalizedIdentity(assetValue);
+  if (!discovered || !asset) return "unknown";
+  return discovered === asset ? "match" : "mismatch";
+}
+
+function getDiscoveryVerification(discovery = {}) {
   if (!discovery.matched_asset_id) {
-    return discovery.reconciliation_status === "Matched"
-      ? "Unmanaged"
-      : discovery.reconciliation_status || "Unmanaged";
+    return {
+      status: discovery.reconciliation_status === "Matched"
+        ? "Unmanaged"
+        : discovery.reconciliation_status || "Unmanaged",
+      matchCount: 0,
+      mismatchCount: 0,
+      unknownCount: 0,
+    };
   }
 
-  const mismatchCount = Number(discovery.reconciliation_mismatch_count) || 0;
-  const unknownCount = Number(discovery.reconciliation_unknown_count) || 0;
-  const matchCount = Number(discovery.reconciliation_match_count) || 0;
+  const deviceId = String(discovery.raw_data?.device_id || "").trim();
+  if (/^\d+$/.test(deviceId)) {
+    const mismatchCount = Number(discovery.reconciliation_mismatch_count) || 0;
+    const unknownCount = Number(discovery.reconciliation_unknown_count) || 0;
+    const matchCount = Number(discovery.reconciliation_match_count) || 0;
 
-  if (mismatchCount > 0) return "Mismatched";
-  if (matchCount >= 3 && unknownCount === 0) return "Matched";
-  return "Pending Verification";
+    if (mismatchCount > 0) return { status: "Mismatched", matchCount, mismatchCount, unknownCount };
+    if (matchCount >= 3 && unknownCount === 0) return { status: "Matched", matchCount, mismatchCount, unknownCount };
+    return { status: "Pending Verification", matchCount, mismatchCount, unknownCount };
+  }
+
+  const comparisons = [
+    { field: "serial_number", strong: true, result: compareIdentity(discovery.serial_number, discovery.matched_asset_serial_number) },
+    { field: "manufacturer", strong: false, result: compareIdentity(discovery.manufacturer, discovery.matched_asset_manufacturer) },
+    { field: "asset_tag", strong: true, result: compareIdentity(discovery.asset_tag, discovery.matched_asset_tag) },
+    { field: "hostname", strong: true, result: compareIdentity(discovery.hostname, discovery.matched_asset_hostname) },
+  ];
+  const matchCount = comparisons.filter(({ result }) => result === "match").length;
+  const mismatchCount = comparisons.filter(({ result }) => result === "mismatch").length;
+  const unknownCount = comparisons.filter(({ result }) => result === "unknown").length;
+  const strongMatchCount = comparisons.filter(({ strong, result }) => strong && result === "match").length;
+
+  if (mismatchCount > 0) return { status: "Mismatched", matchCount, mismatchCount, unknownCount };
+  if (strongMatchCount > 0) return { status: "Matched", matchCount, mismatchCount, unknownCount };
+  return { status: "Pending Verification", matchCount, mismatchCount, unknownCount };
+}
+
+function getDiscoveryVerificationStatus(discovery = {}) {
+  return getDiscoveryVerification(discovery).status;
 }
 
 async function findMatchingAsset(inventory, branchId, queryable = db) {
@@ -109,6 +147,7 @@ async function upsertAgentInventoryDiscovery(device, inventory, queryable = db) 
 }
 
 module.exports = {
+  getDiscoveryVerification,
   getDiscoveryVerificationStatus,
   upsertAgentInventoryDiscovery,
 };
