@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   CheckCircle2,
   ClipboardCheck,
@@ -336,7 +337,7 @@ export default function EmployeeLifecycle() {
     <div className="space-y-5">
       <PageHero eyebrow="People Operations" title="Employee Lifecycle Management" subtitle="Branch-scoped onboarding and offboarding checklists with verification gates and complete audit history." />
 
-      {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-bold text-rose-700">{error}</div>}
+      {error && !details && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-bold text-rose-700">{error}</div>}
       {notice && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-700">{notice}</div>}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -407,7 +408,7 @@ export default function EmployeeLifecycle() {
         </form>
       </div>}
 
-      {details && <CaseDrawer key={details.lifecycle_case_id} details={details} role={normalizedRole} busy={busy} invitation={invitation} onClose={() => setDetails(null)} onTask={updateTask} onStatus={updateStatus} onDelete={deleteCase} onProvision={createAccountInvitation} onResend={resendAccountInvitation}/>}
+      {details && <CaseDrawer key={details.lifecycle_case_id} details={details} role={normalizedRole} busy={busy} error={error} invitation={invitation} onDismissError={() => setError("")} onClose={() => { setError(""); setDetails(null); }} onTask={updateTask} onStatus={updateStatus} onDelete={deleteCase} onProvision={createAccountInvitation} onResend={resendAccountInvitation}/>}
       <style>{`.field{width:100%;border:1px solid #bfdbfe;border-radius:.75rem;background:#f8fafc;padding:.75rem 1rem;font-size:.875rem;outline:none}.field:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12)}`}</style>
     </div>
   );
@@ -417,7 +418,7 @@ function Field({ label, children }) {
   return <label><span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-600">{label}</span>{children}</label>;
 }
 
-function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus, onDelete, onProvision, onResend }) {
+function CaseDrawer({ details, role, busy, error, invitation, onDismissError, onClose, onTask, onStatus, onDelete, onProvision, onResend }) {
   const [taskNotes, setTaskNotes] = useState({});
   const [accountForm, setAccountForm] = useState({
     personal_email: details.subject_contact_email || "",
@@ -434,6 +435,17 @@ function CaseDrawer({ details, role, busy, invitation, onClose, onTask, onStatus
   return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60 backdrop-blur-sm">
     <aside className="h-full w-full max-w-3xl overflow-y-auto border-l border-blue-100 bg-[#f7faff] shadow-2xl">
       <header className="sticky top-0 z-10 flex items-start justify-between border-b border-blue-100 bg-white p-6"><div><p className="text-xs font-black uppercase tracking-widest text-blue-600">{details.case_number}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{details.employee_name}</h2><p className="text-sm text-slate-500">{details.lifecycle_type} · {details.branch_name}</p></div><div className="flex items-center gap-2">{role === "superadmin" && details.status !== "Completed" && <button disabled={busy} onClick={() => void onDelete(details)} className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100 disabled:opacity-50"><Trash2 size={15}/> Delete</button>}<button onClick={onClose} className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-100"><X/></button></div></header>
+      {error && <div role="alert" aria-live="assertive" className="fixed right-4 top-24 z-[60] w-[calc(100%-2rem)] max-w-xl rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-2xl sm:right-8">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 rounded-xl bg-amber-100 p-2 text-amber-700"><AlertTriangle size={20}/></span>
+          <div className="min-w-0 flex-1">
+            <p className="font-black">Checklist action needs attention</p>
+            <p className="mt-1 text-sm font-semibold leading-6">{error}</p>
+            <p className="mt-1 text-xs text-amber-800">Complete the remaining required checklist evidence in this case, then try final verification again.</p>
+          </div>
+          <button type="button" onClick={onDismissError} aria-label="Dismiss checklist message" className="rounded-full p-1.5 text-amber-800 hover:bg-amber-100"><X size={18}/></button>
+        </div>
+      </div>}
       <div className="space-y-5 p-6">
         <section className="grid gap-3 sm:grid-cols-3">
           <Info label="Status" value={details.status}/><Info label="Target Date" value={formatDate(details.target_date)}/><Info label="Related Ticket" value={details.related_ticket_number || "Not linked"}/>
