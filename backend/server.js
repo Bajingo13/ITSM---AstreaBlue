@@ -39,6 +39,7 @@ const ticketCategoryRoutes = require("./src/routes/ticketCategories");
 const knowledgeBaseRoutes = require("./src/routes/knowledgeBase");
 const softwareLicenseRoutes = require("./src/routes/softwareLicenses");
 const serviceRequestRoutes = require("./src/routes/serviceRequests");
+const aiAssistantRoutes = require("./src/routes/aiAssistant");
 const createHardwareAssetRoutes = require("./src/routes/hardwareAssets");
 const { setSocketServer } = require("./src/services/socketService");
 const { startScreenshotRetentionJob } = require("./src/services/screenshotRetentionService");
@@ -157,6 +158,7 @@ app.use("/api/v1/roles", roleRoutes);
 app.use("/api/v1/technicians", technicianRoutes);
 app.use("/api/v1/ticket-categories", ticketCategoryRoutes);
 app.use("/api/v1/knowledge-base", knowledgeBaseRoutes);
+app.use("/api/v1/ai-assistant", aiAssistantRoutes);
 app.use("/api/v1/software-licenses", softwareLicenseRoutes);
 app.use("/api/v1/requests", serviceRequestRoutes);
 app.use(
