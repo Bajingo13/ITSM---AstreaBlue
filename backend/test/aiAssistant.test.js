@@ -182,7 +182,7 @@ test("assistant asks for clarification when a count question has no subject or c
   });
 
   assert.equal(result.mode, "clarification");
-  assert.match(result.answer, /tickets or hardware assets/i);
+  assert.match(result.answer, /tickets, hardware assets, or monitored endpoints/i);
   assert.equal(knowledgeSearchCalled, false);
 });
 
