@@ -69,6 +69,57 @@ function createKnowledgeSearchFallback(articles) {
   ].filter(Boolean).join("\n\n");
 }
 
+function normalizeRole(role) {
+  return String(role || "").toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+function detectTicketCountIntent(message) {
+  const normalized = String(message || "").toLowerCase();
+  const asksForCount = /\b(how many|count|total|number of)\b/.test(normalized);
+  if (!asksForCount || !/\btickets?\b/.test(normalized)) return null;
+
+  if (/\bopen queue\b/.test(normalized)) return { statusKey: "open_queue", label: "Open Queue" };
+  if (/\bin progress\b/.test(normalized)) return { statusKey: "in_progress", label: "In Progress" };
+  if (/\bresolved\b/.test(normalized)) return { statusKey: "resolved", label: "Resolved" };
+  if (/\bclosed\b/.test(normalized)) return { statusKey: "closed", label: "Closed" };
+  if (/\bcancel(?:led|ed)\b/.test(normalized)) return { statusKey: "cancelled", label: "Cancelled" };
+  if (/\bactive\b/.test(normalized)) return { statusKey: "active", label: "active" };
+  return { statusKey: "all", label: "total" };
+}
+
+function isOfflineEndpointQuestion(message) {
+  const normalized = String(message || "").toLowerCase();
+  return (
+    /\b(endpoint|device|laptop|computer|agent)\b/.test(normalized)
+    && /\b(offline|stale|heartbeat|not reporting|not connecting)\b/.test(normalized)
+  );
+}
+
+function offlineEndpointGuide(actor) {
+  const role = normalizeRole(actor.role_name);
+  if (["employee", "hr"].includes(role)) {
+    return [
+      "To troubleshoot an offline endpoint:",
+      "1. Confirm the laptop is powered on and connected to the internet.",
+      "2. Restart the laptop once, then allow about two minutes for its next heartbeat.",
+      "3. Open Endpoint Management and check whether Last Heartbeat updates.",
+      "4. If it remains offline, submit a Service Desk ticket with the device name and the time it was last online.",
+      "An authorized administrator or technician can then run the agent diagnostics. Do not reinstall the agent unless diagnostics show that repair or re-enrollment is required.",
+    ].join("\n");
+  }
+
+  return [
+    "Use this AstreaBlue endpoint checklist:",
+    "1. In Endpoint Management > Devices, confirm the device name, Last Heartbeat, policy state, and credential status.",
+    "2. On the affected Windows laptop, run `sc.exe query AstreaBlueMonitoringAgent` in an Administrator Command Prompt. The service should show RUNNING.",
+    "3. Run `\"C:\\Program Files\\AstreaBlue\\Monitoring Agent\\AstreaBlue.Agent.Service.exe\" --diagnostics` and check heartbeat, backend URL, device UUID, and credential health.",
+    "4. Review the newest log under `C:\\ProgramData\\AstreaBlue\\MonitoringAgent\\logs` for authentication, network, or policy errors.",
+    "5. If the credential is invalid or revoked, create a new one-time enrollment code and run the current package's repair script with that code.",
+    "6. If the service is stopped, repair/start it and wait about two minutes for a new heartbeat.",
+    "Do not uninstall first. Reinstall only when repair fails or the installed agent files are missing.",
+  ].join("\n");
+}
+
 function createAiAssistantService({
   repo = repository,
   fetchImpl = global.fetch,
@@ -88,6 +139,37 @@ function createAiAssistantService({
       const error = new Error("Your account is inactive or no longer available.");
       error.status = 403;
       throw error;
+    }
+
+    const ticketCountIntent = detectTicketCountIntent(trimmedMessage);
+    if (ticketCountIntent) {
+      const ticketCount = await repo.countAuthorizedTickets({
+        actor,
+        statusKey: ticketCountIntent.statusKey,
+      });
+      await repo.writeAudit({
+        actor, question: trimmedMessage, outcome: "live_ticket_count",
+        sourceCount: 0, ipAddress,
+      });
+      return {
+        answer: `You currently have ${ticketCount} ${ticketCountIntent.label} ticket${ticketCount === 1 ? "" : "s"} visible under your role and branch access.`,
+        sources: [],
+        mode: "system-data",
+        notice: "Live read-only AstreaBlue data. Existing ticket RBAC was applied.",
+      };
+    }
+
+    if (isOfflineEndpointQuestion(trimmedMessage)) {
+      await repo.writeAudit({
+        actor, question: trimmedMessage, outcome: "system_guide",
+        sourceCount: 0, ipAddress,
+      });
+      return {
+        answer: offlineEndpointGuide(actor),
+        sources: [],
+        mode: "system-guide",
+        notice: "Built-in AstreaBlue troubleshooting guidance. No AI billing is required.",
+      };
     }
 
     const articles = await repo.searchAuthorizedKnowledge({ actor, message: trimmedMessage });
@@ -181,7 +263,10 @@ module.exports = {
   MAX_MESSAGE_LENGTH,
   buildInput,
   createAiAssistantService,
+  detectTicketCountIntent,
   extractResponseText,
   formatKnowledgeContext,
+  isOfflineEndpointQuestion,
+  offlineEndpointGuide,
   sanitizeHistory,
 };

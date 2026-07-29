@@ -1,4 +1,5 @@
 const db = require("../../config/db");
+const { addTicketAccessFilter } = require("../routes/_ticketAccess");
 
 const STOP_WORDS = new Set([
   "about", "after", "again", "also", "and", "are", "can", "does", "for",
@@ -16,6 +17,27 @@ function extractSearchTerms(message) {
   )]
     .filter((word) => !STOP_WORDS.has(word))
     .slice(0, 8);
+}
+
+function articleSearchScore(article, terms) {
+  const fields = {
+    title: String(article.title || "").toLowerCase(),
+    category: String(article.category || "").toLowerCase(),
+    tags: String(article.tags || "").toLowerCase(),
+    symptoms: String(article.symptoms || "").toLowerCase(),
+    resolution: String(article.resolution || "").toLowerCase(),
+  };
+  const words = (value) => new Set(value.match(/[a-z0-9][a-z0-9-]*/g) || []);
+  const tokens = Object.fromEntries(
+    Object.entries(fields).map(([key, value]) => [key, words(value)])
+  );
+
+  return terms.reduce((score, term) => {
+    if (tokens.title.has(term)) return score + 4;
+    if (tokens.category.has(term) || tokens.tags.has(term)) return score + 3;
+    if (tokens.symptoms.has(term) || tokens.resolution.has(term)) return score + 1;
+    return score;
+  }, 0);
 }
 
 async function getActorContext(userId) {
@@ -55,7 +77,8 @@ async function searchAuthorizedKnowledge({ actor, message, limit = 5 }) {
     params.push(actor.branch_id);
     where.push(`kb.branch_id=$${params.length}`);
   }
-  params.push(Math.min(Math.max(Number(limit) || 5, 1), 8));
+  const resultLimit = Math.min(Math.max(Number(limit) || 5, 1), 8);
+  params.push(Math.max(resultLimit * 3, 12));
 
   const result = await db.query(
     `SELECT kb.kb_id,kb.title,kb.category,kb.tags,kb.symptoms,
@@ -68,7 +91,52 @@ async function searchAuthorizedKnowledge({ actor, message, limit = 5 }) {
      LIMIT $${params.length}`,
     params
   );
-  return result.rows;
+  return result.rows
+    .map((article) => ({
+      article,
+      score: articleSearchScore(article, terms),
+    }))
+    .filter(({ score }) => score >= 2)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, resultLimit)
+    .map(({ article }) => article);
+}
+
+async function countAuthorizedTickets({ actor, statusKey }) {
+  const params = [];
+  const request = {
+    ticketAccessContext: {
+      authenticated: true,
+      currentUserId: Number(actor.user_id),
+      roleName: actor.role_name,
+      branchId: actor.branch_id == null ? null : Number(actor.branch_id),
+      filterBranchId: null,
+    },
+    query: {},
+    body: {},
+  };
+  const clauses = addTicketAccessFilter(request, params, "t");
+  const statuses = {
+    open_queue: ["Open Queue"],
+    in_progress: ["In Progress"],
+    resolved: ["Resolved"],
+    closed: ["Closed"],
+    cancelled: ["Cancelled", "Canceled"],
+    active: ["Open Queue", "In Progress"],
+  }[statusKey];
+
+  if (statuses) {
+    params.push(statuses);
+    clauses.push(`t.status = ANY($${params.length}::text[])`);
+  }
+
+  const result = await db.query(
+    `SELECT COUNT(*)::int AS ticket_count
+       FROM tickets t
+      WHERE ${clauses.length ? clauses.join(" AND ") : "TRUE"}`,
+    params
+  );
+  return Number(result.rows[0]?.ticket_count || 0);
 }
 
 async function writeAudit({
@@ -98,6 +166,8 @@ async function writeAudit({
 }
 
 module.exports = {
+  articleSearchScore,
+  countAuthorizedTickets,
   extractSearchTerms,
   getActorContext,
   normalizeRole,

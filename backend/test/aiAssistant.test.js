@@ -28,21 +28,68 @@ function createRepo(overrides = {}) {
       resolution: "Check the Windows service.",
       branch_name: "Makati Head Office",
     }],
+    countAuthorizedTickets: async () => 3,
     writeAudit: async () => {},
     ...overrides,
   };
 }
 
-test("assistant falls back to authorized Knowledge Base search without an API key", async () => {
-  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+test("assistant gives built-in offline endpoint guidance without an API key", async () => {
+  const service = createAiAssistantService({
+    repo: createRepo({
+      getActorContext: async () => ({
+        user_id: 4,
+        full_name: "Test Technician",
+        role_name: "Technician",
+        branch_id: 1,
+        branch_name: "Makati Head Office",
+        is_active: true,
+      }),
+    }),
+    apiKey: "",
+  });
   const result = await service.ask({
     tokenUser: { userId: 9 },
     message: "Why is my endpoint offline?",
   });
 
+  assert.equal(result.mode, "system-guide");
+  assert.match(result.answer, /sc\.exe query AstreaBlueMonitoringAgent/);
+  assert.match(result.notice, /No AI billing/i);
+  assert.equal(result.sources.length, 0);
+});
+
+test("assistant counts tickets through the authorized read-only repository query", async () => {
+  let requestedStatus;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      countAuthorizedTickets: async ({ statusKey }) => {
+        requestedStatus = statusKey;
+        return 7;
+      },
+    }),
+    apiKey: "",
+  });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many tickets are there in Open Queue?",
+  });
+
+  assert.equal(requestedStatus, "open_queue");
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /7 Open Queue tickets/);
+  assert.match(result.notice, /RBAC/);
+});
+
+test("assistant still falls back to an authorized relevant Knowledge Base article", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How do I resolve a printer setup issue?",
+  });
+
   assert.equal(result.mode, "knowledge-search");
   assert.match(result.answer, /\[KB-4\]/);
-  assert.equal(result.sources[0].title, "Offline endpoint troubleshooting");
 });
 
 test("assistant rejects an inactive current database account", async () => {
@@ -78,7 +125,7 @@ test("assistant provider request is read-only, not stored, and grounded", async 
 
   const result = await service.ask({
     tokenUser: { userId: 9 },
-    message: "Endpoint is offline",
+    message: "How do I configure a printer?",
   });
 
   assert.equal(result.mode, "ai");
