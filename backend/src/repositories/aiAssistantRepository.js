@@ -6,6 +6,10 @@ const {
 const {
   getEndpointMonitoringAccessFilter,
 } = require("../services/endpointMonitoringAccessService");
+const softwareLicenseRepository = require("./softwareLicenseRepository");
+const {
+  getSoftwareLicenseScope,
+} = require("../services/softwareLicenseAccessService");
 
 const STOP_WORDS = new Set([
   "about", "after", "again", "also", "and", "are", "can", "does", "for",
@@ -220,6 +224,134 @@ async function getAuthorizedEndpointSummary({ actor }) {
   );
 }
 
+async function getAuthorizedSoftwareLicenses({ actor }) {
+  const scope = getSoftwareLicenseScope({
+    role: actor.role_name,
+    branchId: actor.branch_id,
+  });
+  if (!scope.authorized) {
+    return { authorized: false, licenses: [] };
+  }
+  const result = await softwareLicenseRepository.list(scope.branchId);
+  return { authorized: true, licenses: result.rows };
+}
+
+function branchScopedAccess(actor, allowedRoles) {
+  const role = normalizeRole(actor.role_name);
+  if (!allowedRoles.includes(role)) return { authorized: false, where: "FALSE", params: [] };
+  if (role === "superadmin") return { authorized: true, where: "TRUE", params: [] };
+  if (!actor.branch_id) return { authorized: false, where: "FALSE", params: [] };
+  return { authorized: true, where: "branch_id=$1", params: [Number(actor.branch_id)] };
+}
+
+async function getAuthorizedSlaSummary({ actor }) {
+  const params = [];
+  const request = {
+    ticketAccessContext: {
+      authenticated: true,
+      currentUserId: Number(actor.user_id),
+      roleName: actor.role_name,
+      branchId: actor.branch_id == null ? null : Number(actor.branch_id),
+      filterBranchId: null,
+    },
+    query: {},
+    body: {},
+  };
+  const clauses = addTicketAccessFilter(request, params, "t");
+  clauses.push("t.status NOT IN ('Cancelled','Canceled')");
+  const result = await db.query(
+    `SELECT COUNT(*)::int total,
+       COUNT(*) FILTER (WHERE t.status NOT IN ('Resolved','Closed','Cancelled','Canceled'))::int active,
+       COUNT(*) FILTER (WHERE t.response_sla_status='Breached' OR t.resolution_sla_status='Breached')::int breached,
+       COUNT(*) FILTER (
+         WHERE (t.status IN ('Resolved','Closed') AND t.resolution_sla_status='Met')
+            OR (t.status NOT IN ('Resolved','Closed') AND t.response_sla_status='Met')
+       )::int met
+     FROM tickets t
+     WHERE ${clauses.join(" AND ")}`,
+    params
+  );
+  const row = result.rows[0] || {};
+  return Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [key, Number(value || 0)])
+  );
+}
+
+async function getAuthorizedReplacementSummary({ actor }) {
+  const role = normalizeRole(actor.role_name);
+  const params = [];
+  let where = "TRUE";
+  if (role === "employee") {
+    params.push(Number(actor.user_id));
+    where = `rr.employee_id=$${params.length}`;
+  } else if (["admin", "technician"].includes(role) && actor.branch_id) {
+    params.push(Number(actor.branch_id));
+    where = `rr.branch_id=$${params.length}`;
+  } else if (role !== "superadmin") {
+    return { authorized: false };
+  }
+  const result = await db.query(
+    `SELECT COUNT(*)::int total,
+       COUNT(*) FILTER (WHERE rr.status NOT IN ('Completed','Repaired','Rejected','Cancelled'))::int active,
+       COUNT(*) FILTER (WHERE rr.status='Awaiting Approval')::int awaiting_approval,
+       COUNT(*) FILTER (WHERE rr.status='Repair Recommended')::int repair_recommended,
+       COUNT(*) FILTER (WHERE rr.status='In Repair')::int in_repair,
+       COUNT(*) FILTER (WHERE rr.status='Repaired')::int repaired,
+       COUNT(*) FILTER (WHERE rr.status='Completed')::int completed
+     FROM replacement_requests rr WHERE ${where}`,
+    params
+  );
+  return { authorized: true, ...result.rows[0] };
+}
+
+async function getAuthorizedLifecycleSummary({ actor }) {
+  const access = branchScopedAccess(actor, ["superadmin", "admin", "hr"]);
+  if (!access.authorized) return { authorized: false };
+  const where = access.where.replace(/\bbranch_id\b/g, "lc.branch_id");
+  const result = await db.query(
+    `SELECT COUNT(*)::int total,
+       COUNT(*) FILTER (WHERE lc.lifecycle_type='Onboarding' AND lc.status NOT IN ('Completed','Cancelled'))::int active_onboarding,
+       COUNT(*) FILTER (WHERE lc.lifecycle_type='Offboarding' AND lc.status NOT IN ('Completed','Cancelled'))::int active_offboarding,
+       COUNT(*) FILTER (WHERE lc.status='Ready for Verification')::int ready_for_verification,
+       COUNT(*) FILTER (WHERE lc.status='Completed')::int completed
+     FROM employee_lifecycle_cases lc
+     WHERE lc.deleted_at IS NULL AND ${where}`,
+    access.params
+  );
+  return { authorized: true, ...result.rows[0] };
+}
+
+async function getAuthorizedCmdbSummary({ actor }) {
+  const access = branchScopedAccess(actor, ["superadmin", "admin", "technician"]);
+  if (!access.authorized) return { authorized: false };
+  const where = access.where.replace(/\bbranch_id\b/g, "ci.branch_id");
+  const result = await db.query(
+    `SELECT COUNT(*)::int total,
+       COUNT(*) FILTER (WHERE LOWER(COALESCE(ci.status,''))='active')::int active,
+       COUNT(DISTINCT ci.ci_type)::int types,
+       COUNT(*) FILTER (WHERE LOWER(COALESCE(ci.environment,''))='production')::int production
+     FROM config_items ci WHERE ${where}`,
+    access.params
+  );
+  return { authorized: true, ...result.rows[0] };
+}
+
+async function getAuthorizedProjectSummary({ actor }) {
+  const access = branchScopedAccess(actor, ["superadmin", "admin"]);
+  if (!access.authorized) return { authorized: false };
+  const where = access.where.replace(/\bbranch_id\b/g, "p.branch_id");
+  const result = await db.query(
+    `SELECT COUNT(*)::int total,
+       COUNT(*) FILTER (WHERE LOWER(p.status)='on track')::int on_track,
+       COUNT(*) FILTER (WHERE LOWER(p.status)='at risk')::int at_risk,
+       COUNT(*) FILTER (WHERE LOWER(p.status)='delayed')::int delayed,
+       COUNT(*) FILTER (WHERE LOWER(p.status)='completed')::int completed
+     FROM it_projects p WHERE p.is_active=true AND ${where}`,
+    access.params
+  );
+  return { authorized: true, ...result.rows[0] };
+}
+
 async function writeAudit({
   actor,
   question,
@@ -252,6 +384,12 @@ module.exports = {
   extractSearchTerms,
   getAuthorizedHardwareAssetSummary,
   getAuthorizedEndpointSummary,
+  getAuthorizedSoftwareLicenses,
+  getAuthorizedSlaSummary,
+  getAuthorizedReplacementSummary,
+  getAuthorizedLifecycleSummary,
+  getAuthorizedCmdbSummary,
+  getAuthorizedProjectSummary,
   getActorContext,
   normalizeRole,
   searchAuthorizedKnowledge,

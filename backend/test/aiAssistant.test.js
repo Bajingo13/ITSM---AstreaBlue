@@ -43,6 +43,40 @@ function createRepo(overrides = {}) {
       linked_to_asset: 2,
       unlinked: 1,
     }),
+    getAuthorizedSoftwareLicenses: async () => ({
+      authorized: true,
+      licenses: [{
+        license_id: 10,
+        license_name: "CapCut Pro",
+        vendor: "ByteDance",
+        license_type: "Subscription",
+        total_licenses: 12,
+        used_licenses: 7,
+        available_licenses: 5,
+        expiry_date: "2026-12-31",
+        annual_cost: "24000.00",
+        status: "Active",
+        branch_id: 1,
+        branch_name: "Makati Head Office",
+      }],
+    }),
+    getAuthorizedSlaSummary: async () => ({
+      total: 10, active: 4, met: 5, breached: 1,
+    }),
+    getAuthorizedReplacementSummary: async () => ({
+      authorized: true, total: 4, active: 2, awaiting_approval: 1,
+      repair_recommended: 0, in_repair: 1, repaired: 1, completed: 1,
+    }),
+    getAuthorizedLifecycleSummary: async () => ({
+      authorized: true, total: 5, active_onboarding: 2,
+      active_offboarding: 1, ready_for_verification: 1, completed: 1,
+    }),
+    getAuthorizedCmdbSummary: async () => ({
+      authorized: true, total: 9, active: 7, production: 3, types: 4,
+    }),
+    getAuthorizedProjectSummary: async () => ({
+      authorized: true, total: 3, on_track: 1, at_risk: 1, delayed: 1, completed: 0,
+    }),
     writeAudit: async () => {},
     ...overrides,
   };
@@ -176,6 +210,70 @@ test("assistant handles conversational existence questions and common repair typ
     result.answer,
     "Yes. You currently have 1 In Repair hardware asset visible under your role and branch access."
   );
+});
+
+test("assistant answers product-specific available software-license questions", async () => {
+  const service = createAiAssistantService({
+    repo: createRepo({
+      getActorContext: async () => ({
+        user_id: 1,
+        full_name: "Super Administrator",
+        role_name: "SuperAdmin",
+        branch_id: null,
+        branch_name: null,
+        is_active: true,
+      }),
+    }),
+    apiKey: "",
+  });
+  const result = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "how many available licenses do we have right now in our subscription in Capcut Pro",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /CapCut Pro currently has 5 available license seats/);
+  assert.match(result.answer, /7 used out of 12 total/);
+  assert.match(result.notice, /role and branch access rules/);
+});
+
+test("assistant explains known AstreaBlue modules without falling through to weak KB search", async () => {
+  let knowledgeSearchCalled = false;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      searchAuthorizedKnowledge: async () => {
+        knowledgeSearchCalled = true;
+        return [];
+      },
+    }),
+    apiKey: "",
+  });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "What does replacement management do and how does it work?",
+  });
+
+  assert.equal(result.mode, "system-guide");
+  assert.match(result.answer, /assessment, repair, replacement/i);
+  assert.match(result.answer, /Workflow:/);
+  assert.equal(knowledgeSearchCalled, false);
+});
+
+test("assistant routes remaining module summaries through the capability registry", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const cases = [
+    ["How many SLA tickets are there right now?", /10 SLA-tracked tickets/],
+    ["Give me the current replacement request summary", /4 replacement requests/],
+    ["How many onboarding and offboarding lifecycle cases do we have?", /5 employee lifecycle cases/],
+    ["How many configuration items are currently registered?", /9 configuration items/],
+    ["What is our project portfolio summary right now?", /3 active project records/],
+  ];
+  for (const [message, expected] of cases) {
+    const result = await service.ask({ tokenUser: { userId: 9 }, message });
+    assert.equal(result.mode, "system-data");
+    assert.match(result.answer, expected);
+    assert.match(result.notice, /Live read-only AstreaBlue data/);
+  }
 });
 
 test("assistant asks for clarification when a count question has no subject or context", async () => {

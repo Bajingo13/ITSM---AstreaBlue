@@ -1,4 +1,12 @@
 const repository = require("../repositories/aiAssistantRepository");
+const {
+  findModuleKnowledge,
+  formatModuleKnowledge,
+} = require("./aiModuleKnowledgeService");
+const {
+  findLiveSummaryCapability,
+  formatCapabilityResult,
+} = require("./aiLiveSummaryCapabilities");
 
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY_ITEMS = 8;
@@ -87,7 +95,9 @@ function normalizeIntentText(message) {
     .replace(/\b(repear|repeair|repir|repaire)\b/g, "repair")
     .replace(/\b(aset|assset)\b/g, "asset")
     .replace(/\b(tiket|tickt)\b/g, "ticket")
-    .replace(/\b(endpont|endpiont)\b/g, "endpoint");
+    .replace(/\b(endpont|endpiont)\b/g, "endpoint")
+    .replace(/\b(linceses|lisences|licences)\b/g, "licenses")
+    .replace(/\b(lincese|lisence|licence)\b/g, "license");
 }
 
 function inferConversationSubject(history) {
@@ -105,6 +115,9 @@ function inferConversationSubject(history) {
     ) {
       return "hardware_assets";
     }
+    if (/\b(software licenses?|subscriptions?|license seats?)\b/.test(content)) {
+      return "software_licenses";
+    }
     if (/\btickets?\b/.test(content)) return "tickets";
   }
   return null;
@@ -113,11 +126,12 @@ function inferConversationSubject(history) {
 function resolveContextualCountMessage(message, history) {
   const trimmed = String(message || "").trim();
   if (!isCountQuestion(trimmed)) return { message: trimmed, ambiguous: false };
+  const normalized = normalizeIntentText(trimmed);
 
   const hasExplicitSubject =
-    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|endpoints?|devices?)\b/i
-      .test(trimmed);
-  if (hasExplicitSubject) return { message: trimmed, ambiguous: false };
+    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|sla|replacement requests?|onboarding|offboarding|lifecycle cases?|configuration items?|cmdb|projects?)\b/i
+      .test(normalized);
+  if (hasExplicitSubject) return { message: normalized, ambiguous: false };
 
   const subject = inferConversationSubject(history);
   if (subject === "hardware_assets") {
@@ -128,6 +142,9 @@ function resolveContextualCountMessage(message, history) {
   }
   if (subject === "endpoints") {
     return { message: `${trimmed} monitored endpoints`, ambiguous: false };
+  }
+  if (subject === "software_licenses") {
+    return { message: `${trimmed} software licenses`, ambiguous: false };
   }
   return { message: trimmed, ambiguous: true };
 }
@@ -185,6 +202,97 @@ function detectEndpointSummaryIntent(message) {
   if (/\bunlinked\b/.test(normalized)) return { key: "unlinked", label: "unlinked" };
   if (/\blinked\b/.test(normalized)) return { key: "linked_to_asset", label: "linked to an asset" };
   return { key: null, label: null };
+}
+
+function detectSoftwareLicenseIntent(message) {
+  const normalized = normalizeIntentText(message);
+  const mentionsLicenses =
+    /\b(software licenses?|licenses?|subscriptions?|seats?)\b/.test(normalized);
+  const asksForData =
+    /\b(how many|count|total|number of|summary|breakdown|available|used|assigned|expiry|expires?|expired|expiring|status|cost|renewal)\b/.test(normalized);
+  if (!mentionsLicenses || !asksForData) return null;
+
+  let metric = "summary";
+  if (/\bavailable\b/.test(normalized)) metric = "available";
+  else if (/\b(used|assigned|in use)\b/.test(normalized)) metric = "used";
+  else if (/\b(expired)\b/.test(normalized)) metric = "expired";
+  else if (/\b(expiring|expires?|expiry)\b/.test(normalized)) metric = "expiry";
+  else if (/\b(cost|price|annual)\b/.test(normalized)) metric = "cost";
+  else if (/\b(total|how many|count|number of)\b/.test(normalized)) metric = "total";
+  return { metric, message: normalized };
+}
+
+function normalizeComparable(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function findMentionedLicenses(licenses, message) {
+  const normalizedMessage = ` ${normalizeComparable(message)} `;
+  return (licenses || []).filter((license) => {
+    const name = normalizeComparable(license.license_name);
+    return name && normalizedMessage.includes(` ${name} `);
+  });
+}
+
+function softwareProductHint(message) {
+  const normalized = normalizeComparable(message);
+  const marker = normalized.lastIndexOf(" in ");
+  if (marker < 0) return null;
+  const hint = normalized.slice(marker + 4).trim();
+  return hint && !["use", "stock", "total"].includes(hint) ? hint : null;
+}
+
+function formatSoftwareLicenseAnswer(result, intent) {
+  if (!result.authorized) {
+    return "Software License Management data is restricted to SuperAdmin and branch-scoped Admin accounts.";
+  }
+  const licenses = result.licenses || [];
+  if (!licenses.length) {
+    return "There are no software-license records visible under your role and branch access.";
+  }
+
+  const mentioned = findMentionedLicenses(licenses, intent.message);
+  const hint = softwareProductHint(intent.message);
+  if (hint && !mentioned.length) {
+    return `I could not find a software-license record matching “${hint}” under your role and branch access.`;
+  }
+  const selected = mentioned.length ? mentioned : licenses;
+  const product = mentioned.length
+    ? [...new Set(mentioned.map((item) => item.license_name))].join(", ")
+    : "Your authorized software licenses";
+  const total = selected.reduce((sum, item) => sum + Number(item.total_licenses || 0), 0);
+  const used = selected.reduce((sum, item) => sum + Number(item.used_licenses || 0), 0);
+  const available = selected.reduce(
+    (sum, item) => sum + Math.max(Number(item.total_licenses || 0) - Number(item.used_licenses || 0), 0),
+    0
+  );
+
+  if (intent.metric === "available") {
+    return `${product} currently ${mentioned.length === 1 ? "has" : "have"} ${available} available license seat${available === 1 ? "" : "s"} (${used} used out of ${total} total) under your role and branch access.`;
+  }
+  if (intent.metric === "used") {
+    return `${product} currently ${mentioned.length === 1 ? "has" : "have"} ${used} used license seat${used === 1 ? "" : "s"} out of ${total} total, leaving ${available} available.`;
+  }
+  if (intent.metric === "expired") {
+    const expired = selected.filter((item) => String(item.status).toLowerCase() === "expired").length;
+    return `${product} ${mentioned.length === 1 ? "has" : "have"} ${expired} expired subscription record${expired === 1 ? "" : "s"} visible under your access.`;
+  }
+  if (intent.metric === "expiry") {
+    const dated = selected
+      .filter((item) => item.expiry_date)
+      .sort((left, right) => new Date(left.expiry_date) - new Date(right.expiry_date));
+    if (!dated.length) return `${product} has no recorded expiry date.`;
+    const next = dated[0];
+    return `${next.license_name}'s next visible expiry date is ${new Date(next.expiry_date).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "long", day: "numeric" })}. Its current status is ${next.status}.`;
+  }
+  if (intent.metric === "cost") {
+    const cost = selected.reduce((sum, item) => sum + Number(item.annual_cost || 0), 0);
+    return `${product} ${mentioned.length === 1 ? "has" : "have"} a combined recorded annual cost of PHP ${cost.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`;
+  }
+  return `${product}: ${selected.length} subscription record${selected.length === 1 ? "" : "s"}, ${total} total seats, ${used} used, and ${available} available.`;
 }
 
 function findSummaryCount(group, key) {
@@ -308,6 +416,21 @@ function createAiAssistantService({
       };
     }
 
+    const liveSummaryCapability = findLiveSummaryCapability(contextualQuestion.message);
+    if (liveSummaryCapability) {
+      const data = await repo[liveSummaryCapability.repositoryMethod]({ actor });
+      await repo.writeAudit({
+        actor, question: trimmedMessage, outcome: liveSummaryCapability.outcome,
+        sourceCount: 0, ipAddress,
+      });
+      return {
+        answer: formatCapabilityResult(liveSummaryCapability, data),
+        sources: [],
+        mode: "system-data",
+        notice: `Live read-only AstreaBlue data. ${liveSummaryCapability.notice}`,
+      };
+    }
+
     const ticketCountIntent = detectTicketCountIntent(contextualQuestion.message);
     if (ticketCountIntent) {
       const ticketCount = await repo.countAuthorizedTickets({
@@ -341,6 +464,21 @@ function createAiAssistantService({
       };
     }
 
+    const softwareLicenseIntent = detectSoftwareLicenseIntent(contextualQuestion.message);
+    if (softwareLicenseIntent) {
+      const result = await repo.getAuthorizedSoftwareLicenses({ actor });
+      await repo.writeAudit({
+        actor, question: trimmedMessage, outcome: "live_software_license_summary",
+        sourceCount: 0, ipAddress,
+      });
+      return {
+        answer: formatSoftwareLicenseAnswer(result, softwareLicenseIntent),
+        sources: [],
+        mode: "system-data",
+        notice: "Live read-only AstreaBlue data. Existing Software License Management role and branch access rules were applied.",
+      };
+    }
+
     const hardwareAssetIntent = detectHardwareAssetSummaryIntent(contextualQuestion.message);
     if (hardwareAssetIntent) {
       const summary = await repo.getAuthorizedHardwareAssetSummary({ actor });
@@ -366,6 +504,20 @@ function createAiAssistantService({
         sources: [],
         mode: "system-guide",
         notice: "Built-in AstreaBlue troubleshooting guidance. No AI billing is required.",
+      };
+    }
+
+    const moduleKnowledge = findModuleKnowledge(trimmedMessage);
+    if (moduleKnowledge) {
+      await repo.writeAudit({
+        actor, question: trimmedMessage, outcome: "module_knowledge",
+        sourceCount: 0, ipAddress,
+      });
+      return {
+        answer: formatModuleKnowledge(moduleKnowledge),
+        sources: [],
+        mode: "system-guide",
+        notice: "Built-in AstreaBlue module guidance. Live record totals are returned only by authorized read-only capabilities.",
       };
     }
 
@@ -462,11 +614,13 @@ module.exports = {
   createAiAssistantService,
   detectEndpointSummaryIntent,
   detectHardwareAssetSummaryIntent,
+  detectSoftwareLicenseIntent,
   detectTicketCountIntent,
   extractResponseText,
   formatKnowledgeContext,
   formatHardwareAssetSummary,
   formatEndpointSummary,
+  formatSoftwareLicenseAnswer,
   inferConversationSubject,
   isOfflineEndpointQuestion,
   normalizeIntentText,
