@@ -79,6 +79,17 @@ function isCountQuestion(message) {
   );
 }
 
+function normalizeIntentText(message) {
+  return String(message || "")
+    .toLowerCase()
+    .replace(/\bdowe\b/g, "do we")
+    .replace(/\biy\s+yes\b/g, "if yes")
+    .replace(/\b(repear|repeair|repir|repaire)\b/g, "repair")
+    .replace(/\b(aset|assset)\b/g, "asset")
+    .replace(/\b(tiket|tickt)\b/g, "ticket")
+    .replace(/\b(endpont|endpiont)\b/g, "endpoint");
+}
+
 function inferConversationSubject(history) {
   const recent = sanitizeHistory(history).slice().reverse();
   for (const item of recent) {
@@ -136,7 +147,7 @@ function detectTicketCountIntent(message) {
 }
 
 function detectHardwareAssetSummaryIntent(message) {
-  const normalized = String(message || "").toLowerCase();
+  const normalized = normalizeIntentText(message);
   const asksForSummary = /\b(how many|count|total|number of|summary|breakdown)\b/.test(normalized);
   const mentionsAssets = /\b(hardware assets?|assets?|laptops?|desktops?|computers?)\b/.test(normalized);
   const isSoftwareQuestion = /\b(software|licen[cs]es?)\b/.test(normalized);
@@ -153,7 +164,8 @@ function detectHardwareAssetSummaryIntent(message) {
     { key: "disposed", label: "Disposed", pattern: /\bdisposed\b/ },
   ];
   const status = statusMatchers.find(({ pattern }) => pattern.test(normalized));
-  return status || { key: null, label: null };
+  const asksExistence = /\b(do we have|are there|is there|if yes)\b/.test(normalized);
+  return status ? { ...status, asksExistence } : { key: null, label: null, asksExistence };
 }
 
 function detectEndpointSummaryIntent(message) {
@@ -196,6 +208,12 @@ function formatBreakdown(group) {
 function formatHardwareAssetSummary(summary, intent) {
   if (intent.key) {
     const count = findSummaryCount(summary.byStatus, intent.key);
+    if (intent.asksExistence) {
+      if (count > 0) {
+        return `Yes. You currently have ${count} ${intent.label} hardware asset${count === 1 ? "" : "s"} visible under your role and branch access.`;
+      }
+      return `No. You currently have no ${intent.label} hardware assets visible under your role and branch access.`;
+    }
     return `You currently have ${count} ${intent.label} hardware asset${count === 1 ? "" : "s"} visible under your role and branch access.`;
   }
   return [
@@ -451,6 +469,7 @@ module.exports = {
   formatEndpointSummary,
   inferConversationSubject,
   isOfflineEndpointQuestion,
+  normalizeIntentText,
   offlineEndpointGuide,
   resolveContextualCountMessage,
   sanitizeHistory,

@@ -164,6 +164,20 @@ test("assistant can count a requested hardware asset status", async () => {
   assert.match(result.answer, /1 In Repair hardware asset/);
 });
 
+test("assistant handles conversational existence questions and common repair typos", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "dowe have an hardware asset that is in repear, iy yes how many",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.equal(
+    result.answer,
+    "Yes. You currently have 1 In Repair hardware asset visible under your role and branch access."
+  );
+});
+
 test("assistant asks for clarification when a count question has no subject or context", async () => {
   let knowledgeSearchCalled = false;
   const service = createAiAssistantService({
