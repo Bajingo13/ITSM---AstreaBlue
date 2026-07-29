@@ -7,14 +7,14 @@ import { authHeaders } from "../../services/authHeaders";
 const welcomeMessage = {
   role: "assistant",
   content:
-    "Hello! I’m AstreaBlue AI. I can search the Knowledge Base available to your role and branch. I’m read-only, so I will never change a ticket, asset, user, or endpoint.",
+    "Hello! I'm AstreaBlue AI. I can check supported live AstreaBlue summaries and search the Knowledge Base available to your role and branch. I'm read-only, so I will never change a ticket, asset, user, or endpoint.",
   sources: [],
 };
 
 const suggestions = [
   "How do I troubleshoot an offline endpoint?",
-  "How does ticket priority work?",
-  "How do I resolve a software issue?",
+  "How many tickets are currently in progress?",
+  "How many hardware assets do we have?",
 ];
 
 export default function AIAssistant() {
@@ -174,7 +174,7 @@ export default function AIAssistant() {
               <div className="flex justify-start">
                 <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
                   <Loader2 size={16} className="animate-spin text-blue-600" />
-                  Searching authorized knowledge…
+                  Checking authorized AstreaBlue data...
                 </div>
               </div>
             )}
@@ -208,7 +208,7 @@ export default function AIAssistant() {
                     sendMessage();
                   }
                 }}
-                placeholder="Ask about an IT issue or AstreaBlue process…"
+                placeholder="Ask about an IT issue or AstreaBlue process..."
                 className="max-h-28 min-h-12 flex-1 resize-none rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
               />
               <button

@@ -73,6 +73,46 @@ function normalizeRole(role) {
   return String(role || "").toLowerCase().replace(/[\s_-]+/g, "");
 }
 
+function isCountQuestion(message) {
+  return /\b(how many|count|total|number of)\b/.test(
+    String(message || "").toLowerCase()
+  );
+}
+
+function inferConversationSubject(history) {
+  const recent = sanitizeHistory(history).slice().reverse();
+  for (const item of recent) {
+    const content = item.content.toLowerCase();
+    if (
+      /\b(hardware assets?|assets?|laptops?|desktops?|computers?)\b/.test(content)
+      && !/\b(software|licen[cs]es?)\b/.test(content)
+    ) {
+      return "hardware_assets";
+    }
+    if (/\btickets?\b/.test(content)) return "tickets";
+  }
+  return null;
+}
+
+function resolveContextualCountMessage(message, history) {
+  const trimmed = String(message || "").trim();
+  if (!isCountQuestion(trimmed)) return { message: trimmed, ambiguous: false };
+
+  const hasExplicitSubject =
+    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|endpoints?|devices?)\b/i
+      .test(trimmed);
+  if (hasExplicitSubject) return { message: trimmed, ambiguous: false };
+
+  const subject = inferConversationSubject(history);
+  if (subject === "hardware_assets") {
+    return { message: `${trimmed} hardware assets`, ambiguous: false };
+  }
+  if (subject === "tickets") {
+    return { message: `${trimmed} tickets`, ambiguous: false };
+  }
+  return { message: trimmed, ambiguous: true };
+}
+
 function detectTicketCountIntent(message) {
   const normalized = String(message || "").toLowerCase();
   const asksForCount = /\b(how many|count|total|number of)\b/.test(normalized);
@@ -192,7 +232,25 @@ function createAiAssistantService({
       throw error;
     }
 
-    const ticketCountIntent = detectTicketCountIntent(trimmedMessage);
+    const contextualQuestion = resolveContextualCountMessage(trimmedMessage, history);
+    if (contextualQuestion.ambiguous) {
+      await repo.writeAudit({
+        actor, question: trimmedMessage, outcome: "clarification_required",
+        sourceCount: 0, ipAddress,
+      });
+      return {
+        answer: [
+          "What would you like me to count?",
+          "I can currently check your authorized tickets or hardware assets.",
+          "For example: “How many tickets are in progress?” or “How many hardware assets do we have?”",
+        ].join("\n"),
+        sources: [],
+        mode: "clarification",
+        notice: "Please include the module or record type. I will keep the same subject for follow-up questions in this conversation.",
+      };
+    }
+
+    const ticketCountIntent = detectTicketCountIntent(contextualQuestion.message);
     if (ticketCountIntent) {
       const ticketCount = await repo.countAuthorizedTickets({
         actor,
@@ -210,7 +268,7 @@ function createAiAssistantService({
       };
     }
 
-    const hardwareAssetIntent = detectHardwareAssetSummaryIntent(trimmedMessage);
+    const hardwareAssetIntent = detectHardwareAssetSummaryIntent(contextualQuestion.message);
     if (hardwareAssetIntent) {
       const summary = await repo.getAuthorizedHardwareAssetSummary({ actor });
       await repo.writeAudit({
@@ -334,7 +392,9 @@ module.exports = {
   extractResponseText,
   formatKnowledgeContext,
   formatHardwareAssetSummary,
+  inferConversationSubject,
   isOfflineEndpointQuestion,
   offlineEndpointGuide,
+  resolveContextualCountMessage,
   sanitizeHistory,
 };

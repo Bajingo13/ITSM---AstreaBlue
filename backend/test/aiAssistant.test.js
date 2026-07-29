@@ -121,6 +121,43 @@ test("assistant can count a requested hardware asset status", async () => {
   assert.match(result.answer, /1 In Repair hardware asset/);
 });
 
+test("assistant asks for clarification when a count question has no subject or context", async () => {
+  let knowledgeSearchCalled = false;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      searchAuthorizedKnowledge: async () => {
+        knowledgeSearchCalled = true;
+        return [];
+      },
+    }),
+    apiKey: "",
+  });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many do we have right now?",
+    history: [],
+  });
+
+  assert.equal(result.mode, "clarification");
+  assert.match(result.answer, /tickets or hardware assets/i);
+  assert.equal(knowledgeSearchCalled, false);
+});
+
+test("assistant inherits hardware asset context for natural follow-up questions", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many are in repair?",
+    history: [
+      { role: "user", content: "How many hardware assets do we have?" },
+      { role: "assistant", content: "You currently have 8 hardware assets." },
+    ],
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /1 In Repair hardware asset/);
+});
+
 test("assistant still falls back to an authorized relevant Knowledge Base article", async () => {
   const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
   const result = await service.ask({
