@@ -9,6 +9,10 @@ const path = require("node:path");
 const db = require("../config/db");
 const employeeLifecycleRoutes = require("../src/routes/employeeLifecycle");
 const { deriveOnboardingEvidence } = require("../src/services/onboardingReconciliationService");
+const {
+  applyApprovedConsentOnboardingState,
+  completeLifecycleOnboarding,
+} = require("../src/services/onboardingStateService");
 
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 let server;
@@ -286,6 +290,49 @@ test("onboarding evidence requires real account, consent, asset, heartbeat, inve
     now,
   });
   assert.ok(Object.values(evidence).every((item) => item.complete));
+});
+
+test("active lifecycle onboarding remains restricted after consent and unlocks only after final verification", async () => {
+  const consent = await db.query(
+    `INSERT INTO consent_documents (
+       employee_id,employee_full_name,employee_email,monitoring_preferences,
+       status,active,signed_at,submitted_at,approved_at
+     ) SELECT user_id,full_name,email,'[]'::jsonb,'approved',TRUE,
+              CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+         FROM users WHERE user_id=$1
+     RETURNING consent_id`,
+    [employeeId]
+  );
+  const consentId = consent.rows[0].consent_id;
+
+  const approval = await applyApprovedConsentOnboardingState(db, {
+    employeeId,
+    consentId,
+    changedBy: superAdminId,
+  });
+  assert.equal(approval.lifecycleManaged, true);
+  let user = await db.query(
+    `SELECT onboarding_status,onboarding_required,onboarding_completed_at
+       FROM users WHERE user_id=$1`,
+    [employeeId]
+  );
+  assert.equal(user.rows[0].onboarding_status, "Consent Approved");
+  assert.equal(user.rows[0].onboarding_required, true);
+  assert.equal(user.rows[0].onboarding_completed_at, null);
+
+  await completeLifecycleOnboarding(db, {
+    lifecycleCaseId: caseId,
+    employeeId,
+    changedBy: superAdminId,
+  });
+  user = await db.query(
+    `SELECT onboarding_status,onboarding_required,onboarding_completed_at
+       FROM users WHERE user_id=$1`,
+    [employeeId]
+  );
+  assert.equal(user.rows[0].onboarding_status, "Completed");
+  assert.equal(user.rows[0].onboarding_required, false);
+  assert.ok(user.rows[0].onboarding_completed_at);
 });
 
 test("only SuperAdmin can safely remove a non-completed lifecycle case", async () => {

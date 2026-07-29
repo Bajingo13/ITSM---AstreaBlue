@@ -21,7 +21,7 @@ export default function MandatoryOnboarding() {
       const data = await refreshOnboarding();
       setStatus(data);
       if (data.onboarding_status === "Completed") setStep(6);
-      else if (["Consent Submitted", "Blocked", "Revision Required"].includes(data.onboarding_status)) setStep(6);
+      else if (["Consent Submitted", "Consent Approved", "Blocked", "Revision Required"].includes(data.onboarding_status)) setStep(6);
       else if (data.privacy_notice_viewed_at) setStep((current) => Math.max(current, 3));
     } catch (requestError) {
       setError(requestError.message);
@@ -69,6 +69,7 @@ export default function MandatoryOnboarding() {
 
   const completed = status?.onboarding_status === "Completed";
   const pending = status?.onboarding_status === "Consent Submitted";
+  const consentApproved = status?.onboarding_status === "Consent Approved";
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 md:px-8">
@@ -88,7 +89,43 @@ export default function MandatoryOnboarding() {
 
         {step >= 3 && step <= 5 && <section><ConsentPage /></section>}
 
-        {step === 6 && <section className={`rounded-3xl border p-8 text-center shadow-sm ${completed ? "border-emerald-200 bg-emerald-50" : pending ? "border-blue-200 bg-blue-50" : "border-amber-200 bg-amber-50"}`}><CheckCircle className={`mx-auto ${completed ? "text-emerald-600" : "text-blue-600"}`} size={48}/><h2 className="mt-4 text-2xl font-black text-slate-900">{completed ? "Onboarding complete" : pending ? "Consent awaiting approval" : status?.onboarding_status || "Onboarding action required"}</h2><p className="mx-auto mt-3 max-w-2xl text-slate-600">{completed ? "Your approved consent document is stored privately and your account may now enter AstreaBlue. Asset assignment and agent installation can proceed separately." : pending ? "An Admin or SuperAdmin must approve your submitted consent. Privacy-sensitive monitoring remains disabled while you wait." : "Review the administrator’s reason and update your consent submission."}</p>{completed && <button onClick={() => navigate("/employee/dashboard", { replace: true })} className="mt-6 rounded-xl bg-emerald-700 px-6 py-3 font-bold text-white hover:bg-emerald-800">Enter AstreaBlue</button>}<button onClick={load} className="ml-3 mt-6 rounded-xl border border-slate-300 bg-white px-6 py-3 font-bold text-slate-700">Refresh status</button></section>}
+        {step === 6 && (
+          <section className={`rounded-3xl border p-8 text-center shadow-sm ${
+            completed
+              ? "border-emerald-200 bg-emerald-50"
+              : pending || consentApproved
+                ? "border-blue-200 bg-blue-50"
+                : "border-amber-200 bg-amber-50"
+          }`}>
+            <CheckCircle className={`mx-auto ${completed ? "text-emerald-600" : "text-blue-600"}`} size={48}/>
+            <h2 className="mt-4 text-2xl font-black text-slate-900">
+              {completed
+                ? "Onboarding complete"
+                : pending
+                  ? "Consent awaiting approval"
+                  : consentApproved
+                    ? "Consent approved — setup in progress"
+                    : status?.onboarding_status || "Onboarding action required"}
+            </h2>
+            <p className="mx-auto mt-3 max-w-2xl text-slate-600">
+              {completed
+                ? "Your onboarding checklist received authorized final verification. You may now enter AstreaBlue."
+                : pending
+                  ? "An Admin or SuperAdmin must approve your submitted consent. Privacy-sensitive monitoring remains disabled while you wait."
+                  : consentApproved
+                    ? "Your consent is approved. An authorized administrator is completing asset assignment, endpoint verification, and final onboarding review before full dashboard access is enabled."
+                    : "Review the administrator’s reason and update your consent submission."}
+            </p>
+            {completed && (
+              <button onClick={() => navigate("/employee/dashboard", { replace: true })} className="mt-6 rounded-xl bg-emerald-700 px-6 py-3 font-bold text-white hover:bg-emerald-800">
+                Enter AstreaBlue
+              </button>
+            )}
+            <button onClick={load} className="ml-3 mt-6 rounded-xl border border-slate-300 bg-white px-6 py-3 font-bold text-slate-700">
+              Refresh status
+            </button>
+          </section>
+        )}
       </div>
     </main>
   );

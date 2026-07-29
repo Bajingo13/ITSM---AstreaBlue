@@ -18,6 +18,9 @@ const {
   DEFAULT_SENSITIVE_FILENAME_KEYWORDS,
 } = require("../services/dlpRiskService");
 const { getPrivateObject, getR2Status, putPrivateObject } = require("../services/r2StorageService");
+const {
+  applyApprovedConsentOnboardingState,
+} = require("../services/onboardingStateService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -1220,17 +1223,11 @@ router.post("/:id/review", requireAdminOrHR, async (req, res) => {
          WHERE consent_id=$3 RETURNING *`,
         [actorId(actor), verificationCode, doc.consent_id, documentObjectKey, documentHash, pdfBuffer.length]
       );
-      const onboardingBefore = await client.query(`SELECT onboarding_status FROM users WHERE user_id=$1`, [doc.employee_id]);
-      await client.query(
-        `UPDATE users SET onboarding_status='Completed',onboarding_required=FALSE,
-           onboarding_completed_at=CURRENT_TIMESTAMP,onboarding_consent_id=$1 WHERE user_id=$2`,
-        [doc.consent_id, doc.employee_id]
-      );
-      await client.query(
-        `INSERT INTO user_onboarding_history (user_id,previous_status,new_status,consent_id,changed_by,reason)
-         VALUES ($1,$2,'Completed',$3,$4,'Consent approved; mandatory onboarding completed.')`,
-        [doc.employee_id, onboardingBefore.rows[0]?.onboarding_status || null, doc.consent_id, actorId(actor)]
-      );
+      await applyApprovedConsentOnboardingState(client, {
+        employeeId: doc.employee_id,
+        consentId: doc.consent_id,
+        changedBy: actorId(actor),
+      });
     } else if (action === "reject") {
       updated = await client.query(
         `UPDATE consent_documents SET status='rejected', active=false, rejection_reason=$1, updated_at=CURRENT_TIMESTAMP

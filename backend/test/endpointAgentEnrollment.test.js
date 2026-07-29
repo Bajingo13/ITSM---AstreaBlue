@@ -20,6 +20,7 @@ const policyIds = [];
 const ticketIds = [];
 const assetIds = [];
 const userIds = [];
+const lifecycleCaseIds = [];
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 
 function managerToken(role = "Admin") {
@@ -114,6 +115,7 @@ test.after(async () => {
   if (consentIds.length) await db.query(`DELETE FROM consent_documents WHERE consent_id=ANY($1::bigint[])`, [consentIds]);
   if (deviceIds.length) await db.query(`DELETE FROM monitored_devices WHERE device_id=ANY($1::bigint[])`, [deviceIds]);
   if (assetIds.length) await db.query(`DELETE FROM hardware_assets WHERE asset_id=ANY($1::int[])`, [assetIds]);
+  if (lifecycleCaseIds.length) await db.query(`DELETE FROM employee_lifecycle_cases WHERE lifecycle_case_id=ANY($1::bigint[])`, [lifecycleCaseIds]);
   if (userIds.length) await db.query(`DELETE FROM users WHERE user_id=ANY($1::int[])`, [userIds]);
   if (server) await new Promise((resolve) => server.close(resolve));
   await db.rawPool.end();
@@ -382,6 +384,20 @@ test("device assignment synchronizes a text employee ID to the linked hardware a
   const code = await createEnrollmentCode(hostname);
   const enrolled = await enroll(code, deviceUuid, hostname);
   assert.equal(enrolled.response.status, 201);
+
+  await db.query(
+    `UPDATE users SET onboarding_status='Consent Approved',onboarding_required=TRUE
+      WHERE user_id=$1`,
+    [employeeId]
+  );
+  const lifecycleCase = await db.query(
+    `INSERT INTO employee_lifecycle_cases
+       (case_number,lifecycle_type,employee_id,branch_id,status,created_by)
+     VALUES($1,'Onboarding',$2,$3,'In Progress',$4)
+     RETURNING lifecycle_case_id`,
+    [`ONB-ASSIGN-${unique.slice(0, 24)}`, employeeId, branchId, actorId]
+  );
+  lifecycleCaseIds.push(lifecycleCase.rows[0].lifecycle_case_id);
 
   const assignment = await adminRequest(
     `/devices/${enrolled.body.data.device_id}/assign`,

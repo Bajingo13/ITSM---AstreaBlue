@@ -1,6 +1,9 @@
 const db = require("../../config/db");
 const { reconcileDevice } = require("../services/reconciliationService");
 const { buildEndpointHealth } = require("../services/endpointHealthService");
+const {
+  canAssignEmployeeDuringOnboarding,
+} = require("../services/onboardingStateService");
 
 const ONLINE_THRESHOLD_SECONDS = 120;
 
@@ -350,15 +353,26 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
       let assignedName = null;
       if (assigned_user_id) {
         const user = await db.query(
-          `SELECT full_name, department, onboarding_status, onboarding_required FROM users WHERE user_id=$1`,
+          `SELECT full_name,department,onboarding_status,onboarding_required,is_active
+             FROM users WHERE user_id=$1`,
           [assigned_user_id]
         );
         if (!user.rows.length) return res.status(404).json({ success: false, message: "Employee not found." });
         const employee = user.rows[0];
-        if (employee.onboarding_required || employee.onboarding_status !== "Completed") {
+        if (employee.is_active === false) {
           return res.status(409).json({
             success: false,
-            message: "Asset and device assignment is locked until the employee's consent is approved and onboarding is complete.",
+            message: "The employee must activate the AstreaBlue account before device assignment.",
+          });
+        }
+        const onboardingIncomplete = employee.onboarding_required || employee.onboarding_status !== "Completed";
+        const activeLifecycleOnboarding = onboardingIncomplete
+          ? await canAssignEmployeeDuringOnboarding(db, assigned_user_id)
+          : false;
+        if (onboardingIncomplete && !activeLifecycleOnboarding) {
+          return res.status(409).json({
+            success: false,
+            message: "Asset and device assignment requires completed onboarding or an active lifecycle onboarding case.",
             onboarding_status: employee.onboarding_status,
           });
         }

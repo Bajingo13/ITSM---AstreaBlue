@@ -25,6 +25,9 @@ const {
   sendInvitationEmail,
   sendInvitationReminderEmail,
 } = require("../services/emailService");
+const {
+  completeLifecycleOnboarding,
+} = require("../services/onboardingStateService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -954,6 +957,13 @@ router.patch("/cases/:id/status", async (req, res) => {
       );
       if (!canCompleteCase({ requiredPending: pending.rows[0].count })) {
         throw Object.assign(new Error(`${pending.rows[0].count} required checklist task(s) are still pending.`), { status: 409 });
+      }
+      if (lifecycleCase.lifecycle_type === "Onboarding") {
+        await completeLifecycleOnboarding(client, {
+          lifecycleCaseId: lifecycleCase.lifecycle_case_id,
+          employeeId: lifecycleCase.employee_id,
+          changedBy: req.lifecycleActor.user_id,
+        });
       }
     }
     await client.query(
