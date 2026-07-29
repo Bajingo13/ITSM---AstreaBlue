@@ -84,6 +84,11 @@ function inferConversationSubject(history) {
   for (const item of recent) {
     const content = item.content.toLowerCase();
     if (
+      /\b(endpoint monitoring|monitored endpoints?|monitored devices?|endpoints?|heartbeat)\b/.test(content)
+    ) {
+      return "endpoints";
+    }
+    if (
       /\b(hardware assets?|assets?|laptops?|desktops?|computers?)\b/.test(content)
       && !/\b(software|licen[cs]es?)\b/.test(content)
     ) {
@@ -109,6 +114,9 @@ function resolveContextualCountMessage(message, history) {
   }
   if (subject === "tickets") {
     return { message: `${trimmed} tickets`, ambiguous: false };
+  }
+  if (subject === "endpoints") {
+    return { message: `${trimmed} monitored endpoints`, ambiguous: false };
   }
   return { message: trimmed, ambiguous: true };
 }
@@ -148,6 +156,25 @@ function detectHardwareAssetSummaryIntent(message) {
   return status || { key: null, label: null };
 }
 
+function detectEndpointSummaryIntent(message) {
+  const normalized = String(message || "").toLowerCase();
+  const asksForSummary = /\b(how many|count|total|number of|summary|breakdown)\b/.test(normalized);
+  const explicitEndpoint =
+    /\b(endpoint monitoring|monitored endpoints?|monitored devices?|endpoints?|heartbeat)\b/.test(normalized);
+  const reportingDevice =
+    /\b(laptops?|computers?|devices?)\b/.test(normalized)
+    && /\b(detect(?:ed|ing)?|report(?:ed|ing)?|monitor(?:ed|ing)?|online|offline)\b/.test(normalized);
+  if (!asksForSummary || (!explicitEndpoint && !reportingDevice)) return null;
+
+  if (/\boffline\b/.test(normalized)) return { key: "offline", label: "offline" };
+  if (/\bonline\b/.test(normalized)) return { key: "online", label: "online" };
+  if (/\bunassigned\b/.test(normalized)) return { key: "unassigned", label: "unassigned" };
+  if (/\bassigned\b/.test(normalized)) return { key: "assigned", label: "assigned" };
+  if (/\bunlinked\b/.test(normalized)) return { key: "unlinked", label: "unlinked" };
+  if (/\blinked\b/.test(normalized)) return { key: "linked_to_asset", label: "linked to an asset" };
+  return { key: null, label: null };
+}
+
 function findSummaryCount(group, key) {
   if (!key) return null;
   const entry = Object.entries(group || {}).find(
@@ -175,6 +202,19 @@ function formatHardwareAssetSummary(summary, intent) {
     `You currently have ${summary.total} hardware asset${summary.total === 1 ? "" : "s"} visible under your role and branch access.`,
     `By status: ${formatBreakdown(summary.byStatus)}.`,
     `By type: ${formatBreakdown(summary.byType)}.`,
+  ].join("\n");
+}
+
+function formatEndpointSummary(summary, intent) {
+  if (intent.key) {
+    const count = Number(summary[intent.key] || 0);
+    return `You currently have ${count} ${intent.label} monitored endpoint${count === 1 ? "" : "s"} visible under your role and branch access.`;
+  }
+  return [
+    `AstreaBlue is currently monitoring ${summary.total} registered endpoint${summary.total === 1 ? "" : "s"} visible under your role and branch access.`,
+    `Heartbeat status: Online: ${summary.online}, Offline: ${summary.offline}.`,
+    `Assignment: Assigned: ${summary.assigned}, Unassigned: ${summary.unassigned}.`,
+    `Asset linkage: Linked: ${summary.linked_to_asset}, Unlinked: ${summary.unlinked}.`,
   ].join("\n");
 }
 
@@ -241,8 +281,8 @@ function createAiAssistantService({
       return {
         answer: [
           "What would you like me to count?",
-          "I can currently check your authorized tickets or hardware assets.",
-          "For example: “How many tickets are in progress?” or “How many hardware assets do we have?”",
+          "I can currently check your authorized tickets, hardware assets, or monitored endpoints.",
+          "For example: “How many tickets are in progress?”, “How many hardware assets do we have?”, or “How many endpoints are online?”",
         ].join("\n"),
         sources: [],
         mode: "clarification",
@@ -265,6 +305,21 @@ function createAiAssistantService({
         sources: [],
         mode: "system-data",
         notice: "Live read-only AstreaBlue data. Existing ticket RBAC was applied.",
+      };
+    }
+
+    const endpointSummaryIntent = detectEndpointSummaryIntent(contextualQuestion.message);
+    if (endpointSummaryIntent) {
+      const summary = await repo.getAuthorizedEndpointSummary({ actor });
+      await repo.writeAudit({
+        actor, question: trimmedMessage, outcome: "live_endpoint_summary",
+        sourceCount: 0, ipAddress,
+      });
+      return {
+        answer: formatEndpointSummary(summary, endpointSummaryIntent),
+        sources: [],
+        mode: "system-data",
+        notice: "Live read-only AstreaBlue data. Endpoint monitoring RBAC and the 120-second heartbeat threshold were applied.",
       };
     }
 
@@ -387,11 +442,13 @@ module.exports = {
   MAX_MESSAGE_LENGTH,
   buildInput,
   createAiAssistantService,
+  detectEndpointSummaryIntent,
   detectHardwareAssetSummaryIntent,
   detectTicketCountIntent,
   extractResponseText,
   formatKnowledgeContext,
   formatHardwareAssetSummary,
+  formatEndpointSummary,
   inferConversationSubject,
   isOfflineEndpointQuestion,
   offlineEndpointGuide,

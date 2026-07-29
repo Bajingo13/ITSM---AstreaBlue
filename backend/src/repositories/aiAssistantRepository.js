@@ -3,6 +3,9 @@ const { addTicketAccessFilter } = require("../routes/_ticketAccess");
 const {
   getHardwareAssetAccessFilter,
 } = require("../services/hardwareAssetAccessService");
+const {
+  getEndpointMonitoringAccessFilter,
+} = require("../services/endpointMonitoringAccessService");
 
 const STOP_WORDS = new Set([
   "about", "after", "again", "also", "and", "are", "can", "does", "for",
@@ -186,6 +189,37 @@ async function getAuthorizedHardwareAssetSummary({ actor }) {
   };
 }
 
+async function getAuthorizedEndpointSummary({ actor }) {
+  const access = getEndpointMonitoringAccessFilter({
+    role: actor.role_name,
+    userId: actor.user_id,
+    branchId: actor.branch_id,
+  });
+  const result = await db.query(
+    `SELECT
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (
+         WHERE d.last_seen_at IS NOT NULL
+           AND d.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL '120 seconds'
+       )::int AS online,
+       COUNT(*) FILTER (
+         WHERE d.last_seen_at IS NULL
+            OR d.last_seen_at < CURRENT_TIMESTAMP - INTERVAL '120 seconds'
+       )::int AS offline,
+       COUNT(*) FILTER (WHERE d.assigned_user_id IS NOT NULL)::int AS assigned,
+       COUNT(*) FILTER (WHERE d.assigned_user_id IS NULL)::int AS unassigned,
+       COUNT(*) FILTER (WHERE d.asset_id IS NOT NULL)::int AS linked_to_asset,
+       COUNT(*) FILTER (WHERE d.asset_id IS NULL)::int AS unlinked
+     FROM monitored_devices d
+     ${access.whereSql}`,
+    access.params
+  );
+  const summary = result.rows[0] || {};
+  return Object.fromEntries(
+    Object.entries(summary).map(([key, value]) => [key, Number(value || 0)])
+  );
+}
+
 async function writeAudit({
   actor,
   question,
@@ -217,6 +251,7 @@ module.exports = {
   countAuthorizedTickets,
   extractSearchTerms,
   getAuthorizedHardwareAssetSummary,
+  getAuthorizedEndpointSummary,
   getActorContext,
   normalizeRole,
   searchAuthorizedKnowledge,

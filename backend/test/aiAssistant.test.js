@@ -34,6 +34,15 @@ function createRepo(overrides = {}) {
       byStatus: { "In Use": 5, Available: 2, "In Repair": 1 },
       byType: { Laptop: 6, Desktop: 2 },
     }),
+    getAuthorizedEndpointSummary: async () => ({
+      total: 3,
+      online: 2,
+      offline: 1,
+      assigned: 2,
+      unassigned: 1,
+      linked_to_asset: 2,
+      unlinked: 1,
+    }),
     writeAudit: async () => {},
     ...overrides,
   };
@@ -108,6 +117,40 @@ test("assistant returns a live authorized hardware asset summary instead of a KB
   assert.match(result.answer, /Laptop: 6/);
   assert.equal(knowledgeSearchCalled, false);
   assert.match(result.notice, /hardware asset RBAC/);
+});
+
+test("endpoint monitoring questions use monitored devices instead of hardware assets", async () => {
+  let assetSummaryCalled = false;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      getAuthorizedHardwareAssetSummary: async () => {
+        assetSummaryCalled = true;
+        return { total: 99, byStatus: {}, byType: {} };
+      },
+    }),
+    apiKey: "",
+  });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many laptops are we detecting right now in endpoint monitoring?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /monitoring 3 registered endpoints/);
+  assert.match(result.answer, /Online: 2, Offline: 1/);
+  assert.equal(assetSummaryCalled, false);
+  assert.match(result.notice, /120-second heartbeat threshold/);
+});
+
+test("assistant counts online endpoints through endpoint monitoring data", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many endpoints are online?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /2 online monitored endpoints/);
 });
 
 test("assistant can count a requested hardware asset status", async () => {
