@@ -8,6 +8,9 @@ const {
   getCurrentMonitoringStatus,
 } = require("../services/assetVerificationService");
 const { reconcileDevice } = require("../services/reconciliationService");
+const {
+  getHardwareAssetAccessFilter,
+} = require("../services/hardwareAssetAccessService");
 
 function normalizeRole(role) {
   return String(role || "")
@@ -43,25 +46,12 @@ function logError(operation, error) {
 function getAccessFilter(req) {
   const auth = getAuthFromRequest(req);
   if (!auth) return { whereSql: "WHERE 1=0", params: [] };
-
-  const role = normalizeRole(auth.role);
-  const filterBranch = req.query.filter_branch_id;
-  if (role === "superadmin") {
-    return filterBranch
-      ? { whereSql: "WHERE a.branch_id = $1", params: [filterBranch] }
-      : { whereSql: "", params: [] };
-  }
-  if (role === "admin" || role === "technician") {
-    return auth.branchId
-      ? { whereSql: "WHERE a.branch_id = $1", params: [auth.branchId] }
-      : { whereSql: "WHERE 1=0", params: [] };
-  }
-  if (role === "employee") {
-    return auth.userId
-      ? { whereSql: "WHERE a.employee_id = $1", params: [auth.userId] }
-      : { whereSql: "WHERE 1=0", params: [] };
-  }
-  return { whereSql: "WHERE 1=0", params: [] };
+  return getHardwareAssetAccessFilter({
+    role: auth.role,
+    userId: auth.userId,
+    branchId: auth.branchId,
+    filterBranchId: req.query.filter_branch_id,
+  });
 }
 
 function buildListFilter(req) {

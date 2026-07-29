@@ -1,5 +1,8 @@
 const db = require("../../config/db");
 const { addTicketAccessFilter } = require("../routes/_ticketAccess");
+const {
+  getHardwareAssetAccessFilter,
+} = require("../services/hardwareAssetAccessService");
 
 const STOP_WORDS = new Set([
   "about", "after", "again", "also", "and", "are", "can", "does", "for",
@@ -139,6 +142,50 @@ async function countAuthorizedTickets({ actor, statusKey }) {
   return Number(result.rows[0]?.ticket_count || 0);
 }
 
+async function getAuthorizedHardwareAssetSummary({ actor }) {
+  const access = getHardwareAssetAccessFilter({
+    role: actor.role_name,
+    userId: actor.user_id,
+    branchId: actor.branch_id,
+  });
+  const result = await db.query(
+    `WITH scoped_assets AS (
+       SELECT
+         COALESCE(NULLIF(TRIM(a.status), ''), 'Unspecified') AS status,
+         COALESCE(NULLIF(TRIM(a.asset_type), ''), 'Unspecified') AS asset_type
+       FROM hardware_assets a
+       ${access.whereSql}
+     ),
+     status_counts AS (
+       SELECT status, COUNT(*)::int AS count
+       FROM scoped_assets
+       GROUP BY status
+     ),
+     type_counts AS (
+       SELECT asset_type, COUNT(*)::int AS count
+       FROM scoped_assets
+       GROUP BY asset_type
+     )
+     SELECT
+       (SELECT COUNT(*)::int FROM scoped_assets) AS total,
+       COALESCE(
+         (SELECT jsonb_object_agg(status, count ORDER BY status) FROM status_counts),
+         '{}'::jsonb
+       ) AS by_status,
+       COALESCE(
+         (SELECT jsonb_object_agg(asset_type, count ORDER BY asset_type) FROM type_counts),
+         '{}'::jsonb
+       ) AS by_type`,
+    access.params
+  );
+  const summary = result.rows[0] || {};
+  return {
+    total: Number(summary.total || 0),
+    byStatus: summary.by_status || {},
+    byType: summary.by_type || {},
+  };
+}
+
 async function writeAudit({
   actor,
   question,
@@ -169,6 +216,7 @@ module.exports = {
   articleSearchScore,
   countAuthorizedTickets,
   extractSearchTerms,
+  getAuthorizedHardwareAssetSummary,
   getActorContext,
   normalizeRole,
   searchAuthorizedKnowledge,

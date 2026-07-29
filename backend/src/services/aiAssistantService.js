@@ -87,6 +87,57 @@ function detectTicketCountIntent(message) {
   return { statusKey: "all", label: "total" };
 }
 
+function detectHardwareAssetSummaryIntent(message) {
+  const normalized = String(message || "").toLowerCase();
+  const asksForSummary = /\b(how many|count|total|number of|summary|breakdown)\b/.test(normalized);
+  const mentionsAssets = /\b(hardware assets?|assets?|laptops?|desktops?|computers?)\b/.test(normalized);
+  const isSoftwareQuestion = /\b(software|licen[cs]es?)\b/.test(normalized);
+  const isFinancialQuestion = /\b(value|cost|price|depreciation|financial)\b/.test(normalized);
+  if (!asksForSummary || !mentionsAssets || isSoftwareQuestion || isFinancialQuestion) return null;
+
+  const statusMatchers = [
+    { key: "in repair", label: "In Repair", pattern: /\b(in|under)\s+repair\b/ },
+    { key: "in use", label: "In Use", pattern: /\bin use\b/ },
+    { key: "available", label: "Available", pattern: /\bavailable\b/ },
+    { key: "borrowed", label: "Borrowed", pattern: /\bborrowed\b/ },
+    { key: "active", label: "Active", pattern: /\bactive\b/ },
+    { key: "retired", label: "Retired", pattern: /\bretired\b/ },
+    { key: "disposed", label: "Disposed", pattern: /\bdisposed\b/ },
+  ];
+  const status = statusMatchers.find(({ pattern }) => pattern.test(normalized));
+  return status || { key: null, label: null };
+}
+
+function findSummaryCount(group, key) {
+  if (!key) return null;
+  const entry = Object.entries(group || {}).find(
+    ([label]) => label.toLowerCase() === key.toLowerCase()
+  );
+  return Number(entry?.[1] || 0);
+}
+
+function formatBreakdown(group) {
+  const entries = Object.entries(group || {})
+    .map(([label, count]) => [label, Number(count || 0)])
+    .filter(([, count]) => count > 0)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  return entries.length
+    ? entries.map(([label, count]) => `${label}: ${count}`).join(", ")
+    : "none";
+}
+
+function formatHardwareAssetSummary(summary, intent) {
+  if (intent.key) {
+    const count = findSummaryCount(summary.byStatus, intent.key);
+    return `You currently have ${count} ${intent.label} hardware asset${count === 1 ? "" : "s"} visible under your role and branch access.`;
+  }
+  return [
+    `You currently have ${summary.total} hardware asset${summary.total === 1 ? "" : "s"} visible under your role and branch access.`,
+    `By status: ${formatBreakdown(summary.byStatus)}.`,
+    `By type: ${formatBreakdown(summary.byType)}.`,
+  ].join("\n");
+}
+
 function isOfflineEndpointQuestion(message) {
   const normalized = String(message || "").toLowerCase();
   return (
@@ -156,6 +207,21 @@ function createAiAssistantService({
         sources: [],
         mode: "system-data",
         notice: "Live read-only AstreaBlue data. Existing ticket RBAC was applied.",
+      };
+    }
+
+    const hardwareAssetIntent = detectHardwareAssetSummaryIntent(trimmedMessage);
+    if (hardwareAssetIntent) {
+      const summary = await repo.getAuthorizedHardwareAssetSummary({ actor });
+      await repo.writeAudit({
+        actor, question: trimmedMessage, outcome: "live_hardware_asset_summary",
+        sourceCount: 0, ipAddress,
+      });
+      return {
+        answer: formatHardwareAssetSummary(summary, hardwareAssetIntent),
+        sources: [],
+        mode: "system-data",
+        notice: "Live read-only AstreaBlue data. Existing hardware asset RBAC was applied.",
       };
     }
 
@@ -263,9 +329,11 @@ module.exports = {
   MAX_MESSAGE_LENGTH,
   buildInput,
   createAiAssistantService,
+  detectHardwareAssetSummaryIntent,
   detectTicketCountIntent,
   extractResponseText,
   formatKnowledgeContext,
+  formatHardwareAssetSummary,
   isOfflineEndpointQuestion,
   offlineEndpointGuide,
   sanitizeHistory,

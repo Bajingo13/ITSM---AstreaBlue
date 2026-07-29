@@ -29,6 +29,11 @@ function createRepo(overrides = {}) {
       branch_name: "Makati Head Office",
     }],
     countAuthorizedTickets: async () => 3,
+    getAuthorizedHardwareAssetSummary: async () => ({
+      total: 8,
+      byStatus: { "In Use": 5, Available: 2, "In Repair": 1 },
+      byType: { Laptop: 6, Desktop: 2 },
+    }),
     writeAudit: async () => {},
     ...overrides,
   };
@@ -79,6 +84,41 @@ test("assistant counts tickets through the authorized read-only repository query
   assert.equal(result.mode, "system-data");
   assert.match(result.answer, /7 Open Queue tickets/);
   assert.match(result.notice, /RBAC/);
+});
+
+test("assistant returns a live authorized hardware asset summary instead of a KB result", async () => {
+  let knowledgeSearchCalled = false;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      searchAuthorizedKnowledge: async () => {
+        knowledgeSearchCalled = true;
+        return [];
+      },
+    }),
+    apiKey: "",
+  });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many hardware assets do we have right now?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /8 hardware assets/);
+  assert.match(result.answer, /In Use: 5/);
+  assert.match(result.answer, /Laptop: 6/);
+  assert.equal(knowledgeSearchCalled, false);
+  assert.match(result.notice, /hardware asset RBAC/);
+});
+
+test("assistant can count a requested hardware asset status", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many assets are in repair?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /1 In Repair hardware asset/);
 });
 
 test("assistant still falls back to an authorized relevant Knowledge Base article", async () => {
