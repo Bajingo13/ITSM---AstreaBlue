@@ -3,7 +3,7 @@ function normalize(value) {
 }
 
 function asksForLiveSummary(message) {
-  return /\b(how many|count|total|summary|breakdown|currently|right now|status|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life)\b/.test(
+  return /\b(how many|count|total|summary|breakdown|currently|right now|status|enabled|disabled|pending|approved|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life)\b/.test(
     normalize(message)
   );
 }
@@ -98,7 +98,111 @@ function assetDiscoveryMetric(message) {
   return null;
 }
 
+function consentMetric(message) {
+  const text = normalize(message);
+  if (/\bawaiting (?:the )?employee\b|\bpending employee\b|\bunsigned\b/.test(text)) {
+    return ["awaiting_employee", "awaiting employee action"];
+  }
+  if (/\bawaiting approval\b|\bpending approval\b|\bsubmitted\b/.test(text)) {
+    return ["awaiting_approval", "awaiting approval"];
+  }
+  if (/\brevision(?:s)? requested\b/.test(text)) {
+    return ["revision_requested", "with a requested revision"];
+  }
+  if (/\brejected\b/.test(text)) return ["rejected", "rejected"];
+  if (/\bwithdrawn\b/.test(text)) return ["withdrawn", "withdrawn"];
+  if (/\bexpired\b/.test(text)) return ["expired", "expired"];
+  if (/\bsuperseded\b/.test(text)) return ["superseded", "superseded"];
+  if (/\bdevice[- ]specific\b/.test(text)) return ["device_specific", "device-specific"];
+  if (/\bgeneral consent\b|\bgeneral privacy\b/.test(text)) return ["general", "general"];
+  if (/\bapproved\b/.test(text)) return ["approved", "active and approved"];
+  return null;
+}
+
+function endpointPolicyMetric(message) {
+  const text = normalize(message);
+  if (/\bwithout (?:an? )?(?:active )?approved consent\b|\bno approved consent\b/.test(text)) {
+    return ["devices_without_approved_consent", "assigned device without active approved consent"];
+  }
+  if (/\bapproved consent\b/.test(text)) {
+    return ["consent_approved_devices", "device covered by active approved consent"];
+  }
+  if (/\bpending (?:policy )?(?:download|sync)\b|\bnot (?:downloaded|synced)\b/.test(text)) {
+    return ["policies_pending_download", "effective policy pending agent download"];
+  }
+  if (/\bdownloaded\b|\bsynced\b/.test(text)) {
+    return ["policies_downloaded", "effective policy downloaded by the agent"];
+  }
+  if (/\bactivit(?:y|ies)\b/.test(text)) {
+    return ["activity_enabled", "effective policy with activity monitoring enabled"];
+  }
+  if (/\bscreenshots?\b/.test(text)) {
+    return ["screenshot_enabled", "effective policy with screenshot monitoring enabled"];
+  }
+  if (/\busb\b|\bdlp\b/.test(text)) {
+    return ["usb_enabled", "effective policy with USB monitoring enabled"];
+  }
+  if (/\bbrowser\b|\bweb monitoring\b/.test(text)) {
+    return ["browser_enabled", "effective policy with browser monitoring enabled"];
+  }
+  if (/\blocation\b/.test(text)) {
+    return ["location_enabled", "effective policy with location tracking enabled"];
+  }
+  if (/\bnot generated\b|\bmissing effective polic(?:y|ies)\b/.test(text)) {
+    return ["policies_not_generated", "device without a generated effective policy"];
+  }
+  if (/\bgenerated\b|\beffective polic(?:y|ies)\b/.test(text)) {
+    return ["generated_policies", "device with a generated effective policy"];
+  }
+  return null;
+}
+
 const CAPABILITIES = [
+  {
+    key: "endpoint policy",
+    matches: (text) =>
+      /\b(endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download|monitoring polic(?:y|ies))\b/
+        .test(text),
+    repositoryMethod: "getAuthorizedEndpointPolicySummary",
+    outcome: "live_endpoint_policy_summary",
+    notice: "Endpoint Policy administration role and branch scope were applied. Counts use the saved effective policy last generated for each device; no policy was regenerated.",
+    format: (data, message) => {
+      const metric = endpointPolicyMetric(message);
+      if (metric) {
+        const [key, label] = metric;
+        const count = Number(data[key] || 0);
+        return `You currently have ${count} device${count === 1 ? "" : "s"} matching "${label}" under your endpoint policy access.`;
+      }
+      return [
+        `Endpoint Policy covers ${Number(data.total_devices || 0)} monitored device${Number(data.total_devices || 0) === 1 ? "" : "s"} under your access (${Number(data.assigned_devices || 0)} assigned, ${Number(data.unassigned_devices || 0)} unassigned).`,
+        `Effective policies: ${Number(data.generated_policies || 0)} generated, ${Number(data.policies_not_generated || 0)} not generated, ${Number(data.policies_downloaded || 0)} downloaded by agents, ${Number(data.policies_pending_download || 0)} pending download.`,
+        `Consent coverage: ${Number(data.consent_approved_devices || 0)} device${Number(data.consent_approved_devices || 0) === 1 ? "" : "s"} covered; ${Number(data.devices_without_approved_consent || 0)} assigned device${Number(data.devices_without_approved_consent || 0) === 1 ? "" : "s"} without active approved consent.`,
+        `Enabled effective monitoring: Activity ${Number(data.activity_enabled || 0)}, Screenshots ${Number(data.screenshot_enabled || 0)}, USB ${Number(data.usb_enabled || 0)}, Browser ${Number(data.browser_enabled || 0)}, Location ${Number(data.location_enabled || 0)}.`,
+      ].join("\n");
+    },
+  },
+  {
+    key: "consent",
+    matches: (text) =>
+      /\b(consent records?|consent documents?|privacy consent|monitoring consent|general consent|device[- ]specific consent)\b/
+        .test(text),
+    repositoryMethod: "getAuthorizedConsentSummary",
+    outcome: "live_consent_summary",
+    notice: "Existing Consent Management role, employee ownership, and branch access rules were applied.",
+    format: (data, message) => {
+      const metric = consentMetric(message);
+      if (metric) {
+        const [key, label] = metric;
+        const count = Number(data[key] || 0);
+        return `You currently have ${count} ${label} consent record${count === 1 ? "" : "s"} under your role and branch access.`;
+      }
+      return [
+        `You have ${Number(data.total || 0)} consent record${Number(data.total || 0) === 1 ? "" : "s"} for ${Number(data.employees || 0)} employee${Number(data.employees || 0) === 1 ? "" : "s"} under your access.`,
+        `Workflow: Approved ${Number(data.approved || 0)}, Awaiting employee ${Number(data.awaiting_employee || 0)}, Awaiting approval ${Number(data.awaiting_approval || 0)}, Revision requested ${Number(data.revision_requested || 0)}, Rejected ${Number(data.rejected || 0)}, Withdrawn ${Number(data.withdrawn || 0)}.`,
+        `Scope: General ${Number(data.general || 0)}, Device-specific ${Number(data.device_specific || 0)}. Historical: Expired ${Number(data.expired || 0)}, Superseded ${Number(data.superseded || 0)}.`,
+      ].join("\n");
+    },
+  },
   {
     key: "asset finance",
     matches: (text) =>
@@ -225,6 +329,8 @@ module.exports = {
   assetFinanceFilters,
   assetFinanceMetric,
   assetDiscoveryMetric,
+  consentMetric,
+  endpointPolicyMetric,
   findLiveSummaryCapability,
   formatCapabilityResult,
 };

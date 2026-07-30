@@ -408,6 +408,131 @@ async function getAuthorizedAssetFinanceSummary({
   };
 }
 
+function getConsentAccess(actor) {
+  const role = normalizeRole(actor.role_name);
+  if (role === "employee") {
+    return actor.user_id
+      ? { authorized: true, where: "cd.employee_id=$1", params: [Number(actor.user_id)] }
+      : { authorized: false, where: "FALSE", params: [] };
+  }
+  if (role === "admin") {
+    return actor.branch_id
+      ? { authorized: true, where: "cd.branch_id=$1", params: [Number(actor.branch_id)] }
+      : { authorized: false, where: "FALSE", params: [] };
+  }
+  if (["superadmin", "hr"].includes(role)) {
+    return { authorized: true, where: "TRUE", params: [] };
+  }
+  return { authorized: false, where: "FALSE", params: [] };
+}
+
+async function getAuthorizedConsentSummary({ actor, queryable = db }) {
+  const access = getConsentAccess(actor);
+  if (!access.authorized) return { authorized: false };
+
+  const result = await queryable.query(
+    `SELECT
+       COUNT(*)::int total,
+       COUNT(DISTINCT cd.employee_id)::int employees,
+       COUNT(*) FILTER (
+         WHERE LOWER(cd.status) IN ('approved','signed')
+           AND cd.active IS NOT FALSE
+       )::int approved,
+       COUNT(*) FILTER (
+         WHERE LOWER(cd.status) IN ('draft','pending','pending_employee')
+       )::int awaiting_employee,
+       COUNT(*) FILTER (
+         WHERE LOWER(cd.status) IN ('submitted','pending_approval')
+       )::int awaiting_approval,
+       COUNT(*) FILTER (WHERE LOWER(cd.status)='revision_requested')::int revision_requested,
+       COUNT(*) FILTER (WHERE LOWER(cd.status)='rejected')::int rejected,
+       COUNT(*) FILTER (WHERE LOWER(cd.status)='withdrawn')::int withdrawn,
+       COUNT(*) FILTER (WHERE LOWER(cd.status)='expired')::int expired,
+       COUNT(*) FILTER (WHERE LOWER(cd.status)='superseded')::int superseded,
+       COUNT(*) FILTER (WHERE cd.device_uuid IS NULL)::int general,
+       COUNT(*) FILTER (WHERE cd.device_uuid IS NOT NULL)::int device_specific
+     FROM consent_documents cd
+     WHERE ${access.where}`,
+    access.params
+  );
+  return { authorized: true, ...(result.rows[0] || {}) };
+}
+
+function getEndpointPolicyAccess(actor) {
+  const role = normalizeRole(actor.role_name);
+  if (role === "superadmin") {
+    return { authorized: true, where: "TRUE", params: [] };
+  }
+  if (["admin", "technician"].includes(role) && actor.branch_id) {
+    return {
+      authorized: true,
+      where: "d.branch_id=$1",
+      params: [Number(actor.branch_id)],
+    };
+  }
+  return { authorized: false, where: "FALSE", params: [] };
+}
+
+async function getAuthorizedEndpointPolicySummary({ actor, queryable = db }) {
+  const access = getEndpointPolicyAccess(actor);
+  if (!access.authorized) return { authorized: false };
+
+  const result = await queryable.query(
+    `SELECT
+       COUNT(*)::int total_devices,
+       COUNT(*) FILTER (WHERE d.assigned_user_id IS NOT NULL)::int assigned_devices,
+       COUNT(*) FILTER (WHERE d.assigned_user_id IS NULL)::int unassigned_devices,
+       COUNT(*) FILTER (WHERE ep.device_uuid IS NOT NULL)::int generated_policies,
+       COUNT(*) FILTER (WHERE ep.device_uuid IS NULL)::int policies_not_generated,
+       COUNT(*) FILTER (
+         WHERE ep.device_uuid IS NOT NULL
+           AND d.last_policy_sync_at IS NOT NULL
+           AND d.last_policy_sync_at >= ep.generated_at
+       )::int policies_downloaded,
+       COUNT(*) FILTER (
+         WHERE ep.device_uuid IS NOT NULL
+           AND (d.last_policy_sync_at IS NULL OR d.last_policy_sync_at < ep.generated_at)
+       )::int policies_pending_download,
+       COUNT(*) FILTER (WHERE consent.consent_id IS NOT NULL)::int consent_approved_devices,
+       COUNT(*) FILTER (
+         WHERE d.assigned_user_id IS NOT NULL AND consent.consent_id IS NULL
+       )::int devices_without_approved_consent,
+       COUNT(*) FILTER (
+         WHERE COALESCE((ep.policy_json->>'activity_monitoring_enabled')::boolean,false)
+       )::int activity_enabled,
+       COUNT(*) FILTER (
+         WHERE COALESCE((ep.policy_json->>'screenshot_monitoring_enabled')::boolean,false)
+       )::int screenshot_enabled,
+       COUNT(*) FILTER (
+         WHERE COALESCE((ep.policy_json->>'usb_monitoring_enabled')::boolean,false)
+       )::int usb_enabled,
+       COUNT(*) FILTER (
+         WHERE COALESCE((ep.policy_json->>'browser_monitoring_enabled')::boolean,false)
+       )::int browser_enabled,
+       COUNT(*) FILTER (
+         WHERE COALESCE((ep.policy_json->>'location_tracking_enabled')::boolean,false)
+       )::int location_enabled
+     FROM monitored_devices d
+     LEFT JOIN endpoint_effective_policies ep ON ep.device_uuid=d.device_uuid
+     LEFT JOIN LATERAL (
+       SELECT cd.consent_id
+       FROM consent_documents cd
+       WHERE cd.employee_id=d.assigned_user_id
+         AND (cd.device_uuid=d.device_uuid OR cd.device_uuid IS NULL)
+         AND LOWER(cd.status) IN ('approved','signed')
+         AND cd.active IS NOT FALSE
+       ORDER BY (cd.device_uuid IS NOT NULL) DESC,
+                cd.approved_at DESC NULLS LAST,
+                cd.signed_at DESC NULLS LAST,
+                cd.consent_id DESC
+       LIMIT 1
+     ) consent ON TRUE
+     WHERE ${access.where}`,
+    access.params
+  );
+  return { authorized: true, ...(result.rows[0] || {}) };
+}
+
 async function getAuthorizedSlaSummary({ actor }) {
   const params = [];
   const request = {
@@ -551,6 +676,8 @@ module.exports = {
   getAuthorizedSoftwareLicenses,
   getAuthorizedAssetDiscoverySummary,
   getAuthorizedAssetFinanceSummary,
+  getAuthorizedConsentSummary,
+  getAuthorizedEndpointPolicySummary,
   getAuthorizedSlaSummary,
   getAuthorizedReplacementSummary,
   getAuthorizedLifecycleSummary,

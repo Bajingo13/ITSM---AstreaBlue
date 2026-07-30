@@ -12,6 +12,8 @@ const {
 const {
   getAuthorizedAssetDiscoverySummary,
   getAuthorizedAssetFinanceSummary,
+  getAuthorizedConsentSummary,
+  getAuthorizedEndpointPolicySummary,
 } = require("../src/repositories/aiAssistantRepository");
 
 function createRepo(overrides = {}) {
@@ -92,6 +94,38 @@ function createRepo(overrides = {}) {
       warranties_expired: 1,
       warranties_expiring_30_days: 2,
       missing_financial_information: 1,
+    }),
+    getAuthorizedConsentSummary: async () => ({
+      authorized: true,
+      total: 9,
+      employees: 6,
+      approved: 4,
+      awaiting_employee: 2,
+      awaiting_approval: 1,
+      revision_requested: 1,
+      rejected: 0,
+      withdrawn: 1,
+      expired: 0,
+      superseded: 1,
+      general: 7,
+      device_specific: 2,
+    }),
+    getAuthorizedEndpointPolicySummary: async () => ({
+      authorized: true,
+      total_devices: 6,
+      assigned_devices: 5,
+      unassigned_devices: 1,
+      generated_policies: 5,
+      policies_not_generated: 1,
+      policies_downloaded: 4,
+      policies_pending_download: 1,
+      consent_approved_devices: 4,
+      devices_without_approved_consent: 1,
+      activity_enabled: 4,
+      screenshot_enabled: 3,
+      usb_enabled: 2,
+      browser_enabled: 3,
+      location_enabled: 1,
     }),
     getAuthorizedSlaSummary: async () => ({
       total: 10, active: 4, met: 5, breached: 1,
@@ -588,6 +622,148 @@ test("Asset Finance repository applies asset type and status filters before tota
     asset_type: "Laptop",
     status: "In Repair",
   });
+});
+
+test("assistant returns a workflow-aware consent summary", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "What is the current privacy consent summary?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /9 consent records for 6 employees/);
+  assert.match(result.answer, /Approved 4/);
+  assert.match(result.answer, /Awaiting employee 2/);
+  assert.match(result.answer, /General 7, Device-specific 2/);
+  assert.match(result.notice, /Consent Management role/);
+});
+
+test("assistant answers a specific consent workflow count", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "How many monitoring consent documents are pending approval?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.equal(
+    result.answer,
+    "You currently have 1 awaiting approval consent record under your role and branch access."
+  );
+});
+
+test("Consent repository preserves employee ownership and Admin branch scope", async () => {
+  const calls = [];
+  const queryable = {
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      return {
+        rows: [{
+          total: 2,
+          employees: 1,
+          approved: 1,
+          awaiting_employee: 1,
+          awaiting_approval: 0,
+        }],
+      };
+    },
+  };
+
+  const employee = await getAuthorizedConsentSummary({
+    actor: { user_id: 9, role_name: "Employee", branch_id: 1 },
+    queryable,
+  });
+  const admin = await getAuthorizedConsentSummary({
+    actor: { user_id: 4, role_name: "Admin", branch_id: 7 },
+    queryable,
+  });
+
+  assert.equal(employee.authorized, true);
+  assert.match(calls[0].sql, /cd\.employee_id=\$1/);
+  assert.deepEqual(calls[0].params, [9]);
+  assert.equal(admin.authorized, true);
+  assert.match(calls[1].sql, /cd\.branch_id=\$1/);
+  assert.deepEqual(calls[1].params, [7]);
+});
+
+test("Consent repository denies Technician access to consent records", async () => {
+  let queried = false;
+  const summary = await getAuthorizedConsentSummary({
+    actor: { user_id: 5, role_name: "Technician", branch_id: 1 },
+    queryable: { query: async () => { queried = true; return { rows: [] }; } },
+  });
+
+  assert.deepEqual(summary, { authorized: false });
+  assert.equal(queried, false);
+});
+
+test("assistant reports saved effective-policy and agent-download state", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "Give me the endpoint policy summary right now",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /6 monitored devices/);
+  assert.match(result.answer, /5 generated, 1 not generated/);
+  assert.match(result.answer, /4 downloaded by agents, 1 pending download/);
+  assert.match(result.answer, /Activity 4, Screenshots 3, USB 2/);
+  assert.match(result.notice, /no policy was regenerated/i);
+});
+
+test("assistant answers a specific effective-policy feature count", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "How many effective policies have screenshot monitoring enabled?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.equal(
+    result.answer,
+    "You currently have 3 devices matching \"effective policy with screenshot monitoring enabled\" under your endpoint policy access."
+  );
+});
+
+test("Endpoint Policy repository applies Administrator branch scope", async () => {
+  let capturedSql = "";
+  let capturedParams;
+  const summary = await getAuthorizedEndpointPolicySummary({
+    actor: { user_id: 4, role_name: "Admin", branch_id: 7 },
+    queryable: {
+      query: async (sql, params) => {
+        capturedSql = sql;
+        capturedParams = params;
+        return {
+          rows: [{
+            total_devices: 3,
+            generated_policies: 2,
+            policies_pending_download: 1,
+          }],
+        };
+      },
+    },
+  });
+
+  assert.equal(summary.authorized, true);
+  assert.match(capturedSql, /WHERE d\.branch_id=\$1/);
+  assert.match(capturedSql, /LEFT JOIN endpoint_effective_policies/);
+  assert.match(capturedSql, /cd\.active IS NOT FALSE/);
+  assert.deepEqual(capturedParams, [7]);
+});
+
+test("Endpoint Policy repository denies Employee and HR policy administration data", async () => {
+  for (const role_name of ["Employee", "HR"]) {
+    let queried = false;
+    const summary = await getAuthorizedEndpointPolicySummary({
+      actor: { user_id: 9, role_name, branch_id: 1 },
+      queryable: { query: async () => { queried = true; return { rows: [] }; } },
+    });
+    assert.deepEqual(summary, { authorized: false });
+    assert.equal(queried, false);
+  }
 });
 
 test("assistant explains known AstreaBlue modules without falling through to weak KB search", async () => {

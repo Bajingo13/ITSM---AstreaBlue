@@ -105,6 +105,16 @@ function inferConversationSubject(history) {
   for (const item of recent) {
     const content = item.content.toLowerCase();
     if (
+      /\b(endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download|monitoring polic(?:y|ies))\b/.test(content)
+    ) {
+      return "endpoint_policy";
+    }
+    if (
+      /\b(consent records?|consent documents?|privacy consent|monitoring consent|general consent|device[- ]specific consent)\b/.test(content)
+    ) {
+      return "consent";
+    }
+    if (
       /\b(asset finance|asset financials?|depreciat(?:ion|ed|ing)?|book value|asset value|end of life|warrant(?:y|ies))\b/.test(content)
     ) {
       return "asset_finance";
@@ -134,7 +144,7 @@ function resolveContextualCountMessage(message, history) {
   const normalized = normalizeIntentText(trimmed);
 
   const hasExplicitSubject =
-    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|sla|replacement requests?|onboarding|offboarding|lifecycle cases?|configuration items?|cmdb|projects?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies))\b/i
+    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|sla|replacement requests?|onboarding|offboarding|lifecycle cases?|configuration items?|cmdb|projects?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
       .test(normalized);
   if (hasExplicitSubject) return { message: normalized, ambiguous: false };
 
@@ -153,6 +163,12 @@ function resolveContextualCountMessage(message, history) {
   }
   if (subject === "asset_finance") {
     return { message: `${trimmed} asset finance`, ambiguous: false };
+  }
+  if (subject === "consent") {
+    return { message: `${trimmed} consent records`, ambiguous: false };
+  }
+  if (subject === "endpoint_policy") {
+    return { message: `${trimmed} endpoint policies`, ambiguous: false };
   }
   return { message: trimmed, ambiguous: true };
 }
