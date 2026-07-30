@@ -1332,6 +1332,30 @@ async function recordUnansweredQuestion({
   return result.rows[0];
 }
 
+async function resolveUnansweredQuestion({ actor, question }) {
+  const preview = String(question || "").trim().slice(0, 240);
+  if (!preview) return null;
+  const fingerprint = crypto
+    .createHash("sha256")
+    .update(preview.toLowerCase().replace(/\s+/g, " "))
+    .digest("hex");
+  const roleName = String(actor?.role_name || "").slice(0, 80);
+  const branchId = actor?.branch_id == null ? null : Number(actor.branch_id);
+  const branchScope = branchId || 0;
+  const result = await db.query(
+    `UPDATE ai_assistant_unanswered_questions
+     SET resolution_status='Resolved',
+         last_asked_at=CURRENT_TIMESTAMP
+     WHERE question_fingerprint=$1
+       AND role_name=$2
+       AND branch_scope=$3
+       AND resolution_status='Open'
+     RETURNING unanswered_id,resolution_status`,
+    [fingerprint, roleName, branchScope]
+  );
+  return result.rows[0] || null;
+}
+
 async function getAssistantInsights({ actor, queryable = db }) {
   const role = normalizeRole(actor?.role_name);
   if (!["superadmin", "admin"].includes(role)) return { authorized: false };
@@ -1407,4 +1431,5 @@ module.exports = {
   writeAudit,
   writeFeedback,
   recordUnansweredQuestion,
+  resolveUnansweredQuestion,
 };

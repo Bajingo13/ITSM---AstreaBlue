@@ -688,6 +688,13 @@ function createAiAssistantService({
       error.status = 403;
       throw error;
     }
+    const markCoverageResolved = async () => {
+      if (typeof repo.resolveUnansweredQuestion !== "function") return;
+      await repo.resolveUnansweredQuestion({
+        actor,
+        question: trimmedMessage,
+      }).catch(() => null);
+    };
 
     const contextualQuestion = resolveContextualCountMessage(trimmedMessage, history);
     if (contextualQuestion.ambiguous) {
@@ -727,6 +734,7 @@ function createAiAssistantService({
         actor, question: trimmedMessage, outcome: liveSummaryCapability.outcome,
         sourceCount: 0, ipAddress,
       });
+      await markCoverageResolved();
       return {
         answer: formatCapabilityResult(
           liveSummaryCapability,
@@ -760,6 +768,7 @@ function createAiAssistantService({
         actor, question: trimmedMessage, outcome: "live_ticket_count",
         sourceCount: 0, ipAddress,
       });
+      await markCoverageResolved();
       return {
         answer: `You currently have ${ticketCount} ${ticketCountIntent.label} ticket${ticketCount === 1 ? "" : "s"} visible under your role and branch access.`,
         sources: [],
@@ -776,6 +785,7 @@ function createAiAssistantService({
         actor, question: trimmedMessage, outcome: "live_endpoint_summary",
         sourceCount: 0, ipAddress,
       });
+      await markCoverageResolved();
       return {
         answer: formatEndpointSummary(summary, endpointSummaryIntent),
         sources: [],
@@ -792,6 +802,7 @@ function createAiAssistantService({
         actor, question: trimmedMessage, outcome: "live_software_license_summary",
         sourceCount: 0, ipAddress,
       });
+      await markCoverageResolved();
       return {
         answer: formatSoftwareLicenseAnswer(result, softwareLicenseIntent),
         sources: [],
@@ -808,6 +819,7 @@ function createAiAssistantService({
         actor, question: trimmedMessage, outcome: "live_hardware_asset_summary",
         sourceCount: 0, ipAddress,
       });
+      await markCoverageResolved();
       return {
         answer: formatHardwareAssetSummary(summary, hardwareAssetIntent),
         sources: [],
@@ -822,6 +834,7 @@ function createAiAssistantService({
         actor, question: trimmedMessage, outcome: "system_guide",
         sourceCount: 0, ipAddress,
       });
+      await markCoverageResolved();
       return {
         answer: offlineEndpointGuide(actor),
         sources: [],
@@ -836,6 +849,7 @@ function createAiAssistantService({
         actor, question: trimmedMessage, outcome: "module_knowledge",
         sourceCount: 0, ipAddress,
       });
+      await markCoverageResolved();
       return {
         answer: formatModuleKnowledge(moduleKnowledge),
         sources: [],
@@ -866,6 +880,7 @@ function createAiAssistantService({
         actor, question: trimmedMessage, outcome: "knowledge_search",
         sourceCount: sources.length, ipAddress,
       });
+      if (articles.length) await markCoverageResolved();
       return {
         answer: createKnowledgeSearchFallback(articles),
         sources,
@@ -918,6 +933,7 @@ function createAiAssistantService({
         actor, question: trimmedMessage, outcome: "answered",
         sourceCount: sources.length, providerStatus, ipAddress,
       });
+      await markCoverageResolved();
       return { answer, sources, mode: "ai" };
     } catch (error) {
       await repo.writeAudit({

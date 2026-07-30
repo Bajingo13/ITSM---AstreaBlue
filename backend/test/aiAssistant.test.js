@@ -236,6 +236,7 @@ function createRepo(overrides = {}) {
       unanswered_id: 1,
       occurrence_count: 1,
     }),
+    resolveUnansweredQuestion: async () => null,
     getAssistantInsights: async () => ({
       authorized: true,
       open_unanswered: 2,
@@ -1319,6 +1320,29 @@ test("assistant routes remaining module summaries through the capability registr
     assert.match(result.answer, expected);
     assert.match(result.notice, /Live read-only AstreaBlue data/);
   }
+});
+
+test("assistant closes an exact coverage gap after a successful live-data answer", async () => {
+  const resolved = [];
+  const service = createAiAssistantService({
+    repo: createRepo({
+      resolveUnansweredQuestion: async (entry) => {
+        resolved.push(entry);
+        return { unanswered_id: 7, resolution_status: "Resolved" };
+      },
+    }),
+    apiKey: "",
+  });
+
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many SLA tickets are there right now?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].question, "How many SLA tickets are there right now?");
+  assert.equal(resolved[0].actor.user_id, 9);
 });
 
 test("Phase 4 assistant answers specific SLA performance questions", async () => {
