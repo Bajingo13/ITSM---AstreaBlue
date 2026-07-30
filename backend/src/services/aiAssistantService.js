@@ -188,7 +188,6 @@ function inferConversationSubject(history) {
 
 function resolveContextualCountMessage(message, history) {
   const trimmed = String(message || "").trim();
-  if (!isCountQuestion(trimmed)) return { message: trimmed, ambiguous: false };
   const normalized = normalizeIntentText(trimmed);
 
   const hasExplicitSubject =
@@ -197,6 +196,16 @@ function resolveContextualCountMessage(message, history) {
   if (hasExplicitSubject) return { message: normalized, ambiguous: false };
 
   const subject = inferConversationSubject(history);
+  const isNaturalFollowUp =
+    /\b(whats|what(?:'s| is| are)|which|list|show|give me|tell me)\b/.test(normalized)
+    && (
+      /\b(it|its|them|they|those|these|one|ones)\b/.test(normalized)
+      || /\b(names?|details?|status|statuses|available|used|expired|expiring|vendor|vendors|cost|costs)\b/.test(normalized)
+    );
+  if (!isCountQuestion(trimmed) && !isNaturalFollowUp) {
+    return { message: normalized, ambiguous: false };
+  }
+
   if (subject === "hardware_assets") {
     return { message: `${trimmed} hardware assets`, ambiguous: false };
   }
@@ -246,7 +255,10 @@ function resolveContextualCountMessage(message, history) {
   if (subject === "usb_dlp") {
     return { message: `${trimmed} USB and DLP activity`, ambiguous: false };
   }
-  return { message: trimmed, ambiguous: true };
+  return {
+    message: normalized,
+    ambiguous: isCountQuestion(trimmed),
+  };
 }
 
 function detectTicketCountIntent(message) {
@@ -307,13 +319,23 @@ function detectEndpointSummaryIntent(message) {
 function detectSoftwareLicenseIntent(message) {
   const normalized = normalizeIntentText(message);
   const mentionsLicenses =
-    /\b(software licenses?|licenses?|subscriptions?|seats?)\b/.test(normalized);
+    /\b(software(?: products?)?|licensed (?:software|applications?|programs?)|software licenses?|licenses?|subscriptions?|seats?)\b/.test(normalized);
   const asksForData =
-    /\b(how many|count|total|number of|summary|breakdown|available|used|assigned|expiry|expires?|expired|expiring|status|cost|renewal)\b/.test(normalized);
+    /\b(how many|count|total|number of|summary|breakdown|available|used|assigned|expiry|expires?|expired|expiring|status|cost|renewal|names?|list|which|what software|what are|do we have|show|tell me|about|details?|vendors?)\b/.test(normalized);
   if (!mentionsLicenses || !asksForData) return null;
 
   let metric = "summary";
-  if (/\bavailable\b/.test(normalized)) metric = "available";
+  if (
+    /\b(names?|list|which|what software|what are)\b/.test(normalized)
+    || (
+      /\bshow\b/.test(normalized)
+      && !/\b(available|used|assigned|expiry|expires?|expired|expiring|status|cost|renewal)\b/.test(normalized)
+    )
+  ) metric = "names";
+  else if (/\b(vendor|vendors)\b/.test(normalized)) metric = "vendors";
+  else if (/\b(status|statuses)\b/.test(normalized)) metric = "status";
+  else if (/\b(details?|tell me|about)\b/.test(normalized)) metric = "names";
+  else if (/\bavailable\b/.test(normalized)) metric = "available";
   else if (/\b(used|assigned|in use)\b/.test(normalized)) metric = "used";
   else if (/\b(expired)\b/.test(normalized)) metric = "expired";
   else if (/\b(expiring|expires?|expiry)\b/.test(normalized)) metric = "expiry";
@@ -369,6 +391,59 @@ function formatSoftwareLicenseAnswer(result, intent) {
     (sum, item) => sum + Math.max(Number(item.total_licenses || 0) - Number(item.used_licenses || 0), 0),
     0
   );
+
+  if (intent.metric === "names") {
+    const grouped = new Map();
+    selected.forEach((item) => {
+      const name = String(item.license_name || "Unnamed software").trim();
+      const current = grouped.get(name) || {
+        records: 0,
+        total: 0,
+        used: 0,
+        available: 0,
+        vendors: new Set(),
+      };
+      current.records += 1;
+      current.total += Number(item.total_licenses || 0);
+      current.used += Number(item.used_licenses || 0);
+      current.available += Math.max(
+        Number(item.total_licenses || 0) - Number(item.used_licenses || 0),
+        0
+      );
+      if (item.vendor) current.vendors.add(String(item.vendor).trim());
+      grouped.set(name, current);
+    });
+    const lines = [...grouped.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, details]) => {
+        const vendor = details.vendors.size
+          ? ` · ${[...details.vendors].sort().join(", ")}`
+          : "";
+        return `- ${name}${vendor}: ${details.total} total, ${details.used} used, ${details.available} available`;
+      });
+    return [
+      `You have ${grouped.size} software product${grouped.size === 1 ? "" : "s"} across ${selected.length} authorized license record${selected.length === 1 ? "" : "s"}:`,
+      ...lines,
+    ].join("\n");
+  }
+  if (intent.metric === "vendors") {
+    const vendors = [...new Set(
+      selected
+        .map((item) => String(item.vendor || "").trim())
+        .filter(Boolean)
+    )].sort();
+    return vendors.length
+      ? `The authorized software-license vendors are: ${vendors.join(", ")}.`
+      : "The authorized software-license records do not have vendor names recorded.";
+  }
+  if (intent.metric === "status") {
+    const statuses = selected.reduce((summary, item) => {
+      const status = String(item.status || "Unknown").trim() || "Unknown";
+      summary[status] = (summary[status] || 0) + 1;
+      return summary;
+    }, {});
+    return `Software-license records by status: ${formatBreakdown(statuses)}.`;
+  }
 
   if (intent.metric === "available") {
     return `${product} currently ${mentioned.length === 1 ? "has" : "have"} ${available} available license seat${available === 1 ? "" : "s"} (${used} used out of ${total} total) under your role and branch access.`;

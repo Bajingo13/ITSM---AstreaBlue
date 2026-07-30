@@ -571,6 +571,107 @@ test("assistant answers product-specific available software-license questions", 
   assert.match(result.notice, /role and branch access rules/);
 });
 
+test("assistant lists authorized software-license names without falling back to Knowledge Base", async () => {
+  let knowledgeSearchCalled = false;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      getActorContext: async () => ({
+        user_id: 1,
+        full_name: "Super Administrator",
+        role_name: "SuperAdmin",
+        branch_id: null,
+        branch_name: null,
+        is_active: true,
+      }),
+      getAuthorizedSoftwareLicenses: async () => ({
+        authorized: true,
+        licenses: [
+          {
+            license_name: "CapCut Pro",
+            vendor: "ByteDance",
+            total_licenses: 12,
+            used_licenses: 7,
+          },
+          {
+            license_name: "Microsoft 365",
+            vendor: "Microsoft",
+            total_licenses: 17,
+            used_licenses: 11,
+          },
+        ],
+      }),
+      searchAuthorizedKnowledge: async () => {
+        knowledgeSearchCalled = true;
+        return [];
+      },
+    }),
+    apiKey: "",
+  });
+
+  const result = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "whats the name of the software licenses do we have",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /CapCut Pro/);
+  assert.match(result.answer, /Microsoft 365/);
+  assert.match(result.answer, /2 software products/);
+  assert.equal(knowledgeSearchCalled, false);
+});
+
+test("assistant retains software-license context for a natural name follow-up", async () => {
+  let knowledgeSearchCalled = false;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      getActorContext: async () => ({
+        user_id: 1,
+        full_name: "Super Administrator",
+        role_name: "SuperAdmin",
+        branch_id: null,
+        branch_name: null,
+        is_active: true,
+      }),
+      searchAuthorizedKnowledge: async () => {
+        knowledgeSearchCalled = true;
+        return [];
+      },
+    }),
+    apiKey: "",
+  });
+
+  const result = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "whats the name of it",
+    history: [
+      { role: "user", content: "How many software licenses do we have right now?" },
+      {
+        role: "assistant",
+        content: "Your authorized software licenses: 1 subscription record, 12 total seats, 7 used, and 5 available.",
+      },
+    ],
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /CapCut Pro/);
+  assert.equal(knowledgeSearchCalled, false);
+
+  const conversationalResult = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "what are they",
+    history: [
+      { role: "user", content: "How many software licenses do we have right now?" },
+      {
+        role: "assistant",
+        content: "Your authorized software licenses: 1 subscription record, 12 total seats, 7 used, and 5 available.",
+      },
+    ],
+  });
+
+  assert.equal(conversationalResult.mode, "system-data");
+  assert.match(conversationalResult.answer, /CapCut Pro/);
+});
+
 test("assistant returns the RBAC-safe Asset Discovery summary", async () => {
   const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
   const result = await service.ask({
