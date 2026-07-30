@@ -424,7 +424,11 @@ function createAiAssistantService({
         sourceCount: 0, ipAddress,
       });
       return {
-        answer: formatCapabilityResult(liveSummaryCapability, data),
+        answer: formatCapabilityResult(
+          liveSummaryCapability,
+          data,
+          contextualQuestion.message
+        ),
         sources: [],
         mode: "system-data",
         notice: `Live read-only AstreaBlue data. ${liveSummaryCapability.notice}`,

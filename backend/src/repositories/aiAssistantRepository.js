@@ -10,6 +10,9 @@ const softwareLicenseRepository = require("./softwareLicenseRepository");
 const {
   getSoftwareLicenseScope,
 } = require("../services/softwareLicenseAccessService");
+const {
+  getDiscoveryVerification,
+} = require("../services/assetDiscoveryInventoryService");
 
 const STOP_WORDS = new Set([
   "about", "after", "again", "also", "and", "are", "can", "does", "for",
@@ -244,6 +247,72 @@ function branchScopedAccess(actor, allowedRoles) {
   return { authorized: true, where: "branch_id=$1", params: [Number(actor.branch_id)] };
 }
 
+async function getAuthorizedAssetDiscoverySummary({ actor, queryable = db }) {
+  const access = branchScopedAccess(actor, ["superadmin", "admin"]);
+  if (!access.authorized) return { authorized: false };
+
+  const where = access.where.replace(/\bbranch_id\b/g, "d.branch_id");
+  const result = await queryable.query(
+    `SELECT d.reconciliation_status,d.status,d.matched_asset_id,
+            d.serial_number,d.manufacturer,d.asset_tag,d.hostname,d.raw_data,
+            a.asset_tag matched_asset_tag,
+            a.serial_number matched_asset_serial_number,
+            COALESCE(NULLIF(a.manufacturer,''),a.brand) matched_asset_manufacturer,
+            a.hostname matched_asset_hostname,
+            COALESCE(rec.match_count,0) reconciliation_match_count,
+            COALESCE(rec.mismatch_count,0) reconciliation_mismatch_count,
+            COALESCE(rec.unknown_count,0) reconciliation_unknown_count
+       FROM asset_discoveries d
+       LEFT JOIN hardware_assets a ON a.asset_id=d.matched_asset_id
+       LEFT JOIN LATERAL (
+         SELECT
+           COUNT(*) FILTER (WHERE LOWER(r.status)='match')::INTEGER match_count,
+           COUNT(*) FILTER (WHERE LOWER(r.status)='mismatch')::INTEGER mismatch_count,
+           COUNT(*) FILTER (WHERE LOWER(r.status) NOT IN ('match','mismatch'))::INTEGER unknown_count
+         FROM asset_inventory_reconciliation r
+         WHERE r.asset_id=d.matched_asset_id
+           AND r.field_name IN ('serial_number','manufacturer','model')
+           AND COALESCE(d.raw_data->>'device_id','') ~ '^[0-9]+$'
+           AND r.device_id=(d.raw_data->>'device_id')::INTEGER
+       ) rec ON TRUE
+      WHERE ${where}`,
+    access.params
+  );
+
+  const summary = {
+    authorized: true,
+    total: result.rows.length,
+    matched: 0,
+    mismatched: 0,
+    pending_verification: 0,
+    unmanaged: 0,
+    duplicates: 0,
+    offline: 0,
+    linked: 0,
+    unlinked: 0,
+  };
+
+  for (const discovery of result.rows) {
+    const verification = getDiscoveryVerification(discovery);
+    const statusKey = String(verification.status || "")
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+    if (statusKey === "matched") summary.matched += 1;
+    else if (statusKey === "mismatched") summary.mismatched += 1;
+    else if (statusKey === "pending_verification") summary.pending_verification += 1;
+    else if (statusKey === "duplicate") summary.duplicates += 1;
+    else summary.unmanaged += 1;
+
+    if (String(discovery.status || "").toLowerCase() === "offline") {
+      summary.offline += 1;
+    }
+    if (discovery.matched_asset_id) summary.linked += 1;
+    else summary.unlinked += 1;
+  }
+
+  return summary;
+}
+
 async function getAuthorizedSlaSummary({ actor }) {
   const params = [];
   const request = {
@@ -385,6 +454,7 @@ module.exports = {
   getAuthorizedHardwareAssetSummary,
   getAuthorizedEndpointSummary,
   getAuthorizedSoftwareLicenses,
+  getAuthorizedAssetDiscoverySummary,
   getAuthorizedSlaSummary,
   getAuthorizedReplacementSummary,
   getAuthorizedLifecycleSummary,

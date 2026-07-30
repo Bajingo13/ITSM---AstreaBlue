@@ -9,6 +9,9 @@ const {
 const {
   createAiAssistantRoutes,
 } = require("../src/routes/aiAssistant");
+const {
+  getAuthorizedAssetDiscoverySummary,
+} = require("../src/repositories/aiAssistantRepository");
 
 function createRepo(overrides = {}) {
   return {
@@ -59,6 +62,18 @@ function createRepo(overrides = {}) {
         branch_id: 1,
         branch_name: "Makati Head Office",
       }],
+    }),
+    getAuthorizedAssetDiscoverySummary: async () => ({
+      authorized: true,
+      total: 7,
+      matched: 3,
+      mismatched: 1,
+      pending_verification: 1,
+      unmanaged: 1,
+      duplicates: 1,
+      offline: 2,
+      linked: 5,
+      unlinked: 2,
     }),
     getAuthorizedSlaSummary: async () => ({
       total: 10, active: 4, met: 5, breached: 1,
@@ -235,6 +250,138 @@ test("assistant answers product-specific available software-license questions", 
   assert.match(result.answer, /CapCut Pro currently has 5 available license seats/);
   assert.match(result.answer, /7 used out of 12 total/);
   assert.match(result.notice, /role and branch access rules/);
+});
+
+test("assistant returns the RBAC-safe Asset Discovery summary", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "Give me the current Asset Discovery summary",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /7 Asset Discovery records/);
+  assert.match(result.answer, /Matched: 3/);
+  assert.match(result.answer, /Mismatched: 1/);
+  assert.match(result.answer, /Pending Verification: 1/);
+  assert.match(result.answer, /Offline: 2/);
+  assert.match(result.notice, /identity-verification logic/);
+});
+
+test("assistant answers a specific Asset Discovery reconciliation count", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "How many discovered devices are pending verification?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.equal(
+    result.answer,
+    "You currently have 1 pending verification discovery record visible under your role and branch access."
+  );
+});
+
+test("assistant refuses Asset Discovery live data when the repository denies access", async () => {
+  const service = createAiAssistantService({
+    repo: createRepo({
+      getAuthorizedAssetDiscoverySummary: async () => ({ authorized: false }),
+    }),
+    apiKey: "",
+  });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many unmanaged devices are in Asset Discovery?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /do not have access to asset discovery live data/i);
+});
+
+test("Asset Discovery repository applies Admin branch scope and displayed verification logic", async () => {
+  let capturedSql = "";
+  let capturedParams = null;
+  const queryable = {
+    query: async (sql, params) => {
+      capturedSql = sql;
+      capturedParams = params;
+      return {
+        rows: [
+          {
+            status: "Online",
+            matched_asset_id: 1,
+            serial_number: "SN-1",
+            matched_asset_serial_number: "SN-1",
+            manufacturer: "Dell",
+            matched_asset_manufacturer: "Dell",
+            asset_tag: "AST-1",
+            matched_asset_tag: "AST-1",
+            hostname: "PC-1",
+            matched_asset_hostname: "PC-1",
+            raw_data: {},
+          },
+          {
+            status: "Online",
+            matched_asset_id: 2,
+            serial_number: "WRONG",
+            matched_asset_serial_number: "SN-2",
+            manufacturer: "Dell",
+            matched_asset_manufacturer: "Dell",
+            asset_tag: "AST-2",
+            matched_asset_tag: "AST-2",
+            hostname: "PC-2",
+            matched_asset_hostname: "PC-2",
+            raw_data: {},
+          },
+          {
+            status: "Online",
+            matched_asset_id: 3,
+            serial_number: null,
+            matched_asset_serial_number: "SN-3",
+            manufacturer: null,
+            matched_asset_manufacturer: "Dell",
+            asset_tag: null,
+            matched_asset_tag: "AST-3",
+            hostname: null,
+            matched_asset_hostname: "PC-3",
+            raw_data: {},
+          },
+          {
+            status: "Online",
+            matched_asset_id: null,
+            reconciliation_status: "Unmanaged",
+            raw_data: {},
+          },
+          {
+            status: "Offline",
+            matched_asset_id: null,
+            reconciliation_status: "Duplicate",
+            raw_data: {},
+          },
+        ],
+      };
+    },
+  };
+
+  const summary = await getAuthorizedAssetDiscoverySummary({
+    actor: { role_name: "Admin", branch_id: 7 },
+    queryable,
+  });
+
+  assert.match(capturedSql, /WHERE d\.branch_id=\$1/);
+  assert.deepEqual(capturedParams, [7]);
+  assert.deepEqual(summary, {
+    authorized: true,
+    total: 5,
+    matched: 1,
+    mismatched: 1,
+    pending_verification: 1,
+    unmanaged: 1,
+    duplicates: 1,
+    offline: 1,
+    linked: 3,
+    unlinked: 2,
+  });
 });
 
 test("assistant explains known AstreaBlue modules without falling through to weak KB search", async () => {

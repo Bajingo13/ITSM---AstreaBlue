@@ -8,7 +8,42 @@ function asksForLiveSummary(message) {
   );
 }
 
+function assetDiscoveryMetric(message) {
+  const text = normalize(message);
+  if (/\bmismatched?\b/.test(text)) return ["mismatched", "mismatched"];
+  if (/\bpending verification\b/.test(text)) return ["pending_verification", "pending verification"];
+  if (/\bunmanaged\b/.test(text)) return ["unmanaged", "unmanaged"];
+  if (/\bduplicates?\b/.test(text)) return ["duplicates", "duplicate"];
+  if (/\boffline\b/.test(text)) return ["offline", "offline"];
+  if (/\bunlinked\b/.test(text)) return ["unlinked", "unlinked"];
+  if (/\blinked\b/.test(text)) return ["linked", "linked"];
+  if (/\bmatched?\b/.test(text)) return ["matched", "matched"];
+  return null;
+}
+
 const CAPABILITIES = [
+  {
+    key: "asset discovery",
+    matches: (text) =>
+      /\b(asset discovery|discovery inventory|discovered (?:assets?|devices?)|reconciliation|reconciled|mismatched?|unmanaged|pending verification|duplicates?)\b/
+        .test(text),
+    repositoryMethod: "getAuthorizedAssetDiscoverySummary",
+    outcome: "live_asset_discovery_summary",
+    notice: "Asset Discovery role, branch scope, and identity-verification logic were applied.",
+    format: (data, message) => {
+      const metric = assetDiscoveryMetric(message);
+      if (metric) {
+        const [key, label] = metric;
+        const count = Number(data[key] || 0);
+        return `You currently have ${count} ${label} discovery record${count === 1 ? "" : "s"} visible under your role and branch access.`;
+      }
+      return [
+        `You have ${Number(data.total || 0)} Asset Discovery record${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `Verification: Matched: ${Number(data.matched || 0)}, Mismatched: ${Number(data.mismatched || 0)}, Pending Verification: ${Number(data.pending_verification || 0)}, Unmanaged: ${Number(data.unmanaged || 0)}, Duplicates: ${Number(data.duplicates || 0)}.`,
+        `Operational status: Offline: ${Number(data.offline || 0)}. Asset linkage: Linked: ${Number(data.linked || 0)}, Unlinked: ${Number(data.unlinked || 0)}.`,
+      ].join("\n");
+    },
+  },
   {
     key: "sla",
     matches: (text) => /\b(sla|service level|first response|resolution target)\b/.test(text),
@@ -72,15 +107,16 @@ function findLiveSummaryCapability(message) {
   return CAPABILITIES.find((capability) => capability.matches(text)) || null;
 }
 
-function formatCapabilityResult(capability, data) {
+function formatCapabilityResult(capability, data, message = "") {
   if (data?.authorized === false) {
     return `You do not have access to ${capability.key} live data under your current role or branch.`;
   }
-  return capability.format(data || {});
+  return capability.format(data || {}, message);
 }
 
 module.exports = {
   CAPABILITIES,
+  assetDiscoveryMetric,
   findLiveSummaryCapability,
   formatCapabilityResult,
 };
