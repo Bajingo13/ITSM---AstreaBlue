@@ -16,6 +16,7 @@ const {
 const {
   calculateStraightLine,
 } = require("../services/assetFinancialService");
+const { buildEndpointHealth } = require("../services/endpointHealthService");
 
 const STOP_WORDS = new Set([
   "about", "after", "again", "also", "and", "are", "can", "does", "for",
@@ -533,7 +534,7 @@ async function getAuthorizedEndpointPolicySummary({ actor, queryable = db }) {
   return { authorized: true, ...(result.rows[0] || {}) };
 }
 
-async function getAuthorizedSlaSummary({ actor }) {
+async function getAuthorizedSlaSummary({ actor, queryable = db, now = new Date() }) {
   const params = [];
   const request = {
     ticketAccessContext: {
@@ -548,25 +549,92 @@ async function getAuthorizedSlaSummary({ actor }) {
   };
   const clauses = addTicketAccessFilter(request, params, "t");
   clauses.push("t.status NOT IN ('Cancelled','Canceled')");
-  const result = await db.query(
-    `SELECT COUNT(*)::int total,
-       COUNT(*) FILTER (WHERE t.status NOT IN ('Resolved','Closed','Cancelled','Canceled'))::int active,
-       COUNT(*) FILTER (WHERE t.response_sla_status='Breached' OR t.resolution_sla_status='Breached')::int breached,
-       COUNT(*) FILTER (
-         WHERE (t.status IN ('Resolved','Closed') AND t.resolution_sla_status='Met')
-            OR (t.status NOT IN ('Resolved','Closed') AND t.response_sla_status='Met')
-       )::int met
-     FROM tickets t
-     WHERE ${clauses.join(" AND ")}`,
+  const result = await queryable.query(
+    `SELECT t.status,t.created_at,t.first_response_at,t.resolved_at,t.closed_at,
+            t.response_due_at,t.resolution_due_at,
+            t.response_sla_status,t.resolution_sla_status
+       FROM tickets t
+      WHERE ${clauses.join(" AND ")}`,
     params
   );
-  const row = result.rows[0] || {};
-  return Object.fromEntries(
-    Object.entries(row).map(([key, value]) => [key, Number(value || 0)])
-  );
+
+  const summary = {
+    authorized: true,
+    total: result.rows.length,
+    active: 0,
+    due_soon: 0,
+    met: 0,
+    breached: 0,
+    pending: 0,
+    compliance_percent: 100,
+    avg_response_time_minutes: 0,
+    avg_resolution_time_minutes: 0,
+  };
+  let responseMinutes = 0;
+  let responseCount = 0;
+  let resolutionMinutes = 0;
+  let resolutionCount = 0;
+
+  for (const ticket of result.rows) {
+    const resolved = ["Resolved", "Closed"].includes(ticket.status);
+    const active = !["Resolved", "Closed", "Cancelled", "Canceled"].includes(ticket.status);
+    const breached =
+      ticket.response_sla_status === "Breached" ||
+      ticket.resolution_sla_status === "Breached";
+    const met = resolved
+      ? ticket.resolution_sla_status === "Met"
+      : ticket.response_sla_status === "Met";
+
+    if (active) summary.active += 1;
+    if (breached) summary.breached += 1;
+    else if (met) summary.met += 1;
+    else summary.pending += 1;
+
+    if (active && !breached) {
+      const responseRemaining = !ticket.first_response_at && ticket.response_due_at
+        ? (new Date(ticket.response_due_at).getTime() - now.getTime()) / 60000
+        : null;
+      const resolutionRemaining = !ticket.resolved_at && ticket.resolution_due_at
+        ? (new Date(ticket.resolution_due_at).getTime() - now.getTime()) / 60000
+        : null;
+      if (
+        (responseRemaining > 0 && responseRemaining <= 240) ||
+        (resolutionRemaining > 0 && resolutionRemaining <= 240)
+      ) {
+        summary.due_soon += 1;
+      }
+    }
+
+    if (ticket.first_response_at && ticket.created_at) {
+      responseMinutes +=
+        (new Date(ticket.first_response_at).getTime() -
+          new Date(ticket.created_at).getTime()) /
+        60000;
+      responseCount += 1;
+    }
+    const completedAt = ticket.resolved_at || ticket.closed_at;
+    if (resolved && completedAt && ticket.created_at) {
+      resolutionMinutes +=
+        (new Date(completedAt).getTime() - new Date(ticket.created_at).getTime()) /
+        60000;
+      resolutionCount += 1;
+    }
+  }
+
+  const completedTargets = summary.met + summary.breached;
+  summary.compliance_percent = completedTargets
+    ? Math.round((summary.met / completedTargets) * 100)
+    : 100;
+  summary.avg_response_time_minutes = responseCount
+    ? Math.round(responseMinutes / responseCount)
+    : 0;
+  summary.avg_resolution_time_minutes = resolutionCount
+    ? Math.round(resolutionMinutes / resolutionCount)
+    : 0;
+  return summary;
 }
 
-async function getAuthorizedReplacementSummary({ actor }) {
+async function getAuthorizedReplacementSummary({ actor, queryable = db }) {
   const role = normalizeRole(actor.role_name);
   const params = [];
   let where = "TRUE";
@@ -579,35 +647,190 @@ async function getAuthorizedReplacementSummary({ actor }) {
   } else if (role !== "superadmin") {
     return { authorized: false };
   }
-  const result = await db.query(
+  const result = await queryable.query(
     `SELECT COUNT(*)::int total,
        COUNT(*) FILTER (WHERE rr.status NOT IN ('Completed','Repaired','Rejected','Cancelled'))::int active,
+       COUNT(*) FILTER (WHERE rr.status='Submitted')::int submitted,
+       COUNT(*) FILTER (WHERE rr.status='Under Assessment')::int under_assessment,
        COUNT(*) FILTER (WHERE rr.status='Awaiting Approval')::int awaiting_approval,
+       COUNT(*) FILTER (WHERE rr.status='Approved')::int approved,
+       COUNT(*) FILTER (WHERE rr.status='Replacement Reserved')::int reserved,
+       COUNT(*) FILTER (WHERE rr.status='Issued')::int issued,
        COUNT(*) FILTER (WHERE rr.status='Repair Recommended')::int repair_recommended,
        COUNT(*) FILTER (WHERE rr.status='In Repair')::int in_repair,
        COUNT(*) FILTER (WHERE rr.status='Repaired')::int repaired,
-       COUNT(*) FILTER (WHERE rr.status='Completed')::int completed
+       COUNT(*) FILTER (WHERE rr.status='Completed')::int completed,
+       COUNT(*) FILTER (WHERE rr.status='Rejected')::int rejected,
+       COUNT(*) FILTER (WHERE rr.status='Cancelled')::int cancelled
      FROM replacement_requests rr WHERE ${where}`,
     params
   );
   return { authorized: true, ...result.rows[0] };
 }
 
-async function getAuthorizedLifecycleSummary({ actor }) {
+async function getAuthorizedLifecycleSummary({ actor, queryable = db }) {
   const access = branchScopedAccess(actor, ["superadmin", "admin", "hr"]);
   if (!access.authorized) return { authorized: false };
   const where = access.where.replace(/\bbranch_id\b/g, "lc.branch_id");
-  const result = await db.query(
-    `SELECT COUNT(*)::int total,
-       COUNT(*) FILTER (WHERE lc.lifecycle_type='Onboarding' AND lc.status NOT IN ('Completed','Cancelled'))::int active_onboarding,
-       COUNT(*) FILTER (WHERE lc.lifecycle_type='Offboarding' AND lc.status NOT IN ('Completed','Cancelled'))::int active_offboarding,
-       COUNT(*) FILTER (WHERE lc.status='Ready for Verification')::int ready_for_verification,
-       COUNT(*) FILTER (WHERE lc.status='Completed')::int completed
-     FROM employee_lifecycle_cases lc
-     WHERE lc.deleted_at IS NULL AND ${where}`,
+  const result = await queryable.query(
+    `WITH scoped_cases AS (
+       SELECT lc.lifecycle_case_id,lc.lifecycle_type,lc.status
+         FROM employee_lifecycle_cases lc
+        WHERE lc.deleted_at IS NULL AND ${where}
+     ),
+     pending_tasks AS (
+       SELECT lt.lifecycle_case_id,
+              COUNT(*) FILTER (WHERE lt.is_required AND lt.status='Pending')::int required_pending
+         FROM employee_lifecycle_tasks lt
+         JOIN scoped_cases sc ON sc.lifecycle_case_id=lt.lifecycle_case_id
+        GROUP BY lt.lifecycle_case_id
+     )
+     SELECT
+       COUNT(*)::int total,
+       COUNT(*) FILTER (WHERE sc.lifecycle_type='Onboarding')::int onboarding_total,
+       COUNT(*) FILTER (WHERE sc.lifecycle_type='Offboarding')::int offboarding_total,
+       COUNT(*) FILTER (
+         WHERE sc.lifecycle_type='Onboarding'
+           AND sc.status NOT IN ('Completed','Cancelled')
+       )::int active_onboarding,
+       COUNT(*) FILTER (
+         WHERE sc.lifecycle_type='Offboarding'
+           AND sc.status NOT IN ('Completed','Cancelled')
+       )::int active_offboarding,
+       COUNT(*) FILTER (WHERE sc.status='Draft')::int draft,
+       COUNT(*) FILTER (WHERE sc.status='In Progress')::int in_progress,
+       COUNT(*) FILTER (WHERE sc.status='Awaiting Employee')::int awaiting_employee,
+       COUNT(*) FILTER (WHERE sc.status='Awaiting IT')::int awaiting_administrator,
+       COUNT(*) FILTER (WHERE sc.status='Ready for Verification')::int ready_for_verification,
+       COUNT(*) FILTER (WHERE sc.status='Completed')::int completed,
+       COUNT(*) FILTER (WHERE sc.status='Cancelled')::int cancelled,
+       COUNT(*) FILTER (WHERE COALESCE(pt.required_pending,0)>0)::int cases_with_pending_tasks,
+       COALESCE(SUM(COALESCE(pt.required_pending,0)),0)::int required_pending_tasks
+     FROM scoped_cases sc
+     LEFT JOIN pending_tasks pt ON pt.lifecycle_case_id=sc.lifecycle_case_id`,
     access.params
   );
   return { authorized: true, ...result.rows[0] };
+}
+
+function getEndpointHealthAccess(actor) {
+  const role = normalizeRole(actor.role_name);
+  if (role === "superadmin") {
+    return { authorized: true, whereSql: "", params: [] };
+  }
+  if (["admin", "technician"].includes(role) && actor.branch_id) {
+    return {
+      authorized: true,
+      whereSql: "WHERE d.branch_id=$1",
+      params: [Number(actor.branch_id)],
+    };
+  }
+  return { authorized: false, whereSql: "WHERE 1=0", params: [] };
+}
+
+async function getAuthorizedEndpointHealthSummary({ actor, queryable = db }) {
+  const access = getEndpointHealthAccess(actor);
+  if (!access.authorized) return { authorized: false };
+
+  const result = await queryable.query(
+    `SELECT d.*,u.full_name assigned_employee,
+            COALESCE(d.department,u.department) department,b.branch_name,
+            COALESCE(consent.status,d.consent_status) consent_status,
+            consent.consent_id,consent.consent_version,
+            EXISTS (
+              SELECT 1 FROM consent_documents submitted_consent
+               WHERE submitted_consent.employee_id=d.assigned_user_id
+                 AND submitted_consent.status IN ('pending_approval','approved','signed')
+                 AND submitted_consent.submitted_at IS NOT NULL
+            ) consent_submitted,
+            EXISTS (
+              SELECT 1 FROM consent_documents approved_consent
+               WHERE approved_consent.employee_id=d.assigned_user_id
+                 AND (
+                   d.device_uuid IS NULL
+                   OR approved_consent.device_uuid=d.device_uuid
+                   OR approved_consent.device_uuid IS NULL
+                 )
+                 AND approved_consent.status IN ('approved','signed')
+                 AND approved_consent.active IS NOT FALSE
+            ) consent_approved,
+            activity.last_activity_at,activity.last_idle_detection_at,
+            hardware.last_hardware_inventory_at,hardware.os_build,hardware.windows_version,
+            software.last_software_inventory_at,
+            ep.generated_at policy_generated_at,
+            ep.policy_json->>'policy_version' current_policy_version,
+            ep.policy_json,
+            NULL::text last_api_response,NULL::text last_error
+       FROM monitored_devices d
+       LEFT JOIN users u ON u.user_id=d.assigned_user_id
+       LEFT JOIN branches b ON b.branch_id=d.branch_id
+       LEFT JOIN endpoint_effective_policies ep ON ep.device_uuid=d.device_uuid
+       LEFT JOIN LATERAL (
+         SELECT cd.status,cd.consent_id::text consent_id,cd.consent_version
+           FROM consent_documents cd
+          WHERE cd.employee_id=d.assigned_user_id
+            AND (cd.device_uuid=d.device_uuid OR cd.device_uuid IS NULL)
+          ORDER BY (cd.device_uuid IS NOT NULL) DESC,
+                   cd.approved_at DESC NULLS LAST,
+                   cd.signed_at DESC NULLS LAST,
+                   cd.created_at DESC
+          LIMIT 1
+       ) consent ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT
+           MAX(al.occurred_at) FILTER (
+             WHERE al.event_type IS DISTINCT FROM 'system_audit'
+           ) last_activity_at,
+           MAX(al.occurred_at) FILTER (
+             WHERE al.event_type IS DISTINCT FROM 'system_audit'
+               AND al.idle_seconds IS NOT NULL
+           ) last_idle_detection_at
+           FROM laptop_activity_logs al
+          WHERE al.device_id=d.device_id
+       ) activity ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT hi.scanned_at last_hardware_inventory_at,hi.os_build,
+                CONCAT_WS(' ',hi.os_name,hi.os_version) windows_version
+           FROM endpoint_hardware_inventory hi
+          WHERE hi.device_id=d.device_id
+          ORDER BY hi.scanned_at DESC
+          LIMIT 1
+       ) hardware ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT MAX(si.last_seen_at) last_software_inventory_at
+           FROM endpoint_software_inventory si
+          WHERE si.device_id=d.device_id
+       ) software ON TRUE
+       ${access.whereSql}`,
+    access.params
+  );
+
+  const endpoints = result.rows.map(buildEndpointHealth);
+  const count = (predicate) => endpoints.filter(predicate).length;
+  return {
+    authorized: true,
+    registered_endpoints: endpoints.length,
+    healthy: count((item) => item.overall_health === "Healthy"),
+    warning: count((item) => item.overall_health === "Warning"),
+    critical: count((item) => item.overall_health === "Critical"),
+    offline: count((item) => item.overall_health === "Offline"),
+    requiring_attention: count((item) => item.overall_health !== "Healthy"),
+    heartbeat_healthy: count((item) => item.heartbeat.status === "Healthy"),
+    activity_healthy: count((item) => item.activity.status === "Healthy"),
+    hardware_inventory_healthy: count(
+      (item) => item.hardware_inventory.status === "Healthy"
+    ),
+    software_inventory_healthy: count(
+      (item) => item.software_inventory.status === "Healthy"
+    ),
+    policy_sync_healthy: count((item) => item.policy.status === "Healthy"),
+    consent_active: count((item) => item.consent.status === "Healthy"),
+    monitoring_active: count((item) =>
+      item.checklist.some(
+        (step) => step.step === "Monitoring Active" && step.status === "Complete"
+      )
+    ),
+  };
 }
 
 async function getAuthorizedCmdbSummary({ actor }) {
@@ -678,11 +901,13 @@ module.exports = {
   getAuthorizedAssetFinanceSummary,
   getAuthorizedConsentSummary,
   getAuthorizedEndpointPolicySummary,
+  getAuthorizedEndpointHealthSummary,
   getAuthorizedSlaSummary,
   getAuthorizedReplacementSummary,
   getAuthorizedLifecycleSummary,
   getAuthorizedCmdbSummary,
   getAuthorizedProjectSummary,
+  getEndpointHealthAccess,
   getActorContext,
   normalizeRole,
   searchAuthorizedKnowledge,

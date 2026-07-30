@@ -105,6 +105,26 @@ function inferConversationSubject(history) {
   for (const item of recent) {
     const content = item.content.toLowerCase();
     if (
+      /\b(endpoint health|device health|endpoint diagnostics?|monitoring health)\b/.test(content)
+    ) {
+      return "endpoint_health";
+    }
+    if (
+      /\b(sla|service level|first response|resolution target|sla compliance)\b/.test(content)
+    ) {
+      return "sla";
+    }
+    if (
+      /\b(replacement requests?|replacement management|repair requests?)\b/.test(content)
+    ) {
+      return "replacement";
+    }
+    if (
+      /\b(employee lifecycle|onboarding|offboarding|lifecycle cases?)\b/.test(content)
+    ) {
+      return "lifecycle";
+    }
+    if (
       /\b(endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download|monitoring polic(?:y|ies))\b/.test(content)
     ) {
       return "endpoint_policy";
@@ -144,7 +164,7 @@ function resolveContextualCountMessage(message, history) {
   const normalized = normalizeIntentText(trimmed);
 
   const hasExplicitSubject =
-    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|sla|replacement requests?|onboarding|offboarding|lifecycle cases?|configuration items?|cmdb|projects?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
+    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|endpoint health|device health|endpoint diagnostics?|sla|service level|replacement requests?|replacement management|onboarding|offboarding|employee lifecycle|lifecycle|lifecycle cases?|configuration items?|cmdb|projects?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
       .test(normalized);
   if (hasExplicitSubject) return { message: normalized, ambiguous: false };
 
@@ -169,6 +189,18 @@ function resolveContextualCountMessage(message, history) {
   }
   if (subject === "endpoint_policy") {
     return { message: `${trimmed} endpoint policies`, ambiguous: false };
+  }
+  if (subject === "endpoint_health") {
+    return { message: `${trimmed} endpoint health`, ambiguous: false };
+  }
+  if (subject === "sla") {
+    return { message: `${trimmed} SLA tickets`, ambiguous: false };
+  }
+  if (subject === "replacement") {
+    return { message: `${trimmed} replacement requests`, ambiguous: false };
+  }
+  if (subject === "lifecycle") {
+    return { message: `${trimmed} employee lifecycle cases`, ambiguous: false };
   }
   return { message: trimmed, ambiguous: true };
 }
@@ -431,8 +463,8 @@ function createAiAssistantService({
       return {
         answer: [
           "What would you like me to count?",
-          "I can currently check your authorized tickets, hardware assets, or monitored endpoints.",
-          "For example: “How many tickets are in progress?”, “How many hardware assets do we have?”, or “How many endpoints are online?”",
+          "I can currently check your authorized tickets, hardware assets, or monitored endpoints, plus SLA performance, replacement requests, lifecycle cases, consent, and endpoint policies.",
+          "For example: “How many SLA tickets are breached?”, “How many replacement requests are awaiting approval?”, or “How many endpoints require attention?”",
         ].join("\n"),
         sources: [],
         mode: "clarification",

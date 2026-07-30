@@ -13,7 +13,11 @@ const {
   getAuthorizedAssetDiscoverySummary,
   getAuthorizedAssetFinanceSummary,
   getAuthorizedConsentSummary,
+  getAuthorizedEndpointHealthSummary,
   getAuthorizedEndpointPolicySummary,
+  getAuthorizedLifecycleSummary,
+  getAuthorizedReplacementSummary,
+  getAuthorizedSlaSummary,
 } = require("../src/repositories/aiAssistantRepository");
 
 function createRepo(overrides = {}) {
@@ -128,15 +132,29 @@ function createRepo(overrides = {}) {
       location_enabled: 1,
     }),
     getAuthorizedSlaSummary: async () => ({
-      total: 10, active: 4, met: 5, breached: 1,
+      authorized: true, total: 10, active: 4, due_soon: 2,
+      met: 5, breached: 1, pending: 4, compliance_percent: 83,
+      avg_response_time_minutes: 42, avg_resolution_time_minutes: 185,
     }),
     getAuthorizedReplacementSummary: async () => ({
       authorized: true, total: 4, active: 2, awaiting_approval: 1,
-      repair_recommended: 0, in_repair: 1, repaired: 1, completed: 1,
+      submitted: 0, under_assessment: 0, approved: 0, reserved: 0,
+      issued: 0, repair_recommended: 0, in_repair: 1, repaired: 1,
+      completed: 1, rejected: 0, cancelled: 0,
     }),
     getAuthorizedLifecycleSummary: async () => ({
       authorized: true, total: 5, active_onboarding: 2,
       active_offboarding: 1, ready_for_verification: 1, completed: 1,
+      onboarding_total: 3, offboarding_total: 2, draft: 0,
+      in_progress: 2, awaiting_employee: 1, awaiting_administrator: 0,
+      cancelled: 0, cases_with_pending_tasks: 2, required_pending_tasks: 6,
+    }),
+    getAuthorizedEndpointHealthSummary: async () => ({
+      authorized: true, registered_endpoints: 6, healthy: 2, warning: 2,
+      critical: 0, offline: 2, requiring_attention: 4,
+      heartbeat_healthy: 4, activity_healthy: 3,
+      hardware_inventory_healthy: 4, software_inventory_healthy: 4,
+      policy_sync_healthy: 5, consent_active: 4, monitoring_active: 3,
     }),
     getAuthorizedCmdbSummary: async () => ({
       authorized: true, total: 9, active: 7, production: 3, types: 4,
@@ -803,6 +821,226 @@ test("assistant routes remaining module summaries through the capability registr
     assert.match(result.answer, expected);
     assert.match(result.notice, /Live read-only AstreaBlue data/);
   }
+});
+
+test("Phase 4 assistant answers specific SLA performance questions", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const cases = [
+    ["What is our SLA compliance right now?", /83%/],
+    ["How many SLA tickets are due soon?", /2 SLA tickets due within four hours/],
+    ["What is the average SLA resolution time?", /3 hours 5 minutes/],
+  ];
+  for (const [message, expected] of cases) {
+    const result = await service.ask({ tokenUser: { userId: 9 }, message });
+    assert.equal(result.mode, "system-data");
+    assert.match(result.answer, expected);
+  }
+});
+
+test("Phase 4 assistant answers replacement workflow counts", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many replacement requests are awaiting approval?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.equal(
+    result.answer,
+    "You currently have 1 request awaiting approval visible under your replacement-management access."
+  );
+});
+
+test("Phase 4 assistant answers lifecycle checklist and final-review counts", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const pending = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many required lifecycle checklist tasks are pending?",
+  });
+  const review = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many lifecycle cases are ready for final review?",
+  });
+
+  assert.match(pending.answer, /6 required checklist tasks still pending/);
+  assert.match(review.answer, /1 case ready for authorized final review/);
+});
+
+test("Phase 4 assistant reports canonical endpoint-health counts", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many endpoints require attention in endpoint health?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /4 endpoints requiring attention/);
+  assert.match(result.notice, /no device or policy state was changed/i);
+});
+
+test("Phase 4 follow-up questions retain endpoint-health context", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many require attention?",
+    history: [{
+      role: "user",
+      content: "Give me the current endpoint health summary.",
+    }],
+  });
+
+  assert.match(result.answer, /4 endpoints requiring attention/);
+});
+
+test("SLA repository mirrors ticket RBAC and canonical SLA calculations", async () => {
+  let sql = "";
+  let params = [];
+  const now = new Date("2026-07-30T04:00:00.000Z");
+  const summary = await getAuthorizedSlaSummary({
+    actor: {
+      user_id: 4,
+      role_name: "Technician",
+      branch_id: 1,
+    },
+    now,
+    queryable: {
+      query: async (query, values) => {
+        sql = query;
+        params = values;
+        return {
+          rows: [
+            {
+              status: "Open Queue",
+              created_at: "2026-07-30T03:00:00.000Z",
+              response_due_at: "2026-07-30T05:00:00.000Z",
+              resolution_due_at: "2026-07-30T10:00:00.000Z",
+              response_sla_status: "Pending",
+              resolution_sla_status: "Pending",
+            },
+            {
+              status: "Resolved",
+              created_at: "2026-07-30T01:00:00.000Z",
+              first_response_at: "2026-07-30T01:30:00.000Z",
+              resolved_at: "2026-07-30T03:00:00.000Z",
+              response_sla_status: "Met",
+              resolution_sla_status: "Met",
+            },
+            {
+              status: "In Progress",
+              created_at: "2026-07-29T22:00:00.000Z",
+              response_sla_status: "Met",
+              resolution_sla_status: "Breached",
+            },
+          ],
+        };
+      },
+    },
+  });
+
+  assert.match(sql, /FROM tickets t/);
+  assert.ok(params.includes(1));
+  assert.deepEqual(
+    {
+      total: summary.total,
+      active: summary.active,
+      dueSoon: summary.due_soon,
+      met: summary.met,
+      breached: summary.breached,
+      pending: summary.pending,
+      compliance: summary.compliance_percent,
+      response: summary.avg_response_time_minutes,
+      resolution: summary.avg_resolution_time_minutes,
+    },
+    {
+      total: 3,
+      active: 2,
+      dueSoon: 1,
+      met: 1,
+      breached: 1,
+      pending: 1,
+      compliance: 50,
+      response: 30,
+      resolution: 120,
+    }
+  );
+});
+
+test("Replacement repository preserves ownership and branch access", async () => {
+  const calls = [];
+  const queryable = {
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      return { rows: [{ total: 0 }] };
+    },
+  };
+  await getAuthorizedReplacementSummary({
+    actor: { user_id: 9, role_name: "Employee", branch_id: 1 },
+    queryable,
+  });
+  await getAuthorizedReplacementSummary({
+    actor: { user_id: 4, role_name: "Technician", branch_id: 12 },
+    queryable,
+  });
+  const hr = await getAuthorizedReplacementSummary({
+    actor: { user_id: 5, role_name: "HR", branch_id: 12 },
+    queryable,
+  });
+
+  assert.match(calls[0].sql, /rr\.employee_id=\$1/);
+  assert.deepEqual(calls[0].params, [9]);
+  assert.match(calls[1].sql, /rr\.branch_id=\$1/);
+  assert.deepEqual(calls[1].params, [12]);
+  assert.equal(hr.authorized, false);
+});
+
+test("Lifecycle repository preserves HR branch scope and checklist aggregation", async () => {
+  let sql = "";
+  let params = [];
+  const result = await getAuthorizedLifecycleSummary({
+    actor: { user_id: 5, role_name: "HR", branch_id: 7 },
+    queryable: {
+      query: async (query, values) => {
+        sql = query;
+        params = values;
+        return { rows: [{ total: 2, required_pending_tasks: 3 }] };
+      },
+    },
+  });
+
+  assert.equal(result.authorized, true);
+  assert.match(sql, /lc\.branch_id=\$1/);
+  assert.match(sql, /employee_lifecycle_tasks/);
+  assert.deepEqual(params, [7]);
+});
+
+test("Endpoint-health repository is branch scoped and denies Employee and HR diagnostics", async () => {
+  let adminSql = "";
+  let adminParams = [];
+  const queryable = {
+    query: async (sql, params) => {
+      adminSql = sql;
+      adminParams = params;
+      return { rows: [] };
+    },
+  };
+  const admin = await getAuthorizedEndpointHealthSummary({
+    actor: { user_id: 2, role_name: "Admin", branch_id: 3 },
+    queryable,
+  });
+  const employee = await getAuthorizedEndpointHealthSummary({
+    actor: { user_id: 9, role_name: "Employee", branch_id: 3 },
+    queryable,
+  });
+  const hr = await getAuthorizedEndpointHealthSummary({
+    actor: { user_id: 5, role_name: "HR", branch_id: 3 },
+    queryable,
+  });
+
+  assert.equal(admin.authorized, true);
+  assert.match(adminSql, /WHERE d\.branch_id=\$1/);
+  assert.deepEqual(adminParams, [3]);
+  assert.equal(employee.authorized, false);
+  assert.equal(hr.authorized, false);
 });
 
 test("assistant asks for clarification when a count question has no subject or context", async () => {

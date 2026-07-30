@@ -3,7 +3,7 @@ function normalize(value) {
 }
 
 function asksForLiveSummary(message) {
-  return /\b(how many|count|total|summary|breakdown|currently|right now|status|enabled|disabled|pending|approved|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life)\b/.test(
+  return /\b(how many|count|total|summary|breakdown|currently|right now|status|enabled|disabled|pending|approved|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life|healthy|warning|critical|offline|attention|breached|compliance|due soon|response time|resolution time|submitted|assessment|issued|repaired|completed|cancelled|waiting|final review)\b/.test(
     normalize(message)
   );
 }
@@ -157,7 +157,164 @@ function endpointPolicyMetric(message) {
   return null;
 }
 
+function endpointHealthMetric(message) {
+  const text = normalize(message);
+  if (/\brequir(?:e|es|ing) attention\b|\bneeds? attention\b/.test(text)) {
+    return ["requiring_attention", "endpoint requiring attention"];
+  }
+  if (/\bmonitoring active\b|\bactive monitoring\b/.test(text)) {
+    return ["monitoring_active", "endpoint with active monitoring"];
+  }
+  if (/\bhardware inventory\b/.test(text)) {
+    return ["hardware_inventory_healthy", "endpoint with healthy hardware inventory"];
+  }
+  if (/\bsoftware inventory\b/.test(text)) {
+    return ["software_inventory_healthy", "endpoint with healthy software inventory"];
+  }
+  if (/\bpolicy sync\b/.test(text)) {
+    return ["policy_sync_healthy", "endpoint with healthy policy synchronization"];
+  }
+  if (/\bactive consent\b|\bconsent health\b/.test(text)) {
+    return ["consent_active", "endpoint with active consent"];
+  }
+  if (/\bactivity\b/.test(text)) {
+    return ["activity_healthy", "endpoint with healthy activity telemetry"];
+  }
+  if (/\bheartbeat\b/.test(text)) {
+    return ["heartbeat_healthy", "endpoint with a healthy heartbeat"];
+  }
+  if (/\boffline\b/.test(text)) return ["offline", "offline endpoint"];
+  if (/\bcritical\b/.test(text)) return ["critical", "critical endpoint"];
+  if (/\bwarning\b/.test(text)) return ["warning", "endpoint in warning state"];
+  if (/\bhealthy\b/.test(text)) return ["healthy", "healthy endpoint"];
+  return null;
+}
+
+function slaMetric(message) {
+  const text = normalize(message);
+  if (/\bcompliance\b/.test(text)) return ["compliance_percent", "percent", "SLA compliance"];
+  if (/\baverage\b.*\bfirst response\b|\bavg\b.*\bresponse\b|\bresponse time\b/.test(text)) {
+    return ["avg_response_time_minutes", "duration", "average first-response time"];
+  }
+  if (/\baverage\b.*\bresolution\b|\bavg\b.*\bresolution\b|\bresolution time\b/.test(text)) {
+    return ["avg_resolution_time_minutes", "duration", "average resolution time"];
+  }
+  if (/\bdue soon\b|\bnear(?:ing)? (?:the )?(?:sla )?deadline\b/.test(text)) {
+    return ["due_soon", "count", "SLA ticket due within four hours"];
+  }
+  if (/\bbreach(?:ed|es)?\b/.test(text)) return ["breached", "count", "SLA-breached ticket"];
+  if (/\bmet\b|\bcompliant\b/.test(text)) return ["met", "count", "ticket that met its applicable SLA target"];
+  if (/\bpending\b/.test(text)) return ["pending", "count", "ticket with a pending SLA result"];
+  if (/\bactive\b/.test(text)) return ["active", "count", "active SLA-tracked ticket"];
+  return null;
+}
+
+function replacementMetric(message) {
+  const text = normalize(message);
+  const metrics = [
+    ["repair_recommended", "repair-recommended request", /\brepair recommended\b/],
+    ["under_assessment", "request under assessment", /\bunder assessment\b|\bassessing\b/],
+    ["awaiting_approval", "request awaiting approval", /\bawaiting approval\b|\bpending approval\b/],
+    ["reserved", "request with a reserved replacement", /\breplacement reserved\b|\breserved\b/],
+    ["in_repair", "request currently in repair", /\bin repair\b/],
+    ["submitted", "submitted request", /\bsubmitted\b/],
+    ["approved", "approved request", /\bapproved\b/],
+    ["issued", "issued replacement request", /\bissued\b/],
+    ["repaired", "repaired request", /\brepaired\b/],
+    ["completed", "completed replacement request", /\bcompleted\b/],
+    ["rejected", "rejected replacement request", /\brejected\b/],
+    ["cancelled", "cancelled replacement request", /\bcancel(?:led|ed)\b/],
+    ["active", "active replacement request", /\bactive\b/],
+  ];
+  const match = metrics.find(([, , pattern]) => pattern.test(text));
+  return match ? match.slice(0, 2) : null;
+}
+
+function lifecycleMetric(message) {
+  const text = normalize(message);
+  if (/\brequired\b.*\bpending\b|\bpending (?:required )?(?:checklist )?tasks?\b/.test(text)) {
+    return ["required_pending_tasks", "required checklist task still pending"];
+  }
+  if (/\bcases?\b.*\bpending tasks?\b|\bincomplete checklist\b/.test(text)) {
+    return ["cases_with_pending_tasks", "lifecycle case with pending required tasks"];
+  }
+  if (/\bactive onboarding\b/.test(text)) {
+    return ["active_onboarding", "active onboarding case"];
+  }
+  if (/\bactive offboarding\b/.test(text)) {
+    return ["active_offboarding", "active offboarding case"];
+  }
+  if (/\bready (?:for )?(?:final )?(?:review|verification)\b/.test(text)) {
+    return ["ready_for_verification", "case ready for authorized final review"];
+  }
+  if (/\bawaiting employee\b|\bwaiting for employee\b/.test(text)) {
+    return ["awaiting_employee", "case awaiting employee action"];
+  }
+  if (/\bawaiting (?:it|administrator)\b|\bwaiting for (?:it|administrator)\b/.test(text)) {
+    return ["awaiting_administrator", "case awaiting administrator action"];
+  }
+  if (/\bin progress\b/.test(text)) return ["in_progress", "lifecycle case in progress"];
+  if (/\bdrafts?\b/.test(text)) return ["draft", "draft lifecycle case"];
+  if (/\bcompleted\b/.test(text)) return ["completed", "completed lifecycle case"];
+  if (/\bcancel(?:led|ed)\b/.test(text)) return ["cancelled", "cancelled lifecycle case"];
+  if (/\bonboarding\b/.test(text) && !/\boffboarding\b/.test(text)) {
+    return ["onboarding_total", "onboarding case"];
+  }
+  if (/\boffboarding\b/.test(text) && !/\bonboarding\b/.test(text)) {
+    return ["offboarding_total", "offboarding case"];
+  }
+  return null;
+}
+
+function formatDuration(minutes) {
+  const value = Math.max(0, Math.round(Number(minutes || 0)));
+  if (value < 60) return `${value} minute${value === 1 ? "" : "s"}`;
+  const hours = Math.floor(value / 60);
+  const remainder = value % 60;
+  return `${hours} hour${hours === 1 ? "" : "s"}${remainder ? ` ${remainder} minute${remainder === 1 ? "" : "s"}` : ""}`;
+}
+
+function countLabel(label, count) {
+  if (Number(count) === 1) return label;
+  const plurals = {
+    endpoint: "endpoints",
+    ticket: "tickets",
+    request: "requests",
+    case: "cases",
+    task: "tasks",
+    record: "records",
+    asset: "assets",
+  };
+  return String(label).replace(
+    /\b(endpoint|ticket|request|case|task|record|asset)\b/,
+    (word) => plurals[word]
+  );
+}
+
 const CAPABILITIES = [
+  {
+    key: "endpoint health",
+    matches: (text) =>
+      /\b(endpoint health|device health|endpoint diagnostics?|monitoring health|health of (?:our )?(?:endpoints?|devices?))\b/
+        .test(text),
+    repositoryMethod: "getAuthorizedEndpointHealthSummary",
+    outcome: "live_endpoint_health_summary",
+    notice: "Endpoint diagnostics role and branch scope were applied; no device or policy state was changed.",
+    format: (data, message) => {
+      const metric = endpointHealthMetric(message);
+      if (metric) {
+        const [key, label] = metric;
+        const count = Number(data[key] || 0);
+        return `You currently have ${count} ${countLabel(label, count)} under your endpoint-health access.`;
+      }
+      return [
+        `You have ${Number(data.registered_endpoints || 0)} registered endpoint${Number(data.registered_endpoints || 0) === 1 ? "" : "s"} under your endpoint-health access.`,
+        `Overall health: Healthy: ${Number(data.healthy || 0)}, Warning: ${Number(data.warning || 0)}, Critical: ${Number(data.critical || 0)}, Offline: ${Number(data.offline || 0)}.`,
+        `Requiring attention: ${Number(data.requiring_attention || 0)}. Monitoring active: ${Number(data.monitoring_active || 0)}.`,
+        `Healthy components: Heartbeat: ${Number(data.heartbeat_healthy || 0)}, Activity: ${Number(data.activity_healthy || 0)}, Hardware inventory: ${Number(data.hardware_inventory_healthy || 0)}, Software inventory: ${Number(data.software_inventory_healthy || 0)}, Policy sync: ${Number(data.policy_sync_healthy || 0)}, Consent: ${Number(data.consent_active || 0)}.`,
+      ].join("\n");
+    },
+  },
   {
     key: "endpoint policy",
     matches: (text) =>
@@ -260,10 +417,21 @@ const CAPABILITIES = [
     repositoryMethod: "getAuthorizedSlaSummary",
     outcome: "live_sla_summary",
     notice: "Existing ticket RBAC was applied to the SLA summary.",
-    format: (data) => [
-      `You have ${Number(data.total || 0)} SLA-tracked ticket${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
-      `Active: ${Number(data.active || 0)}, Met: ${Number(data.met || 0)}, Breached: ${Number(data.breached || 0)}.`,
-    ].join("\n"),
+    format: (data, message) => {
+      const metric = slaMetric(message);
+      if (metric) {
+        const [key, type, label] = metric;
+        const value = Number(data[key] || 0);
+        if (type === "percent") return `Your current ${label} is ${value}%.`;
+        if (type === "duration") return `Your current ${label} is ${formatDuration(value)}.`;
+        return `You currently have ${value} ${countLabel(label, value)} visible under your ticket access.`;
+      }
+      return [
+        `You have ${Number(data.total || 0)} SLA-tracked ticket${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `Active: ${Number(data.active || 0)}, Due within four hours: ${Number(data.due_soon || 0)}, Met: ${Number(data.met || 0)}, Breached: ${Number(data.breached || 0)}, Pending result: ${Number(data.pending || 0)}.`,
+        `Compliance: ${Number(data.compliance_percent || 0)}%. Average first response: ${formatDuration(data.avg_response_time_minutes)}. Average resolution: ${formatDuration(data.avg_resolution_time_minutes)}.`,
+      ].join("\n");
+    },
   },
   {
     key: "replacement",
@@ -271,21 +439,39 @@ const CAPABILITIES = [
     repositoryMethod: "getAuthorizedReplacementSummary",
     outcome: "live_replacement_summary",
     notice: "Replacement Management role, ownership, and branch access rules were applied.",
-    format: (data) => [
-      `You have ${Number(data.total || 0)} replacement request${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
-      `Active: ${Number(data.active || 0)}, Awaiting approval: ${Number(data.awaiting_approval || 0)}, Repair recommended: ${Number(data.repair_recommended || 0)}, In repair: ${Number(data.in_repair || 0)}, Repaired: ${Number(data.repaired || 0)}, Completed replacement: ${Number(data.completed || 0)}.`,
-    ].join("\n"),
+    format: (data, message) => {
+      const metric = replacementMetric(message);
+      if (metric) {
+        const [key, label] = metric;
+        const count = Number(data[key] || 0);
+        return `You currently have ${count} ${countLabel(label, count)} visible under your replacement-management access.`;
+      }
+      return [
+        `You have ${Number(data.total || 0)} replacement request${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `Active: ${Number(data.active || 0)}. Submitted: ${Number(data.submitted || 0)}, Under assessment: ${Number(data.under_assessment || 0)}, Awaiting approval: ${Number(data.awaiting_approval || 0)}, Approved: ${Number(data.approved || 0)}, Reserved: ${Number(data.reserved || 0)}, Issued: ${Number(data.issued || 0)}.`,
+        `Repair path: Recommended: ${Number(data.repair_recommended || 0)}, In repair: ${Number(data.in_repair || 0)}, Repaired: ${Number(data.repaired || 0)}. Terminal: Completed: ${Number(data.completed || 0)}, Rejected: ${Number(data.rejected || 0)}, Cancelled: ${Number(data.cancelled || 0)}.`,
+      ].join("\n");
+    },
   },
   {
     key: "lifecycle",
-    matches: (text) => /\b(employee lifecycle|onboarding|offboarding|lifecycle cases?)\b/.test(text),
+    matches: (text) => /\b(employee lifecycle|onboarding|offboarding|lifecycle(?: cases?)?)\b/.test(text),
     repositoryMethod: "getAuthorizedLifecycleSummary",
     outcome: "live_lifecycle_summary",
     notice: "Employee Lifecycle role and branch access rules were applied.",
-    format: (data) => [
-      `You have ${Number(data.total || 0)} employee lifecycle case${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
-      `Active onboarding: ${Number(data.active_onboarding || 0)}, Active offboarding: ${Number(data.active_offboarding || 0)}, Ready for final review: ${Number(data.ready_for_verification || 0)}, Completed: ${Number(data.completed || 0)}.`,
-    ].join("\n"),
+    format: (data, message) => {
+      const metric = lifecycleMetric(message);
+      if (metric) {
+        const [key, label] = metric;
+        const count = Number(data[key] || 0);
+        return `You currently have ${count} ${countLabel(label, count)} visible under your employee-lifecycle access.`;
+      }
+      return [
+        `You have ${Number(data.total || 0)} employee lifecycle case${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `Active onboarding: ${Number(data.active_onboarding || 0)}, Active offboarding: ${Number(data.active_offboarding || 0)}, Awaiting employee: ${Number(data.awaiting_employee || 0)}, Awaiting administrator: ${Number(data.awaiting_administrator || 0)}, Ready for final review: ${Number(data.ready_for_verification || 0)}.`,
+        `Required checklist tasks still pending: ${Number(data.required_pending_tasks || 0)} across ${Number(data.cases_with_pending_tasks || 0)} case${Number(data.cases_with_pending_tasks || 0) === 1 ? "" : "s"}. Completed: ${Number(data.completed || 0)}, Cancelled: ${Number(data.cancelled || 0)}.`,
+      ].join("\n");
+    },
   },
   {
     key: "cmdb",
@@ -330,7 +516,11 @@ module.exports = {
   assetFinanceMetric,
   assetDiscoveryMetric,
   consentMetric,
+  endpointHealthMetric,
   endpointPolicyMetric,
   findLiveSummaryCapability,
   formatCapabilityResult,
+  lifecycleMetric,
+  replacementMetric,
+  slaMetric,
 };
