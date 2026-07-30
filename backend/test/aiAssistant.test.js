@@ -17,6 +17,7 @@ const {
   getAuthorizedEndpointHealthSummary,
   getAuthorizedEndpointPolicySummary,
   getAuthorizedLifecycleSummary,
+  getAuthorizedKnowledgeBaseSummary,
   getAuthorizedProjectSummary,
   getAuthorizedReportingSummary,
   getAuthorizedReplacementSummary,
@@ -48,6 +49,14 @@ function createRepo(overrides = {}) {
       branch_name: "Makati Head Office",
     }],
     countAuthorizedTickets: async () => 3,
+    getAuthorizedKnowledgeBaseSummary: async () => ({
+      authorized: true,
+      total: 9,
+      published: 6,
+      draft: 2,
+      archived: 1,
+      categories: 4,
+    }),
     getAuthorizedHardwareAssetSummary: async () => ({
       total: 8,
       byStatus: { "In Use": 5, Available: 2, "In Repair": 1 },
@@ -416,6 +425,44 @@ test("Knowledge Base search uses publication-aware full-text ranking", async () 
   }
 });
 
+test("Knowledge Base summary mirrors SuperAdmin and branch publication visibility", async () => {
+  const calls = [];
+  const queryable = {
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      return {
+        rows: [{
+          total: 9,
+          published: 6,
+          draft: 2,
+          archived: 1,
+          categories: 4,
+        }],
+      };
+    },
+  };
+
+  const superSummary = await getAuthorizedKnowledgeBaseSummary({
+    actor: { role_name: "SuperAdmin", branch_id: null },
+    queryable,
+  });
+  const employeeSummary = await getAuthorizedKnowledgeBaseSummary({
+    actor: { role_name: "Employee", branch_id: 7 },
+    queryable,
+  });
+  const noBranchSummary = await getAuthorizedKnowledgeBaseSummary({
+    actor: { role_name: "Employee", branch_id: null },
+    queryable,
+  });
+
+  assert.equal(superSummary.total, 9);
+  assert.doesNotMatch(calls[0].sql, /kb\.branch_id=\$1/);
+  assert.match(calls[1].sql, /kb\.branch_id=\$1/);
+  assert.match(calls[1].sql, /publication_status/);
+  assert.deepEqual(calls[1].params, [7]);
+  assert.deepEqual(noBranchSummary, { authorized: false });
+});
+
 test("assistant gives built-in offline endpoint guidance without an API key", async () => {
   const service = createAiAssistantService({
     repo: createRepo({
@@ -568,7 +615,7 @@ test("assistant answers product-specific available software-license questions", 
   assert.equal(result.mode, "system-data");
   assert.match(result.answer, /CapCut Pro currently has 5 available license seats/);
   assert.match(result.answer, /7 used out of 12 total/);
-  assert.match(result.notice, /role and branch access rules/);
+  assert.match(result.notice, /access controls/);
 });
 
 test("assistant lists authorized software-license names without falling back to Knowledge Base", async () => {
@@ -670,6 +717,107 @@ test("assistant retains software-license context for a natural name follow-up", 
 
   assert.equal(conversationalResult.mode, "system-data");
   assert.match(conversationalResult.answer, /CapCut Pro/);
+});
+
+test("assistant lists all expiring-soon licenses and preserves annual-cost follow-ups", async () => {
+  const service = createAiAssistantService({
+    repo: createRepo({
+      getActorContext: async () => ({
+        user_id: 1,
+        full_name: "Super Administrator",
+        role_name: "SuperAdmin",
+        branch_id: null,
+        branch_name: null,
+        is_active: true,
+      }),
+      getAuthorizedSoftwareLicenses: async () => ({
+        authorized: true,
+        licenses: [
+          {
+            license_name: "Deep Seek",
+            total_licenses: 5,
+            used_licenses: 4,
+            expiry_date: "2026-08-02",
+            annual_cost: "12000",
+            status: "Expiring Soon",
+          },
+          {
+            license_name: "Canva Premium",
+            total_licenses: 8,
+            used_licenses: 6,
+            expiry_date: "2026-08-07",
+            annual_cost: "18000",
+            status: "Expiring Soon",
+          },
+          {
+            license_name: "Microsoft 365",
+            total_licenses: 20,
+            used_licenses: 15,
+            expiry_date: "2027-01-01",
+            annual_cost: "30000",
+            status: "Active",
+          },
+        ],
+      }),
+    }),
+    apiKey: "",
+  });
+
+  const expiryResult = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "send me all of the licenses that will be expiring soon",
+  });
+  assert.equal(expiryResult.mode, "system-data");
+  assert.match(expiryResult.answer, /2 software-license records are expiring soon/);
+  assert.match(expiryResult.answer, /Deep Seek/);
+  assert.match(expiryResult.answer, /Canva Premium/);
+  assert.doesNotMatch(expiryResult.answer, /Microsoft 365/);
+
+  const costResult = await service.ask({
+    tokenUser: { userId: 1 },
+    message: "whats our annual cost",
+    history: [
+      { role: "user", content: "How many software licenses do we have?" },
+      {
+        role: "assistant",
+        content: "There are 3 software-license subscription records.",
+      },
+    ],
+  });
+  assert.equal(costResult.mode, "system-data");
+  assert.match(costResult.answer, /PHP 60,000.00/);
+});
+
+test("assistant answers Knowledge Base counts and completes a count clarification", async () => {
+  let knowledgeSearchCalled = false;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      searchAuthorizedKnowledge: async () => {
+        knowledgeSearchCalled = true;
+        return [];
+      },
+    }),
+    apiKey: "",
+  });
+
+  const directResult = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "howmany article to we have right now?",
+  });
+  assert.equal(directResult.mode, "system-data");
+  assert.match(directResult.answer, /9 Knowledge Base articles/);
+
+  const clarifiedResult = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "the knowledge base",
+    history: [
+      { role: "user", content: "how many article to we have right now?" },
+      { role: "assistant", content: "What would you like me to count?" },
+    ],
+  });
+  assert.equal(clarifiedResult.mode, "system-data");
+  assert.match(clarifiedResult.answer, /Published: 6, Draft: 2, Archived: 1/);
+  assert.equal(knowledgeSearchCalled, false);
 });
 
 test("assistant returns the RBAC-safe Asset Discovery summary", async () => {
@@ -1017,7 +1165,7 @@ test("assistant answers a specific consent workflow count", async () => {
   assert.equal(result.mode, "system-data");
   assert.equal(
     result.answer,
-    "You currently have 1 awaiting approval consent record under your role and branch access."
+    "There is 1 awaiting approval consent record."
   );
 });
 

@@ -562,6 +562,20 @@ const CAPABILITIES = [
     },
   },
   {
+    key: "knowledge_base",
+    matches: (text) =>
+      /\b(knowledge base|kb articles?|knowledge articles?|articles?)\b/.test(text),
+    repositoryMethod: "getAuthorizedKnowledgeBaseSummary",
+    outcome: "live_knowledge_base_summary",
+    notice: "Knowledge Base visibility and publication rules were applied.",
+    sourceLabel: "Service Desk - Knowledge Base",
+    format: (data) => [
+      `There are ${Number(data.total || 0)} Knowledge Base article${Number(data.total || 0) === 1 ? "" : "s"}.`,
+      `Published: ${Number(data.published || 0)}, Draft: ${Number(data.draft || 0)}, Archived: ${Number(data.archived || 0)}.`,
+      `Categories represented: ${Number(data.categories || 0)}.`,
+    ].join("\n"),
+  },
+  {
     key: "consent",
     matches: (text) =>
       /\b(consent records?|consent documents?|privacy consent|monitoring consent|general consent|device[- ]specific consent)\b/
@@ -574,10 +588,10 @@ const CAPABILITIES = [
       if (metric) {
         const [key, label] = metric;
         const count = Number(data[key] || 0);
-        return `You currently have ${count} ${label} consent record${count === 1 ? "" : "s"} under your role and branch access.`;
+        return `There ${count === 1 ? "is" : "are"} ${count} ${label} consent record${count === 1 ? "" : "s"}.`;
       }
       return [
-        `You have ${Number(data.total || 0)} consent record${Number(data.total || 0) === 1 ? "" : "s"} for ${Number(data.employees || 0)} employee${Number(data.employees || 0) === 1 ? "" : "s"} under your access.`,
+        `There are ${Number(data.total || 0)} consent record${Number(data.total || 0) === 1 ? "" : "s"} for ${Number(data.employees || 0)} employee${Number(data.employees || 0) === 1 ? "" : "s"}.`,
         `Workflow: Approved ${Number(data.approved || 0)}, Awaiting employee ${Number(data.awaiting_employee || 0)}, Awaiting approval ${Number(data.awaiting_approval || 0)}, Revision requested ${Number(data.revision_requested || 0)}, Rejected ${Number(data.rejected || 0)}, Withdrawn ${Number(data.withdrawn || 0)}.`,
         `Scope: General ${Number(data.general || 0)}, Device-specific ${Number(data.device_specific || 0)}. Historical: Expired ${Number(data.expired || 0)}, Superseded ${Number(data.superseded || 0)}.`,
       ].join("\n");
@@ -784,11 +798,11 @@ function findLiveSummaryCapability(message) {
   return CAPABILITIES.find((capability) => capability.matches(text)) || null;
 }
 
-function formatCapabilityResult(capability, data, message = "") {
+function formatCapabilityResult(capability, data, message = "", actor = null) {
   if (data?.authorized === false) {
     return `You do not have access to ${capability.key} live data under your current role or branch.`;
   }
-  return capability.format(data || {}, message);
+  return capability.format(data || {}, message, actor);
 }
 
 module.exports = {

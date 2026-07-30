@@ -99,6 +99,7 @@ function isCountQuestion(message) {
 function normalizeIntentText(message) {
   return String(message || "")
     .toLowerCase()
+    .replace(/\bhowmany\b/g, "how many")
     .replace(/\bdowe\b/g, "do we")
     .replace(/\biy\s+yes\b/g, "if yes")
     .replace(/\b(repear|repeair|repir|repaire)\b/g, "repair")
@@ -113,6 +114,9 @@ function inferConversationSubject(history) {
   const recent = sanitizeHistory(history).slice().reverse();
   for (const item of recent) {
     const content = item.content.toLowerCase();
+    if (/\b(knowledge base|kb articles?|knowledge articles?)\b/.test(content)) {
+      return "knowledge_base";
+    }
     if (/\b(screenshots?|screen captures?|screenshot monitoring|screenshot gallery)\b/.test(content)) {
       return "screenshots";
     }
@@ -191,9 +195,26 @@ function resolveContextualCountMessage(message, history) {
   const normalized = normalizeIntentText(trimmed);
 
   const hasExplicitSubject =
-    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|screenshots?|screen captures?|usb|dlp|data loss prevention|removable media|file transfers?|endpoint health|device health|endpoint diagnostics?|sla|service level|replacement requests?|replacement management|onboarding|offboarding|employee lifecycle|lifecycle|lifecycle cases?|configuration items?|cmdb|config items?|dependency map|dependencies|ci relationships?|change impact|projects?|project forecasting|project portfolio|milestones?|project risks?|project budget|reporting analytics|operational analytics|executive dashboard|custom reports?|service desk reports?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
+    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|screenshots?|screen captures?|usb|dlp|data loss prevention|removable media|file transfers?|endpoint health|device health|endpoint diagnostics?|sla|service level|replacement requests?|replacement management|onboarding|offboarding|employee lifecycle|lifecycle|lifecycle cases?|configuration items?|cmdb|config items?|dependency map|dependencies|ci relationships?|change impact|projects?|project forecasting|project portfolio|milestones?|project risks?|project budget|reporting analytics|operational analytics|executive dashboard|custom reports?|service desk reports?|knowledge base|kb articles?|knowledge articles?|articles?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
       .test(normalized);
-  if (hasExplicitSubject) return { message: normalized, ambiguous: false };
+  if (hasExplicitSubject) {
+    const recent = sanitizeHistory(history).slice().reverse();
+    const pendingCount = recent.find(
+      (item) => item.role === "user" && isCountQuestion(item.content)
+    );
+    const wasClarifying = recent.some(
+      (item) =>
+        item.role === "assistant"
+        && /what would you like me to count/i.test(item.content)
+    );
+    if (!isCountQuestion(normalized) && pendingCount && wasClarifying) {
+      return {
+        message: `${pendingCount.content} ${normalized}`,
+        ambiguous: false,
+      };
+    }
+    return { message: normalized, ambiguous: false };
+  }
 
   const subject = inferConversationSubject(history);
   const isNaturalFollowUp =
@@ -217,6 +238,9 @@ function resolveContextualCountMessage(message, history) {
   }
   if (subject === "software_licenses") {
     return { message: `${trimmed} software licenses`, ambiguous: false };
+  }
+  if (subject === "knowledge_base") {
+    return { message: `${trimmed} Knowledge Base articles`, ambiguous: false };
   }
   if (subject === "asset_finance") {
     return { message: `${trimmed} asset finance`, ambiguous: false };
@@ -338,7 +362,10 @@ function detectSoftwareLicenseIntent(message) {
   else if (/\bavailable\b/.test(normalized)) metric = "available";
   else if (/\b(used|assigned|in use)\b/.test(normalized)) metric = "used";
   else if (/\b(expired)\b/.test(normalized)) metric = "expired";
-  else if (/\b(expiring|expires?|expiry)\b/.test(normalized)) metric = "expiry";
+  else if (/\b(next|nearest|soonest).*(?:expir|renew)|\bnext visible expiry\b/.test(normalized)) {
+    metric = "next_expiry";
+  }
+  else if (/\b(expiring|expires?|expiry|expiration)\b/.test(normalized)) metric = "expiry";
   else if (/\b(cost|price|annual)\b/.test(normalized)) metric = "cost";
   else if (/\b(total|how many|count|number of)\b/.test(normalized)) metric = "total";
   return { metric, message: normalized };
@@ -373,13 +400,13 @@ function formatSoftwareLicenseAnswer(result, intent) {
   }
   const licenses = result.licenses || [];
   if (!licenses.length) {
-    return "There are no software-license records visible under your role and branch access.";
+    return "There are no software-license records.";
   }
 
   const mentioned = findMentionedLicenses(licenses, intent.message);
   const hint = softwareProductHint(intent.message);
   if (hint && !mentioned.length) {
-    return `I could not find a software-license record matching “${hint}” under your role and branch access.`;
+    return `I could not find a software-license record matching “${hint}”.`;
   }
   const selected = mentioned.length ? mentioned : licenses;
   const product = mentioned.length
@@ -422,7 +449,7 @@ function formatSoftwareLicenseAnswer(result, intent) {
         return `- ${name}${vendor}: ${details.total} total, ${details.used} used, ${details.available} available`;
       });
     return [
-      `You have ${grouped.size} software product${grouped.size === 1 ? "" : "s"} across ${selected.length} authorized license record${selected.length === 1 ? "" : "s"}:`,
+      `There ${grouped.size === 1 ? "is" : "are"} ${grouped.size} software product${grouped.size === 1 ? "" : "s"} across ${selected.length} license record${selected.length === 1 ? "" : "s"}:`,
       ...lines,
     ].join("\n");
   }
@@ -433,8 +460,8 @@ function formatSoftwareLicenseAnswer(result, intent) {
         .filter(Boolean)
     )].sort();
     return vendors.length
-      ? `The authorized software-license vendors are: ${vendors.join(", ")}.`
-      : "The authorized software-license records do not have vendor names recorded.";
+      ? `The software-license vendors are: ${vendors.join(", ")}.`
+      : "The software-license records do not have vendor names recorded.";
   }
   if (intent.metric === "status") {
     const statuses = selected.reduce((summary, item) => {
@@ -446,16 +473,16 @@ function formatSoftwareLicenseAnswer(result, intent) {
   }
 
   if (intent.metric === "available") {
-    return `${product} currently ${mentioned.length === 1 ? "has" : "have"} ${available} available license seat${available === 1 ? "" : "s"} (${used} used out of ${total} total) under your role and branch access.`;
+    return `${product} currently ${mentioned.length === 1 ? "has" : "have"} ${available} available license seat${available === 1 ? "" : "s"} (${used} used out of ${total} total).`;
   }
   if (intent.metric === "used") {
     return `${product} currently ${mentioned.length === 1 ? "has" : "have"} ${used} used license seat${used === 1 ? "" : "s"} out of ${total} total, leaving ${available} available.`;
   }
   if (intent.metric === "expired") {
     const expired = selected.filter((item) => String(item.status).toLowerCase() === "expired").length;
-    return `${product} ${mentioned.length === 1 ? "has" : "have"} ${expired} expired subscription record${expired === 1 ? "" : "s"} visible under your access.`;
+    return `${product} ${mentioned.length === 1 ? "has" : "have"} ${expired} expired subscription record${expired === 1 ? "" : "s"}.`;
   }
-  if (intent.metric === "expiry") {
+  if (intent.metric === "next_expiry") {
     const dated = selected
       .filter((item) => item.expiry_date)
       .sort((left, right) => new Date(left.expiry_date) - new Date(right.expiry_date));
@@ -463,11 +490,38 @@ function formatSoftwareLicenseAnswer(result, intent) {
     const next = dated[0];
     return `${next.license_name}'s next visible expiry date is ${new Date(next.expiry_date).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "long", day: "numeric" })}. Its current status is ${next.status}.`;
   }
+  if (intent.metric === "expiry") {
+    const expiring = selected
+      .filter((item) => String(item.status || "").toLowerCase() === "expiring soon")
+      .sort((left, right) => new Date(left.expiry_date) - new Date(right.expiry_date));
+    if (!expiring.length) {
+      return "There are no software-license records currently marked Expiring Soon.";
+    }
+    const lines = expiring.map((item) => {
+      const expiry = item.expiry_date
+        ? new Date(item.expiry_date).toLocaleDateString("en-PH", {
+          timeZone: "Asia/Manila",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        })
+        : "No expiry date recorded";
+      const availableSeats = Math.max(
+        Number(item.total_licenses || 0) - Number(item.used_licenses || 0),
+        0
+      );
+      return `- ${item.license_name}: ${expiry} · ${availableSeats} available seat${availableSeats === 1 ? "" : "s"}`;
+    });
+    return [
+      `${expiring.length} software-license record${expiring.length === 1 ? " is" : "s are"} expiring soon:`,
+      ...lines,
+    ].join("\n");
+  }
   if (intent.metric === "cost") {
     const cost = selected.reduce((sum, item) => sum + Number(item.annual_cost || 0), 0);
     return `${product} ${mentioned.length === 1 ? "has" : "have"} a combined recorded annual cost of PHP ${cost.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`;
   }
-  return `${product}: ${selected.length} subscription record${selected.length === 1 ? "" : "s"}, ${total} total seats, ${used} used, and ${available} available.`;
+  return `There are ${selected.length} software-license subscription record${selected.length === 1 ? "" : "s"}, with ${total} total seats, ${used} used, and ${available} available.`;
 }
 
 function findSummaryCount(group, key) {
@@ -677,7 +731,8 @@ function createAiAssistantService({
         answer: formatCapabilityResult(
           liveSummaryCapability,
           data,
-          contextualQuestion.message
+          contextualQuestion.message,
+          actor
         ),
         sources: [],
         mode: "system-data",
@@ -741,7 +796,7 @@ function createAiAssistantService({
         answer: formatSoftwareLicenseAnswer(result, softwareLicenseIntent),
         sources: [],
         mode: "system-data",
-        notice: "Live read-only AstreaBlue data. Existing Software License Management role and branch access rules were applied.",
+        notice: "Live read-only AstreaBlue data. Software License Management access controls were applied.",
         data_context: liveDataContext("Asset Management - Software Licenses"),
       };
     }

@@ -148,6 +148,48 @@ async function searchAuthorizedKnowledge({ actor, message, limit = 5 }) {
     });
 }
 
+async function getAuthorizedKnowledgeBaseSummary({ actor, queryable = db }) {
+  const role = normalizeRole(actor?.role_name);
+  const isSuperAdmin = role === "superadmin";
+  const canManage = ["superadmin", "admin", "technician"].includes(role);
+  if (!isSuperAdmin && !actor?.branch_id) {
+    return { authorized: false };
+  }
+
+  const params = [];
+  const where = [];
+  if (!isSuperAdmin) {
+    params.push(Number(actor.branch_id));
+    where.push(`kb.branch_id=$${params.length}`);
+  }
+  if (!canManage) {
+    where.push("LOWER(COALESCE(kb.publication_status, 'Published'))='published'");
+  }
+
+  const result = await queryable.query(
+    `SELECT
+       COUNT(*)::int total,
+       COUNT(*) FILTER (
+         WHERE LOWER(COALESCE(kb.publication_status, 'Published'))='published'
+       )::int published,
+       COUNT(*) FILTER (
+         WHERE LOWER(COALESCE(kb.publication_status, 'Published'))='draft'
+       )::int draft,
+       COUNT(*) FILTER (
+         WHERE LOWER(COALESCE(kb.publication_status, 'Published'))='archived'
+       )::int archived,
+       COUNT(DISTINCT NULLIF(TRIM(kb.category), ''))::int categories
+     FROM knowledge_base kb
+     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
+    params
+  );
+
+  return {
+    authorized: true,
+    ...(result.rows[0] || {}),
+  };
+}
+
 async function writeFeedback({
   actor,
   question,
@@ -1340,6 +1382,7 @@ module.exports = {
   countAuthorizedTickets,
   extractSearchTerms,
   getAuthorizedHardwareAssetSummary,
+  getAuthorizedKnowledgeBaseSummary,
   getAuthorizedEndpointSummary,
   getAuthorizedSoftwareLicenses,
   getAuthorizedAssetDiscoverySummary,
