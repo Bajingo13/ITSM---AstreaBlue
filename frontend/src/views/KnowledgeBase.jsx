@@ -26,6 +26,7 @@ const emptyArticle = {
   symptoms: "",
   resolution: "",
   related_ticket_id: "",
+  publication_status: "Published",
 };
 
 export default function KnowledgeBase() {
@@ -259,6 +260,17 @@ export default function KnowledgeBase() {
                     {article.related_ticket_number}
                   </span>
                 )}
+                <span
+                  className={`rounded-full px-3 py-1 ${
+                    article.publication_status === "Archived"
+                      ? "bg-slate-200 text-slate-700"
+                      : article.publication_status === "Draft"
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-emerald-50 text-emerald-700"
+                  }`}
+                >
+                  {article.publication_status || "Published"}
+                </span>
               </div>
             </button>
           ))}
@@ -281,6 +293,7 @@ export default function KnowledgeBase() {
                 ? String(selectedArticle.related_ticket_id)
                 : "",
               branch_id: selectedArticle.branch_id || "",
+              publication_status: selectedArticle.publication_status || "Published",
               kb_id: selectedArticle.kb_id,
             });
             setSelectedArticle(null);
@@ -464,6 +477,7 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
           : null,
         branch_id: isSuperAdmin ? Number(form.branch_id) : undefined,
         created_by: user?.user_id || null,
+        publication_status: form.publication_status || "Published",
       };
 
       const res = await fetch(
@@ -550,6 +564,21 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
                 placeholder="hardware, vpn, windows"
                 className="astrea-control"
               />
+            </div>
+
+            <div>
+              <label className="astrea-field-label">
+                Publication Status
+              </label>
+              <select
+                value={form.publication_status || "Published"}
+                onChange={(e) => updateForm("publication_status", e.target.value)}
+                className="astrea-control"
+              >
+                <option value="Draft">Draft</option>
+                <option value="Published">Published</option>
+                <option value="Archived">Archived</option>
+              </select>
             </div>
           </div>
 

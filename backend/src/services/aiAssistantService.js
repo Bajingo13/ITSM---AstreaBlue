@@ -1,4 +1,5 @@
 const repository = require("../repositories/aiAssistantRepository");
+const { getRoleAwareSuggestions } = require("./aiAssistantSuggestions");
 const {
   findModuleKnowledge,
   formatModuleKnowledge,
@@ -105,6 +106,19 @@ function inferConversationSubject(history) {
   for (const item of recent) {
     const content = item.content.toLowerCase();
     if (
+      /\b(reporting analytics|operational analytics|executive dashboard|custom reports?|service desk reports?)\b/.test(content)
+    ) {
+      return "reporting";
+    }
+    if (/\b(projects?|project forecasting|project portfolio|milestones?|project risks?|project budget)\b/.test(content)) {
+      return "projects";
+    }
+    if (
+      /\b(configuration items?|cmdb|config items?|dependency map|dependencies|ci relationships?|change impact)\b/.test(content)
+    ) {
+      return "cmdb";
+    }
+    if (
       /\b(endpoint health|device health|endpoint diagnostics?|monitoring health)\b/.test(content)
     ) {
       return "endpoint_health";
@@ -164,7 +178,7 @@ function resolveContextualCountMessage(message, history) {
   const normalized = normalizeIntentText(trimmed);
 
   const hasExplicitSubject =
-    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|endpoint health|device health|endpoint diagnostics?|sla|service level|replacement requests?|replacement management|onboarding|offboarding|employee lifecycle|lifecycle|lifecycle cases?|configuration items?|cmdb|projects?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
+    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|endpoint health|device health|endpoint diagnostics?|sla|service level|replacement requests?|replacement management|onboarding|offboarding|employee lifecycle|lifecycle|lifecycle cases?|configuration items?|cmdb|config items?|dependency map|dependencies|ci relationships?|change impact|projects?|project forecasting|project portfolio|milestones?|project risks?|project budget|reporting analytics|operational analytics|executive dashboard|custom reports?|service desk reports?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
       .test(normalized);
   if (hasExplicitSubject) return { message: normalized, ambiguous: false };
 
@@ -201,6 +215,16 @@ function resolveContextualCountMessage(message, history) {
   }
   if (subject === "lifecycle") {
     return { message: `${trimmed} employee lifecycle cases`, ambiguous: false };
+  }
+  if (subject === "cmdb") {
+    return { message: `${trimmed} configuration items and change impact`, ambiguous: false };
+  }
+  if (subject === "projects") {
+    const followUp = trimmed.replace(/[?.!]+$/, "");
+    return { message: `${followUp} project milestones and projects`, ambiguous: false };
+  }
+  if (subject === "reporting") {
+    return { message: `${trimmed} operational analytics report`, ambiguous: false };
   }
   return { message: trimmed, ambiguous: true };
 }
@@ -439,6 +463,52 @@ function createAiAssistantService({
   apiKey = process.env.OPENAI_API_KEY,
   model = process.env.OPENAI_MODEL || "gpt-5.6",
 } = {}) {
+  async function getSuggestions({ tokenUser }) {
+    const actor = await repo.getActorContext(tokenUser.userId || tokenUser.user_id);
+    if (!actor || actor.is_active === false) {
+      const error = new Error("Your account is inactive or no longer available.");
+      error.status = 403;
+      throw error;
+    }
+
+    return {
+      suggestions: getRoleAwareSuggestions(actor),
+    };
+  }
+
+  async function submitFeedback({
+    tokenUser,
+    question,
+    responseMode,
+    helpful,
+  }) {
+    const normalizedQuestion = String(question || "").trim();
+    if (!normalizedQuestion || normalizedQuestion.length > MAX_MESSAGE_LENGTH) {
+      const error = new Error(`Question must be between 1 and ${MAX_MESSAGE_LENGTH} characters.`);
+      error.status = 400;
+      throw error;
+    }
+    if (typeof helpful !== "boolean") {
+      const error = new Error("Helpful must be true or false.");
+      error.status = 400;
+      throw error;
+    }
+
+    const actor = await repo.getActorContext(tokenUser.userId || tokenUser.user_id);
+    if (!actor || actor.is_active === false) {
+      const error = new Error("Your account is inactive or no longer available.");
+      error.status = 403;
+      throw error;
+    }
+
+    return repo.writeFeedback({
+      actor,
+      question: normalizedQuestion,
+      responseMode,
+      helpful,
+    });
+  }
+
   async function ask({ tokenUser, message, history, ipAddress }) {
     const trimmedMessage = String(message || "").trim();
     if (!trimmedMessage || trimmedMessage.length > MAX_MESSAGE_LENGTH) {
@@ -671,7 +741,7 @@ function createAiAssistantService({
     }
   }
 
-  return { ask };
+  return { ask, getSuggestions, submitFeedback };
 }
 
 module.exports = {

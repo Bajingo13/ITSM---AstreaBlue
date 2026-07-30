@@ -13,12 +13,19 @@ const {
   getAuthorizedAssetDiscoverySummary,
   getAuthorizedAssetFinanceSummary,
   getAuthorizedConsentSummary,
+  getAuthorizedCmdbSummary,
   getAuthorizedEndpointHealthSummary,
   getAuthorizedEndpointPolicySummary,
   getAuthorizedLifecycleSummary,
+  getAuthorizedProjectSummary,
+  getAuthorizedReportingSummary,
   getAuthorizedReplacementSummary,
   getAuthorizedSlaSummary,
+  searchAuthorizedKnowledge,
 } = require("../src/repositories/aiAssistantRepository");
+const {
+  getRoleAwareSuggestions,
+} = require("../src/services/aiAssistantSuggestions");
 
 function createRepo(overrides = {}) {
   return {
@@ -157,15 +164,106 @@ function createRepo(overrides = {}) {
       policy_sync_healthy: 5, consent_active: 4, monitoring_active: 3,
     }),
     getAuthorizedCmdbSummary: async () => ({
-      authorized: true, total: 9, active: 7, production: 3, types: 4,
+      authorized: true, total: 9, active: 7, inactive: 2,
+      production: 3, non_production: 6, types: 4,
+      by_type: { Application: 3, Database: 2, Server: 2, Service: 2 },
+      relationships: 7, connected: 8, isolated: 1,
+      impact_low: 5, impact_medium: 2, impact_high: 1, impact_critical: 1,
     }),
     getAuthorizedProjectSummary: async () => ({
       authorized: true, total: 3, on_track: 1, at_risk: 1, delayed: 1, completed: 0,
+      average_completion_percent: 54, average_health_score: 76,
+      total_budget: 1000000, actual_cost: 720000, budget_variance: 280000,
+      over_budget: 1, milestones_total: 8, milestones_completed: 4,
+      milestones_remaining: 4, milestones_overdue: 2,
+      open_risks: 3, high_risks: 1, resource_count: 5,
+      resource_utilization_percent: 80,
+    }),
+    getAuthorizedReportingSummary: async ({ days = 30 }) => ({
+      authorized: true, days, total_tickets: 25, active_tickets: 8,
+      completed_tickets: 17, critical_active: 2, assigned_tickets: 20,
+      uncategorized_tickets: 3, root_causes_recorded: 12,
+      represented_branches: 2,
     }),
     writeAudit: async () => {},
+    writeFeedback: async ({ helpful }) => ({
+      feedback_id: 1,
+      helpful,
+      created_at: "2026-07-30T00:00:00.000Z",
+    }),
     ...overrides,
   };
 }
+
+test("assistant suggestions are role-aware and remain read-only questions", async () => {
+  const adminSuggestions = getRoleAwareSuggestions({ role_name: "Admin" });
+  const employeeSuggestions = getRoleAwareSuggestions({ role_name: "Employee" });
+
+  assert.ok(adminSuggestions.some((item) => /SLA tickets are breached/i.test(item)));
+  assert.ok(employeeSuggestions.some((item) => /my tickets/i.test(item)));
+  assert.equal(employeeSuggestions.some((item) => /lifecycle cases/i.test(item)), false);
+});
+
+test("assistant accepts persisted helpful feedback for an active actor", async () => {
+  let savedFeedback;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      writeFeedback: async (feedback) => {
+        savedFeedback = feedback;
+        return { feedback_id: 44, helpful: feedback.helpful };
+      },
+    }),
+    apiKey: "",
+  });
+
+  const result = await service.submitFeedback({
+    tokenUser: { userId: 9 },
+    question: "How many assets do we have?",
+    responseMode: "system-data",
+    helpful: true,
+  });
+
+  assert.equal(result.feedback_id, 44);
+  assert.equal(savedFeedback.actor.user_id, 9);
+  assert.equal(savedFeedback.helpful, true);
+  assert.equal(savedFeedback.responseMode, "system-data");
+});
+
+test("Knowledge Base search uses publication-aware full-text ranking", async () => {
+  let sql;
+  let params;
+  const originalQuery = require("../config/db").query;
+  require("../config/db").query = async (query, values) => {
+    sql = query;
+    params = values;
+    return {
+      rows: [{
+        kb_id: 10,
+        title: "Printer setup troubleshooting",
+        category: "Hardware",
+        tags: "printer setup",
+        symptoms: "Printer is offline.",
+        resolution: "Reconnect the printer.",
+        relevance_score: 0.65,
+        branch_name: "Makati Head Office",
+      }],
+    };
+  };
+
+  try {
+    const results = await searchAuthorizedKnowledge({
+      actor: { role_name: "Admin", branch_id: 1 },
+      message: "How do I fix printer setup?",
+    });
+    assert.equal(results.length, 1);
+    assert.match(sql, /to_tsquery\('english'/);
+    assert.match(sql, /publication_status/);
+    assert.equal(params[1], 1);
+    assert.equal(Object.hasOwn(results[0], "relevance_score"), false);
+  } finally {
+    require("../config/db").query = originalQuery;
+  }
+});
 
 test("assistant gives built-in offline endpoint guidance without an API key", async () => {
   const service = createAiAssistantService({
@@ -878,6 +976,95 @@ test("Phase 4 assistant reports canonical endpoint-health counts", async () => {
   assert.match(result.notice, /no device or policy state was changed/i);
 });
 
+test("Phase 5 assistant answers CMDB dependency and change-impact questions", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const isolated = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many isolated configuration items are in the dependency map?",
+  });
+  const highImpact = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many configuration items have high change impact?",
+  });
+
+  assert.equal(isolated.mode, "system-data");
+  assert.match(isolated.answer, /1 isolated configuration item/);
+  assert.match(highImpact.answer, /1 configuration item with high change impact/);
+  assert.match(highImpact.notice, /live dependency graph/i);
+});
+
+test("Phase 5 assistant answers project forecasting questions", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const overdue = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many overdue project milestones do we have?",
+  });
+  const variance = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "What is our project budget variance?",
+  });
+
+  assert.match(overdue.answer, /2 overdue project milestones/);
+  assert.match(variance.answer, /PHP 280,000.00/);
+});
+
+test("Phase 5 assistant provides a date-bounded reporting summary", async () => {
+  let requestedDays = null;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      getAuthorizedReportingSummary: async ({ days }) => {
+        requestedDays = days;
+        return {
+          authorized: true, days, total_tickets: 25, active_tickets: 8,
+          completed_tickets: 17, critical_active: 2, assigned_tickets: 20,
+          uncategorized_tickets: 3, root_causes_recorded: 12,
+          represented_branches: 2,
+        };
+      },
+    }),
+    apiKey: "",
+  });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "Give me the operational analytics summary for the last 90 days",
+  });
+
+  assert.equal(requestedDays, 90);
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /authorized 90-day operational report/i);
+  assert.match(result.answer, /25 tickets/);
+});
+
+test("Phase 5 assistant preserves CMDB, project, and reporting context in count follow-ups", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const conversations = [
+    {
+      history: [{ role: "assistant", content: "The CMDB has 9 configuration items." }],
+      message: "How many are high risk?",
+      expected: /1 configuration item with high change impact/,
+    },
+    {
+      history: [{ role: "assistant", content: "The project portfolio has 8 milestones." }],
+      message: "How many are overdue?",
+      expected: /2 overdue project milestones/,
+    },
+    {
+      history: [{ role: "assistant", content: "The operational analytics report covers 25 tickets." }],
+      message: "How many are critical?",
+      expected: /2 critical active tickets/,
+    },
+  ];
+
+  for (const conversation of conversations) {
+    const result = await service.ask({
+      tokenUser: { userId: 9 },
+      ...conversation,
+    });
+    assert.equal(result.mode, "system-data");
+    assert.match(result.answer, conversation.expected);
+  }
+});
+
 test("Phase 4 follow-up questions retain endpoint-health context", async () => {
   const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
   const result = await service.ask({
@@ -1043,6 +1230,158 @@ test("Endpoint-health repository is branch scoped and denies Employee and HR dia
   assert.equal(hr.authorized, false);
 });
 
+test("Phase 5 CMDB repository applies branch scope and computes dependency impact", async () => {
+  const calls = [];
+  const summary = await getAuthorizedCmdbSummary({
+    actor: { user_id: 2, role_name: "Admin", branch_id: 7 },
+    queryable: {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        if (/FROM config_items ci/.test(sql)) {
+          return {
+            rows: [
+              { ci_id: 1, ci_type: "Application", status: "Active", environment: "Production", branch_id: 7 },
+              { ci_id: 2, ci_type: "Application", status: "Active", environment: "Production", branch_id: 7 },
+              { ci_id: 3, ci_type: "Database", status: "Active", environment: "Production", branch_id: 7 },
+              { ci_id: 4, ci_type: "Server", status: "Inactive", environment: "Testing", branch_id: 7 },
+            ],
+          };
+        }
+        return {
+          rows: [
+            { source_ci_id: 1, target_ci_id: 2, relationship_type: "uses" },
+            { source_ci_id: 2, target_ci_id: 3, relationship_type: "depends_on" },
+          ],
+        };
+      },
+    },
+  });
+
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((call) => call.params[0] === 7));
+  assert.match(calls[0].sql, /ci\.branch_id=\$1/);
+  assert.match(calls[1].sql, /src\.branch_id=\$1 OR tgt\.branch_id=\$1/);
+  assert.deepEqual(
+    {
+      total: summary.total,
+      relationships: summary.relationships,
+      connected: summary.connected,
+      isolated: summary.isolated,
+      low: summary.impact_low,
+      medium: summary.impact_medium,
+      high: summary.impact_high,
+      critical: summary.impact_critical,
+    },
+    {
+      total: 4,
+      relationships: 2,
+      connected: 3,
+      isolated: 1,
+      low: 2,
+      medium: 1,
+      high: 1,
+      critical: 0,
+    }
+  );
+});
+
+test("Phase 5 project repository applies branch scope and aggregates forecasts", async () => {
+  const calls = [];
+  const summary = await getAuthorizedProjectSummary({
+    actor: { user_id: 2, role_name: "Admin", branch_id: 7 },
+    queryable: {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        if (/FROM it_projects p/.test(sql)) {
+          return {
+            rows: [
+              {
+                project_id: 1, status: "On Track", actual_completion_pct: 60,
+                health_score: 80, budget: 500000, actual_cost: 300000,
+              },
+              {
+                project_id: 2, status: "At Risk", actual_completion_pct: 40,
+                health_score: 60, budget: 200000, actual_cost: 250000,
+              },
+            ],
+          };
+        }
+        if (/it_project_milestones/.test(sql)) {
+          return {
+            rows: [
+              { status: "Completed", due_date: "2020-01-01", completed_at: "2020-01-01" },
+              { status: "Upcoming", due_date: "2020-01-01", completed_at: null },
+            ],
+          };
+        }
+        if (/it_project_risks/.test(sql)) {
+          return {
+            rows: [
+              { severity: "High", status: "Open" },
+              { severity: "Low", status: "Resolved" },
+            ],
+          };
+        }
+        return { rows: [{ allocated: 150, available: 50, resource_count: 2 }] };
+      },
+    },
+  });
+
+  assert.equal(calls.length, 4);
+  assert.ok(calls.every((call) => call.params[0] === 7));
+  assert.ok(calls.every((call) => /p\.branch_id=\$1/.test(call.sql)));
+  assert.equal(summary.total, 2);
+  assert.equal(summary.average_completion_percent, 50);
+  assert.equal(summary.milestones_overdue, 1);
+  assert.equal(summary.high_risks, 1);
+  assert.equal(summary.total_budget, 700000);
+  assert.equal(summary.actual_cost, 550000);
+  assert.equal(summary.budget_variance, 150000);
+  assert.equal(summary.over_budget, 1);
+  assert.equal(summary.resource_utilization_percent, 75);
+});
+
+test("Phase 5 reporting repository is date bounded, branch scoped, and denies Technician", async () => {
+  let sql = "";
+  let params = [];
+  const summary = await getAuthorizedReportingSummary({
+    actor: { user_id: 2, role_name: "Admin", branch_id: 7 },
+    days: 90,
+    queryable: {
+      query: async (query, values) => {
+        sql = query;
+        params = values;
+        return {
+          rows: [{
+            total_tickets: 25, active_tickets: 8, completed_tickets: 17,
+            critical_active: 2, assigned_tickets: 20,
+            uncategorized_tickets: 3, root_causes_recorded: 12,
+            represented_branches: 1,
+          }],
+        };
+      },
+    },
+  });
+  let technicianQueried = false;
+  const technician = await getAuthorizedReportingSummary({
+    actor: { user_id: 4, role_name: "Technician", branch_id: 7 },
+    queryable: {
+      query: async () => {
+        technicianQueried = true;
+        return { rows: [] };
+      },
+    },
+  });
+
+  assert.match(sql, /t\.branch_id=\$1/);
+  assert.match(sql, /CURRENT_DATE-\(\$2::int\*INTERVAL '1 day'\)/);
+  assert.deepEqual(params, [7, 90]);
+  assert.equal(summary.days, 90);
+  assert.equal(summary.total_tickets, 25);
+  assert.deepEqual(technician, { authorized: false });
+  assert.equal(technicianQueried, false);
+});
+
 test("assistant asks for clarification when a count question has no subject or context", async () => {
   let knowledgeSearchCalled = false;
   const service = createAiAssistantService({
@@ -1152,7 +1491,11 @@ test("assistant route requires a valid JWT", async () => {
   const app = express();
   app.use(express.json());
   app.use("/api/v1/ai-assistant", createAiAssistantRoutes({
-    service: { ask: async () => ({ answer: "ok", sources: [], mode: "ai" }) },
+    service: {
+      ask: async () => ({ answer: "ok", sources: [], mode: "ai" }),
+      getSuggestions: async () => ({ suggestions: ["How many tickets are open?"] }),
+      submitFeedback: async ({ helpful }) => ({ feedback_id: 1, helpful }),
+    },
   }));
   const server = app.listen(0);
   try {
@@ -1177,6 +1520,25 @@ test("assistant route requires a valid JWT", async () => {
       body: JSON.stringify({ message: "hello" }),
     });
     assert.equal(authorized.status, 200);
+
+    const suggestions = await fetch(`${base}/api/v1/ai-assistant/suggestions`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(suggestions.status, 200);
+
+    const feedback = await fetch(`${base}/api/v1/ai-assistant/feedback`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        question: "How many tickets are open?",
+        response_mode: "system-data",
+        helpful: true,
+      }),
+    });
+    assert.equal(feedback.status, 201);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

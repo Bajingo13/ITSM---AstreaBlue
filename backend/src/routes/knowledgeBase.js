@@ -5,6 +5,14 @@ const {
 } = require("../middleware/legacyJwtAuth");
 
 const router = express.Router();
+const PUBLICATION_STATUSES = new Set(["Draft", "Published", "Archived"]);
+
+function normalizePublicationStatus(value) {
+  const normalized = String(value || "Published").trim().toLowerCase();
+  return [...PUBLICATION_STATUSES].find(
+    (status) => status.toLowerCase() === normalized
+  ) || null;
+}
 
 function normalizeRole(role) {
   return String(role || "")
@@ -83,6 +91,11 @@ router.get("/", async (req, res) => {
     let index = scope.params.length + 1;
 
     if (scope.clause) whereClauses.push(scope.clause);
+    if (!userCanManageKnowledgeBase(user)) {
+      whereClauses.push(
+        "LOWER(COALESCE(kb.publication_status, 'Published')) = 'published'"
+      );
+    }
 
     if (category && category !== "All") {
       whereClauses.push(`LOWER(kb.category) = LOWER($${index})`);
@@ -125,6 +138,9 @@ router.get("/", async (req, res) => {
         kb.related_ticket_id,
         kb.views,
         kb.helpful_count,
+        kb.publication_status,
+        kb.published_at,
+        kb.archived_at,
         kb.created_at,
         kb.updated_at,
         u.full_name AS created_by_name,
@@ -174,7 +190,16 @@ router.get("/:id", async (req, res) => {
 
     const { id } = req.params;
     const queryParams = [id, ...scope.params];
-    const clause = scope.clause ? `AND ${scope.clause}` : "";
+    const accessClauses = [];
+    if (scope.clause) accessClauses.push(scope.clause);
+    if (!userCanManageKnowledgeBase(user)) {
+      accessClauses.push(
+        "LOWER(COALESCE(kb.publication_status, 'Published')) = 'published'"
+      );
+    }
+    const clause = accessClauses.length
+      ? `AND ${accessClauses.join(" AND ")}`
+      : "";
 
     const result = await db.query(
       `
@@ -190,6 +215,9 @@ router.get("/:id", async (req, res) => {
         kb.related_ticket_id,
         kb.views,
         kb.helpful_count,
+        kb.publication_status,
+        kb.published_at,
+        kb.archived_at,
         kb.created_at,
         kb.updated_at,
         u.full_name AS created_by_name,
@@ -248,12 +276,20 @@ router.post("/", async (req, res) => {
       resolution = null,
       related_ticket_id = null,
       branch_id = null,
+      publication_status = "Published",
     } = req.body;
 
     if (!title) {
       return res
         .status(400)
         .json({ success: false, error: "Title is required" });
+    }
+    const effectivePublicationStatus = normalizePublicationStatus(publication_status);
+    if (!effectivePublicationStatus) {
+      return res.status(400).json({
+        success: false,
+        error: "Publication status must be Draft, Published, or Archived.",
+      });
     }
 
     const articleBranchId = isSuperAdmin(user.role)
@@ -286,8 +322,11 @@ router.post("/", async (req, res) => {
     const result = await db.query(
       `
       INSERT INTO knowledge_base
-      (title, category, tags, symptoms, resolution, branch_id, created_by, related_ticket_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      (title, category, tags, symptoms, resolution, branch_id, created_by,
+       related_ticket_id, publication_status, published_at, archived_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+              CASE WHEN $9 = 'Published' THEN CURRENT_TIMESTAMP ELSE NULL END,
+              CASE WHEN $9 = 'Archived' THEN CURRENT_TIMESTAMP ELSE NULL END)
       RETURNING *
       `,
       [
@@ -299,6 +338,7 @@ router.post("/", async (req, res) => {
         articleBranchId,
         user.userId || user.id || null,
         related_ticket_id || null,
+        effectivePublicationStatus,
       ]
     );
 
@@ -338,12 +378,20 @@ router.put("/:id", async (req, res) => {
       resolution = null,
       related_ticket_id = null,
       branch_id = null,
+      publication_status = "Published",
     } = req.body;
 
     if (!title) {
       return res
         .status(400)
         .json({ success: false, error: "Title is required" });
+    }
+    const effectivePublicationStatus = normalizePublicationStatus(publication_status);
+    if (!effectivePublicationStatus) {
+      return res.status(400).json({
+        success: false,
+        error: "Publication status must be Draft, Published, or Archived.",
+      });
     }
 
     const existing = await db.query(
@@ -381,8 +429,17 @@ router.put("/:id", async (req, res) => {
         resolution = $5,
         branch_id = $6,
         related_ticket_id = $7,
+        publication_status = $8,
+        published_at = CASE
+          WHEN $8 = 'Published' THEN COALESCE(published_at, CURRENT_TIMESTAMP)
+          ELSE published_at
+        END,
+        archived_at = CASE
+          WHEN $8 = 'Archived' THEN CURRENT_TIMESTAMP
+          ELSE NULL
+        END,
         updated_at = CURRENT_TIMESTAMP
-      WHERE kb_id = $8
+      WHERE kb_id = $9
       RETURNING *
       `,
       [
@@ -393,6 +450,7 @@ router.put("/:id", async (req, res) => {
         resolution || null,
         effectiveBranchId,
         related_ticket_id || null,
+        effectivePublicationStatus,
         id,
       ]
     );

@@ -3,7 +3,7 @@ function normalize(value) {
 }
 
 function asksForLiveSummary(message) {
-  return /\b(how many|count|total|summary|breakdown|currently|right now|status|enabled|disabled|pending|approved|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life|healthy|warning|critical|offline|attention|breached|compliance|due soon|response time|resolution time|submitted|assessment|issued|repaired|completed|cancelled|waiting|final review)\b/.test(
+  return /\b(how many|count|total|summary|breakdown|currently|right now|status|enabled|disabled|pending|approved|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life|healthy|warning|critical|offline|attention|breached|compliance|due soon|response time|resolution time|submitted|assessment|issued|repaired|completed|cancelled|waiting|final review|risks?|relationships?|dependencies|connected|isolated|milestones?|budget|utilization|overdue|progress|analytics|reports?)\b/.test(
     normalize(message)
   );
 }
@@ -266,6 +266,102 @@ function lifecycleMetric(message) {
   return null;
 }
 
+function cmdbMetric(message) {
+  const text = normalize(message);
+  if (/\bcritical\b.*\bimpact\b|\bcritical risk\b/.test(text)) {
+    return ["impact_critical", "configuration item with critical change impact"];
+  }
+  if (/\bhigh\b.*\bimpact\b|\bhigh risk\b/.test(text)) {
+    return ["impact_high", "configuration item with high change impact"];
+  }
+  if (/\bmedium\b.*\bimpact\b|\bmedium risk\b/.test(text)) {
+    return ["impact_medium", "configuration item with medium change impact"];
+  }
+  if (/\blow\b.*\bimpact\b|\blow risk\b/.test(text)) {
+    return ["impact_low", "configuration item with low change impact"];
+  }
+  if (/\bisolated\b|\bwithout (?:a )?(?:dependency|relationship)\b/.test(text)) {
+    return ["isolated", "isolated configuration item"];
+  }
+  if (/\bconnected\b/.test(text)) return ["connected", "connected configuration item"];
+  if (/\brelationships?\b|\bdependencies\b|\bdependency links?\b/.test(text)) {
+    return ["relationships", "CMDB relationship"];
+  }
+  if (/\bproduction\b/.test(text)) return ["production", "production configuration item"];
+  if (/\binactive\b/.test(text)) return ["inactive", "inactive configuration item"];
+  if (/\bactive\b/.test(text)) return ["active", "active configuration item"];
+  if (/\btypes?\b|\bcategories\b/.test(text)) return ["types", "distinct CI type"];
+  return null;
+}
+
+function projectMetric(message) {
+  const text = normalize(message);
+  if (/\bresource utilization\b|\butilization\b/.test(text)) {
+    return ["resource_utilization_percent", "percent", "project resource utilization"];
+  }
+  if (/\baverage\b.*\bcompletion\b|\bcompletion percentage\b|\bprogress\b/.test(text)) {
+    return ["average_completion_percent", "percent", "average project completion"];
+  }
+  if (/\bhealth score\b|\bproject health\b/.test(text)) {
+    return ["average_health_score", "number", "average project health score"];
+  }
+  if (/\bbudget variance\b/.test(text)) {
+    return ["budget_variance", "currency", "project budget variance"];
+  }
+  if (/\bactual cost\b|\bspent\b|\bspending\b/.test(text)) {
+    return ["actual_cost", "currency", "total project actual cost"];
+  }
+  if (/\btotal budget\b|\bproject budget\b/.test(text)) {
+    return ["total_budget", "currency", "total project budget"];
+  }
+  if (/\bover budget\b/.test(text)) return ["over_budget", "count", "over-budget project"];
+  if (/\boverdue (?:project )?milestones?\b/.test(text)) {
+    return ["milestones_overdue", "count", "overdue project milestone"];
+  }
+  if (/\bcompleted milestones?\b/.test(text)) {
+    return ["milestones_completed", "count", "completed project milestone"];
+  }
+  if (/\bremaining milestones?\b|\bopen milestones?\b/.test(text)) {
+    return ["milestones_remaining", "count", "remaining project milestone"];
+  }
+  if (/\bmilestones?\b/.test(text)) {
+    return ["milestones_total", "count", "project milestone"];
+  }
+  if (/\bhigh risks?\b|\bcritical risks?\b/.test(text)) {
+    return ["high_risks", "count", "high or critical open project risk"];
+  }
+  if (/\bopen risks?\b|\bproject risks?\b/.test(text)) {
+    return ["open_risks", "count", "open project risk"];
+  }
+  if (/\bon track\b/.test(text)) return ["on_track", "count", "on-track project"];
+  if (/\bat risk\b/.test(text)) return ["at_risk", "count", "at-risk project"];
+  if (/\bdelayed\b/.test(text)) return ["delayed", "count", "delayed project"];
+  if (/\bcompleted\b/.test(text)) return ["completed", "count", "completed project"];
+  return null;
+}
+
+function reportingMetric(message) {
+  const text = normalize(message);
+  if (/\bcritical\b/.test(text)) return ["critical_active", "critical active ticket"];
+  if (/\buncategorized\b/.test(text)) return ["uncategorized_tickets", "uncategorized ticket"];
+  if (/\broot causes?\b/.test(text)) return ["root_causes_recorded", "ticket with a recorded root cause"];
+  if (/\bassigned\b/.test(text)) return ["assigned_tickets", "assigned ticket"];
+  if (/\bcompleted\b|\bresolved\b|\bclosed\b/.test(text)) {
+    return ["completed_tickets", "completed ticket"];
+  }
+  if (/\bactive\b|\bopen\b/.test(text)) return ["active_tickets", "active ticket"];
+  if (/\bbranches?\b/.test(text)) return ["represented_branches", "represented branch"];
+  return null;
+}
+
+function reportingDays(message) {
+  const text = normalize(message);
+  if (/\blast year\b|\b365 days?\b/.test(text)) return 365;
+  if (/\b6 months?\b|\b180 days?\b/.test(text)) return 180;
+  if (/\b90 days?\b|\b3 months?\b/.test(text)) return 90;
+  return 30;
+}
+
 function formatDuration(minutes) {
   const value = Math.max(0, Math.round(Number(minutes || 0)));
   if (value < 60) return `${value} minute${value === 1 ? "" : "s"}`;
@@ -284,9 +380,11 @@ function countLabel(label, count) {
     task: "tasks",
     record: "records",
     asset: "assets",
+    milestone: "milestones",
+    relationship: "relationships",
   };
   return String(label).replace(
-    /\b(endpoint|ticket|request|case|task|record|asset)\b/,
+    /\b(endpoint|ticket|request|case|task|record|asset|milestone|relationship)\b/,
     (word) => plurals[word]
   );
 }
@@ -475,14 +573,30 @@ const CAPABILITIES = [
   },
   {
     key: "cmdb",
-    matches: (text) => /\b(configuration items?|cmdb|config items?)\b/.test(text),
+    matches: (text) =>
+      /\b(configuration items?|cmdb|config items?|dependency map|dependencies|ci relationships?|change impact)\b/
+        .test(text),
     repositoryMethod: "getAuthorizedCmdbSummary",
     outcome: "live_cmdb_summary",
-    notice: "Configuration Management role and branch access rules were applied.",
-    format: (data) => [
-      `You have ${Number(data.total || 0)} configuration item${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
-      `Active: ${Number(data.active || 0)}, Production: ${Number(data.production || 0)}, Distinct CI types: ${Number(data.types || 0)}.`,
-    ].join("\n"),
+    notice: "Configuration Management role and branch access rules were applied. Change-impact counts use the live dependency graph and the same production/affected-CI thresholds as Change Impact Analysis.",
+    format: (data, message) => {
+      const metric = cmdbMetric(message);
+      if (metric) {
+        const [key, label] = metric;
+        const count = Number(data[key] || 0);
+        return `You currently have ${count} ${countLabel(label, count)} visible under your Configuration Management access.`;
+      }
+      const typeBreakdown = Object.entries(data.by_type || {})
+        .map(([type, count]) => `${type}: ${Number(count || 0)}`)
+        .join(", ");
+      return [
+        `You have ${Number(data.total || 0)} configuration item${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `Active: ${Number(data.active || 0)}, Inactive: ${Number(data.inactive || 0)}, Production: ${Number(data.production || 0)}, Non-production: ${Number(data.non_production || 0)}.`,
+        `Dependency map: ${Number(data.relationships || 0)} relationship${Number(data.relationships || 0) === 1 ? "" : "s"}, ${Number(data.connected || 0)} connected CIs, ${Number(data.isolated || 0)} isolated CIs.`,
+        `Change impact: Low ${Number(data.impact_low || 0)}, Medium ${Number(data.impact_medium || 0)}, High ${Number(data.impact_high || 0)}, Critical ${Number(data.impact_critical || 0)}.`,
+        typeBreakdown ? `CI types: ${typeBreakdown}.` : "CI types: none recorded.",
+      ].join("\n");
+    },
   },
   {
     key: "projects",
@@ -490,10 +604,52 @@ const CAPABILITIES = [
     repositoryMethod: "getAuthorizedProjectSummary",
     outcome: "live_project_summary",
     notice: "Project Analytics role and branch access rules were applied.",
-    format: (data) => [
-      `You have ${Number(data.total || 0)} active project record${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
-      `On track: ${Number(data.on_track || 0)}, At risk: ${Number(data.at_risk || 0)}, Delayed: ${Number(data.delayed || 0)}, Completed: ${Number(data.completed || 0)}.`,
-    ].join("\n"),
+    format: (data, message) => {
+      const metric = projectMetric(message);
+      if (metric) {
+        const [key, type, label] = metric;
+        const value = Number(data[key] || 0);
+        if (type === "currency") {
+          return `The ${label} is ${formatCurrency(value)} under your project access.`;
+        }
+        if (type === "percent") {
+          return `The ${label} is ${value}% under your project access.`;
+        }
+        if (type === "number") {
+          return `The ${label} is ${value} under your project access.`;
+        }
+        return `You currently have ${value} ${countLabel(label, value)} under your project access.`;
+      }
+      return [
+        `You have ${Number(data.total || 0)} active project record${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `Portfolio: On track ${Number(data.on_track || 0)}, At risk ${Number(data.at_risk || 0)}, Delayed ${Number(data.delayed || 0)}, Completed ${Number(data.completed || 0)}; average completion ${Number(data.average_completion_percent || 0)}%.`,
+        `Milestones: ${Number(data.milestones_completed || 0)} completed, ${Number(data.milestones_remaining || 0)} remaining, ${Number(data.milestones_overdue || 0)} overdue. Open risks: ${Number(data.open_risks || 0)} (${Number(data.high_risks || 0)} high/critical).`,
+        `Financials: Budget ${formatCurrency(data.total_budget)}, Actual cost ${formatCurrency(data.actual_cost)}, Variance ${formatCurrency(data.budget_variance)}. Resource utilization: ${Number(data.resource_utilization_percent || 0)}%.`,
+      ].join("\n");
+    },
+  },
+  {
+    key: "reporting",
+    matches: (text) =>
+      /\b(reporting analytics|operational analytics|executive dashboard|custom reports?|service desk reports?)\b/
+        .test(text),
+    repositoryMethod: "getAuthorizedReportingSummary",
+    repositoryArgs: (message) => ({ days: reportingDays(message) }),
+    outcome: "live_reporting_summary",
+    notice: "Reporting & Analytics administrator and branch scope were applied. This is a read-only operational summary.",
+    format: (data, message) => {
+      const metric = reportingMetric(message);
+      if (metric) {
+        const [key, label] = metric;
+        const count = Number(data[key] || 0);
+        return `The ${Number(data.days || 30)}-day authorized report contains ${count} ${countLabel(label, count)}.`;
+      }
+      return [
+        `Your authorized ${Number(data.days || 30)}-day operational report contains ${Number(data.total_tickets || 0)} ticket${Number(data.total_tickets || 0) === 1 ? "" : "s"} across ${Number(data.represented_branches || 0)} represented branch${Number(data.represented_branches || 0) === 1 ? "" : "es"}.`,
+        `Active: ${Number(data.active_tickets || 0)}, Completed: ${Number(data.completed_tickets || 0)}, Critical active: ${Number(data.critical_active || 0)}, Assigned: ${Number(data.assigned_tickets || 0)}.`,
+        `Data quality: ${Number(data.uncategorized_tickets || 0)} uncategorized and ${Number(data.root_causes_recorded || 0)} with a recorded root cause.`,
+      ].join("\n");
+    },
   },
 ];
 
@@ -516,11 +672,15 @@ module.exports = {
   assetFinanceMetric,
   assetDiscoveryMetric,
   consentMetric,
+  cmdbMetric,
   endpointHealthMetric,
   endpointPolicyMetric,
   findLiveSummaryCapability,
   formatCapabilityResult,
   lifecycleMetric,
+  projectMetric,
+  reportingDays,
+  reportingMetric,
   replacementMetric,
   slaMetric,
 };

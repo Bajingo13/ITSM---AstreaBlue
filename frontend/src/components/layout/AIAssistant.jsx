@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, BookOpen, Loader2, Send, ShieldCheck, Sparkles, X } from "lucide-react";
+import {
+  Bot,
+  BookOpen,
+  Loader2,
+  Send,
+  ShieldCheck,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import { authHeaders } from "../../services/authHeaders";
@@ -11,7 +21,7 @@ const welcomeMessage = {
   sources: [],
 };
 
-const suggestions = [
+const fallbackSuggestions = [
   "How do I troubleshoot an offline endpoint?",
   "How many tickets are currently in progress?",
   "How many hardware assets do we have?",
@@ -24,10 +34,72 @@ export default function AIAssistant() {
   const [messages, setMessages] = useState([welcomeMessage]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [suggestions, setSuggestions] = useState(fallbackSuggestions);
+  const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, open, sending]);
+
+  useEffect(() => {
+    if (!open || suggestionsLoaded) return;
+    let active = true;
+
+    fetch(`${API_URL}/api/v1/ai-assistant/suggestions`, {
+      headers: authHeaders(),
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.message || "Suggestions unavailable.");
+        return payload;
+      })
+      .then((payload) => {
+        const nextSuggestions = payload?.data?.suggestions;
+        if (active && Array.isArray(nextSuggestions) && nextSuggestions.length) {
+          setSuggestions(nextSuggestions);
+        }
+      })
+      .catch(() => {
+        // Keep the safe built-in prompts when suggestions cannot be loaded.
+      })
+      .finally(() => {
+        if (active) setSuggestionsLoaded(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [open, suggestionsLoaded]);
+
+  const submitFeedback = async (messageIndex, helpful) => {
+    const message = messages[messageIndex];
+    if (!message?.question || message.feedback || message.error) return;
+
+    setMessages((current) =>
+      current.map((item, index) =>
+        index === messageIndex ? { ...item, feedback: helpful ? "helpful" : "not-helpful" } : item
+      )
+    );
+
+    try {
+      const response = await fetch(`${API_URL}/api/v1/ai-assistant/feedback`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          question: message.question,
+          response_mode: message.mode || null,
+          helpful,
+        }),
+      });
+      if (!response.ok) throw new Error("Feedback could not be saved.");
+    } catch {
+      setMessages((current) =>
+        current.map((item, index) =>
+          index === messageIndex ? { ...item, feedback: null, feedbackError: true } : item
+        )
+      );
+    }
+  };
 
   const sendMessage = async (suggestedMessage) => {
     const userMessage = String(suggestedMessage ?? input).trim();
@@ -62,6 +134,9 @@ export default function AIAssistant() {
           content: payload.data.answer,
           sources: payload.data.sources || [],
           notice: payload.data.notice || "",
+          mode: payload.data.mode || "",
+          question: userMessage,
+          feedback: null,
         },
       ]);
     } catch (error) {
@@ -164,6 +239,37 @@ export default function AIAssistant() {
                           </button>
                         ))}
                       </div>
+                    </div>
+                  )}
+                  {message.role === "assistant" && message.question && !message.error && (
+                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-200 pt-3">
+                      <p className="text-xs font-semibold text-slate-500">
+                        {message.feedback
+                          ? "Thank you for the feedback."
+                          : message.feedbackError
+                            ? "Feedback was not saved. Please try again."
+                            : "Was this helpful?"}
+                      </p>
+                      {!message.feedback && (
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => submitFeedback(index, true)}
+                            aria-label="Mark answer helpful"
+                            className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                          >
+                            <ThumbsUp size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => submitFeedback(index, false)}
+                            aria-label="Mark answer not helpful"
+                            className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                          >
+                            <ThumbsDown size={14} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

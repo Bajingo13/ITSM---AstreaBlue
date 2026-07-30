@@ -27,7 +27,10 @@ async function ensureKnowledgeBaseTable() {
       ADD COLUMN IF NOT EXISTS tags TEXT,
       ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(branch_id),
       ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS helpful_count INTEGER DEFAULT 0
+      ADD COLUMN IF NOT EXISTS helpful_count INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS publication_status VARCHAR(20) NOT NULL DEFAULT 'Published',
+      ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ
     `);
   } catch (err) {
     console.error("Knowledge base table setup error:", err.message);

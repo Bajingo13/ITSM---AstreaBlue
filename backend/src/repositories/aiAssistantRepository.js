@@ -78,33 +78,35 @@ async function searchAuthorizedKnowledge({ actor, message, limit = 5 }) {
   const isSuperAdmin = normalizeRole(actor.role_name) === "superadmin";
   if (!isSuperAdmin && !actor.branch_id) return [];
 
-  const params = [];
-  const searchClauses = terms.map((term) => {
-    params.push(`%${term}%`);
-    const index = params.length;
-    return `(kb.title ILIKE $${index}
-      OR COALESCE(kb.category,'') ILIKE $${index}
-      OR COALESCE(kb.tags,'') ILIKE $${index}
-      OR COALESCE(kb.symptoms,'') ILIKE $${index}
-      OR COALESCE(kb.resolution,'') ILIKE $${index})`;
-  });
-
-  const where = [`(${searchClauses.join(" OR ")})`];
+  const params = [terms.map((term) => term.split("-").join(" & ")).join(" | ")];
+  const where = [
+    "LOWER(COALESCE(kb.publication_status, 'Published')) = 'published'",
+    "document.search_vector @@ document.search_query",
+  ];
   if (!isSuperAdmin) {
     params.push(actor.branch_id);
     where.push(`kb.branch_id=$${params.length}`);
   }
   const resultLimit = Math.min(Math.max(Number(limit) || 5, 1), 8);
-  params.push(Math.max(resultLimit * 3, 12));
+  params.push(Math.max(resultLimit * 2, 10));
 
   const result = await db.query(
     `SELECT kb.kb_id,kb.title,kb.category,kb.tags,kb.symptoms,
-            kb.resolution,kb.updated_at,b.branch_name
+            kb.resolution,kb.updated_at,b.branch_name,
+            ts_rank_cd(document.search_vector, document.search_query, 32) AS relevance_score
      FROM knowledge_base kb
      LEFT JOIN branches b ON b.branch_id=kb.branch_id
+     CROSS JOIN LATERAL (
+       SELECT
+         (
+           setweight(to_tsvector('english', COALESCE(kb.title, '')), 'A') ||
+           setweight(to_tsvector('english', COALESCE(kb.category, '') || ' ' || COALESCE(kb.tags, '')), 'B') ||
+           setweight(to_tsvector('english', COALESCE(kb.symptoms, '') || ' ' || COALESCE(kb.resolution, '')), 'C')
+         ) AS search_vector,
+         to_tsquery('english', $1) AS search_query
+     ) document
      WHERE ${where.join(" AND ")}
-     ORDER BY CASE WHEN kb.title ILIKE $1 THEN 0 ELSE 1 END,
-              kb.updated_at DESC,kb.kb_id DESC
+     ORDER BY relevance_score DESC,kb.updated_at DESC,kb.kb_id DESC
      LIMIT $${params.length}`,
     params
   );
@@ -112,11 +114,38 @@ async function searchAuthorizedKnowledge({ actor, message, limit = 5 }) {
     .map((article) => ({
       article,
       score: articleSearchScore(article, terms),
+      rank: Number(article.relevance_score || 0),
     }))
-    .filter(({ score }) => score >= 2)
-    .sort((left, right) => right.score - left.score)
+    .filter(({ score, rank }) => score >= 3 && rank > 0)
+    .sort((left, right) => right.rank - left.rank || right.score - left.score)
     .slice(0, resultLimit)
-    .map(({ article }) => article);
+    .map(({ article }) => {
+      const { relevance_score, ...publicArticle } = article;
+      return publicArticle;
+    });
+}
+
+async function writeFeedback({
+  actor,
+  question,
+  responseMode = null,
+  helpful,
+}) {
+  const result = await db.query(
+    `INSERT INTO ai_assistant_feedback
+       (user_id,role_name,branch_id,question_preview,response_mode,helpful)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     RETURNING feedback_id,helpful,created_at`,
+    [
+      actor?.user_id || null,
+      actor?.role_name || null,
+      actor?.branch_id || null,
+      String(question || "").slice(0, 240),
+      responseMode == null ? null : String(responseMode).slice(0, 40),
+      Boolean(helpful),
+    ]
+  );
+  return result.rows[0];
 }
 
 async function countAuthorizedTickets({ actor, statusKey }) {
@@ -833,35 +862,241 @@ async function getAuthorizedEndpointHealthSummary({ actor, queryable = db }) {
   };
 }
 
-async function getAuthorizedCmdbSummary({ actor }) {
-  const access = branchScopedAccess(actor, ["superadmin", "admin", "technician"]);
-  if (!access.authorized) return { authorized: false };
-  const where = access.where.replace(/\bbranch_id\b/g, "ci.branch_id");
-  const result = await db.query(
-    `SELECT COUNT(*)::int total,
-       COUNT(*) FILTER (WHERE LOWER(COALESCE(ci.status,''))='active')::int active,
-       COUNT(DISTINCT ci.ci_type)::int types,
-       COUNT(*) FILTER (WHERE LOWER(COALESCE(ci.environment,''))='production')::int production
-     FROM config_items ci WHERE ${where}`,
-    access.params
-  );
-  return { authorized: true, ...result.rows[0] };
+function classifyChangeImpact(affectedIds, productionIds) {
+  const affected = affectedIds.size;
+  const production = productionIds.size;
+  if (affected >= 10 || production >= 5) return "critical";
+  if (affected >= 5 || production >= 2) return "high";
+  if (affected >= 2 || production >= 1) return "medium";
+  return "low";
 }
 
-async function getAuthorizedProjectSummary({ actor }) {
+function summarizeCmdbGraph(items, dependencies) {
+  const itemById = new Map(items.map((item) => [Number(item.ci_id), item]));
+  const scopedDependencies = dependencies.filter((dependency) =>
+    itemById.has(Number(dependency.source_ci_id))
+    && itemById.has(Number(dependency.target_ci_id))
+  );
+  const reverseGraph = new Map();
+  const connected = new Set();
+
+  scopedDependencies.forEach((dependency) => {
+    const sourceId = Number(dependency.source_ci_id);
+    const targetId = Number(dependency.target_ci_id);
+    if (!itemById.has(sourceId) || !itemById.has(targetId)) return;
+    if (!reverseGraph.has(targetId)) reverseGraph.set(targetId, new Set());
+    reverseGraph.get(targetId).add(sourceId);
+    connected.add(sourceId);
+    connected.add(targetId);
+  });
+
+  const impactCounts = { low: 0, medium: 0, high: 0, critical: 0 };
+  items.forEach((item) => {
+    const affectedIds = new Set();
+    const productionIds = new Set();
+    const queue = [...(reverseGraph.get(Number(item.ci_id)) || [])];
+    while (queue.length) {
+      const affectedId = queue.shift();
+      if (affectedIds.has(affectedId)) continue;
+      affectedIds.add(affectedId);
+      const affected = itemById.get(affectedId);
+      if (String(affected?.environment || "").toLowerCase() === "production") {
+        productionIds.add(affectedId);
+      }
+      (reverseGraph.get(affectedId) || []).forEach((nextId) => {
+        if (!affectedIds.has(nextId)) queue.push(nextId);
+      });
+    }
+    impactCounts[classifyChangeImpact(affectedIds, productionIds)] += 1;
+  });
+
+  const typeCounts = {};
+  const relationshipCounts = {};
+  items.forEach((item) => {
+    const type = String(item.ci_type || "Unspecified").trim() || "Unspecified";
+    typeCounts[type] = (typeCounts[type] || 0) + 1;
+  });
+  scopedDependencies.forEach((dependency) => {
+    const type = String(dependency.relationship_type || "Linked To").trim() || "Linked To";
+    relationshipCounts[type] = (relationshipCounts[type] || 0) + 1;
+  });
+
+  return {
+    authorized: true,
+    total: items.length,
+    active: items.filter((item) => String(item.status || "").toLowerCase() === "active").length,
+    inactive: items.filter((item) => String(item.status || "").toLowerCase() !== "active").length,
+    production: items.filter((item) => String(item.environment || "").toLowerCase() === "production").length,
+    non_production: items.filter((item) => String(item.environment || "").toLowerCase() !== "production").length,
+    types: Object.keys(typeCounts).length,
+    by_type: typeCounts,
+    relationships: scopedDependencies.length,
+    by_relationship: relationshipCounts,
+    connected: connected.size,
+    isolated: Math.max(items.length - connected.size, 0),
+    impact_low: impactCounts.low,
+    impact_medium: impactCounts.medium,
+    impact_high: impactCounts.high,
+    impact_critical: impactCounts.critical,
+  };
+}
+
+async function getAuthorizedCmdbSummary({ actor, queryable = db }) {
+  const access = branchScopedAccess(actor, ["superadmin", "admin", "technician"]);
+  if (!access.authorized) return { authorized: false };
+  const itemWhere = access.where.replace(/\bbranch_id\b/g, "ci.branch_id");
+  const dependencyWhere = normalizeRole(actor.role_name) === "superadmin"
+    ? "TRUE"
+    : "(src.branch_id=$1 OR tgt.branch_id=$1)";
+  const [itemResult, dependencyResult] = await Promise.all([
+    queryable.query(
+      `SELECT ci.ci_id,ci.ci_name,ci.ci_type,ci.status,ci.environment,ci.branch_id
+         FROM config_items ci
+        WHERE ${itemWhere}`,
+      access.params
+    ),
+    queryable.query(
+      `SELECT d.source_ci_id,d.target_ci_id,d.relationship_type
+         FROM ci_dependencies d
+         JOIN config_items src ON src.ci_id=d.source_ci_id
+         JOIN config_items tgt ON tgt.ci_id=d.target_ci_id
+        WHERE ${dependencyWhere}`,
+      access.params
+    ),
+  ]);
+  return summarizeCmdbGraph(itemResult.rows, dependencyResult.rows);
+}
+
+async function getAuthorizedProjectSummary({ actor, queryable = db }) {
   const access = branchScopedAccess(actor, ["superadmin", "admin"]);
   if (!access.authorized) return { authorized: false };
   const where = access.where.replace(/\bbranch_id\b/g, "p.branch_id");
-  const result = await db.query(
-    `SELECT COUNT(*)::int total,
-       COUNT(*) FILTER (WHERE LOWER(p.status)='on track')::int on_track,
-       COUNT(*) FILTER (WHERE LOWER(p.status)='at risk')::int at_risk,
-       COUNT(*) FILTER (WHERE LOWER(p.status)='delayed')::int delayed,
-       COUNT(*) FILTER (WHERE LOWER(p.status)='completed')::int completed
-     FROM it_projects p WHERE p.is_active=true AND ${where}`,
-    access.params
+  const [projectResult, milestoneResult, riskResult, resourceResult] = await Promise.all([
+    queryable.query(
+      `SELECT p.project_id,p.status,p.planned_finish_date,p.projected_finish_date,
+              p.planned_completion_pct,p.actual_completion_pct,p.health_score,
+              p.forecast_confidence,p.budget,p.planned_value,p.earned_value,p.actual_cost
+         FROM it_projects p
+        WHERE p.is_active=true AND ${where}`,
+      access.params
+    ),
+    queryable.query(
+      `SELECT m.status,m.due_date,m.completed_at
+         FROM it_project_milestones m
+         JOIN it_projects p ON p.project_id=m.project_id
+        WHERE p.is_active=true AND ${where}`,
+      access.params
+    ),
+    queryable.query(
+      `SELECT r.severity,r.status
+         FROM it_project_risks r
+         JOIN it_projects p ON p.project_id=r.project_id
+        WHERE p.is_active=true AND ${where}`,
+      access.params
+    ),
+    queryable.query(
+      `SELECT COALESCE(SUM(r.allocation_pct),0) allocated,
+              COALESCE(SUM(GREATEST(r.capacity_pct-r.allocation_pct,0)),0) available,
+              COUNT(*)::int resource_count
+         FROM it_project_resources r
+         JOIN it_projects p ON p.project_id=r.project_id
+        WHERE p.is_active=true AND ${where}`,
+      access.params
+    ),
+  ]);
+
+  const projects = projectResult.rows;
+  const milestones = milestoneResult.rows;
+  const openRisks = riskResult.rows.filter(
+    (risk) => String(risk.status || "").toLowerCase() !== "resolved"
   );
-  return { authorized: true, ...result.rows[0] };
+  const countStatus = (status) => projects.filter(
+    (project) => String(project.status || "").toLowerCase() === status
+  ).length;
+  const completedMilestones = milestones.filter(
+    (milestone) => milestone.completed_at
+      || String(milestone.status || "").toLowerCase() === "completed"
+  ).length;
+  const overdueMilestones = milestones.filter((milestone) =>
+    !milestone.completed_at
+    && milestone.due_date
+    && new Date(milestone.due_date).getTime() < Date.now()
+  ).length;
+  const allocated = Number(resourceResult.rows[0]?.allocated || 0);
+  const available = Number(resourceResult.rows[0]?.available || 0);
+  const totalBudget = projects.reduce((sum, project) => sum + Number(project.budget || 0), 0);
+  const totalActualCost = projects.reduce((sum, project) => sum + Number(project.actual_cost || 0), 0);
+
+  return {
+    authorized: true,
+    total: projects.length,
+    on_track: countStatus("on track"),
+    at_risk: countStatus("at risk"),
+    delayed: countStatus("delayed"),
+    completed: countStatus("completed"),
+    average_completion_percent: projects.length
+      ? Math.round(projects.reduce(
+        (sum, project) => sum + Number(project.actual_completion_pct || 0),
+        0
+      ) / projects.length)
+      : 0,
+    average_health_score: projects.length
+      ? Number((projects.reduce(
+        (sum, project) => sum + Number(project.health_score || 0),
+        0
+      ) / projects.length).toFixed(1))
+      : 0,
+    total_budget: totalBudget,
+    actual_cost: totalActualCost,
+    budget_variance: totalBudget - totalActualCost,
+    over_budget: projects.filter(
+      (project) => Number(project.actual_cost || 0) > Number(project.budget || 0)
+    ).length,
+    milestones_total: milestones.length,
+    milestones_completed: completedMilestones,
+    milestones_remaining: Math.max(milestones.length - completedMilestones, 0),
+    milestones_overdue: overdueMilestones,
+    open_risks: openRisks.length,
+    high_risks: openRisks.filter((risk) =>
+      ["high", "critical"].includes(String(risk.severity || "").toLowerCase())
+    ).length,
+    resource_count: Number(resourceResult.rows[0]?.resource_count || 0),
+    resource_utilization_percent: allocated + available
+      ? Math.round((allocated / (allocated + available)) * 100)
+      : 0,
+  };
+}
+
+async function getAuthorizedReportingSummary({
+  actor,
+  days = 30,
+  queryable = db,
+}) {
+  const access = branchScopedAccess(actor, ["superadmin", "admin"]);
+  if (!access.authorized) return { authorized: false };
+  const periodDays = [30, 90, 180, 365].includes(Number(days)) ? Number(days) : 30;
+  const params = [...access.params, periodDays];
+  const where = access.where.replace(/\bbranch_id\b/g, "t.branch_id");
+  const result = await queryable.query(
+    `SELECT COUNT(*)::int total_tickets,
+            COUNT(*) FILTER (WHERE t.status IN ('Open Queue','In Progress'))::int active_tickets,
+            COUNT(*) FILTER (WHERE t.status IN ('Resolved','Closed'))::int completed_tickets,
+            COUNT(*) FILTER (WHERE t.priority='P1-Critical'
+              AND t.status NOT IN ('Resolved','Closed','Cancelled','Canceled'))::int critical_active,
+            COUNT(*) FILTER (WHERE t.assigned_to IS NOT NULL)::int assigned_tickets,
+            COUNT(*) FILTER (WHERE t.category_id IS NULL)::int uncategorized_tickets,
+            COUNT(*) FILTER (WHERE NULLIF(TRIM(t.root_cause),'') IS NOT NULL)::int root_causes_recorded,
+            COUNT(DISTINCT t.branch_id)::int represented_branches
+       FROM tickets t
+      WHERE ${where}
+        AND t.created_at>=CURRENT_DATE-($${params.length}::int*INTERVAL '1 day')`,
+    params
+  );
+  return {
+    authorized: true,
+    days: periodDays,
+    ...result.rows[0],
+  };
 }
 
 async function writeAudit({
@@ -907,9 +1142,11 @@ module.exports = {
   getAuthorizedLifecycleSummary,
   getAuthorizedCmdbSummary,
   getAuthorizedProjectSummary,
+  getAuthorizedReportingSummary,
   getEndpointHealthAccess,
   getActorContext,
   normalizeRole,
   searchAuthorizedKnowledge,
   writeAudit,
+  writeFeedback,
 };
