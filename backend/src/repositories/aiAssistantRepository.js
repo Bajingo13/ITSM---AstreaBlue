@@ -1,4 +1,5 @@
 const db = require("../../config/db");
+const crypto = require("crypto");
 const { addTicketAccessFilter } = require("../routes/_ticketAccess");
 const {
   getHardwareAssetAccessFilter,
@@ -26,6 +27,28 @@ const STOP_WORDS = new Set([
 
 function normalizeRole(role) {
   return String(role || "").toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+function getMonitoringSummaryAccess(actor) {
+  const role = normalizeRole(actor?.role_name);
+  if (role === "superadmin") {
+    return { authorized: true, branchId: null, employeeId: null };
+  }
+  if (["admin", "technician"].includes(role) && actor?.branch_id) {
+    return {
+      authorized: true,
+      branchId: Number(actor.branch_id),
+      employeeId: null,
+    };
+  }
+  if (role === "employee" && actor?.user_id) {
+    return {
+      authorized: true,
+      branchId: null,
+      employeeId: Number(actor.user_id),
+    };
+  }
+  return { authorized: false, branchId: null, employeeId: null };
 }
 
 function extractSearchTerms(message) {
@@ -862,6 +885,106 @@ async function getAuthorizedEndpointHealthSummary({ actor, queryable = db }) {
   };
 }
 
+async function getAuthorizedScreenshotSummary({ actor, queryable = db }) {
+  const access = getMonitoringSummaryAccess(actor);
+  if (!access.authorized) return { authorized: false };
+
+  const params = [access.branchId, access.employeeId];
+  const where = `WHERE ($1::int IS NULL OR d.branch_id=$1)
+    AND ($2::int IS NULL OR d.assigned_user_id=$2)`;
+  const [summaryResult, latestResult] = await Promise.all([
+    queryable.query(
+      `SELECT
+         CURRENT_TIMESTAMP AS as_of,
+         COUNT(*) FILTER (WHERE s.captured_at>=CURRENT_DATE)::int AS screenshots_today,
+         COUNT(DISTINCT s.device_id) FILTER (
+           WHERE s.captured_at>=CURRENT_DATE
+         )::int AS devices_today,
+         COUNT(DISTINCT s.device_id) FILTER (
+           WHERE s.captured_at>=CURRENT_TIMESTAMP-INTERVAL '30 minutes'
+         )::int AS devices_reporting_recently,
+         COUNT(*) FILTER (
+           WHERE s.captured_at>=CURRENT_TIMESTAMP-INTERVAL '30 minutes'
+         )::int AS screenshots_last_30_minutes,
+         COUNT(*)::int AS total_screenshots,
+         COALESCE(SUM(s.file_size_bytes),0)::bigint AS storage_bytes,
+         MAX(s.captured_at) AS last_screenshot_at
+       FROM laptop_screenshots s
+       JOIN monitored_devices d ON d.device_id=s.device_id
+       ${where}`,
+      params
+    ),
+    queryable.query(
+      `SELECT s.captured_at,d.hostname,d.device_name,u.full_name AS assigned_user
+       FROM laptop_screenshots s
+       JOIN monitored_devices d ON d.device_id=s.device_id
+       LEFT JOIN users u ON u.user_id=d.assigned_user_id
+       ${where}
+       ORDER BY s.captured_at DESC
+       LIMIT 1`,
+      params
+    ),
+  ]);
+
+  return {
+    authorized: true,
+    ...summaryResult.rows[0],
+    latest: latestResult.rows[0] || null,
+  };
+}
+
+async function getAuthorizedUsbDlpSummary({ actor, queryable = db }) {
+  const access = getMonitoringSummaryAccess(actor);
+  if (!access.authorized) return { authorized: false };
+
+  const params = [access.branchId, access.employeeId];
+  const where = `WHERE ($1::int IS NULL OR e.branch_id=$1)
+    AND ($2::int IS NULL OR e.assigned_user_id=$2)`;
+  const [summaryResult, latestResult] = await Promise.all([
+    queryable.query(
+      `SELECT
+         CURRENT_TIMESTAMP AS as_of,
+         COUNT(*)::int AS total_events,
+         COUNT(*) FILTER (WHERE e.occurred_at>=CURRENT_DATE)::int AS events_today,
+         COUNT(*) FILTER (
+           WHERE e.event_type='file_written' AND e.occurred_at>=CURRENT_DATE
+         )::int AS transfers_today,
+         COUNT(*) FILTER (
+           WHERE e.risk_level IN ('High','Critical') AND e.occurred_at>=CURRENT_DATE
+         )::int AS high_risk_today,
+         COUNT(DISTINCT e.device_id) FILTER (
+           WHERE e.occurred_at>=CURRENT_DATE
+         )::int AS devices_today,
+         COUNT(*) FILTER (
+           WHERE e.ticket_id IS NOT NULL AND e.occurred_at>=CURRENT_DATE
+         )::int AS incidents_today,
+         MAX(e.occurred_at) AS last_event_at
+       FROM endpoint_usb_events e
+       ${where}`,
+      params
+    ),
+    queryable.query(
+      `SELECT e.event_type,e.occurred_at,e.risk_level,e.risk_score,
+              e.file_name,e.file_size_bytes,e.volume_label,e.drive_letter,
+              e.dlp_action,e.ticket_id,d.hostname,d.device_name,
+              u.full_name AS assigned_user
+       FROM endpoint_usb_events e
+       JOIN monitored_devices d ON d.device_id=e.device_id
+       LEFT JOIN users u ON u.user_id=e.assigned_user_id
+       ${where}
+       ORDER BY e.occurred_at DESC
+       LIMIT 1`,
+      params
+    ),
+  ]);
+
+  return {
+    authorized: true,
+    ...summaryResult.rows[0],
+    latest: latestResult.rows[0] || null,
+  };
+}
+
 function classifyChangeImpact(affectedIds, productionIds) {
   const affected = affectedIds.size;
   const production = productionIds.size;
@@ -1125,6 +1248,93 @@ async function writeAudit({
   );
 }
 
+async function recordUnansweredQuestion({
+  actor,
+  question,
+  reason = "no_authorized_answer",
+}) {
+  const preview = String(question || "").trim().slice(0, 240);
+  if (!preview) return null;
+  const fingerprint = crypto
+    .createHash("sha256")
+    .update(preview.toLowerCase().replace(/\s+/g, " "))
+    .digest("hex");
+  const roleName = String(actor?.role_name || "").slice(0, 80);
+  const branchId = actor?.branch_id == null ? null : Number(actor.branch_id);
+  const branchScope = branchId || 0;
+  const result = await db.query(
+    `INSERT INTO ai_assistant_unanswered_questions
+       (question_fingerprint,question_preview,role_name,branch_scope,
+        branch_id,last_user_id,reason)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (question_fingerprint,role_name,branch_scope)
+     DO UPDATE SET
+       question_preview=EXCLUDED.question_preview,
+       branch_id=EXCLUDED.branch_id,
+       last_user_id=EXCLUDED.last_user_id,
+       reason=EXCLUDED.reason,
+       occurrence_count=ai_assistant_unanswered_questions.occurrence_count+1,
+       last_asked_at=CURRENT_TIMESTAMP,
+       resolution_status='Open'
+     RETURNING unanswered_id,occurrence_count,last_asked_at`,
+    [
+      fingerprint,
+      preview,
+      roleName,
+      branchScope,
+      branchId,
+      actor?.user_id || null,
+      String(reason || "no_authorized_answer").slice(0, 40),
+    ]
+  );
+  return result.rows[0];
+}
+
+async function getAssistantInsights({ actor, queryable = db }) {
+  const role = normalizeRole(actor?.role_name);
+  if (!["superadmin", "admin"].includes(role)) return { authorized: false };
+  if (role === "admin" && !actor?.branch_id) return { authorized: false };
+
+  const branchId = role === "superadmin" ? null : Number(actor.branch_id);
+  const [summaryResult, questionsResult] = await Promise.all([
+    queryable.query(
+      `SELECT
+         COUNT(*) FILTER (
+           WHERE uq.resolution_status='Open'
+         )::int AS open_unanswered,
+         COALESCE(SUM(uq.occurrence_count) FILTER (
+           WHERE uq.resolution_status='Open'
+         ),0)::int AS unanswered_occurrences,
+         (SELECT COUNT(*)::int FROM ai_assistant_feedback f
+           WHERE ($1::int IS NULL OR f.branch_id=$1)
+             AND f.created_at>=CURRENT_TIMESTAMP-INTERVAL '30 days'
+             AND f.helpful=TRUE) AS helpful_30_days,
+         (SELECT COUNT(*)::int FROM ai_assistant_feedback f
+           WHERE ($1::int IS NULL OR f.branch_id=$1)
+             AND f.created_at>=CURRENT_TIMESTAMP-INTERVAL '30 days'
+             AND f.helpful=FALSE) AS not_helpful_30_days
+       FROM ai_assistant_unanswered_questions uq
+       WHERE ($1::int IS NULL OR uq.branch_id=$1)`,
+      [branchId]
+    ),
+    queryable.query(
+      `SELECT unanswered_id,question_preview,reason,occurrence_count,last_asked_at
+       FROM ai_assistant_unanswered_questions
+       WHERE resolution_status='Open'
+         AND ($1::int IS NULL OR branch_id=$1)
+       ORDER BY occurrence_count DESC,last_asked_at DESC
+       LIMIT 5`,
+      [branchId]
+    ),
+  ]);
+  return {
+    authorized: true,
+    ...summaryResult.rows[0],
+    top_unanswered: questionsResult.rows,
+    as_of: new Date().toISOString(),
+  };
+}
+
 module.exports = {
   articleSearchScore,
   countAuthorizedTickets,
@@ -1137,6 +1347,8 @@ module.exports = {
   getAuthorizedConsentSummary,
   getAuthorizedEndpointPolicySummary,
   getAuthorizedEndpointHealthSummary,
+  getAuthorizedScreenshotSummary,
+  getAuthorizedUsbDlpSummary,
   getAuthorizedSlaSummary,
   getAuthorizedReplacementSummary,
   getAuthorizedLifecycleSummary,
@@ -1144,9 +1356,12 @@ module.exports = {
   getAuthorizedProjectSummary,
   getAuthorizedReportingSummary,
   getEndpointHealthAccess,
+  getMonitoringSummaryAccess,
+  getAssistantInsights,
   getActorContext,
   normalizeRole,
   searchAuthorizedKnowledge,
   writeAudit,
   writeFeedback,
+  recordUnansweredQuestion,
 };

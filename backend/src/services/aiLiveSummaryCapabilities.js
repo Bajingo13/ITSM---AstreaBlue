@@ -3,9 +3,56 @@ function normalize(value) {
 }
 
 function asksForLiveSummary(message) {
-  return /\b(how many|count|total|summary|breakdown|currently|right now|status|enabled|disabled|pending|approved|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life|healthy|warning|critical|offline|attention|breached|compliance|due soon|response time|resolution time|submitted|assessment|issued|repaired|completed|cancelled|waiting|final review|risks?|relationships?|dependencies|connected|isolated|milestones?|budget|utilization|overdue|progress|analytics|reports?)\b/.test(
+  return /\b(how many|count|total|summary|breakdown|currently|right now|latest|last|recent|today|status|enabled|disabled|pending|approved|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life|healthy|warning|critical|offline|attention|breached|compliance|due soon|response time|resolution time|submitted|assessment|issued|repaired|completed|cancelled|waiting|final review|risks?|relationships?|dependencies|connected|isolated|milestones?|budget|utilization|overdue|progress|analytics|reports?|sending|reporting|captured|activity)\b/.test(
     normalize(message)
   );
+}
+
+function formatTimestamp(value) {
+  if (!value) return "No activity recorded";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Unknown time";
+  return parsed.toLocaleString("en-PH", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function readableUsbEvent(eventType) {
+  return {
+    device_connected: "USB device connected",
+    device_disconnected: "USB device disconnected",
+    file_written: "File written to USB",
+  }[eventType] || "USB activity";
+}
+
+function screenshotMetric(message) {
+  const text = normalize(message);
+  if (/\b(last|latest|most recent)\b/.test(text)) return "latest";
+  if (/\b(today|today's)\b/.test(text) && /\bscreenshots?\b/.test(text)) {
+    return "screenshots_today";
+  }
+  if (/\b(storage|space|size)\b/.test(text)) return "storage";
+  if (/\b(devices?|laptops?|endpoints?).*(sending|reporting|captur)/.test(text)
+    || /\b(sending|reporting).*\bscreenshots?\b/.test(text)) {
+    return "devices_reporting_recently";
+  }
+  return null;
+}
+
+function usbDlpMetric(message) {
+  const text = normalize(message);
+  if (/\b(last|latest|most recent)\b/.test(text)) return "latest";
+  if (/\bhigh risk\b|\bcritical\b/.test(text)) return "high_risk_today";
+  if (/\bincidents?\b/.test(text)) return "incidents_today";
+  if (/\btransfers?\b|\bfiles? written\b/.test(text)) return "transfers_today";
+  if (/\bdevices?\b/.test(text)) return "devices_today";
+  if (/\btoday\b/.test(text)) return "events_today";
+  return null;
 }
 
 function assetFinanceMetric(message) {
@@ -390,6 +437,84 @@ function countLabel(label, count) {
 }
 
 const CAPABILITIES = [
+  {
+    key: "screenshot monitoring",
+    matches: (text) =>
+      /\b(screenshots?|screen captures?|screenshot monitoring|screenshot gallery)\b/.test(text)
+      && !/\b(endpoint polic(?:y|ies)|effective polic(?:y|ies)|consent)\b/.test(text),
+    repositoryMethod: "getAuthorizedScreenshotSummary",
+    outcome: "live_screenshot_summary",
+    sourceLabel: "Endpoint Monitoring - Screenshots",
+    notice: "Screenshot Monitoring role, employee ownership, and branch scope were applied. No protected image content was opened.",
+    format: (data, message) => {
+      const metric = screenshotMetric(message);
+      if (metric === "latest") {
+        if (!data.latest) return "No consent-approved screenshot is available under your current access.";
+        const endpoint = data.latest.hostname || data.latest.device_name || "an endpoint";
+        const employee = data.latest.assigned_user ? ` assigned to ${data.latest.assigned_user}` : "";
+        return `The latest authorized screenshot was received from ${endpoint}${employee} on ${formatTimestamp(data.latest.captured_at)}.`;
+      }
+      if (metric === "screenshots_today") {
+        return `${Number(data.screenshots_today || 0)} consent-approved screenshot${Number(data.screenshots_today || 0) === 1 ? "" : "s"} have been received today from ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? "" : "s"} under your access.`;
+      }
+      if (metric === "storage") {
+        const megabytes = Number(data.storage_bytes || 0) / (1024 * 1024);
+        return `Authorized protected screenshots currently use ${megabytes.toFixed(1)} MB of object storage metadata tracked by AstreaBlue.`;
+      }
+      if (metric === "devices_reporting_recently") {
+        const count = Number(data.devices_reporting_recently || 0);
+        return `${count} device${count === 1 ? " is" : "s are"} currently sending screenshots under your access, based on screenshot activity within the last 30 minutes. Today, ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? " has" : "s have"} reported.`;
+      }
+      return [
+        `Screenshot Monitoring has received ${Number(data.screenshots_today || 0)} screenshot${Number(data.screenshots_today || 0) === 1 ? "" : "s"} today from ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? "" : "s"} under your access.`,
+        `Currently reporting (last 30 minutes): ${Number(data.devices_reporting_recently || 0)} device${Number(data.devices_reporting_recently || 0) === 1 ? "" : "s"}.`,
+        `Latest screenshot: ${formatTimestamp(data.last_screenshot_at)}.`,
+      ].join("\n");
+    },
+  },
+  {
+    key: "USB and DLP monitoring",
+    matches: (text) =>
+      /\b(usb|dlp|data loss prevention|removable (?:device|media)|file transfer)\b/.test(text)
+      && !/\b(endpoint polic(?:y|ies)|effective polic(?:y|ies)|consent)\b/.test(text),
+    repositoryMethod: "getAuthorizedUsbDlpSummary",
+    outcome: "live_usb_dlp_summary",
+    sourceLabel: "Endpoint Monitoring - USB & DLP",
+    notice: "USB/DLP event role, employee ownership, and branch scope were applied. Only collected metadata is summarized.",
+    format: (data, message) => {
+      const metric = usbDlpMetric(message);
+      if (metric === "latest") {
+        if (!data.latest) return "No USB or DLP activity is available under your current access.";
+        const event = data.latest;
+        const subject = event.file_name
+          ? ` for "${event.file_name}"`
+          : event.volume_label
+            ? ` on ${event.volume_label}`
+            : "";
+        const endpoint = event.hostname || event.device_name || "an endpoint";
+        const risk = event.risk_level
+          ? ` Risk: ${event.risk_level} (${Number(event.risk_score || 0)}/100).`
+          : "";
+        return `The latest USB/DLP activity was "${readableUsbEvent(event.event_type)}"${subject} on ${endpoint} at ${formatTimestamp(event.occurred_at)}.${risk}`;
+      }
+      if (metric) {
+        const labels = {
+          high_risk_today: "high-risk USB/DLP event",
+          incidents_today: "automatic DLP incident",
+          transfers_today: "USB file-transfer event",
+          devices_today: "device reporting USB/DLP activity",
+          events_today: "USB/DLP event",
+        };
+        const count = Number(data[metric] || 0);
+        return `You currently have ${count} ${labels[metric]}${count === 1 ? "" : "s"} today under your access.`;
+      }
+      return [
+        `USB & DLP Monitoring recorded ${Number(data.events_today || 0)} event${Number(data.events_today || 0) === 1 ? "" : "s"} today across ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? "" : "s"}.`,
+        `File transfers: ${Number(data.transfers_today || 0)}. High/Critical risk: ${Number(data.high_risk_today || 0)}. Automatic incidents: ${Number(data.incidents_today || 0)}.`,
+        `Latest event: ${formatTimestamp(data.last_event_at)}.`,
+      ].join("\n");
+    },
+  },
   {
     key: "endpoint health",
     matches: (text) =>

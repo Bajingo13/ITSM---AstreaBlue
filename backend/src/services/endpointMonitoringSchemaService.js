@@ -56,6 +56,7 @@ async function initializeEndpointMonitoringSchema() {
       );
       CREATE INDEX IF NOT EXISTS endpoint_usb_events_device_time_idx ON endpoint_usb_events(device_id, occurred_at DESC);
       CREATE INDEX IF NOT EXISTS endpoint_usb_events_branch_risk_idx ON endpoint_usb_events(branch_id, risk_level, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS endpoint_usb_events_user_time_idx ON endpoint_usb_events(assigned_user_id, occurred_at DESC);
       CREATE TABLE IF NOT EXISTS endpoint_hardware_inventory (
         id BIGSERIAL PRIMARY KEY, device_id BIGINT NOT NULL REFERENCES monitored_devices(device_id) ON DELETE CASCADE,
         device_uuid UUID, asset_id INTEGER,
@@ -162,6 +163,7 @@ async function initializeEndpointMonitoringSchema() {
       ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS content_type VARCHAR(100);
       ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT;
       ALTER TABLE laptop_screenshots ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+      CREATE INDEX IF NOT EXISTS laptop_screenshots_branch_capture_idx ON laptop_screenshots(branch_id, captured_at DESC);
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS device_uuid UUID;
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS asset_id INTEGER;
       ALTER TABLE laptop_activity_logs ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER;

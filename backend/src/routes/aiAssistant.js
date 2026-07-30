@@ -30,6 +30,22 @@ function createAiAssistantRoutes({ service = createAiAssistantService() } = {}) 
     }
   });
 
+  router.get("/insights", async (req, res) => {
+    const tokenUser = requireTokenUser(req, res);
+    if (!tokenUser) return;
+
+    try {
+      const data = await service.getInsights({ tokenUser });
+      return res.json({ success: true, data });
+    } catch (error) {
+      console.error("[ai-assistant] insights failed:", error.message);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.status ? error.message : "Assistant quality insights are unavailable.",
+      });
+    }
+  });
+
   router.post("/feedback", async (req, res) => {
     const tokenUser = requireTokenUser(req, res);
     if (!tokenUser) return;

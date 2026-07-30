@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  BarChart3,
   Bot,
   BookOpen,
+  Clock3,
   Loader2,
   Send,
   ShieldCheck,
@@ -22,10 +24,23 @@ const welcomeMessage = {
 };
 
 const fallbackSuggestions = [
+  "How many devices are currently sending screenshots?",
+  "What is the latest USB and DLP activity?",
   "How do I troubleshoot an offline endpoint?",
   "How many tickets are currently in progress?",
   "How many hardware assets do we have?",
 ];
+
+function formatManilaTimestamp(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila",
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
 
 export default function AIAssistant() {
   const navigate = useNavigate();
@@ -36,6 +51,8 @@ export default function AIAssistant() {
   const [sending, setSending] = useState(false);
   const [suggestions, setSuggestions] = useState(fallbackSuggestions);
   const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
+  const [insights, setInsights] = useState(null);
+  const [insightsLoaded, setInsightsLoaded] = useState(false);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -70,6 +87,34 @@ export default function AIAssistant() {
       active = false;
     };
   }, [open, suggestionsLoaded]);
+
+  useEffect(() => {
+    if (!open || insightsLoaded) return;
+    let active = true;
+
+    fetch(`${API_URL}/api/v1/ai-assistant/insights`, {
+      headers: authHeaders(),
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (response.status === 403) return null;
+        if (!response.ok) throw new Error(payload.message || "Insights unavailable.");
+        return payload?.data || null;
+      })
+      .then((data) => {
+        if (active && data) setInsights(data);
+      })
+      .catch(() => {
+        // Quality insights are optional and restricted to authorized administrators.
+      })
+      .finally(() => {
+        if (active) setInsightsLoaded(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [open, insightsLoaded]);
 
   const submitFeedback = async (messageIndex, helpful) => {
     const message = messages[messageIndex];
@@ -135,6 +180,7 @@ export default function AIAssistant() {
           sources: payload.data.sources || [],
           notice: payload.data.notice || "",
           mode: payload.data.mode || "",
+          dataContext: payload.data.data_context || null,
           question: userMessage,
           feedback: null,
         },
@@ -182,7 +228,7 @@ export default function AIAssistant() {
                 <h2 className="font-black text-white">AstreaBlue AI</h2>
                 <p className="flex items-center gap-1.5 text-xs font-semibold text-cyan-100">
                   <ShieldCheck size={13} />
-                  Read-only · RBAC protected
+                  Read-only / RBAC protected
                 </p>
               </div>
             </div>
@@ -195,6 +241,36 @@ export default function AIAssistant() {
               <X size={19} />
             </button>
           </header>
+
+          {insights && (
+            <details className="border-b border-slate-200 bg-slate-50 px-4 py-2">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-black text-slate-700">
+                <span className="flex items-center gap-2">
+                  <BarChart3 size={14} className="text-blue-600" />
+                  Assistant quality insights
+                </span>
+                <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-800">
+                  {insights.open_unanswered || 0} unanswered
+                </span>
+              </summary>
+              <div className="mt-2 space-y-2 pb-2 text-xs text-slate-600">
+                <p>
+                  {insights.helpful_30_days || 0} helpful · {insights.not_helpful_30_days || 0} not helpful
+                  in the last 30 days
+                </p>
+                {insights.top_unanswered?.length > 0 && (
+                  <div className="rounded-xl border border-slate-200 bg-white p-2.5">
+                    <p className="mb-1 font-black text-slate-700">Most requested missing answers</p>
+                    {insights.top_unanswered.slice(0, 3).map((item) => (
+                      <p key={item.unanswered_id} className="line-clamp-2">
+                        {item.occurrence_count}× {item.question_preview}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </details>
+          )}
 
           <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50 p-4">
             {messages.map((message, index) => (
@@ -212,6 +288,22 @@ export default function AIAssistant() {
                   }`}
                 >
                   <p className="whitespace-pre-wrap">{message.content}</p>
+                  {message.dataContext && (
+                    <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs leading-5 text-slate-700">
+                      <p className="font-black text-cyan-900">
+                        Source: {message.dataContext.source}
+                      </p>
+                      <p className="flex items-center gap-1.5">
+                        <Clock3 size={12} />
+                        Data checked {formatManilaTimestamp(message.dataContext.as_of)}
+                      </p>
+                      {message.dataContext.last_updated_at && (
+                        <p>
+                          Latest record: {formatManilaTimestamp(message.dataContext.last_updated_at)}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {message.notice && (
                     <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">
                       {message.notice}

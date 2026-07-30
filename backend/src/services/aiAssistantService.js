@@ -29,6 +29,14 @@ function sourceLabel(article) {
   return `[KB-${article.kb_id}]`;
 }
 
+function liveDataContext(source, lastUpdatedAt = null) {
+  return {
+    source,
+    as_of: new Date().toISOString(),
+    last_updated_at: lastUpdatedAt,
+  };
+}
+
 function formatKnowledgeContext(articles) {
   if (!articles.length) return "No authorized Knowledge Base articles matched.";
   return articles.map((article) => [
@@ -105,6 +113,12 @@ function inferConversationSubject(history) {
   const recent = sanitizeHistory(history).slice().reverse();
   for (const item of recent) {
     const content = item.content.toLowerCase();
+    if (/\b(screenshots?|screen captures?|screenshot monitoring|screenshot gallery)\b/.test(content)) {
+      return "screenshots";
+    }
+    if (/\b(usb|dlp|data loss prevention|removable (?:device|media)|file transfer)\b/.test(content)) {
+      return "usb_dlp";
+    }
     if (
       /\b(reporting analytics|operational analytics|executive dashboard|custom reports?|service desk reports?)\b/.test(content)
     ) {
@@ -178,7 +192,7 @@ function resolveContextualCountMessage(message, history) {
   const normalized = normalizeIntentText(trimmed);
 
   const hasExplicitSubject =
-    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|endpoint health|device health|endpoint diagnostics?|sla|service level|replacement requests?|replacement management|onboarding|offboarding|employee lifecycle|lifecycle|lifecycle cases?|configuration items?|cmdb|config items?|dependency map|dependencies|ci relationships?|change impact|projects?|project forecasting|project portfolio|milestones?|project risks?|project budget|reporting analytics|operational analytics|executive dashboard|custom reports?|service desk reports?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
+    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|screenshots?|screen captures?|usb|dlp|data loss prevention|removable media|file transfers?|endpoint health|device health|endpoint diagnostics?|sla|service level|replacement requests?|replacement management|onboarding|offboarding|employee lifecycle|lifecycle|lifecycle cases?|configuration items?|cmdb|config items?|dependency map|dependencies|ci relationships?|change impact|projects?|project forecasting|project portfolio|milestones?|project risks?|project budget|reporting analytics|operational analytics|executive dashboard|custom reports?|service desk reports?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
       .test(normalized);
   if (hasExplicitSubject) return { message: normalized, ambiguous: false };
 
@@ -225,6 +239,12 @@ function resolveContextualCountMessage(message, history) {
   }
   if (subject === "reporting") {
     return { message: `${trimmed} operational analytics report`, ambiguous: false };
+  }
+  if (subject === "screenshots") {
+    return { message: `${trimmed} screenshot monitoring`, ambiguous: false };
+  }
+  if (subject === "usb_dlp") {
+    return { message: `${trimmed} USB and DLP activity`, ambiguous: false };
   }
   return { message: trimmed, ambiguous: true };
 }
@@ -476,6 +496,22 @@ function createAiAssistantService({
     };
   }
 
+  async function getInsights({ tokenUser }) {
+    const actor = await repo.getActorContext(tokenUser.userId || tokenUser.user_id);
+    if (!actor || actor.is_active === false) {
+      const error = new Error("Your account is inactive or no longer available.");
+      error.status = 403;
+      throw error;
+    }
+    const insights = await repo.getAssistantInsights({ actor });
+    if (insights?.authorized === false) {
+      const error = new Error("Assistant quality insights require administrator access.");
+      error.status = 403;
+      throw error;
+    }
+    return insights;
+  }
+
   async function submitFeedback({
     tokenUser,
     question,
@@ -526,6 +562,13 @@ function createAiAssistantService({
 
     const contextualQuestion = resolveContextualCountMessage(trimmedMessage, history);
     if (contextualQuestion.ambiguous) {
+      if (typeof repo.recordUnansweredQuestion === "function") {
+        await repo.recordUnansweredQuestion({
+          actor,
+          question: trimmedMessage,
+          reason: "clarification_required",
+        }).catch(() => null);
+      }
       await repo.writeAudit({
         actor, question: trimmedMessage, outcome: "clarification_required",
         sourceCount: 0, ipAddress,
@@ -533,7 +576,7 @@ function createAiAssistantService({
       return {
         answer: [
           "What would you like me to count?",
-          "I can currently check your authorized tickets, hardware assets, or monitored endpoints, plus SLA performance, replacement requests, lifecycle cases, consent, and endpoint policies.",
+          "I can check your authorized tickets, assets, monitored endpoints, screenshots, USB and DLP activity, licenses, SLA performance, replacements, lifecycle cases, consent, and endpoint policies.",
           "For example: “How many SLA tickets are breached?”, “How many replacement requests are awaiting approval?”, or “How many endpoints require attention?”",
         ].join("\n"),
         sources: [],
@@ -564,6 +607,16 @@ function createAiAssistantService({
         sources: [],
         mode: "system-data",
         notice: `Live read-only AstreaBlue data. ${liveSummaryCapability.notice}`,
+        data_context: {
+          source: liveSummaryCapability.sourceLabel || liveSummaryCapability.key,
+          as_of: data?.as_of || new Date().toISOString(),
+          last_updated_at:
+            data?.last_screenshot_at ||
+            data?.last_event_at ||
+            data?.latest?.captured_at ||
+            data?.latest?.occurred_at ||
+            null,
+        },
       };
     }
 
@@ -582,6 +635,7 @@ function createAiAssistantService({
         sources: [],
         mode: "system-data",
         notice: "Live read-only AstreaBlue data. Existing ticket RBAC was applied.",
+        data_context: liveDataContext("Service Desk - Tickets"),
       };
     }
 
@@ -597,6 +651,7 @@ function createAiAssistantService({
         sources: [],
         mode: "system-data",
         notice: "Live read-only AstreaBlue data. Endpoint monitoring RBAC and the 120-second heartbeat threshold were applied.",
+        data_context: liveDataContext("Endpoint Monitoring - Devices"),
       };
     }
 
@@ -612,6 +667,7 @@ function createAiAssistantService({
         sources: [],
         mode: "system-data",
         notice: "Live read-only AstreaBlue data. Existing Software License Management role and branch access rules were applied.",
+        data_context: liveDataContext("Asset Management - Software Licenses"),
       };
     }
 
@@ -627,6 +683,7 @@ function createAiAssistantService({
         sources: [],
         mode: "system-data",
         notice: "Live read-only AstreaBlue data. Existing hardware asset RBAC was applied.",
+        data_context: liveDataContext("Asset Management - Hardware Assets"),
       };
     }
 
@@ -665,6 +722,14 @@ function createAiAssistantService({
       category: article.category,
       branch: article.branch_name,
     }));
+
+    if (!articles.length && typeof repo.recordUnansweredQuestion === "function") {
+      await repo.recordUnansweredQuestion({
+        actor,
+        question: trimmedMessage,
+        reason: "no_authorized_answer",
+      }).catch(() => null);
+    }
 
     if (!apiKey) {
       await repo.writeAudit({
@@ -741,7 +806,7 @@ function createAiAssistantService({
     }
   }
 
-  return { ask, getSuggestions, submitFeedback };
+  return { ask, getInsights, getSuggestions, submitFeedback };
 }
 
 module.exports = {

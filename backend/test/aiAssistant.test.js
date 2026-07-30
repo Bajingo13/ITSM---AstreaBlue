@@ -20,7 +20,9 @@ const {
   getAuthorizedProjectSummary,
   getAuthorizedReportingSummary,
   getAuthorizedReplacementSummary,
+  getAuthorizedScreenshotSummary,
   getAuthorizedSlaSummary,
+  getAuthorizedUsbDlpSummary,
   searchAuthorizedKnowledge,
 } = require("../src/repositories/aiAssistantRepository");
 const {
@@ -59,6 +61,41 @@ function createRepo(overrides = {}) {
       unassigned: 1,
       linked_to_asset: 2,
       unlinked: 1,
+    }),
+    getAuthorizedScreenshotSummary: async () => ({
+      authorized: true,
+      as_of: "2026-07-30T04:00:00.000Z",
+      screenshots_today: 7,
+      devices_today: 3,
+      devices_reporting_recently: 2,
+      screenshots_last_30_minutes: 3,
+      total_screenshots: 48,
+      storage_bytes: 10485760,
+      last_screenshot_at: "2026-07-30T03:55:00.000Z",
+      latest: {
+        captured_at: "2026-07-30T03:55:00.000Z",
+        hostname: "LAPTOP-A",
+        assigned_user: "Test Employee",
+      },
+    }),
+    getAuthorizedUsbDlpSummary: async () => ({
+      authorized: true,
+      as_of: "2026-07-30T04:00:00.000Z",
+      total_events: 19,
+      events_today: 4,
+      transfers_today: 2,
+      high_risk_today: 1,
+      devices_today: 2,
+      incidents_today: 1,
+      last_event_at: "2026-07-30T03:50:00.000Z",
+      latest: {
+        event_type: "file_written",
+        occurred_at: "2026-07-30T03:50:00.000Z",
+        risk_level: "High",
+        risk_score: 60,
+        file_name: "payroll.xlsx",
+        hostname: "LAPTOP-A",
+      },
     }),
     getAuthorizedSoftwareLicenses: async () => ({
       authorized: true,
@@ -186,6 +223,18 @@ function createRepo(overrides = {}) {
       represented_branches: 2,
     }),
     writeAudit: async () => {},
+    recordUnansweredQuestion: async () => ({
+      unanswered_id: 1,
+      occurrence_count: 1,
+    }),
+    getAssistantInsights: async () => ({
+      authorized: true,
+      open_unanswered: 2,
+      unanswered_occurrences: 3,
+      helpful_30_days: 4,
+      not_helpful_30_days: 1,
+      top_unanswered: [],
+    }),
     writeFeedback: async ({ helpful }) => ({
       feedback_id: 1,
       helpful,
@@ -202,6 +251,108 @@ test("assistant suggestions are role-aware and remain read-only questions", asyn
   assert.ok(adminSuggestions.some((item) => /SLA tickets are breached/i.test(item)));
   assert.ok(employeeSuggestions.some((item) => /my tickets/i.test(item)));
   assert.equal(employeeSuggestions.some((item) => /lifecycle cases/i.test(item)), false);
+});
+
+test("assistant answers current screenshot-reporting questions from authorized live data", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many devices are now sending screenshots?",
+    history: [],
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /2 devices are currently sending screenshots/i);
+  assert.equal(result.data_context.source, "Endpoint Monitoring - Screenshots");
+  assert.equal(result.data_context.last_updated_at, "2026-07-30T03:55:00.000Z");
+});
+
+test("assistant answers latest USB and DLP activity from authorized event metadata", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "What's the last USB and DLP activity?",
+    history: [],
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /File written to USB/i);
+  assert.match(result.answer, /payroll\.xlsx/i);
+  assert.match(result.answer, /High \(60\/100\)/i);
+});
+
+test("assistant preserves screenshot subject for a contextual follow-up", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many are reporting now?",
+    history: [
+      { role: "user", content: "Tell me about screenshot monitoring." },
+      { role: "assistant", content: "Screenshot Monitoring is available." },
+    ],
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /currently sending screenshots/i);
+});
+
+test("assistant records questions that have no authorized live or Knowledge Base answer", async () => {
+  let recorded;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      searchAuthorizedKnowledge: async () => [],
+      recordUnansweredQuestion: async (entry) => {
+        recorded = entry;
+        return { unanswered_id: 7 };
+      },
+    }),
+    apiKey: "",
+  });
+
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "Where is the coffee machine calibration procedure?",
+    history: [],
+  });
+
+  assert.equal(result.mode, "knowledge-search");
+  assert.equal(recorded.reason, "no_authorized_answer");
+  assert.equal(recorded.question, "Where is the coffee machine calibration procedure?");
+});
+
+test("screenshot and USB/DLP repositories enforce branch, employee, and denied-role scopes", async () => {
+  const calls = [];
+  const queryable = {
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      return { rows: [] };
+    },
+  };
+
+  await getAuthorizedScreenshotSummary({
+    actor: { user_id: 4, role_name: "Admin", branch_id: 7 },
+    queryable,
+  });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].params, [7, null]);
+  assert.match(calls[0].sql, /d\.branch_id=\$1/);
+
+  calls.length = 0;
+  await getAuthorizedUsbDlpSummary({
+    actor: { user_id: 9, role_name: "Employee", branch_id: 7 },
+    queryable,
+  });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].params, [null, 9]);
+  assert.match(calls[0].sql, /e\.assigned_user_id=\$2/);
+
+  calls.length = 0;
+  const denied = await getAuthorizedScreenshotSummary({
+    actor: { user_id: 12, role_name: "HR", branch_id: 7 },
+    queryable,
+  });
+  assert.deepEqual(denied, { authorized: false });
+  assert.equal(calls.length, 0);
 });
 
 test("assistant accepts persisted helpful feedback for an active actor", async () => {
@@ -1400,7 +1551,7 @@ test("assistant asks for clarification when a count question has no subject or c
   });
 
   assert.equal(result.mode, "clarification");
-  assert.match(result.answer, /tickets, hardware assets, or monitored endpoints/i);
+  assert.match(result.answer, /tickets, assets, monitored endpoints, screenshots, USB and DLP/i);
   assert.equal(knowledgeSearchCalled, false);
 });
 
@@ -1494,6 +1645,7 @@ test("assistant route requires a valid JWT", async () => {
     service: {
       ask: async () => ({ answer: "ok", sources: [], mode: "ai" }),
       getSuggestions: async () => ({ suggestions: ["How many tickets are open?"] }),
+      getInsights: async () => ({ authorized: true, open_unanswered: 2 }),
       submitFeedback: async ({ helpful }) => ({ feedback_id: 1, helpful }),
     },
   }));
@@ -1525,6 +1677,11 @@ test("assistant route requires a valid JWT", async () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     assert.equal(suggestions.status, 200);
+
+    const insights = await fetch(`${base}/api/v1/ai-assistant/insights`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(insights.status, 200);
 
     const feedback = await fetch(`${base}/api/v1/ai-assistant/feedback`, {
       method: "POST",
