@@ -158,6 +158,7 @@ async function sendInvitationEmail({
   const safeName = escapeHtml(fullName || "there");
   const safeRole = escapeHtml(roleName || "Employee");
   const safeBranch = escapeHtml(branchName || "Assigned Branch");
+  const safeInviteLink = escapeHtml(inviteLink);
 
   try {
     const bodyContent = `
@@ -176,20 +177,24 @@ async function sendInvitationEmail({
         </table>
       </div>
       <p>Complete your registration to activate your account. This invitation is valid for <strong>${expiresInHours} hours</strong>.</p>
-      <div class="button-wrapper" style="text-align:center;margin:28px 0;">
-        <!--[if mso]>
-        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${inviteLink}" style="height:48px;v-text-anchor:middle;width:260px;" arcsize="25%" strokecolor="#2563EB" fillcolor="#2563EB">
-          <w:anchorlock/>
-          <center style="color:#ffffff;font-family:sans-serif;font-size:15px;font-weight:700;">Complete Registration</center>
-        </v:roundrect>
-        <![endif]-->
-        <!--[if !mso]><!-- -->
-        <a href="${inviteLink}" style="display:inline-block;background:linear-gradient(135deg,#2563EB 0%,#38BDF8 100%);color:#ffffff !important;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:700;font-size:15px;text-align:center;box-shadow:0 4px 10px rgba(37,99,235,0.2);">Complete Registration</a>
-        <!--<![endif]-->
-      </div>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:28px 0;">
+        <tr>
+          <td align="center">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td bgcolor="#2563EB" style="background-color:#2563EB;border:1px solid #1D4ED8;border-radius:10px;text-align:center;">
+                  <a href="${safeInviteLink}" target="_blank" style="display:inline-block;min-width:220px;padding:14px 24px;color:#FFFFFF !important;font-family:Arial,sans-serif;font-size:15px;font-weight:700;line-height:20px;text-align:center;text-decoration:none;border-radius:10px;">
+                    Create and Activate Account
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
       <div class="fallback-link" style="text-align:center;margin:18px 0 0;font-size:13px;color:#64748B;">
-        Or copy and paste this link into your browser:<br/>
-        <a href="${inviteLink}" style="color:#2563EB;word-break:break-all;">${inviteLink}</a>
+        If the button does not open, copy and paste this link into your browser:<br/>
+        <a href="${safeInviteLink}" target="_blank" style="color:#2563EB;text-decoration:underline;word-break:break-all;">${safeInviteLink}</a>
       </div>
     `;
 

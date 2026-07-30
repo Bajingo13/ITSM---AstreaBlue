@@ -105,6 +105,11 @@ function inferConversationSubject(history) {
   for (const item of recent) {
     const content = item.content.toLowerCase();
     if (
+      /\b(asset finance|asset financials?|depreciat(?:ion|ed|ing)?|book value|asset value|end of life|warrant(?:y|ies))\b/.test(content)
+    ) {
+      return "asset_finance";
+    }
+    if (
       /\b(endpoint monitoring|monitored endpoints?|monitored devices?|endpoints?|heartbeat)\b/.test(content)
     ) {
       return "endpoints";
@@ -129,7 +134,7 @@ function resolveContextualCountMessage(message, history) {
   const normalized = normalizeIntentText(trimmed);
 
   const hasExplicitSubject =
-    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|sla|replacement requests?|onboarding|offboarding|lifecycle cases?|configuration items?|cmdb|projects?)\b/i
+    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|sla|replacement requests?|onboarding|offboarding|lifecycle cases?|configuration items?|cmdb|projects?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies))\b/i
       .test(normalized);
   if (hasExplicitSubject) return { message: normalized, ambiguous: false };
 
@@ -145,6 +150,9 @@ function resolveContextualCountMessage(message, history) {
   }
   if (subject === "software_licenses") {
     return { message: `${trimmed} software licenses`, ambiguous: false };
+  }
+  if (subject === "asset_finance") {
+    return { message: `${trimmed} asset finance`, ambiguous: false };
   }
   return { message: trimmed, ambiguous: true };
 }
@@ -418,7 +426,13 @@ function createAiAssistantService({
 
     const liveSummaryCapability = findLiveSummaryCapability(contextualQuestion.message);
     if (liveSummaryCapability) {
-      const data = await repo[liveSummaryCapability.repositoryMethod]({ actor });
+      const repositoryArgs = liveSummaryCapability.repositoryArgs
+        ? liveSummaryCapability.repositoryArgs(contextualQuestion.message)
+        : {};
+      const data = await repo[liveSummaryCapability.repositoryMethod]({
+        actor,
+        ...repositoryArgs,
+      });
       await repo.writeAudit({
         actor, question: trimmedMessage, outcome: liveSummaryCapability.outcome,
         sourceCount: 0, ipAddress,

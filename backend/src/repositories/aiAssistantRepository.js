@@ -13,6 +13,9 @@ const {
 const {
   getDiscoveryVerification,
 } = require("../services/assetDiscoveryInventoryService");
+const {
+  calculateStraightLine,
+} = require("../services/assetFinancialService");
 
 const STOP_WORDS = new Set([
   "about", "after", "again", "also", "and", "are", "can", "does", "for",
@@ -313,6 +316,98 @@ async function getAuthorizedAssetDiscoverySummary({ actor, queryable = db }) {
   return summary;
 }
 
+function matchesFinanceFilter(asset, filters = {}) {
+  const comparable = (value) => String(value || "").trim().toLowerCase();
+  if (filters.assetType && comparable(asset.asset_type) !== comparable(filters.assetType)) {
+    return false;
+  }
+  if (filters.status && comparable(asset.status) !== comparable(filters.status)) {
+    return false;
+  }
+  return true;
+}
+
+async function getAuthorizedAssetFinanceSummary({
+  actor,
+  filters = {},
+  queryable = db,
+  asOf = new Date(),
+}) {
+  const access = branchScopedAccess(actor, ["superadmin", "admin"]);
+  if (!access.authorized) return { authorized: false };
+
+  const where = access.where.replace(/\bbranch_id\b/g, "a.branch_id");
+  const result = await queryable.query(
+    `SELECT a.asset_id,a.asset_tag,a.asset_name,a.asset_type,a.status,
+            a.purchase_date,a.purchase_price,a.warranty_expiration,a.branch_id,
+            b.branch_name,
+            COALESCE(f.useful_life_months,a.useful_life_months,
+                     ROUND(f.useful_life_years * 12),
+                     ROUND(a.useful_life_years * 12),36) useful_life_months,
+            COALESCE(f.useful_life_years,a.useful_life_years,3) useful_life_years,
+            COALESCE(f.salvage_value,a.salvage_value,0) salvage_value,
+            COALESCE(f.depreciation_method,a.depreciation_method,'Straight-Line') depreciation_method,
+            COALESCE(f.depreciation_start_date,a.purchase_date) depreciation_start_date
+       FROM hardware_assets a
+       LEFT JOIN asset_financials f ON f.asset_id=a.asset_id
+       LEFT JOIN branches b ON b.branch_id=a.branch_id
+      WHERE ${where}
+      ORDER BY a.asset_id`,
+    access.params
+  );
+
+  const assets = result.rows
+    .filter((asset) => matchesFinanceFilter(asset, filters))
+    .map((asset) => ({ ...asset, ...calculateStraightLine(asset, asOf) }));
+  const depreciableAssets = assets.filter((asset) => asset.is_depreciable);
+  const sum = (field) => depreciableAssets.reduce(
+    (total, asset) => total + Number(asset[field] || 0),
+    0
+  );
+  const startOfDay = new Date(asOf);
+  startOfDay.setHours(0, 0, 0, 0);
+  const warrantyWindowEnd = new Date(startOfDay);
+  warrantyWindowEnd.setDate(warrantyWindowEnd.getDate() + 30);
+  const warrantyDate = (asset) => {
+    if (!asset.warranty_expiration) return null;
+    const parsed = new Date(asset.warranty_expiration);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  return {
+    authorized: true,
+    filters: {
+      asset_type: filters.assetType || null,
+      status: filters.status || null,
+    },
+    total_assets: assets.length,
+    depreciable_assets: depreciableAssets.length,
+    expense_items: assets.filter((asset) => !asset.is_depreciable).length,
+    total_asset_value: sum("purchase_cost"),
+    current_book_value: sum("current_book_value"),
+    accumulated_depreciation: sum("accumulated_depreciation"),
+    monthly_depreciation_expense: sum("monthly_depreciation"),
+    fully_depreciated_assets: depreciableAssets.filter((asset) => asset.fully_depreciated).length,
+    assets_near_end_of_life: depreciableAssets.filter((asset) =>
+      ["Near End of Life", "Critical", "End of Life"].includes(asset.lifespan_status)
+    ).length,
+    end_of_life_assets: depreciableAssets.filter(
+      (asset) => asset.lifespan_status === "End of Life"
+    ).length,
+    warranties_expired: assets.filter((asset) => {
+      const date = warrantyDate(asset);
+      return date && date < startOfDay;
+    }).length,
+    warranties_expiring_30_days: assets.filter((asset) => {
+      const date = warrantyDate(asset);
+      return date && date >= startOfDay && date <= warrantyWindowEnd;
+    }).length,
+    missing_financial_information: assets.filter(
+      (asset) => !asset.purchase_date || asset.purchase_price == null
+    ).length,
+  };
+}
+
 async function getAuthorizedSlaSummary({ actor }) {
   const params = [];
   const request = {
@@ -455,6 +550,7 @@ module.exports = {
   getAuthorizedEndpointSummary,
   getAuthorizedSoftwareLicenses,
   getAuthorizedAssetDiscoverySummary,
+  getAuthorizedAssetFinanceSummary,
   getAuthorizedSlaSummary,
   getAuthorizedReplacementSummary,
   getAuthorizedLifecycleSummary,

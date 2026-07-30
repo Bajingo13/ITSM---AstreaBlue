@@ -3,9 +3,86 @@ function normalize(value) {
 }
 
 function asksForLiveSummary(message) {
-  return /\b(how many|count|total|summary|breakdown|currently|right now|status)\b/.test(
+  return /\b(how many|count|total|summary|breakdown|currently|right now|status|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life)\b/.test(
     normalize(message)
   );
+}
+
+function assetFinanceMetric(message) {
+  const text = normalize(message);
+  if (/\b(current )?book value\b|\bcurrent value\b/.test(text)) {
+    return ["current_book_value", "currency", "current book value"];
+  }
+  if (/\baccumulated depreciation\b/.test(text)) {
+    return ["accumulated_depreciation", "currency", "accumulated depreciation"];
+  }
+  if (/\bmonthly depreciation\b/.test(text)) {
+    return ["monthly_depreciation_expense", "currency", "monthly depreciation expense"];
+  }
+  if (/\b(purchase|acquisition|original)\s+(cost|value)\b|\btotal asset value\b/.test(text)) {
+    return ["total_asset_value", "currency", "capitalized purchase value"];
+  }
+  if (/\bfully depreciated\b/.test(text)) {
+    return ["fully_depreciated_assets", "count", "fully depreciated asset"];
+  }
+  if (/\bnear(?:ing)? end of life\b|\bnear eol\b/.test(text)) {
+    return ["assets_near_end_of_life", "count", "asset near or at end of life"];
+  }
+  if (/\bend of life\b|\beol\b/.test(text)) {
+    return ["end_of_life_assets", "count", "end-of-life asset"];
+  }
+  if (/\bexpired warrant(?:y|ies)\b|\bwarrant(?:y|ies).*(?:expired|overdue)\b/.test(text)) {
+    return ["warranties_expired", "count", "asset with an expired warranty"];
+  }
+  if (/\bwarrant(?:y|ies).*(?:expir|soon|next 30 days)\b|\bexpiring warrant(?:y|ies)\b/.test(text)) {
+    return ["warranties_expiring_30_days", "count", "asset with a warranty expiring in the next 30 days"];
+  }
+  if (/\bmissing\b.*\b(financial|purchase|finance)\b|\bincomplete financial\b/.test(text)) {
+    return ["missing_financial_information", "count", "asset with missing financial information"];
+  }
+  if (/\bexpense items?\b/.test(text)) {
+    return ["expense_items", "count", "expense item"];
+  }
+  if (/\bdepreciable assets?\b/.test(text)) {
+    return ["depreciable_assets", "count", "depreciable asset"];
+  }
+  if (/\bhow many\b|\bcount\b|\bnumber of\b/.test(text)) {
+    return ["total_assets", "count", "asset financial record"];
+  }
+  return null;
+}
+
+function assetFinanceFilters(message) {
+  const text = normalize(message);
+  let assetType = null;
+  if (/\blaptops?\b/.test(text)) assetType = "Laptop";
+  else if (/\bdesktops?\b/.test(text)) assetType = "Desktop";
+  else if (/\bcomputers?\b/.test(text)) assetType = "Computer";
+
+  const statuses = [
+    ["In Repair", /\b(?:in|under) repair\b/],
+    ["In Use", /\bin use\b/],
+    ["Available", /\bavailable\b/],
+    ["Borrowed", /\bborrowed\b/],
+    ["Retired", /\bretired\b/],
+    ["Disposed", /\bdisposed\b/],
+  ];
+  const status = statuses.find(([, pattern]) => pattern.test(text))?.[0] || null;
+  return { assetType, status };
+}
+
+function formatCurrency(value) {
+  return `PHP ${Number(value || 0).toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function financeScopeLabel(data) {
+  const parts = [];
+  if (data.filters?.asset_type) parts.push(data.filters.asset_type);
+  if (data.filters?.status) parts.push(data.filters.status);
+  return parts.length ? ` for ${parts.join(", ")}` : "";
 }
 
 function assetDiscoveryMetric(message) {
@@ -22,6 +99,35 @@ function assetDiscoveryMetric(message) {
 }
 
 const CAPABILITIES = [
+  {
+    key: "asset finance",
+    matches: (text) =>
+      /\b(asset finance|asset financials?|financial tracking|depreciat(?:ion|ed|ing)?|book value|purchase cost|asset value|capitalized|expense items?|end of life|eol|warrant(?:y|ies))\b/
+        .test(text)
+      && !/\bsoftware licen[cs]es?\b/.test(text),
+    repositoryMethod: "getAuthorizedAssetFinanceSummary",
+    repositoryArgs: (message) => ({ filters: assetFinanceFilters(message) }),
+    outcome: "live_asset_finance_summary",
+    notice: "Asset Finance role and branch scope, straight-line depreciation, and the PHP 5,000 capitalization threshold were applied.",
+    format: (data, message) => {
+      const metric = assetFinanceMetric(message);
+      const scope = financeScopeLabel(data);
+      if (metric) {
+        const [key, type, label] = metric;
+        const value = Number(data[key] || 0);
+        if (type === "currency") {
+          return `The ${label}${scope} is ${formatCurrency(value)} under your role and branch access.`;
+        }
+        return `You currently have ${value} ${label}${value === 1 ? "" : "s"}${scope} under your role and branch access.`;
+      }
+      return [
+        `Asset Finance${scope}: ${Number(data.total_assets || 0)} record${Number(data.total_assets || 0) === 1 ? "" : "s"}, including ${Number(data.depreciable_assets || 0)} depreciable asset${Number(data.depreciable_assets || 0) === 1 ? "" : "s"} and ${Number(data.expense_items || 0)} expense item${Number(data.expense_items || 0) === 1 ? "" : "s"}.`,
+        `Capitalized purchase value: ${formatCurrency(data.total_asset_value)}. Current book value: ${formatCurrency(data.current_book_value)}. Accumulated depreciation: ${formatCurrency(data.accumulated_depreciation)}.`,
+        `Monthly depreciation: ${formatCurrency(data.monthly_depreciation_expense)}. Fully depreciated: ${Number(data.fully_depreciated_assets || 0)}. Near or at end of life: ${Number(data.assets_near_end_of_life || 0)}.`,
+        `Warranty: ${Number(data.warranties_expired || 0)} expired, ${Number(data.warranties_expiring_30_days || 0)} expiring in 30 days. Missing financial information: ${Number(data.missing_financial_information || 0)}.`,
+      ].join("\n");
+    },
+  },
   {
     key: "asset discovery",
     matches: (text) =>
@@ -116,6 +222,8 @@ function formatCapabilityResult(capability, data, message = "") {
 
 module.exports = {
   CAPABILITIES,
+  assetFinanceFilters,
+  assetFinanceMetric,
   assetDiscoveryMetric,
   findLiveSummaryCapability,
   formatCapabilityResult,
