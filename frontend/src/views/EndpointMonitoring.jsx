@@ -202,6 +202,18 @@ export default function EndpointMonitoring() {
   }, [devices, selectedId]);
 
   const selectedDevice = devices.find((device) => String(device.device_id) === String(selectedId));
+  const screenshotPolicyKnown =
+    typeof details?.policy?.screenshot_monitoring_enabled === "boolean";
+  const screenshotPolicyEnabled =
+    details?.policy?.screenshot_monitoring_enabled === true;
+  const screenshotPolicyReason =
+    details?.policy?.features?.screenshot_monitoring_enabled?.reason ||
+    details?.policy?.reasons?.screenshot_monitoring_enabled ||
+    "Screenshot capture is disabled by the effective endpoint policy.";
+  const screenshotBlockedByPolicy =
+    screenshotPolicyKnown &&
+    !screenshotPolicyEnabled &&
+    !screenshotControl?.suspended;
 
   const loadScreenshotControl = useCallback(async (employeeId) => {
     const requestId = ++screenshotControlRequest.current;
@@ -759,21 +771,59 @@ export default function EndpointMonitoring() {
                   <div className="mt-4 space-y-3">
                     <button onClick={() => handleDiagnosticAction("policy")} disabled={healthLoading || !selectedDevice?.device_uuid} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Regenerate Effective Policy</button>
                     {selectedDevice?.assigned_user_id ? (
-                      <div className={`rounded-2xl border p-3 ${screenshotControl?.suspended ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
+                      <div className={`rounded-2xl border p-3 ${
+                        screenshotControl?.suspended
+                          ? "border-rose-200 bg-rose-50"
+                          : screenshotBlockedByPolicy
+                            ? "border-amber-200 bg-amber-50"
+                            : screenshotPolicyKnown
+                              ? "border-emerald-200 bg-emerald-50"
+                              : "border-slate-200 bg-slate-50"
+                      }`}>
                         <div className="flex items-start gap-3">
-                          <span className={`mt-0.5 rounded-xl p-2 ${screenshotControl?.suspended ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>
-                            {screenshotControl?.suspended ? <CameraOff size={17} /> : <Camera size={17} />}
+                          <span className={`mt-0.5 rounded-xl p-2 ${
+                            screenshotControl?.suspended
+                              ? "bg-rose-100 text-rose-700"
+                              : screenshotBlockedByPolicy
+                                ? "bg-amber-100 text-amber-700"
+                                : screenshotPolicyKnown
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-slate-200 text-slate-600"
+                          }`}>
+                            {screenshotControl?.suspended || screenshotBlockedByPolicy ? <CameraOff size={17} /> : <Camera size={17} />}
                           </span>
                           <div className="min-w-0 flex-1">
-                            <p className={`text-xs font-black ${screenshotControl?.suspended ? "text-rose-900" : "text-emerald-900"}`}>
+                            <p className={`text-xs font-black ${
+                              screenshotControl?.suspended
+                                ? "text-rose-900"
+                                : screenshotBlockedByPolicy
+                                  ? "text-amber-900"
+                                  : screenshotPolicyKnown
+                                    ? "text-emerald-900"
+                                    : "text-slate-700"
+                            }`}>
                               {screenshotControlLoading && !screenshotControl
                                 ? "Loading screenshot control..."
                                 : screenshotControl?.suspended
                                   ? "Screenshots Paused by SuperAdmin"
-                                  : "No SuperAdmin Screenshot Pause"}
+                                  : screenshotBlockedByPolicy
+                                    ? "Screenshot Capture Disabled"
+                                    : screenshotPolicyKnown
+                                      ? "Screenshot Capture Available"
+                                      : "Checking Effective Screenshot Policy"}
                             </p>
-                            <p className={`mt-1 text-[11px] leading-4 ${screenshotControl?.suspended ? "text-rose-700" : "text-emerald-700"}`}>
-                              Applies to {screenshotControl?.affected_devices ?? 1} managed {Number(screenshotControl?.affected_devices ?? 1) === 1 ? "device" : "devices"} assigned to {selectedDevice?.assigned_user || "this employee"}.
+                            <p className={`mt-1 text-[11px] leading-4 ${
+                              screenshotControl?.suspended
+                                ? "text-rose-700"
+                                : screenshotBlockedByPolicy
+                                  ? "text-amber-800"
+                                  : screenshotPolicyKnown
+                                    ? "text-emerald-700"
+                                    : "text-slate-600"
+                            }`}>
+                              {screenshotBlockedByPolicy
+                                ? screenshotPolicyReason
+                                : `Applies to ${screenshotControl?.affected_devices ?? 1} managed ${Number(screenshotControl?.affected_devices ?? 1) === 1 ? "device" : "devices"} assigned to ${selectedDevice?.assigned_user || "this employee"}.`}
                             </p>
                             {screenshotControl?.suspended && screenshotControl?.reason && (
                               <p className="mt-1 text-[11px] text-rose-700">Reason: {screenshotControl.reason}</p>
@@ -788,16 +838,30 @@ export default function EndpointMonitoring() {
                         <button
                           type="button"
                           onClick={requestScreenshotControlChange}
-                          disabled={screenshotControlLoading}
-                          className={`mt-3 w-full rounded-xl px-3 py-2 text-xs font-black text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${screenshotControl?.suspended ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700"}`}
+                          disabled={screenshotControlLoading || screenshotBlockedByPolicy || !screenshotPolicyKnown}
+                          className={`mt-3 w-full rounded-xl px-3 py-2 text-xs font-black text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                            screenshotControl?.suspended
+                              ? "bg-emerald-600 hover:bg-emerald-700"
+                              : screenshotBlockedByPolicy || !screenshotPolicyKnown
+                                ? "bg-slate-500"
+                                : "bg-rose-600 hover:bg-rose-700"
+                          }`}
                         >
                           {screenshotControlLoading
                             ? "Updating..."
                             : screenshotControl?.suspended
                               ? "Resume Screenshots for Employee"
-                              : "Pause Screenshots for Employee"}
+                              : screenshotBlockedByPolicy
+                                ? "Employee Consent or Policy Enablement Required"
+                                : screenshotPolicyKnown
+                                  ? "Pause Screenshots for Employee"
+                                  : "Checking Screenshot Policy..."}
                         </button>
-                        <p className="mt-2 text-[10px] leading-4 text-slate-500">Existing screenshots are retained. Consent and all other monitoring controls remain unchanged.</p>
+                        <p className="mt-2 text-[10px] leading-4 text-slate-500">
+                          {screenshotBlockedByPolicy
+                            ? "A SuperAdmin pause cannot enable screenshots. Capture becomes available only when approved employee consent and the endpoint policy both allow it."
+                            : "Existing screenshots are retained. Consent and all other monitoring controls remain unchanged."}
+                        </p>
                       </div>
                     ) : (
                       <p className="rounded-xl bg-slate-50 p-2 text-[11px] text-slate-500">Assign an employee before using employee-level screenshot control.</p>
