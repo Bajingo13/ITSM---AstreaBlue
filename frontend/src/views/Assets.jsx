@@ -1669,7 +1669,12 @@ function AssetCard({ asset, onView, onEdit, onHistory, onDelete }) {
           <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-wider text-blue-600">{asset.asset_type || "Hardware"}</p>
             <h3 className="mt-1 truncate text-lg font-black text-slate-900">{asset.asset_name || `${asset.brand || ""} ${asset.model || ""}`.trim()}</h3>
-            <p className="mt-1 truncate text-sm text-slate-500">{asset.serial_number || "No serial number"}</p>
+            <p className="mt-1 truncate text-xs font-bold text-slate-600">
+              Asset Tag: <span className="font-medium">{asset.asset_tag || "Not assigned"}</span>
+            </p>
+            <p className="mt-1 truncate text-xs text-slate-500">
+              Serial: {asset.serial_number || "Not recorded"}
+            </p>
           </div>
           <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${getStatusClasses(asset.status)}`}>{asset.status}</span>
         </div>

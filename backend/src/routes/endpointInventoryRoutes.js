@@ -327,7 +327,11 @@ function registerEndpointInventoryRoutes(router, {
       await client.query("BEGIN");
 
       const deviceQuery = await client.query(
-        `SELECT * FROM monitored_devices WHERE device_id=$1 FOR UPDATE`,
+        `SELECT device.*, branch.branch_name
+           FROM monitored_devices device
+           LEFT JOIN branches branch ON branch.branch_id=device.branch_id
+          WHERE device.device_id=$1
+          FOR UPDATE OF device`,
         [deviceId]
       );
       if (!deviceQuery.rows.length) {
@@ -381,6 +385,11 @@ function registerEndpointInventoryRoutes(router, {
 
       if (existingAssetQuery.rows.length) {
         const existingAsset = existingAssetQuery.rows[0];
+        const existingAssetLabel = [
+          existingAsset.asset_name || "Unnamed hardware asset",
+          existingAsset.asset_tag ? `Tag: ${existingAsset.asset_tag}` : null,
+          existingAsset.serial_number ? `Serial: ${existingAsset.serial_number}` : null,
+        ].filter(Boolean).join(" · ");
         const linkedDeviceQuery = await client.query(
           `SELECT device_id, device_uuid, hostname, status, last_seen_at
              FROM monitored_devices
@@ -395,7 +404,7 @@ function registerEndpointInventoryRoutes(router, {
           await client.query("ROLLBACK");
           return res.status(409).json({
             success: false,
-            error: `Existing asset ${existingAsset.asset_tag || existingAsset.asset_name || existingAsset.asset_id} is already linked to endpoint ${linkedDevice.hostname || linkedDevice.device_uuid || linkedDevice.device_id}. Open that endpoint and remove its stale asset link before linking this device.`,
+            error: `Existing hardware asset "${existingAssetLabel}" is already linked to endpoint ${linkedDevice.hostname || linkedDevice.device_uuid || linkedDevice.device_id}. Open that endpoint and remove its stale asset link before linking this device.`,
             data: {
               matching_asset_id: existingAsset.asset_id,
               matching_asset_tag: existingAsset.asset_tag,
@@ -421,7 +430,7 @@ function registerEndpointInventoryRoutes(router, {
           return res.status(req.monitoringIsSuperAdmin ? 409 : 403).json({
             success: false,
             error: req.monitoringIsSuperAdmin
-              ? `Existing asset ${existingAsset.asset_tag || existingAsset.asset_name || existingAsset.asset_id} belongs to ${existingAsset.branch_name || `branch ${existingAsset.branch_id}`}. Correct or transfer the asset branch before linking it to this endpoint.`
+              ? `Existing hardware asset "${existingAssetLabel}" belongs to ${existingAsset.branch_name || `branch ${existingAsset.branch_id}`}, while endpoint ${device.hostname || device.device_uuid || device.device_id} belongs to ${device.branch_name || `branch ${device.branch_id}`}. Transfer the asset or correct the endpoint branch before linking them.`
               : "Access denied.",
             data: req.monitoringIsSuperAdmin ? {
               matching_asset_id: existingAsset.asset_id,
@@ -431,6 +440,7 @@ function registerEndpointInventoryRoutes(router, {
               matching_asset_branch_id: existingAsset.branch_id,
               matching_asset_branch_name: existingAsset.branch_name,
               endpoint_branch_id: device.branch_id,
+              endpoint_branch_name: device.branch_name,
             } : undefined,
           });
         }
