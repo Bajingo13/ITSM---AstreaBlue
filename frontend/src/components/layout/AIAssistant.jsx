@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  BarChart3,
   Bot,
   BookOpen,
-  ChevronDown,
   Clock3,
   Loader2,
   Send,
@@ -52,8 +50,6 @@ export default function AIAssistant() {
   const [sending, setSending] = useState(false);
   const [suggestions, setSuggestions] = useState(fallbackSuggestions);
   const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
-  const [insights, setInsights] = useState(null);
-  const [insightsLoaded, setInsightsLoaded] = useState(false);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -89,34 +85,6 @@ export default function AIAssistant() {
     };
   }, [open, suggestionsLoaded]);
 
-  useEffect(() => {
-    if (!open || insightsLoaded) return;
-    let active = true;
-
-    fetch(`${API_URL}/api/v1/ai-assistant/insights`, {
-      headers: authHeaders(),
-    })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({}));
-        if (response.status === 403) return null;
-        if (!response.ok) throw new Error(payload.message || "Insights unavailable.");
-        return payload?.data || null;
-      })
-      .then((data) => {
-        if (active && data) setInsights(data);
-      })
-      .catch(() => {
-        // Quality insights are optional and restricted to authorized administrators.
-      })
-      .finally(() => {
-        if (active) setInsightsLoaded(true);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [open, insightsLoaded]);
-
   const submitFeedback = async (messageIndex, helpful) => {
     const message = messages[messageIndex];
     if (!message?.question || message.feedback || message.error) return;
@@ -138,7 +106,6 @@ export default function AIAssistant() {
         }),
       });
       if (!response.ok) throw new Error("Feedback could not be saved.");
-      setInsightsLoaded(false);
     } catch {
       setMessages((current) =>
         current.map((item, index) =>
@@ -187,9 +154,6 @@ export default function AIAssistant() {
           feedback: null,
         },
       ]);
-      // A successful answer can resolve a previously recorded coverage gap.
-      // Reload the admin-only insights so its count updates without reopening.
-      setInsightsLoaded(false);
     } catch (error) {
       setMessages((current) => [
         ...current,
@@ -246,68 +210,6 @@ export default function AIAssistant() {
               <X size={19} />
             </button>
           </header>
-
-          {insights && (
-            <details className="group border-b border-slate-200 bg-white">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-black text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500">
-                <span className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
-                    <BarChart3 size={14} />
-                  </span>
-                  Improve Assistant
-                </span>
-                <span className="flex items-center gap-2">
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
-                    {insights.open_unanswered || 0} need coverage
-                  </span>
-                  <ChevronDown
-                    size={15}
-                    className="text-slate-400 transition-transform group-open:rotate-180"
-                  />
-                </span>
-              </summary>
-              <div className="space-y-3 border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600">
-                <p>
-                  This administrator-only panel shows questions AstreaBlue could not answer yet.
-                  It does not indicate a system error.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full border border-emerald-200 bg-white px-2.5 py-1 font-bold text-emerald-700">
-                    {insights.helpful_30_days || 0} helpful
-                  </span>
-                  <span className="rounded-full border border-rose-200 bg-white px-2.5 py-1 font-bold text-rose-700">
-                    {insights.not_helpful_30_days || 0} not helpful
-                  </span>
-                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-bold text-slate-600">
-                    Last 30 days
-                  </span>
-                </div>
-                {insights.top_unanswered?.length > 0 && (
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <p className="mb-2 font-black text-slate-800">Questions that need new coverage</p>
-                    {insights.top_unanswered.slice(0, 3).map((item) => (
-                      <button
-                        type="button"
-                        key={item.unanswered_id}
-                        onClick={() => setInput(item.question_preview || "")}
-                        className="mb-1 flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-blue-50"
-                      >
-                        <span className="shrink-0 rounded-full bg-slate-100 px-1.5 font-black text-slate-600">
-                          {item.occurrence_count}x
-                        </span>
-                        <span className="line-clamp-2 text-slate-700">
-                          {item.question_preview}
-                        </span>
-                      </button>
-                    ))}
-                    <p className="mt-2 text-[11px] text-slate-500">
-                      Select a question to place it in the message box for retesting.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </details>
-          )}
 
           <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50 p-4">
             {messages.map((message, index) => (
