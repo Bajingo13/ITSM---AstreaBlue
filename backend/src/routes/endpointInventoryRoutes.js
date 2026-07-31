@@ -361,12 +361,14 @@ function registerEndpointInventoryRoutes(router, {
 
       if (realSerialNumber) {
         const existingAssetQuery = await client.query(
-          `SELECT asset_id, branch_id
-             FROM hardware_assets
-            WHERE LOWER(TRIM(serial_number)) = LOWER(TRIM($1))
-            ORDER BY asset_id
+          `SELECT asset.asset_id, asset.asset_tag, asset.asset_name,
+                  asset.branch_id, branch.branch_name
+             FROM hardware_assets asset
+             LEFT JOIN branches branch ON branch.branch_id=asset.branch_id
+            WHERE LOWER(TRIM(asset.serial_number)) = LOWER(TRIM($1))
+            ORDER BY asset.asset_id
             LIMIT 1
-            FOR UPDATE`,
+            FOR UPDATE OF asset`,
           [realSerialNumber]
         );
 
@@ -397,8 +399,16 @@ function registerEndpointInventoryRoutes(router, {
             return res.status(req.monitoringIsSuperAdmin ? 409 : 403).json({
               success: false,
               error: req.monitoringIsSuperAdmin
-                ? "The matching asset belongs to a different branch. Review its branch before linking this endpoint."
+                ? `Asset ${existingAsset.asset_tag || existingAsset.asset_name || existingAsset.asset_id} already has this serial number and belongs to ${existingAsset.branch_name || `branch ${existingAsset.branch_id}`}. Use "Link to Existing Asset", or correct the asset branch before linking.`
                 : "Access denied.",
+              data: req.monitoringIsSuperAdmin ? {
+                matching_asset_id: existingAsset.asset_id,
+                matching_asset_tag: existingAsset.asset_tag,
+                matching_asset_name: existingAsset.asset_name,
+                matching_asset_branch_id: existingAsset.branch_id,
+                matching_asset_branch_name: existingAsset.branch_name,
+                endpoint_branch_id: device.branch_id,
+              } : undefined,
             });
           }
 

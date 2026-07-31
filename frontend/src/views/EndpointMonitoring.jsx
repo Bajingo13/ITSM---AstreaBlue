@@ -11,6 +11,17 @@ import EndpointPolicies from "./EndpointPolicies";
 const API_BASE = `${API_URL}/api/v1/endpoint-management`;
 const formatDate = (value) => value ? new Date(value).toLocaleString() : "Never";
 const secondsSince = (value) => value ? Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000)) : null;
+const normalizeIdentityValue = (value) => String(value || "").trim().toLowerCase();
+const ENDPOINT_ASSET_TYPES = new Set([
+  "company device",
+  "computer",
+  "desktop",
+  "laptop",
+  "notebook",
+  "pc",
+  "workstation",
+]);
+const isEndpointAsset = (asset) => ENDPOINT_ASSET_TYPES.has(normalizeIdentityValue(asset?.asset_type));
 const formatDuration = (seconds) => {
   const value = Math.max(0, Number(seconds) || 0);
   if (value < 60) return `${Math.round(value)} sec`;
@@ -321,7 +332,26 @@ export default function EndpointMonitoring() {
       }
       if (aRes.ok) {
         const aData = await aRes.json();
-        setAssetsList((Array.isArray(aData) ? aData : aData.data || []).filter(a => ['Laptop', 'Desktop', 'Company Device'].includes(a.asset_type) && (!a.monitoring_device_uuid || String(a.asset_id) === String(selectedDevice?.asset_id))));
+        const detectedSerial = normalizeIdentityValue(details?.hardware?.serial_number);
+        const candidates = (Array.isArray(aData) ? aData : aData.data || [])
+          .filter((asset) => {
+            const isCurrentAsset = String(asset.asset_id) === String(selectedDevice?.asset_id);
+            const isAlreadyLinked = Boolean(asset.monitoring_device_uuid) && !isCurrentAsset;
+            const isExactSerialMatch = detectedSerial
+              && normalizeIdentityValue(asset.serial_number) === detectedSerial;
+            return !isAlreadyLinked && (isEndpointAsset(asset) || isExactSerialMatch);
+          })
+          .sort((left, right) => {
+            const leftMatches = detectedSerial
+              && normalizeIdentityValue(left.serial_number) === detectedSerial;
+            const rightMatches = detectedSerial
+              && normalizeIdentityValue(right.serial_number) === detectedSerial;
+            if (leftMatches !== rightMatches) return leftMatches ? -1 : 1;
+            return String(left.asset_tag || left.asset_name || "").localeCompare(
+              String(right.asset_tag || right.asset_name || "")
+            );
+          });
+        setAssetsList(candidates);
       }
       setAssignForm({
         assigned_user_id: selectedDevice?.assigned_user_id || "",
@@ -1016,7 +1046,11 @@ export default function EndpointMonitoring() {
                   ) : (
                     <select value={assignForm.asset_id} onChange={(e) => setAssignForm(p => ({ ...p, asset_id: e.target.value }))} className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500">
                       <option value="">No Linked Asset</option>
-                      {assetsList.map((a) => <option key={a.asset_id} value={a.asset_id}>{a.asset_tag} - {a.brand} {a.model} ({a.status})</option>)}
+                      {assetsList.map((a) => (
+                        <option key={a.asset_id} value={a.asset_id}>
+                          {a.asset_tag || a.asset_name} - {[a.brand || a.manufacturer, a.model].filter(Boolean).join(" ") || "Hardware asset"} ({a.status || "No status"}){a.branch_name ? ` — ${a.branch_name}` : ""}
+                        </option>
+                      ))}
                     </select>
                   )}
                 </div>
