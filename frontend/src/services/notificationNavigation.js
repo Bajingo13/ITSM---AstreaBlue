@@ -110,7 +110,12 @@ export function resolveNotificationDestination(notification, role) {
   if (entityType === "software_license" && isManager(role)) {
     return destination("/software-licenses", "View licenses");
   }
-  if (["endpoint_policy", "endpoint", "endpoint_device", "device"].includes(entityType) && isManager(role)) {
+  if (entityType === "endpoint_policy" && isManager(role)) {
+    const deviceUuid = metadata.deviceUuid || entityId;
+    const query = deviceUuid ? `?tab=devices&device_uuid=${encodeURIComponent(deviceUuid)}` : "";
+    return destination(`/endpoint-management${query}`, "View endpoint");
+  }
+  if (["endpoint", "endpoint_device", "device"].includes(entityType) && isManager(role)) {
     const query = entityId ? `?tab=devices&deviceId=${encodeURIComponent(entityId)}` : "";
     return destination(`/endpoint-management${query}`, "View endpoint");
   }
@@ -145,7 +150,7 @@ export function resolveNotificationDestination(notification, role) {
   }
   if ((searchable.includes("endpoint") || searchable.includes("policy")) && isManager(role)) {
     const deviceUuid = metadata.deviceUuid;
-    const query = deviceUuid ? `?tab=devices&deviceId=${encodeURIComponent(deviceUuid)}` : "";
+    const query = deviceUuid ? `?tab=devices&device_uuid=${encodeURIComponent(deviceUuid)}` : "";
     return destination(`/endpoint-management${query}`, "View endpoint");
   }
   if (searchable.includes("consent") || searchable.includes("privacy")) {

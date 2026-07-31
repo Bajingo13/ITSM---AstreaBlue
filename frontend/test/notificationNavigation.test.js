@@ -22,7 +22,7 @@ test("endpoint policy notifications retain the device context", () => {
       related_entity_type: "endpoint_policy",
       related_entity_id: "device-uuid",
     }, "SuperAdmin"),
-    { path: "/endpoint-management?tab=devices&deviceId=device-uuid", label: "View endpoint" }
+    { path: "/endpoint-management?tab=devices&device_uuid=device-uuid", label: "View endpoint" }
   );
 });
 
