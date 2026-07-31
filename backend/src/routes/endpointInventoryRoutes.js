@@ -4,6 +4,45 @@ const { reconcileDevice } = require("../services/reconciliationService");
 const { upsertAgentInventoryDiscovery } = require("../services/assetDiscoveryInventoryService");
 
 const DEVICE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PLACEHOLDER_SERIALS = new Set([
+  "",
+  "0",
+  "00000000",
+  "default string",
+  "none",
+  "not applicable",
+  "system serial number",
+  "to be filled by o.e.m.",
+  "unknown",
+  "unknown-sn",
+]);
+
+function normalizeDetectedSerial(value) {
+  const serial = String(value || "").trim();
+  return PLACEHOLDER_SERIALS.has(serial.toLowerCase()) ? null : serial.slice(0, 100);
+}
+
+function cleanInventoryText(value, maxLength, fallback = null) {
+  const text = String(value || "").trim();
+  return text ? text.slice(0, maxLength) : fallback;
+}
+
+function buildAgentAssetIdentity(device, inventory) {
+  const stableSource = String(
+    device.device_uuid || device.device_id || device.hostname || device.device_name
+  ).trim();
+  const suffix = crypto
+    .createHash("sha256")
+    .update(stableSource)
+    .digest("hex")
+    .slice(0, 10)
+    .toUpperCase();
+
+  return {
+    assetTag: `AUTO-${suffix}`,
+    serialNumber: normalizeDetectedSerial(inventory.serial_number) || `AGENT-${suffix}`,
+  };
+}
 
 function resolveDeviceUuid(body) {
   const suppliedUuid = String(body?.device_uuid || "").trim().toLowerCase();
@@ -281,65 +320,201 @@ function registerEndpointInventoryRoutes(router, {
 
   router.post("/devices/:deviceId/convert-to-asset", requireAdmin, async (req, res) => {
     if (req.monitoringIsEmployee) return res.status(403).json({ success: false, error: "Access denied." });
+    let client;
     try {
       const { deviceId } = req.params;
-      await db.query("BEGIN");
+      client = await db.connect();
+      await client.query("BEGIN");
 
-      const deviceQuery = await db.query(`SELECT * FROM monitored_devices WHERE device_id=$1 FOR UPDATE`, [deviceId]);
+      const deviceQuery = await client.query(
+        `SELECT * FROM monitored_devices WHERE device_id=$1 FOR UPDATE`,
+        [deviceId]
+      );
       if (!deviceQuery.rows.length) {
-        await db.query("ROLLBACK");
+        await client.query("ROLLBACK");
         return res.status(404).json({ success: false, error: "Device not found." });
       }
       const device = deviceQuery.rows[0];
 
       if (!req.monitoringIsSuperAdmin && req.monitoringBranchId && device.branch_id !== req.monitoringBranchId) {
-        await db.query("ROLLBACK");
+        await client.query("ROLLBACK");
         return res.status(403).json({ success: false, error: "Access denied" });
       }
       if (device.asset_id) {
-        await db.query("ROLLBACK");
+        await client.query("ROLLBACK");
         return res.status(400).json({ success: false, error: "Device is already linked to an asset." });
       }
 
-      const inventoryQuery = await db.query(`SELECT * FROM endpoint_hardware_inventory WHERE device_id=$1 ORDER BY scanned_at DESC LIMIT 1`, [deviceId]);
+      const inventoryQuery = await client.query(
+        `SELECT * FROM endpoint_hardware_inventory
+         WHERE device_id=$1
+         ORDER BY scanned_at DESC
+         LIMIT 1`,
+        [deviceId]
+      );
       if (!inventoryQuery.rows.length) {
-        await db.query("ROLLBACK");
+        await client.query("ROLLBACK");
         return res.status(400).json({ success: false, error: "Device has not sent any hardware inventory yet. Wait for the agent to complete a scan." });
       }
       const inv = inventoryQuery.rows[0];
+      const realSerialNumber = normalizeDetectedSerial(inv.serial_number);
+
+      if (realSerialNumber) {
+        const existingAssetQuery = await client.query(
+          `SELECT asset_id, branch_id
+             FROM hardware_assets
+            WHERE LOWER(TRIM(serial_number)) = LOWER(TRIM($1))
+            ORDER BY asset_id
+            LIMIT 1
+            FOR UPDATE`,
+          [realSerialNumber]
+        );
+
+        if (existingAssetQuery.rows.length) {
+          const existingAsset = existingAssetQuery.rows[0];
+          const linkedDeviceQuery = await client.query(
+            `SELECT device_id
+               FROM monitored_devices
+              WHERE asset_id=$1 AND device_id<>$2
+              LIMIT 1`,
+            [existingAsset.asset_id, deviceId]
+          );
+
+          if (linkedDeviceQuery.rows.length) {
+            await client.query("ROLLBACK");
+            return res.status(409).json({
+              success: false,
+              error: "This serial number already belongs to an asset linked to another endpoint. Review the existing asset before linking this device.",
+            });
+          }
+
+          if (
+            device.branch_id
+            && existingAsset.branch_id
+            && device.branch_id !== existingAsset.branch_id
+          ) {
+            await client.query("ROLLBACK");
+            return res.status(req.monitoringIsSuperAdmin ? 409 : 403).json({
+              success: false,
+              error: req.monitoringIsSuperAdmin
+                ? "The matching asset belongs to a different branch. Review its branch before linking this endpoint."
+                : "Access denied.",
+            });
+          }
+
+          await client.query(
+            `UPDATE monitored_devices
+                SET asset_id=$1,
+                    branch_id=COALESCE(branch_id, $2),
+                    updated_at=CURRENT_TIMESTAMP
+              WHERE device_id=$3`,
+            [existingAsset.asset_id, existingAsset.branch_id, deviceId]
+          );
+          await client.query("COMMIT");
+          client.release();
+          client = null;
+          await reconcileDevice(deviceId);
+          return res.json({
+            success: true,
+            data: {
+              asset_id: existingAsset.asset_id,
+              created: false,
+              message: "The endpoint was linked to its existing hardware asset.",
+            },
+            message: "The endpoint was linked to its existing hardware asset.",
+          });
+        }
+      }
+
+      if (!device.branch_id) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          success: false,
+          error: "Assign the endpoint to a branch before creating its hardware asset.",
+        });
+      }
+
       const formatSize = (value) => {
         const number = parseFloat(String(value || "").replace(/[^0-9.]/g, ""));
         return Number.isNaN(number) ? null : `${Math.ceil(number)} GB`;
       };
-      const assetName = inv.model || device.hostname || device.device_name || "Unknown Endpoint";
-      const assetTag = `AUTO-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 100)}`;
-      const operatingSystem = [inv.os_name, inv.os_version].filter(Boolean).join(" ");
+      const model = cleanInventoryText(inv.model, 100, "Unknown");
+      const manufacturer = cleanInventoryText(inv.manufacturer, 100, "Unknown");
+      const assetName = cleanInventoryText(
+        inv.model || device.hostname || device.device_name,
+        255,
+        "Unknown Endpoint"
+      );
+      const { assetTag, serialNumber } = buildAgentAssetIdentity(device, inv);
+      const operatingSystem = cleanInventoryText(
+        [inv.os_name, inv.os_version].filter(Boolean).join(" "),
+        150
+      );
 
-      const insertAsset = await db.query(`
+      const insertAsset = await client.query(`
         INSERT INTO hardware_assets (
-          asset_name, asset_type, brand, manufacturer, model, serial_number, asset_tag,
+          asset_name, asset_type, brand, manufacturer, model, model_name, serial_number, asset_tag,
           processor, ram, storage, operating_system, branch_id, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING asset_id
+        ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        RETURNING asset_id
       `, [
-        assetName, "Computer", inv.manufacturer || "Unknown", inv.manufacturer || "Unknown", inv.model || "Unknown", inv.serial_number || "UNKNOWN-SN", assetTag,
-        inv.cpu_name, formatSize(inv.total_ram_gb), formatSize(inv.disk_total_gb), operatingSystem || null,
-        device.branch_id || null, "In Use",
+        assetName, "Computer", manufacturer, manufacturer, model, serialNumber, assetTag,
+        cleanInventoryText(inv.cpu_name, 150), formatSize(inv.total_ram_gb), formatSize(inv.disk_total_gb), operatingSystem,
+        device.branch_id, "In Use",
       ]);
 
       const newAssetId = insertAsset.rows[0].asset_id;
-      await db.query(`UPDATE monitored_devices SET asset_id = $1 WHERE device_id = $2`, [newAssetId, deviceId]);
-      await db.query("COMMIT");
+      await client.query(
+        `UPDATE monitored_devices
+            SET asset_id=$1, updated_at=CURRENT_TIMESTAMP
+          WHERE device_id=$2`,
+        [newAssetId, deviceId]
+      );
+      await client.query("COMMIT");
+      client.release();
+      client = null;
       await reconcileDevice(deviceId);
-      return res.json({ success: true, message: "Asset successfully generated from agent specs!" });
+      return res.json({
+        success: true,
+        data: {
+          asset_id: newAssetId,
+          created: true,
+          message: "Hardware asset created and linked from endpoint specifications.",
+        },
+        message: "Hardware asset created and linked from endpoint specifications.",
+      });
     } catch (error) {
-      await db.query("ROLLBACK");
+      if (client) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackError) {
+          console.error("Convert to asset rollback error:", rollbackError);
+        }
+      }
       console.error("Convert to asset error:", error);
+      if (error.code === "23505") {
+        return res.status(409).json({
+          success: false,
+          error: "An asset with the same serial number or asset tag already exists. Link the endpoint to that existing asset instead.",
+        });
+      }
+      if (["23502", "23503", "23514"].includes(error.code)) {
+        return res.status(400).json({
+          success: false,
+          error: "The endpoint inventory is incomplete or does not satisfy the hardware asset requirements. Verify its branch and latest hardware scan.",
+        });
+      }
       return res.status(500).json({ success: false, error: "Failed to create asset." });
+    } finally {
+      client?.release();
     }
   });
 }
 
 module.exports = {
+  buildAgentAssetIdentity,
+  cleanInventoryText,
+  normalizeDetectedSerial,
   registerEndpointInventoryRoutes,
   resolveDeviceUuid,
 };

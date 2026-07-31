@@ -556,9 +556,9 @@ export default function EndpointMonitoring() {
                           onConfirm: async () => {
                             setLoading(true);
                             try {
-                              await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/convert-to-asset`, { method: 'POST' });
+                              const conversion = await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/convert-to-asset`, { method: 'POST' });
                               await loadOverview();
-                              showToast("Hardware Asset created from endpoint specifications.");
+                              showToast(conversion?.message || "Hardware Asset created from endpoint specifications.");
                             } catch (e) {
                               showToast(e.message, "error");
                               setLoading(false);
