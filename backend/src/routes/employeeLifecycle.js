@@ -921,6 +921,16 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
         JSON.stringify(automationResult), req.params.taskId]
     );
     let automaticallyDerivedCaseStatus = task.case_status;
+    if (task.lifecycle_type === "Onboarding"
+        && task.task_key === "final_verification"
+        && nextStatus === "Completed") {
+      automaticallyDerivedCaseStatus = "Completed";
+      await completeLifecycleOnboarding(client, {
+        lifecycleCaseId: Number(req.params.id),
+        employeeId: task.employee_id,
+        changedBy: req.lifecycleActor.user_id,
+      });
+    }
     if (task.lifecycle_type === "Offboarding") {
       const remaining = await client.query(
         `SELECT COUNT(*)::int count FROM employee_lifecycle_tasks
@@ -935,9 +945,11 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
       });
     }
     await client.query(
-      `UPDATE employee_lifecycle_cases SET status=$1::text,updated_at=CURRENT_TIMESTAMP
+      `UPDATE employee_lifecycle_cases SET status=$1::text,updated_at=CURRENT_TIMESTAMP,
+         verified_by=CASE WHEN $1::text='Completed' THEN $3::int ELSE verified_by END,
+         completed_at=CASE WHEN $1::text='Completed' THEN CURRENT_TIMESTAMP ELSE completed_at END
         WHERE lifecycle_case_id=$2`,
-      [automaticallyDerivedCaseStatus, req.params.id]
+      [automaticallyDerivedCaseStatus, req.params.id, req.lifecycleActor.user_id]
     );
     await addHistory(client, req.params.id, req.lifecycleActor.user_id, "task_updated", `${task.task_label} marked ${nextStatus}.`, null, null,
       { taskKey: task.task_key, taskStatus: nextStatus, automation: automationResult });
@@ -950,7 +962,12 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
         `Status automatically changed from ${task.case_status} to ${automaticallyDerivedCaseStatus}.`,
         task.case_status,
         automaticallyDerivedCaseStatus,
-        { source: "offboarding_task_progression", taskKey: task.task_key }
+        {
+          source: task.lifecycle_type === "Onboarding"
+            ? "onboarding_final_verification"
+            : "offboarding_task_progression",
+          taskKey: task.task_key,
+        }
       );
     }
     await client.query("COMMIT");

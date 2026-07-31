@@ -436,7 +436,7 @@ function CaseDrawer({ details, role, busy, error, invitation, onDismissError, on
   const completedTaskKeys = new Set(details.tasks?.filter((task) => task.status === "Completed").map((task) => task.task_key));
   const workflowTransitions = details.lifecycle_type === "Offboarding"
     ? transitions.filter((status) => ["Completed", "Cancelled"].includes(status))
-    : transitions;
+    : transitions.filter((status) => status !== "Ready for Verification");
   return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60 backdrop-blur-sm">
     <aside className="h-full w-full max-w-3xl overflow-y-auto border-l border-blue-100 bg-[#f7faff] shadow-2xl">
       <header className="sticky top-0 z-10 flex items-start justify-between border-b border-blue-100 bg-white p-6"><div><p className="text-xs font-black uppercase tracking-widest text-blue-600">{details.case_number}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{details.employee_name}</h2><p className="text-sm text-slate-500">{details.lifecycle_type} · {details.branch_name}</p></div><div className="flex items-center gap-2">{role === "superadmin" && details.status !== "Completed" && <button disabled={busy} onClick={() => void onDelete(details)} className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100 disabled:opacity-50"><Trash2 size={15}/> Delete</button>}<button onClick={onClose} className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-100"><X/></button></div></header>
@@ -497,7 +497,7 @@ function CaseDrawer({ details, role, busy, error, invitation, onDismissError, on
         </section>
         <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
           <h3 className="font-black">Case actions</h3>
-          <p className="mt-1 text-sm text-slate-500">{details.lifecycle_type === "Offboarding" ? "Start with the checklist. The case begins automatically after the first completed action and becomes ready for final review after every required task is complete." : "Choose a pause state only when work is genuinely blocked. Completion is allowed only after all required checklist evidence is complete."}</p>
+          <p className="mt-1 text-sm text-slate-500">{details.lifecycle_type === "Offboarding" ? "Start with the checklist. The case begins automatically after the first completed action and becomes ready for final review after every required task is complete." : "Use a pause state only when work is genuinely blocked. The final verification checklist item automatically completes onboarding after all required evidence is available."}</p>
           <div className="mt-4 grid gap-2">
             {workflowTransitions.length ? workflowTransitions.map((status) => <button key={status} disabled={busy} onClick={() => void onStatus(status)} className={`rounded-xl border px-4 py-3 text-left transition ${status === "Cancelled" ? "border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100" : "border-blue-200 bg-blue-50 text-blue-950 hover:border-blue-400 hover:bg-blue-100"}`}><span className="block text-sm font-black">{statusLabel(status)}</span><span className="mt-1 block text-xs font-semibold leading-5 opacity-80">{STATUS_HELP[status]}</span></button>) : <span className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-500">{details.lifecycle_type === "Offboarding" && details.status !== "Completed" ? "Complete the checklist in order to continue" : "No further actions"}</span>}
           </div>

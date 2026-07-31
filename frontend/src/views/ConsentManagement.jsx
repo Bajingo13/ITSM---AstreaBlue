@@ -155,16 +155,22 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
     } catch {}
   };
 
+  const fetchConsentPdf = async () => {
+    const response = await fetch(`${API_BASE}/consent/${consent.consent_id}/pdf`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.message || "The consent PDF could not be opened.");
+    }
+    return response.blob();
+  };
+
   const downloadPdf = async () => {
     setDocumentAction("download");
     setFooterMessage(null);
     try {
-      const response = await fetch(`${API_BASE}/consent/${consent.consent_id}/pdf`, { headers: authHeaders() });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.message || "The consent PDF could not be downloaded.");
-      }
-      const blobUrl = window.URL.createObjectURL(await response.blob());
+      const blobUrl = window.URL.createObjectURL(await fetchConsentPdf());
       const anchor = document.createElement("a");
       anchor.href = blobUrl;
       anchor.download = `AstreaBlue-Consent-${consent.consent_id}.pdf`;
@@ -182,12 +188,35 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
 
   const printConsent = async () => {
     setDocumentAction("print");
-    setFooterMessage({ type: "success", text: "Opening the browser print dialog…" });
-    await logPrint("print");
-    window.setTimeout(() => {
-      window.print();
+    setFooterMessage(null);
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setFooterMessage({ type: "error", text: "Allow pop-ups to open the protected consent PDF for printing." });
       setDocumentAction("");
-    }, 50);
+      return;
+    }
+    printWindow.document.title = `AstreaBlue Consent ${consent.consent_id}`;
+    printWindow.document.body.innerHTML = "<p style=\"font-family:Arial,sans-serif;padding:24px\">Preparing the protected consent document for printing...</p>";
+    try {
+      const blobUrl = window.URL.createObjectURL(await fetchConsentPdf());
+      await logPrint("print");
+      printWindow.onload = () => {
+        window.setTimeout(() => {
+          try {
+            printWindow.focus();
+            printWindow.print();
+          } catch {}
+        }, 700);
+      };
+      printWindow.location.replace(blobUrl);
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 120000);
+      setFooterMessage({ type: "success", text: "The protected consent PDF opened for printing." });
+    } catch (error) {
+      printWindow.close();
+      setFooterMessage({ type: "error", text: error.message });
+    } finally {
+      setDocumentAction("");
+    }
   };
 
   const openAdminAction = () => {
@@ -254,10 +283,10 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
 
         {/* Body */}
         <div ref={bodyRef} tabIndex={-1} id={`consent-print-${consent.consent_id}`} className="flex-1 space-y-5 overflow-y-auto px-6 py-5 outline-none sm:px-8">
-          <section className={`rounded-2xl border p-4 ${waitingForEmployee ? "border-amber-200 bg-amber-50" : waitingForAdmin ? "border-blue-200 bg-blue-50" : isApproved ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>
+          <section className={`rounded-2xl border-2 p-4 ${waitingForEmployee ? "border-amber-300 bg-amber-50" : waitingForAdmin ? "border-blue-300 bg-blue-50" : isApproved ? "border-emerald-300 bg-emerald-50" : "border-slate-300 bg-slate-50"}`}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
-                <div className={`mt-0.5 rounded-xl p-2 ${waitingForEmployee ? "bg-amber-100 text-amber-700" : waitingForAdmin ? "bg-blue-100 text-blue-700" : isApproved ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                <div className={`mt-0.5 rounded-xl p-2 text-white shadow-sm ${waitingForEmployee ? "bg-amber-600" : waitingForAdmin ? "bg-blue-700" : isApproved ? "bg-emerald-700" : "bg-slate-600"}`}>
                   {waitingForEmployee ? <Lock size={18} /> : <CheckCircle size={18} />}
                 </div>
                 <div>
@@ -284,7 +313,7 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
                 const activeIndex = waitingForEmployee ? 1 : waitingForAdmin ? 2 : isApproved ? 4 : 0;
                 const completed = index < activeIndex;
                 const current = index === activeIndex;
-                return <div key={step} className={`rounded-xl px-3 py-2 text-center ${completed ? "bg-emerald-100 text-emerald-700" : current ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300" : "bg-white/80 text-slate-600"}`}>{completed ? "✓ " : current ? "● " : "○ "}{step}</div>;
+                return <div key={step} className={`rounded-xl border px-3 py-2 text-center shadow-sm ${completed ? "border-emerald-700 bg-emerald-700 text-white" : current ? "border-blue-700 bg-blue-700 text-white ring-2 ring-blue-200" : "border-slate-300 bg-white text-slate-700"}`}>{completed ? "✓ " : current ? "● " : "○ "}{step}</div>;
               })}
             </div>
           </section>
@@ -428,7 +457,13 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
                     type="button"
                     onClick={() => { setActionType(val); if (val === "approve_change") initApprovePrefs(); }}
                     className={`rounded-xl border-2 px-3 py-2 text-xs font-bold transition ${
-                      actionType === val ? "border-amber-500 bg-amber-100 text-amber-800" : "border-slate-200 text-slate-500 hover:border-slate-300"
+                      actionType === val
+                        ? val === "approve" || val === "approve_change"
+                          ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
+                          : val === "reject" || val === "withdraw"
+                            ? "border-rose-700 bg-rose-700 text-white shadow-sm"
+                            : "border-blue-700 bg-blue-700 text-white shadow-sm"
+                        : "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50"
                     }`}
                   >
                     {lab}
@@ -476,7 +511,13 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
               {actionType === "approve" && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">Approval completes the employee's mandatory onboarding immediately. The employee can press Refresh Status and enter AstreaBlue.</p>}
               <div className="flex gap-3">
                 <button onClick={() => setShowActionForm(false)} className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-bold text-slate-600 hover:bg-white">Cancel</button>
-                <button onClick={applyAction} disabled={actioning} className="flex-1 rounded-xl bg-amber-500 py-2 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-60">
+                <button onClick={applyAction} disabled={actioning} className={`flex-1 rounded-xl py-2 text-sm font-bold text-white shadow-sm disabled:opacity-60 ${
+                  actionType === "approve" || actionType === "approve_change"
+                    ? "bg-emerald-700 hover:bg-emerald-800"
+                    : actionType === "reject" || actionType === "withdraw"
+                      ? "bg-rose-700 hover:bg-rose-800"
+                      : "bg-blue-700 hover:bg-blue-800"
+                }`}>
                   {actioning ? "Applying..." : actionType === "approve" ? "Confirm Consent Approval" : actionType === "approve_change" ? "Approve & Create New Version" : "Apply Action"}
                 </button>
               </div>
