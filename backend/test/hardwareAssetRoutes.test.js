@@ -133,3 +133,62 @@ test("hardware creation delegates persistence and retains asset history", async 
     repository.insertHistory = originals.insertHistory;
   }
 });
+
+test("manual unlinked hardware assets can be deleted atomically", async () => {
+  const originalDeleteAssetSafely = repository.deleteAssetSafely;
+  repository.deleteAssetSafely = async (assetId, branchId) => ({
+    asset: {
+      asset_id: Number(assetId),
+      asset_name: "Manual QA Asset",
+      branch_id: branchId,
+    },
+    linkedDevice: null,
+  });
+  const token = jwt.sign(
+    { userId: 1, role: "SuperAdmin", branchId: null },
+    secret,
+    { expiresIn: "5m" }
+  );
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/v1/hardware-assets/501`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const body = await response.json();
+      assert.equal(response.status, 200, JSON.stringify(body));
+      assert.equal(body.success, true);
+    });
+  } finally {
+    repository.deleteAssetSafely = originalDeleteAssetSafely;
+  }
+});
+
+test("linked endpoint assets must be unlinked before deletion", async () => {
+  const originalDeleteAssetSafely = repository.deleteAssetSafely;
+  repository.deleteAssetSafely = async () => ({
+    asset: { asset_id: 502, asset_name: "Linked QA Asset", branch_id: 2 },
+    linkedDevice: { device_id: 88, hostname: "QA-ENDPOINT-88" },
+  });
+  const token = jwt.sign(
+    { userId: 1, role: "SuperAdmin", branchId: null },
+    secret,
+    { expiresIn: "5m" }
+  );
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/v1/hardware-assets/502`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const body = await response.json();
+      assert.equal(response.status, 409, JSON.stringify(body));
+      assert.match(body.error, /QA-ENDPOINT-88/);
+      assert.match(body.error, /Unlink or reassign/);
+    });
+  } finally {
+    repository.deleteAssetSafely = originalDeleteAssetSafely;
+  }
+});

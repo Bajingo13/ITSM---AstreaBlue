@@ -458,40 +458,42 @@ function createHardwareAssetRoutes({ tablesReady }) {
             "Only Super Admin and Admin Branch can delete hardware assets.",
         });
       }
-      const result = await repository.findDeletableAsset(
+      const deletion = await repository.deleteAssetSafely(
         req.params.id,
         role === "admin" ? auth.branchId : null
       );
-      if (!result.rows.length) {
+      if (!deletion.asset) {
         return res.status(404).json({
           success: false,
           error:
             "Hardware asset not found or you do not have permission to delete it.",
         });
       }
-      const asset = result.rows[0];
-      await repository.unlinkAssetDevices(req.params.id);
-      await repository.deleteAsset(req.params.id);
-      await recordHistory(
-        req.params.id,
-        "deleted",
-        {
-          asset_name: asset.asset_name,
-          deleted_by: auth.userId || null,
-        },
-        asset.branch_id,
-        auth.userId || null
-      );
+      if (deletion.linkedDevice) {
+        return res.status(409).json({
+          success: false,
+          error: `This asset is linked to endpoint ${deletion.linkedDevice.hostname || deletion.linkedDevice.device_id}. Unlink or reassign that endpoint before deleting the asset.`,
+        });
+      }
       return res.json({
         success: true,
         message: "Hardware asset deleted successfully.",
       });
     } catch (error) {
-      console.error("Delete hardware asset error:", error.message);
+      logError("DELETE", error);
+      if (error.code === "23503") {
+        return res.status(409).json({
+          success: false,
+          error:
+            "This asset has protected replacement or service history and cannot be permanently deleted. Set its status to Retired or Disposed instead.",
+        });
+      }
       return res.status(500).json({
         success: false,
-        error: "Failed to delete hardware asset. Please try again.",
-        details: error.message,
+        error: getErrorMessage(
+          error,
+          "Failed to delete hardware asset. Please try again."
+        ),
       });
     }
   });

@@ -112,6 +112,7 @@ export default function EndpointMonitoring() {
   const [usersList, setUsersList] = useState([]);
   const [branchesList, setBranchesList] = useState([]);
   const [assetsList, setAssetsList] = useState([]);
+  const [assetLinkConflict, setAssetLinkConflict] = useState(null);
   const [assignForm, setAssignForm] = useState({ assigned_user_id: "", branch_id: "", asset_id: "", department: "", reason: "" });
   const [assignLoading, setAssignLoading] = useState(false);
 
@@ -317,6 +318,7 @@ export default function EndpointMonitoring() {
   
   const handleOpenAssign = async (type) => {
     try {
+      setAssetLinkConflict(null);
       const [uRes, bRes, aRes] = await Promise.all([
         fetch(`${API_URL}/api/v1/users`, { headers: authHeaders() }),
         fetch(`${API_URL}/api/v1/branches`, { headers: authHeaders() }),
@@ -333,7 +335,20 @@ export default function EndpointMonitoring() {
       if (aRes.ok) {
         const aData = await aRes.json();
         const detectedSerial = normalizeIdentityValue(details?.hardware?.serial_number);
-        const candidates = (Array.isArray(aData) ? aData : aData.data || [])
+        const allAssets = Array.isArray(aData) ? aData : aData.data || [];
+        const exactSerialAsset = detectedSerial
+          ? allAssets.find(
+              (asset) =>
+                normalizeIdentityValue(asset.serial_number) === detectedSerial
+            )
+          : null;
+        const exactMatchIsLinkedElsewhere = exactSerialAsset
+          && exactSerialAsset.monitoring_device_uuid
+          && String(exactSerialAsset.asset_id) !== String(selectedDevice?.asset_id);
+        setAssetLinkConflict(
+          exactMatchIsLinkedElsewhere ? exactSerialAsset : null
+        );
+        const candidates = allAssets
           .filter((asset) => {
             const isCurrentAsset = String(asset.asset_id) === String(selectedDevice?.asset_id);
             const isAlreadyLinked = Boolean(asset.monitoring_device_uuid) && !isCurrentAsset;
@@ -353,6 +368,7 @@ export default function EndpointMonitoring() {
           });
         setAssetsList(candidates);
       }
+      if (!aRes.ok) setAssetLinkConflict(null);
       setAssignForm({
         assigned_user_id: selectedDevice?.assigned_user_id || "",
         branch_id: selectedDevice?.branch_id || "",
@@ -580,15 +596,15 @@ export default function EndpointMonitoring() {
                     <button 
                       onClick={async () => {
                         setConfirmAction({
-                          title: "Create Hardware Asset",
-                          message: "Create a new Hardware Asset from the agent's scanned specifications and link it to this endpoint?",
-                          confirmLabel: "Create Asset",
+                          title: "Create or Link Hardware Asset",
+                          message: "Use the agent's scanned identity to link an existing Hardware Asset, or create one only when no matching asset exists?",
+                          confirmLabel: "Create or Link",
                           onConfirm: async () => {
                             setLoading(true);
                             try {
                               const conversion = await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/convert-to-asset`, { method: 'POST' });
                               await loadOverview();
-                              showToast(conversion?.message || "Hardware Asset created from endpoint specifications.");
+                              showToast(conversion?.message || "Hardware Asset created or linked from endpoint specifications.");
                             } catch (e) {
                               showToast(e.message, "error");
                               setLoading(false);
@@ -598,7 +614,7 @@ export default function EndpointMonitoring() {
                       }} 
                       disabled={loading || !details?.hardware}
                       className="mt-2 w-full rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                      {loading ? "Creating..." : details?.hardware ? "Create Asset from Specs" : "Hardware Scan Required"}
+                      {loading ? "Checking..." : details?.hardware ? "Create or Link Asset from Specs" : "Hardware Scan Required"}
                     </button>
                     {!details?.hardware && <p className="mt-2 text-center text-[11px] font-semibold text-amber-700">The agent must submit hardware inventory before AstreaBlue can create an accurate asset record.</p>}
                   </div>
@@ -1052,6 +1068,21 @@ export default function EndpointMonitoring() {
                         </option>
                       ))}
                     </select>
+                  )}
+                  {assetLinkConflict && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <p className="font-black">Exact serial match is already linked</p>
+                      <p className="mt-1">
+                        {assetLinkConflict.asset_tag || assetLinkConflict.asset_name} is connected to endpoint{" "}
+                        <span className="font-bold">
+                          {assetLinkConflict.monitoring_hostname || assetLinkConflict.monitoring_device_uuid}
+                        </span>
+                        {assetLinkConflict.branch_name ? ` in ${assetLinkConflict.branch_name}` : ""}.
+                      </p>
+                      <p className="mt-1 text-xs font-semibold">
+                        Open that endpoint and unlink or remove the stale endpoint record before linking this device.
+                      </p>
+                    </div>
                   )}
                 </div>
                 <div className="flex justify-end gap-3 pt-4">

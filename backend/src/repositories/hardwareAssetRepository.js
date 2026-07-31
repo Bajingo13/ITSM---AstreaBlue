@@ -288,6 +288,56 @@ function deleteAsset(assetId) {
   return db.query("DELETE FROM hardware_assets WHERE asset_id = $1", [assetId]);
 }
 
+async function deleteAssetSafely(assetId, branchId) {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const scoped = branchId !== null && branchId !== undefined;
+    const assetResult = await client.query(
+      `SELECT asset_id, branch_id, asset_name, asset_tag
+         FROM hardware_assets
+        WHERE asset_id=$1${scoped ? " AND branch_id=$2" : ""}
+        FOR UPDATE`,
+      scoped ? [assetId, branchId] : [assetId]
+    );
+    if (!assetResult.rows.length) {
+      await client.query("ROLLBACK");
+      return { asset: null, linkedDevice: null };
+    }
+
+    const linkedDeviceResult = await client.query(
+      `SELECT device_id, hostname
+         FROM monitored_devices
+        WHERE asset_id=$1
+        ORDER BY device_id
+        LIMIT 1`,
+      [assetId]
+    );
+    if (linkedDeviceResult.rows.length) {
+      await client.query("ROLLBACK");
+      return {
+        asset: assetResult.rows[0],
+        linkedDevice: linkedDeviceResult.rows[0],
+      };
+    }
+
+    await client.query("DELETE FROM hardware_assets WHERE asset_id=$1", [
+      assetId,
+    ]);
+    await client.query("COMMIT");
+    return { asset: assetResult.rows[0], linkedDevice: null };
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (_rollbackError) {
+      // Preserve the original database error.
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 function findDevice(deviceId) {
   return db.query(
     `SELECT asset_id, device_uuid, hostname
@@ -317,6 +367,7 @@ function linkDevice(assetId, deviceId) {
 module.exports = {
   createAsset,
   deleteAsset,
+  deleteAssetSafely,
   findAsset,
   findAssetBranch,
   findAssetTag,

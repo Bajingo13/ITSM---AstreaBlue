@@ -358,82 +358,110 @@ function registerEndpointInventoryRoutes(router, {
       }
       const inv = inventoryQuery.rows[0];
       const realSerialNumber = normalizeDetectedSerial(inv.serial_number);
+      const { assetTag, serialNumber } = buildAgentAssetIdentity(device, inv);
+      const existingAssetQuery = await client.query(
+        `SELECT asset.asset_id, asset.asset_tag, asset.asset_name,
+                asset.serial_number, asset.branch_id, branch.branch_name
+           FROM hardware_assets asset
+           LEFT JOIN branches branch ON branch.branch_id=asset.branch_id
+          WHERE LOWER(TRIM(asset.serial_number)) = LOWER(TRIM($1))
+             OR LOWER(TRIM(asset.asset_tag)) = LOWER(TRIM($2))
+          ORDER BY
+            CASE
+              WHEN $3::text IS NOT NULL
+               AND LOWER(TRIM(asset.serial_number)) = LOWER(TRIM($3))
+              THEN 0
+              ELSE 1
+            END,
+            asset.asset_id
+          LIMIT 1
+          FOR UPDATE OF asset`,
+        [serialNumber, assetTag, realSerialNumber]
+      );
 
-      if (realSerialNumber) {
-        const existingAssetQuery = await client.query(
-          `SELECT asset.asset_id, asset.asset_tag, asset.asset_name,
-                  asset.branch_id, branch.branch_name
-             FROM hardware_assets asset
-             LEFT JOIN branches branch ON branch.branch_id=asset.branch_id
-            WHERE LOWER(TRIM(asset.serial_number)) = LOWER(TRIM($1))
-            ORDER BY asset.asset_id
-            LIMIT 1
-            FOR UPDATE OF asset`,
-          [realSerialNumber]
+      if (existingAssetQuery.rows.length) {
+        const existingAsset = existingAssetQuery.rows[0];
+        const linkedDeviceQuery = await client.query(
+          `SELECT device_id, device_uuid, hostname, status, last_seen_at
+             FROM monitored_devices
+            WHERE asset_id=$1 AND device_id<>$2
+            ORDER BY last_seen_at DESC NULLS LAST, device_id
+            LIMIT 1`,
+          [existingAsset.asset_id, deviceId]
         );
 
-        if (existingAssetQuery.rows.length) {
-          const existingAsset = existingAssetQuery.rows[0];
-          const linkedDeviceQuery = await client.query(
-            `SELECT device_id
-               FROM monitored_devices
-              WHERE asset_id=$1 AND device_id<>$2
-              LIMIT 1`,
-            [existingAsset.asset_id, deviceId]
-          );
-
-          if (linkedDeviceQuery.rows.length) {
-            await client.query("ROLLBACK");
-            return res.status(409).json({
-              success: false,
-              error: "This serial number already belongs to an asset linked to another endpoint. Review the existing asset before linking this device.",
-            });
-          }
-
-          if (
-            device.branch_id
-            && existingAsset.branch_id
-            && device.branch_id !== existingAsset.branch_id
-          ) {
-            await client.query("ROLLBACK");
-            return res.status(req.monitoringIsSuperAdmin ? 409 : 403).json({
-              success: false,
-              error: req.monitoringIsSuperAdmin
-                ? `Asset ${existingAsset.asset_tag || existingAsset.asset_name || existingAsset.asset_id} already has this serial number and belongs to ${existingAsset.branch_name || `branch ${existingAsset.branch_id}`}. Use "Link to Existing Asset", or correct the asset branch before linking.`
-                : "Access denied.",
-              data: req.monitoringIsSuperAdmin ? {
-                matching_asset_id: existingAsset.asset_id,
-                matching_asset_tag: existingAsset.asset_tag,
-                matching_asset_name: existingAsset.asset_name,
-                matching_asset_branch_id: existingAsset.branch_id,
-                matching_asset_branch_name: existingAsset.branch_name,
-                endpoint_branch_id: device.branch_id,
-              } : undefined,
-            });
-          }
-
-          await client.query(
-            `UPDATE monitored_devices
-                SET asset_id=$1,
-                    branch_id=COALESCE(branch_id, $2),
-                    updated_at=CURRENT_TIMESTAMP
-              WHERE device_id=$3`,
-            [existingAsset.asset_id, existingAsset.branch_id, deviceId]
-          );
-          await client.query("COMMIT");
-          client.release();
-          client = null;
-          await reconcileDevice(deviceId);
-          return res.json({
-            success: true,
+        if (linkedDeviceQuery.rows.length) {
+          const linkedDevice = linkedDeviceQuery.rows[0];
+          await client.query("ROLLBACK");
+          return res.status(409).json({
+            success: false,
+            error: `Existing asset ${existingAsset.asset_tag || existingAsset.asset_name || existingAsset.asset_id} is already linked to endpoint ${linkedDevice.hostname || linkedDevice.device_uuid || linkedDevice.device_id}. Open that endpoint and remove its stale asset link before linking this device.`,
             data: {
-              asset_id: existingAsset.asset_id,
-              created: false,
-              message: "The endpoint was linked to its existing hardware asset.",
+              matching_asset_id: existingAsset.asset_id,
+              matching_asset_tag: existingAsset.asset_tag,
+              matching_asset_name: existingAsset.asset_name,
+              matching_asset_serial_number: existingAsset.serial_number,
+              matching_asset_branch_id: existingAsset.branch_id,
+              matching_asset_branch_name: existingAsset.branch_name,
+              linked_device_id: linkedDevice.device_id,
+              linked_device_uuid: linkedDevice.device_uuid,
+              linked_device_hostname: linkedDevice.hostname,
+              linked_device_status: linkedDevice.status,
+              linked_device_last_seen_at: linkedDevice.last_seen_at,
             },
-            message: "The endpoint was linked to its existing hardware asset.",
           });
         }
+
+        if (
+          device.branch_id
+          && existingAsset.branch_id
+          && device.branch_id !== existingAsset.branch_id
+        ) {
+          await client.query("ROLLBACK");
+          return res.status(req.monitoringIsSuperAdmin ? 409 : 403).json({
+            success: false,
+            error: req.monitoringIsSuperAdmin
+              ? `Existing asset ${existingAsset.asset_tag || existingAsset.asset_name || existingAsset.asset_id} belongs to ${existingAsset.branch_name || `branch ${existingAsset.branch_id}`}. Correct or transfer the asset branch before linking it to this endpoint.`
+              : "Access denied.",
+            data: req.monitoringIsSuperAdmin ? {
+              matching_asset_id: existingAsset.asset_id,
+              matching_asset_tag: existingAsset.asset_tag,
+              matching_asset_name: existingAsset.asset_name,
+              matching_asset_serial_number: existingAsset.serial_number,
+              matching_asset_branch_id: existingAsset.branch_id,
+              matching_asset_branch_name: existingAsset.branch_name,
+              endpoint_branch_id: device.branch_id,
+            } : undefined,
+          });
+        }
+
+        await client.query(
+          `UPDATE monitored_devices
+              SET asset_id=$1,
+                  branch_id=COALESCE(branch_id, $2),
+                  updated_at=CURRENT_TIMESTAMP
+            WHERE device_id=$3`,
+          [existingAsset.asset_id, existingAsset.branch_id, deviceId]
+        );
+        await client.query("COMMIT");
+        client.release();
+        client = null;
+        await reconcileDevice(deviceId);
+        return res.json({
+          success: true,
+          data: {
+            asset_id: existingAsset.asset_id,
+            created: false,
+            matched_by:
+              realSerialNumber
+              && String(existingAsset.serial_number || "").trim().toLowerCase()
+                === realSerialNumber.toLowerCase()
+                ? "serial_number"
+                : "asset_tag",
+            message: "The endpoint was linked to its existing hardware asset.",
+          },
+          message: "The endpoint was linked to its existing hardware asset. No duplicate was created.",
+        });
       }
 
       if (!device.branch_id) {
@@ -455,7 +483,6 @@ function registerEndpointInventoryRoutes(router, {
         255,
         "Unknown Endpoint"
       );
-      const { assetTag, serialNumber } = buildAgentAssetIdentity(device, inv);
       const operatingSystem = cleanInventoryText(
         [inv.os_name, inv.os_version].filter(Boolean).join(" "),
         150
