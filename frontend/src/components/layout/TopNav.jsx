@@ -26,6 +26,7 @@ import { useAuth } from "../../context/AuthContext";
 import { subscribeToTicketChanges } from "../../services/realtimeTickets";
 import { API_URL } from "../../config/api";
 import { authHeaders } from "../../services/authHeaders";
+import { resolveNotificationDestination } from "../../services/notificationNavigation";
 
 const philippineDateFormatter = new Intl.DateTimeFormat("en-PH", {
   timeZone: "Asia/Manila",
@@ -245,13 +246,16 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
     navigate("/login", { replace: true });
   };
 
-  const handleNotificationClick = async (notification) => {
-    if (!notification.read) await handleMarkAsRead(notification.id);
-    const ticketId = notification.related_ticket_id || notification.metadata?.ticketId;
-    if (ticketId) {
-      setNotifOpen(false);
-      navigate(`/ticket/${ticketId}`);
-    }
+  const handleNotificationClick = (notification) => {
+    if (!notification.read) void handleMarkAsRead(notification.id);
+    const destination = resolveNotificationDestination(notification, role);
+    setNotifOpen(false);
+    navigate(destination.path, {
+      state: {
+        notificationEntityType: notification.related_entity_type || notification.metadata?.relatedEntityType || null,
+        notificationEntityId: notification.related_entity_id || notification.metadata?.relatedEntityId || null,
+      },
+    });
   };
 
   const searchItems = [
@@ -450,7 +454,9 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
                     </p>
                   </div>
                 ) : (
-                  visibleNotifications.map((n) => (
+                  visibleNotifications.map((n) => {
+                    const destination = resolveNotificationDestination(n, role);
+                    return (
                     <button
                       type="button"
                       key={n.id}
@@ -474,9 +480,9 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
                         <p className={`mt-1 line-clamp-2 text-xs leading-5 ${!n.read ? "text-slate-700" : "text-slate-500"}`}>
                           {n.message}
                         </p>
-                        {n.related_ticket_id && (
+                        {destination?.label && (
                           <span className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-[10px] font-black text-blue-700 shadow-sm">
-                            View ticket
+                            {destination.label}
                           </span>
                         )}
                       </div>
@@ -484,7 +490,8 @@ export default function TopNav({ collapsed, theme = "light", onToggleTheme }) {
                         <span className="absolute bottom-3 right-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-blue-600 shadow-[0_0_0_2px_rgba(37,99,235,0.12)]" />
                       )}
                     </button>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
