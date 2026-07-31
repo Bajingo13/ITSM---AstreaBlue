@@ -1,5 +1,37 @@
 const db = require("../../config/db");
 
+function normalizeComparableText(value) {
+  return String(value || "")
+    .replace(/[®™©]/g, " ")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/\((?:r|tm)\)/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeCpuName(value) {
+  return normalizeComparableText(
+    String(value || "")
+      .replace(/\bcpu\b/gi, " ")
+      .replace(/\s*@\s*\d+(?:\.\d+)?\s*(?:ghz|mhz)\b/gi, " ")
+  );
+}
+
+function textValuesMatch(field, assetValue, inventoryValue) {
+  const normalize =
+    field === "cpu_name" ? normalizeCpuName : normalizeComparableText;
+  const normalizedAsset = normalize(assetValue);
+  const normalizedInventory = normalize(inventoryValue);
+  if (!normalizedAsset || !normalizedInventory) return false;
+  return (
+    normalizedAsset === normalizedInventory ||
+    normalizedAsset.includes(normalizedInventory) ||
+    normalizedInventory.includes(normalizedAsset)
+  );
+}
+
 async function reconcileDevice(deviceId) {
   try {
     // Get device and asset
@@ -80,7 +112,7 @@ async function reconcileDevice(deviceId) {
              if (normA !== normI) status = 'Mismatch';
            }
         } else if (['os_name', 'os_version', 'cpu_name'].includes(comp.field)) {
-           if (!normA.includes(normI) && !normI.includes(normA)) {
+           if (!textValuesMatch(comp.field, aVal, iVal)) {
              status = 'Mismatch';
            }
         } else {
@@ -160,5 +192,7 @@ async function reconcileDevice(deviceId) {
 }
 
 module.exports = {
-  reconcileDevice
+  normalizeCpuName,
+  reconcileDevice,
+  textValuesMatch
 };
