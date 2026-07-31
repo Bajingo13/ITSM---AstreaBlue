@@ -35,7 +35,12 @@ async function monitoringRequest(path, options = {}) {
     headers: { ...authHeaders(), ...(options.headers || {}) },
   });
   const body = await response.json();
-  if (!response.ok || body.success === false) throw new Error(body.error || body.message || "Monitoring request failed.");
+  if (!response.ok || body.success === false) {
+    const error = new Error(body.error || body.message || "Monitoring request failed.");
+    error.status = response.status;
+    error.data = body.data || null;
+    throw error;
+  }
   return body.data || body;
 }
 
@@ -606,7 +611,43 @@ export default function EndpointMonitoring() {
                               await loadOverview();
                               showToast(conversion?.message || "Hardware Asset created or linked from endpoint specifications.");
                             } catch (e) {
-                              showToast(e.message, "error");
+                              if (
+                                isSuperAdmin
+                                && e.status === 409
+                                && e.data?.conflict_type === "branch_mismatch"
+                              ) {
+                                const assetLabel = [
+                                  e.data.matching_asset_name,
+                                  e.data.matching_asset_tag ? `Tag: ${e.data.matching_asset_tag}` : null,
+                                  e.data.matching_asset_serial_number ? `Serial: ${e.data.matching_asset_serial_number}` : null,
+                                ].filter(Boolean).join(" · ");
+                                setConfirmAction({
+                                  title: "Align endpoint branch and link?",
+                                  message: `${assetLabel} belongs to ${e.data.matching_asset_branch_name || "another branch"}. ${e.data.endpoint_hostname || "This endpoint"} is currently under ${e.data.endpoint_branch_name || "a different branch"}. Use the asset's branch for this endpoint and link the existing records? The asset and its history will not be deleted or duplicated.`,
+                                  confirmLabel: "Align & Link",
+                                  onConfirm: async () => {
+                                    setLoading(true);
+                                    try {
+                                      const conversion = await monitoringRequest(
+                                        `/devices/${encodeURIComponent(selectedId)}/convert-to-asset`,
+                                        {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ branch_resolution: "use_asset_branch" }),
+                                        }
+                                      );
+                                      await loadOverview();
+                                      showToast(conversion?.message || "Endpoint branch aligned and asset linked.");
+                                    } catch (resolutionError) {
+                                      showToast(resolutionError.message || "Unable to align and link the endpoint.", "error");
+                                    } finally {
+                                      setLoading(false);
+                                    }
+                                  },
+                                });
+                              } else {
+                                showToast(e.message, "error");
+                              }
                               setLoading(false);
                             }
                           },

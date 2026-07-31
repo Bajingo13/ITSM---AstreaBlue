@@ -323,6 +323,7 @@ function registerEndpointInventoryRoutes(router, {
     let client;
     try {
       const { deviceId } = req.params;
+      const branchResolution = String(req.body?.branch_resolution || "").trim().toLowerCase();
       client = await db.connect();
       await client.query("BEGIN");
 
@@ -385,6 +386,7 @@ function registerEndpointInventoryRoutes(router, {
 
       if (existingAssetQuery.rows.length) {
         const existingAsset = existingAssetQuery.rows[0];
+        let endpointBranchAligned = false;
         const existingAssetLabel = [
           existingAsset.asset_name || "Unnamed hardware asset",
           existingAsset.asset_tag ? `Tag: ${existingAsset.asset_tag}` : null,
@@ -426,33 +428,66 @@ function registerEndpointInventoryRoutes(router, {
           && existingAsset.branch_id
           && device.branch_id !== existingAsset.branch_id
         ) {
-          await client.query("ROLLBACK");
-          return res.status(req.monitoringIsSuperAdmin ? 409 : 403).json({
-            success: false,
-            error: req.monitoringIsSuperAdmin
-              ? `Existing hardware asset "${existingAssetLabel}" belongs to ${existingAsset.branch_name || `branch ${existingAsset.branch_id}`}, while endpoint ${device.hostname || device.device_uuid || device.device_id} belongs to ${device.branch_name || `branch ${device.branch_id}`}. Transfer the asset or correct the endpoint branch before linking them.`
-              : "Access denied.",
-            data: req.monitoringIsSuperAdmin ? {
-              matching_asset_id: existingAsset.asset_id,
-              matching_asset_tag: existingAsset.asset_tag,
-              matching_asset_name: existingAsset.asset_name,
-              matching_asset_serial_number: existingAsset.serial_number,
-              matching_asset_branch_id: existingAsset.branch_id,
-              matching_asset_branch_name: existingAsset.branch_name,
-              endpoint_branch_id: device.branch_id,
-              endpoint_branch_name: device.branch_name,
-            } : undefined,
-          });
+          if (!req.monitoringIsSuperAdmin || branchResolution !== "use_asset_branch") {
+            await client.query("ROLLBACK");
+            return res.status(req.monitoringIsSuperAdmin ? 409 : 403).json({
+              success: false,
+              error: req.monitoringIsSuperAdmin
+                ? `Existing hardware asset "${existingAssetLabel}" belongs to ${existingAsset.branch_name || `branch ${existingAsset.branch_id}`}, while endpoint ${device.hostname || device.device_uuid || device.device_id} belongs to ${device.branch_name || `branch ${device.branch_id}`}. Confirm that the endpoint should use the asset's branch before linking them.`
+                : "Access denied.",
+              data: req.monitoringIsSuperAdmin ? {
+                conflict_type: "branch_mismatch",
+                matching_asset_id: existingAsset.asset_id,
+                matching_asset_tag: existingAsset.asset_tag,
+                matching_asset_name: existingAsset.asset_name,
+                matching_asset_serial_number: existingAsset.serial_number,
+                matching_asset_branch_id: existingAsset.branch_id,
+                matching_asset_branch_name: existingAsset.branch_name,
+                endpoint_branch_id: device.branch_id,
+                endpoint_branch_name: device.branch_name,
+                endpoint_hostname: device.hostname,
+              } : undefined,
+            });
+          }
+          endpointBranchAligned = true;
         }
 
         await client.query(
           `UPDATE monitored_devices
               SET asset_id=$1,
-                  branch_id=COALESCE(branch_id, $2),
+                  branch_id=COALESCE($2, branch_id),
                   updated_at=CURRENT_TIMESTAMP
             WHERE device_id=$3`,
           [existingAsset.asset_id, existingAsset.branch_id, deviceId]
         );
+        if (endpointBranchAligned) {
+          await client.query(
+            `INSERT INTO monitored_device_assignments (
+               device_id, device_uuid, asset_id, old_user_id, new_user_id,
+               old_branch_id, new_branch_id, old_department, new_department,
+               reason, changed_by
+             ) VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$7,$8,$9)`,
+            [
+              device.device_id,
+              device.device_uuid,
+              existingAsset.asset_id,
+              device.assigned_user_id || null,
+              device.branch_id,
+              existingAsset.branch_id,
+              device.department || null,
+              `Endpoint branch aligned to existing asset ${existingAsset.asset_tag || existingAsset.asset_id}`,
+              req.monitoringUserId,
+            ]
+          );
+          await client.query(
+            `INSERT INTO laptop_activity_logs (device_id, event_type, app_name, window_title)
+             VALUES ($1,'system_audit','Endpoint asset link',$2)`,
+            [
+              device.device_id,
+              `Branch changed from ${device.branch_name || device.branch_id} to ${existingAsset.branch_name || existingAsset.branch_id}; linked to ${existingAsset.asset_tag || existingAsset.asset_id}.`,
+            ]
+          );
+        }
         await client.query("COMMIT");
         client.release();
         client = null;
@@ -468,9 +503,14 @@ function registerEndpointInventoryRoutes(router, {
                 === realSerialNumber.toLowerCase()
                 ? "serial_number"
                 : "asset_tag",
-            message: "The endpoint was linked to its existing hardware asset.",
+            branch_aligned: endpointBranchAligned,
+            message: endpointBranchAligned
+              ? "The endpoint branch was aligned to the existing asset and the records were linked."
+              : "The endpoint was linked to its existing hardware asset.",
           },
-          message: "The endpoint was linked to its existing hardware asset. No duplicate was created.",
+          message: endpointBranchAligned
+            ? "The endpoint branch was aligned to the existing asset and linked successfully. No duplicate was created."
+            : "The endpoint was linked to its existing hardware asset. No duplicate was created.",
         });
       }
 
