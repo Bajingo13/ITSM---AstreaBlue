@@ -8,6 +8,7 @@ const {
   resolveDlpRules,
 } = require("../services/dlpRiskService");
 const { buildEndpointHealth } = require("../services/endpointHealthService");
+const { enforceConsentGates } = require("../services/endpointConsentPolicyService");
 const {
   endpointMonitoringTablesReady,
 } = require("../services/endpointMonitoringSchemaService");
@@ -474,42 +475,14 @@ async function generateEffectivePolicy(deviceUuid, actorId) {
     }
   }
 
-  const reasons = {};
-  const hasConsent = !!consentDoc;
-  if (consentDoc) {
-      const prefs = consentDoc.monitoring_preferences || [];
-      if (!hasPreference(prefs, "application_monitoring", "applications", "activity_monitoring", "app_usage", "window_title", "idle_time")) {
-        effectiveConfig.activity_monitoring_enabled = false;
-        reasons.activity_monitoring_enabled = "Employee consent excludes Application/window activity.";
-      } else if (!effectiveConfig.activity_monitoring_enabled) {
-        reasons.activity_monitoring_enabled = `Disabled by ${featureSources.activity_monitoring_enabled || "endpoint"} policy.`;
-      }
-      if (!hasPreference(prefs, "screenshot_monitoring", "screenshot")) {
-        effectiveConfig.screenshot_monitoring_enabled = false;
-        reasons.screenshot_monitoring_enabled = "Employee consent excludes Screenshot Monitoring.";
-      }
-      if (!hasPreference(prefs, "web_monitoring", "website_monitoring", "browser")) {
-        effectiveConfig.browser_monitoring_enabled = false;
-        reasons.browser_monitoring_enabled = "Employee consent excludes Browser/domain monitoring.";
-      }
-      if (!hasPreference(prefs, "usb_monitoring", "usb")) {
-        effectiveConfig.usb_monitoring_enabled = false;
-        reasons.usb_monitoring_enabled = "Employee consent excludes USB activity monitoring.";
-      }
-  }
-
-  if (!hasConsent) {
-    effectiveConfig.activity_monitoring_enabled = false;
-    effectiveConfig.screenshot_monitoring_enabled = false;
-    effectiveConfig.browser_monitoring_enabled = false;
-    effectiveConfig.usb_monitoring_enabled = false;
-    effectiveConfig.location_tracking_enabled = false;
-    reasons.activity_monitoring_enabled = device.assigned_user_id ? "No active approved consent." : "Device is not assigned to an employee.";
-    reasons.screenshot_monitoring_enabled = device.assigned_user_id ? "No active approved consent." : "Device is not assigned to an employee.";
-    reasons.browser_monitoring_enabled = device.assigned_user_id ? "No active approved consent." : "Device is not assigned to an employee.";
-    reasons.usb_monitoring_enabled = device.assigned_user_id ? "No active approved consent." : "Device is not assigned to an employee.";
-    reasons.location_tracking_enabled = device.assigned_user_id ? "No active approved consent." : "Device is not assigned to an employee.";
-  }
+  const consentGateResult = enforceConsentGates({
+    config: effectiveConfig,
+    consentDocument: consentDoc,
+    featureSources,
+    employeeAssigned: !!device.assigned_user_id,
+  });
+  effectiveConfig = consentGateResult.effectiveConfig;
+  const reasons = consentGateResult.reasons;
 
   if (device.assigned_user_id) {
     screenshotOverride = await endpointMonitoringRepository.findScreenshotOverride(

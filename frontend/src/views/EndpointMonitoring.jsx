@@ -760,10 +760,13 @@ export default function EndpointMonitoring() {
                 <p><span className="font-bold">Last Generated:</span> {details?.policy?.generated_at ? formatDate(details?.policy?.generated_at) : "Never"}</p>
                 <p><span className="font-bold">Last Downloaded:</span> {selectedDevice?.policy_synced_at ? formatDate(selectedDevice?.policy_synced_at) : "Never"}</p>
                 {details?.policy?.reasons && Object.keys(details.policy.reasons).length > 0 && (
-                  <div className="mt-2 rounded bg-rose-50 p-2 text-xs text-rose-700">
-                    <p className="font-bold mb-1">Disabled Features:</p>
-                    <ul className="list-disc pl-4">
-                      {Object.entries(details.policy.reasons).map(([k,v]) => <li key={k}>{v}</li>)}
+                  <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                    <p className="mb-1 font-black">Optional features not enabled</p>
+                    <p className="mb-2 text-[11px] text-amber-800">This does not mean the agent is offline. Heartbeat, policy sync, and baseline inventory continue independently.</p>
+                    <ul className="space-y-1">
+                      {Object.entries(details.policy.reasons).map(([key, reason]) => (
+                        <li key={key}><span className="font-black">{formatPolicyFeatureName(key)}:</span> {reason}</li>
+                      ))}
                     </ul>
                   </div>
                 )}
@@ -933,13 +936,13 @@ export default function EndpointMonitoring() {
                 <h4 className="text-sm font-black uppercase text-slate-500">Effective Policy Permissions</h4>
                 <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
                   {Object.entries(selectedHealth?.policy?.feature_permissions || {}).length === 0 ? <Empty text="No effective policy permissions generated yet." /> : Object.entries(selectedHealth.policy.feature_permissions).map(([key, feature]) => (
-                    <div key={key} className="rounded-xl bg-white px-3 py-2 text-sm">
+                    <div key={key} className={`rounded-xl border px-3 py-2 text-sm ${getPolicyFeaturePresentation(feature).cardClass}`}>
                       <div className="flex items-center justify-between gap-3">
-                        <span className="font-bold text-slate-700">{key.replace(/_/g, " ")}</span>
-                        <HealthBadge status={feature.enabled ? "Healthy" : "Offline"} />
+                        <span className="font-bold text-slate-700">{formatPolicyFeatureName(key)}</span>
+                        <HealthBadge status={getPolicyFeaturePresentation(feature).status} />
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">Source: {feature.source_policy || "Unknown"}{feature.consent_required ? " · Consent required" : ""}</p>
-                      {!feature.enabled && feature.reason && <p className="mt-1 text-xs font-semibold text-amber-700">{feature.reason}</p>}
+                      <p className="mt-1 text-xs text-slate-500">Source: {feature.source_policy || "Unknown"}{feature.consent_required ? " · Optional consent required" : " · Baseline agent function"}</p>
+                      {!feature.enabled && feature.reason && <p className="mt-1 text-xs font-semibold text-amber-800">{feature.reason}</p>}
                     </div>
                   ))}
                 </div>
@@ -1268,12 +1271,57 @@ function SoftwareStatus({ status = "active" }) {
 
 function HealthBadge({ status = "Warning" }) {
   const normalized = String(status || "Warning").toLowerCase();
-  const styles = normalized === "healthy" ? "bg-emerald-100 text-emerald-800" :
+  const styles = ["healthy", "enabled"].includes(normalized) ? "bg-emerald-100 text-emerald-800" :
     normalized === "warning" ? "bg-amber-100 text-amber-800" :
     normalized === "critical" ? "bg-rose-100 text-rose-800" :
     normalized === "offline" ? "bg-slate-200 text-slate-700" :
+    ["not consented", "awaiting consent", "disabled by policy"].includes(normalized) ? "bg-amber-100 text-amber-900" :
+    ["not applicable", "not configured", "disabled"].includes(normalized) ? "bg-slate-200 text-slate-700" :
+    normalized === "paused by superadmin" ? "bg-rose-100 text-rose-800" :
     "bg-sky-100 text-sky-800";
   return <span className={`rounded-full px-3 py-1 text-xs font-black ${styles}`}>{status || "Warning"}</span>;
+}
+
+const POLICY_FEATURE_LABELS = {
+  heartbeat_enabled: "Heartbeat & connectivity",
+  telemetry_enabled: "Agent telemetry",
+  hardware_inventory_enabled: "Hardware inventory",
+  software_inventory_enabled: "Software inventory",
+  policy_sync_enabled: "Policy synchronization",
+  activity_monitoring_enabled: "Application & activity monitoring",
+  screenshot_monitoring_enabled: "Screenshot monitoring",
+  browser_monitoring_enabled: "Browser & domain monitoring",
+  usb_monitoring_enabled: "USB & DLP monitoring",
+  location_tracking_enabled: "Location tracking",
+  auto_incident_enabled: "Automatic incident creation",
+};
+
+function formatPolicyFeatureName(key) {
+  return POLICY_FEATURE_LABELS[key] || String(key || "").replace(/_/g, " ");
+}
+
+function getPolicyFeaturePresentation(feature = {}) {
+  if (feature.enabled) {
+    return { status: "Enabled", cardClass: "border-emerald-100 bg-emerald-50/40" };
+  }
+
+  const reason = String(feature.reason || "").toLowerCase();
+  if (reason.includes("superadmin") || reason.includes("paused")) {
+    return { status: "Paused by SuperAdmin", cardClass: "border-rose-200 bg-rose-50" };
+  }
+  if (reason.includes("employee consent excludes")) {
+    return { status: "Not Consented", cardClass: "border-amber-200 bg-amber-50" };
+  }
+  if (reason.includes("no active approved consent")) {
+    return { status: "Awaiting Consent", cardClass: "border-amber-200 bg-amber-50" };
+  }
+  if (reason.includes("not assigned to an employee")) {
+    return { status: "Not Applicable", cardClass: "border-slate-200 bg-slate-50" };
+  }
+  if (reason.includes("disabled by")) {
+    return { status: "Disabled by Policy", cardClass: "border-amber-200 bg-amber-50" };
+  }
+  return { status: "Not Configured", cardClass: "border-slate-200 bg-slate-50" };
 }
 
 function DiagnosticRow({ label, value, status = "Warning" }) {
