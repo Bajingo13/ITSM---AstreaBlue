@@ -101,6 +101,44 @@ function calculateLifecycleTicketPriority({ lifecycleType, targetDate, startDate
   return "P4-Low";
 }
 
+function buildOnboardingTicketDescription({
+  caseNumber,
+  employeeName,
+  branchName,
+  department,
+  jobTitle,
+  contactEmail,
+  startDate,
+  notes,
+}) {
+  const details = [
+    ["Lifecycle case", caseNumber],
+    ["Employee", employeeName],
+    ["Branch", branchName],
+    ["Department", department],
+    ["Job title", jobTitle],
+    ["Personal/contact email", contactEmail],
+    ["Start date", startDate],
+  ]
+    .filter(([, value]) => String(value || "").trim())
+    .map(([label, value]) => `${label}: ${String(value).trim()}`);
+
+  const content = [
+    "Coordinate the employee's onboarding through the linked Employee Lifecycle case.",
+    "",
+    ...details,
+    "",
+    "Required administrator actions:",
+    "1. Create the employee's company mailbox outside AstreaBlue using the approved company email platform.",
+    "2. Record the company/login email in the lifecycle case.",
+    "3. Create and send the AstreaBlue account invitation.",
+    "4. Complete the remaining lifecycle checklist and final verification.",
+  ];
+  const normalizedNotes = String(notes || "").trim();
+  if (normalizedNotes) content.push("", `Case notes: ${normalizedNotes}`);
+  return content.join("\n");
+}
+
 function deriveOffboardingStatusAfterTask({ lifecycleType, currentStatus, taskStatus, requiredPending }) {
   if (normalizeLifecycleType(lifecycleType) !== "Offboarding" || taskStatus !== "Completed") {
     return currentStatus;
@@ -135,6 +173,7 @@ module.exports = {
   canTransition,
   canCompleteCase,
   calculateLifecycleTicketPriority,
+  buildOnboardingTicketDescription,
   deriveOffboardingStatusAfterTask,
   canUpdateLifecycleTask,
   lifecycleTaskOwnerLabel,

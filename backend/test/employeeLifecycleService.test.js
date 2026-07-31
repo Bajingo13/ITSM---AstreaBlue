@@ -7,6 +7,7 @@ const {
   canTransition,
   canCompleteCase,
   calculateLifecycleTicketPriority,
+  buildOnboardingTicketDescription,
   deriveOffboardingStatusAfterTask,
   canUpdateLifecycleTask,
 } = require("../src/services/employeeLifecycleService");
@@ -60,6 +61,26 @@ test("lifecycle ticket priority is driven by the onboarding start date or offboa
     lifecycleType: "Offboarding", targetDate: "2026-08-15", now,
   }), "P4-Low");
   assert.equal(calculateLifecycleTicketPriority({ lifecycleType: "Onboarding", now }), "P3-Medium");
+});
+
+test("onboarding ticket instructions separate external mailbox creation from AstreaBlue invitation", () => {
+  const description = buildOnboardingTicketDescription({
+    caseNumber: "ONB-20260731-0001",
+    employeeName: "Paul Rosal",
+    branchName: "Makati Head Office",
+    department: "Finance",
+    jobTitle: "Analyst",
+    contactEmail: "paul@example.test",
+    startDate: "2026-08-03",
+    notes: "Prepare the assigned workstation.",
+  });
+
+  assert.match(description, /Lifecycle case: ONB-20260731-0001/);
+  assert.match(description, /Employee: Paul Rosal/);
+  assert.match(description, /Create the employee's company mailbox outside AstreaBlue/);
+  assert.match(description, /Record the company\/login email in the lifecycle case/);
+  assert.match(description, /Create and send the AstreaBlue account invitation/);
+  assert.match(description, /Case notes: Prepare the assigned workstation/);
 });
 
 test("HR is limited to HR checklist work while Admin and SuperAdmin retain IT authority", () => {

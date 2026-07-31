@@ -120,7 +120,10 @@ test("HR starts onboarding before an account exists and an administrator provisi
   assert.ok(createdCase.related_ticket_id, "pre-hire onboarding must create a linked Service Desk ticket");
   automaticTicketIds.push(Number(createdCase.related_ticket_id));
   const linkedTicket = await db.query(
-    `SELECT requester_id,branch_id,title,status,source FROM tickets WHERE id=$1`,
+    `SELECT t.requester_id,t.branch_id,t.title,t.description,t.status,t.source,tc.category_name
+       FROM tickets t
+       LEFT JOIN ticket_categories tc ON tc.category_id=t.category_id
+      WHERE t.id=$1`,
     [createdCase.related_ticket_id]
   );
   assert.equal(Number(linkedTicket.rows[0].requester_id), Number(hrId));
@@ -128,6 +131,11 @@ test("HR starts onboarding before an account exists and an administrator provisi
   assert.equal(linkedTicket.rows[0].status, "Open Queue");
   assert.equal(linkedTicket.rows[0].source, "employee_lifecycle");
   assert.match(linkedTicket.rows[0].title, /Onboarding Request/);
+  assert.equal(linkedTicket.rows[0].category_name, "Employee Lifecycle - Onboarding");
+  assert.match(linkedTicket.rows[0].description, /Employee: Pre Hire Employee/);
+  assert.match(linkedTicket.rows[0].description, /Department: Operations/);
+  assert.match(linkedTicket.rows[0].description, /Create the employee's company mailbox outside AstreaBlue/);
+  assert.match(linkedTicket.rows[0].description, /Create and send the AstreaBlue account invitation/);
 
   response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${preHireCaseId}/account-invitation`, {
     method: "POST",
