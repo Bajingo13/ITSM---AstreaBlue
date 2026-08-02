@@ -574,7 +574,7 @@ function UserFormModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             full_name: form.full_name,
-            email: form.email || form.company_email || form.personal_email,
+            email: form.email || form.company_email,
             personal_email: form.personal_email || null,
             company_email: form.company_email || null,
             password: form.password,
@@ -673,13 +673,13 @@ function UserFormModal({
             {isInvite ? (
               <>
                 <Field
-                  label="Personal Email"
+                  label="Personal Email (Reminder Only)"
                   required
                   value={form.personal_email}
                   onChange={(value) => updateForm("personal_email", value)}
                 />
                 <Field
-                  label="Company Email"
+                  label="Company / Login Email"
                   required
                   value={form.company_email}
                   onChange={(value) => updateForm("company_email", value)}
@@ -751,6 +751,13 @@ function UserFormModal({
               />
             )}
           </div>
+
+          {isInvite && (
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-slate-700">
+              <p><strong className="text-slate-900">Company / Login Email:</strong> receives the activation link and is the only address the user can use to sign in.</p>
+              <p className="mt-1"><strong className="text-slate-900">Personal Email:</strong> receives a reminder without the activation link and cannot be used to sign in.</p>
+            </div>
+          )}
 
           <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">
             <button

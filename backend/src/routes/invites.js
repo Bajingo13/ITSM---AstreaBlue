@@ -27,6 +27,10 @@ function normalizeRole(role) {
   return String(role || "").trim().toLowerCase();
 }
 
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function buildInviteLink(req, token) {
   const origin =
     process.env.FRONTEND_URL ||
@@ -77,7 +81,19 @@ async function sendInviteResponse({
 
   try {
     const branchName = await getBranchName(branchId);
-    const primaryEmail = companyEmail || personalEmail;
+    const primaryEmail = normalizeEmail(companyEmail);
+    if (!primaryEmail) {
+      return res.status(409).json({
+        success: false,
+        email_sent: false,
+        error: "A company/login email is required before this invitation can be sent.",
+        invitation: {
+          ...invitation,
+          role: inviteRole.role_name,
+        },
+        invite_link: inviteLink,
+      });
+    }
     const emailResult = await sendInvitationEmail({
       to: primaryEmail,
       fullName,
@@ -265,8 +281,8 @@ router.post("/", async (req, res) => {
       current_user_id = null,
     } = req.body;
 
-    const personal_email = raw_pe ? String(raw_pe).trim() : null;
-    const company_email = raw_ce ? String(raw_ce).trim() : null;
+    const personal_email = normalizeEmail(raw_pe) || null;
+    const company_email = normalizeEmail(raw_ce) || null;
 
     const actorRole = normalizeRole(current_role || req.body.role_name || req.body.actor_role);
 
@@ -301,7 +317,9 @@ router.post("/", async (req, res) => {
     }
 
     const token = crypto.randomBytes(32).toString("hex");
-    const loginEmail = company_email || personal_email;
+    // The company email is the account identity. The personal address is
+    // retained only for link-free reminders and must never become a login.
+    const loginEmail = company_email;
 
     let valid_invited_by = null;
     if (current_user_id) {
@@ -503,6 +521,8 @@ router.get("/:token", async (req, res) => {
         branch: invite.branch_name,
         branch_id: invite.branch_id,
         personal_email: invite.personal_email,
+        company_email: invite.company_email || invite.email,
+        login_email: invite.email,
       },
     });
   } catch (err) {
@@ -539,6 +559,13 @@ async function completeInvite(req, res) {
     }
 
     const invite = validation.invite;
+    const passwordValidation = validateStrongPassword(password);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: passwordValidation.message,
+      });
+    }
     const passwordHash = hashPassword(password);
 
     await db.query(
@@ -604,14 +631,6 @@ async function completeInvite(req, res) {
             ? reminderResult?.error || "Personal reminder delivery failed."
             : null),
       };
-    }
-
-    const passwordValidation = validateStrongPassword(password);
-    if (!passwordValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        error: passwordValidation.message,
-      });
     }
 
     res.json({

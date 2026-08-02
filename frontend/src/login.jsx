@@ -116,13 +116,13 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Email Address <span className="astrea-required">*</span>
+                Company / Login Email <span className="astrea-required">*</span>
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email address"
+                placeholder="Enter your company email"
                 required
                 autoComplete="email"
                 className="w-full rounded-xl border border-[#D8E5F6] bg-[#F7FAFF] px-4 py-3 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"

@@ -34,13 +34,14 @@ router.post("/login", async (req, res) => {
   // ... existing login code remains unchanged ...
   try {
     const { email, password } = req.body;
+    const loginEmail = String(email || "").trim().toLowerCase();
 
     const result = await db.query(
       `
       SELECT
         u.user_id,
         u.full_name,
-        u.email,
+        COALESCE(NULLIF(u.company_email, ''), u.email) AS email,
         u.password_hash,
         u.company_name,
         u.branch_id,
@@ -55,10 +56,10 @@ router.post("/login", async (req, res) => {
       FROM users u
       JOIN system_roles sr ON u.role_id = sr.role_id
       LEFT JOIN branches b ON u.branch_id = b.branch_id
-      WHERE u.email = $1
+      WHERE LOWER(COALESCE(NULLIF(u.company_email, ''), u.email)) = $1
       LIMIT 1
       `,
-      [email]
+      [loginEmail]
     );
 
     if (result.rows.length === 0) {
@@ -143,7 +144,11 @@ router.post("/forgot-password", async (req, res) => {
   let pendingToken = null;
   try {
     const userResult = await db.query(
-      "SELECT user_id FROM users WHERE LOWER(email) = $1 AND COALESCE(is_active, TRUE) = TRUE LIMIT 1",
+      `SELECT user_id
+         FROM users
+        WHERE LOWER(COALESCE(NULLIF(company_email, ''), email)) = $1
+          AND COALESCE(is_active, TRUE) = TRUE
+        LIMIT 1`,
       [email]
     );
     

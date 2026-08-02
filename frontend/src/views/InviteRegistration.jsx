@@ -110,9 +110,6 @@ export default function InviteRegistration() {
 
             {invite && (
               <div className="rounded-2xl bg-slate-50 p-5">
-                <p className="text-sm font-bold text-slate-500">
-                  {invite.personal_email}
-                </p>
                 <p className="mt-1 text-xl font-black text-slate-900">
                   {invite.full_name || "Invited User"}
                 </p>
@@ -122,11 +119,17 @@ export default function InviteRegistration() {
                 <p className="text-sm font-semibold text-slate-500">
                   Branch: {invite.branch || invite.branch_name || "Global"}
                 </p>
-                {invite.company_email && (
-                  <p className="text-sm font-semibold text-slate-500">
-                    Company Email: {invite.company_email}
+                <p className="mt-3 text-sm font-semibold text-slate-700">
+                  Company / Login Email: {invite.login_email || invite.company_email}
+                </p>
+                {invite.personal_email && (
+                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                    Personal Email (reminders only): {invite.personal_email}
                   </p>
                 )}
+                <p className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">
+                  After activation, sign in with the company/login email shown above. The personal email is not a login address.
+                </p>
               </div>
             )}
 

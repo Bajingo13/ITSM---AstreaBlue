@@ -37,7 +37,7 @@ export default function ForgotPassword() {
           <h1 className="mb-4 text-5xl font-extrabold tracking-tight">Forgot Password?</h1>
           <p className="mb-4 text-lg font-semibold text-[#1E2A44]">Don't worry, it happens.</p>
           <p className="max-w-sm text-sm leading-7 text-[#50627A]">
-            Enter your email address and we'll send you a link to reset your password.
+            Enter your company/login email and we'll send you a link to reset your password.
           </p>
           <div className="mt-10 grid gap-3 text-sm font-semibold text-[#1E2A44]">
             <div className="flex items-center gap-3">
@@ -74,12 +74,12 @@ export default function ForgotPassword() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Email Address <span className="astrea-required">*</span></label>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Company / Login Email <span className="astrea-required">*</span></label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email address"
+                placeholder="Enter your company email"
                 required
                 autoComplete="email"
                 className="w-full rounded-xl border border-[#D8E5F6] bg-[#F7FAFF] px-4 py-3 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
