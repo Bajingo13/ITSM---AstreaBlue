@@ -43,6 +43,7 @@ const migrationFiles = [
   "2026-07-28-ai-assistant-foundation.sql",
   "2026-07-30-ai-assistant-knowledge-intelligence.sql",
   "2026-07-30-ai-assistant-operational-intelligence.sql",
+  "2026-08-03-endpoint-asset-link-integrity.sql",
 ];
 
 const defaultTicketCategories = [

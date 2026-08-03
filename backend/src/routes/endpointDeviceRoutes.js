@@ -112,7 +112,18 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
          (SELECT occurred_at FROM laptop_activity_logs al WHERE al.device_id = d.device_id ORDER BY al.occurred_at DESC LIMIT 1) as last_activity,
          (SELECT captured_at FROM laptop_screenshots ls WHERE ls.device_id = d.device_id ORDER BY ls.captured_at DESC LIMIT 1) as last_screenshot,
          d.last_policy_sync_at AS policy_synced_at,
-         a.asset_tag, a.serial_number, a.model
+         a.asset_id AS linked_asset_id,
+         a.asset_tag, a.asset_name, a.serial_number, a.model,
+         a.employee_id AS asset_employee_id,
+         a.assigned_name AS asset_assigned_name,
+         CASE
+           WHEN a.asset_id IS NULL THEN NULL
+           WHEN d.assigned_user_id IS NULL AND a.employee_id IS NULL AND NULLIF(TRIM(a.assigned_name), '') IS NULL THEN TRUE
+           WHEN a.employee_id::text = d.assigned_user_id::text THEN TRUE
+           WHEN NULLIF(TRIM(a.assigned_name), '') IS NOT NULL
+             AND LOWER(TRIM(a.assigned_name)) = LOWER(TRIM(u.full_name)) THEN TRUE
+           ELSE FALSE
+         END AS asset_assignment_matches
          FROM monitored_devices d
          LEFT JOIN users u ON u.user_id=d.assigned_user_id
          LEFT JOIN branches b ON b.branch_id=d.branch_id
@@ -441,6 +452,63 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
     } catch (error) {
       console.error("[laptop-monitoring:assign]", error.message);
       return res.status(500).json({ success: false, message: "Failed to assign device." });
+    }
+  });
+
+  router.delete("/devices/:id/asset-link", requireAdmin, async (req, res) => {
+    if (req.monitoringIsEmployee) {
+      return res.status(403).json({ success: false, message: "Employees cannot change endpoint asset links." });
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const deviceResult = await client.query(
+        `SELECT device_id, device_uuid, hostname, asset_id, branch_id
+         FROM monitored_devices
+         WHERE device_id=$1
+         FOR UPDATE`,
+        [req.params.id]
+      );
+      if (!deviceResult.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ success: false, message: "Device not found." });
+      }
+
+      const device = deviceResult.rows[0];
+      if (!req.monitoringIsSuperAdmin && device.branch_id && device.branch_id !== req.monitoringBranchId) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ success: false, message: "Cannot change a device from another branch." });
+      }
+
+      await client.query(
+        `UPDATE monitored_devices SET asset_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE device_id=$1`,
+        [device.device_id]
+      );
+      await client.query(`UPDATE endpoint_hardware_inventory SET asset_id=NULL WHERE device_id=$1`, [device.device_id]);
+      await client.query(`UPDATE endpoint_software_inventory SET asset_id=NULL WHERE device_id=$1`, [device.device_id]);
+      await client.query(
+        `UPDATE asset_discoveries
+         SET matched_asset_id=NULL, reconciliation_status='Unmanaged', updated_at=CURRENT_TIMESTAMP
+         WHERE raw_data->>'device_uuid'=$1`,
+        [String(device.device_uuid || "")]
+      );
+      await client.query(
+        `INSERT INTO laptop_activity_logs (device_id, event_type, app_name, window_title)
+         VALUES ($1, 'system_audit', 'Endpoint asset link removed', $2)`,
+        [device.device_id, `Previous Asset ID: ${device.asset_id || "None"}`]
+      );
+      await client.query("COMMIT");
+      return res.json({
+        success: true,
+        message: "The stale hardware-asset link was removed. Endpoint monitoring remains active.",
+      });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[laptop-monitoring:remove-asset-link]", error.message);
+      return res.status(500).json({ success: false, message: "Failed to remove the endpoint asset link." });
+    } finally {
+      client.release();
     }
   });
 

@@ -8,7 +8,7 @@ async function initializeEndpointMonitoringSchema() {
         device_uuid UUID, device_name VARCHAR(255), logged_in_user VARCHAR(255),
         assigned_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
         branch_id INTEGER REFERENCES branches(branch_id) ON DELETE SET NULL,
-        asset_id INTEGER, department VARCHAR(255),
+        asset_id INTEGER REFERENCES hardware_assets(asset_id) ON DELETE SET NULL, department VARCHAR(255),
         agent_version VARCHAR(50), last_seen_at TIMESTAMPTZ,
         status VARCHAR(20) NOT NULL DEFAULT 'Offline', consent_status VARCHAR(30) NOT NULL DEFAULT 'Pending',
         last_policy_sync_at TIMESTAMPTZ,
@@ -142,6 +142,30 @@ async function initializeEndpointMonitoringSchema() {
         detected_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    await db.query(`
+      UPDATE monitored_devices d
+      SET asset_id=NULL, updated_at=CURRENT_TIMESTAMP
+      WHERE d.asset_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM hardware_assets a WHERE a.asset_id=d.asset_id);
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid=c.conrelid
+          JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum=ANY(c.conkey)
+          WHERE t.relname='monitored_devices'
+            AND c.contype='f'
+            AND a.attname='asset_id'
+        ) THEN
+          ALTER TABLE monitored_devices
+            ADD CONSTRAINT monitored_devices_asset_id_fkey
+            FOREIGN KEY (asset_id) REFERENCES hardware_assets(asset_id) ON DELETE SET NULL;
+        END IF;
+      END $$;
     `);
 
     await db.query(`

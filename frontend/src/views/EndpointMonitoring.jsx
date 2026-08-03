@@ -22,6 +22,8 @@ const ENDPOINT_ASSET_TYPES = new Set([
   "workstation",
 ]);
 const isEndpointAsset = (asset) => ENDPOINT_ASSET_TYPES.has(normalizeIdentityValue(asset?.asset_type));
+const hasValidAssetLink = (device) => Boolean(device?.asset_id && device?.linked_asset_id);
+const hasBrokenAssetLink = (device) => Boolean(device?.asset_id && !device?.linked_asset_id);
 const formatDuration = (seconds) => {
   const value = Math.max(0, Number(seconds) || 0);
   if (value < 60) return `${Math.round(value)} sec`;
@@ -556,7 +558,8 @@ export default function EndpointMonitoring() {
     <section className="grid gap-6 xl:grid-cols-[minmax(300px,0.8fr)_minmax(0,2fr)]">
       <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black text-slate-900">Managed Endpoints</h2><div className="mt-4 space-y-3">{loading ? <p className="text-sm text-slate-500">Loading endpoints...</p> : devices.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No endpoint agent has checked in yet.</p> : devices.map((device) => <button key={device.device_id} onClick={() => setSelectedId(device.device_id)} className={`w-full rounded-2xl border p-4 text-left transition ${String(selectedId) === String(device.device_id) ? "border-blue-400 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}><div className="flex items-center justify-between gap-3"><div><p className="font-black text-slate-900">{device.device_name || device.hostname}</p><p className="text-xs text-slate-500">{device.hostname}</p></div><StatusBadge status={device.status} /></div>
       <div className="mt-2 flex flex-wrap gap-1">
-        {!device.asset_id ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">Unlinked Device</span> : <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black text-blue-700">Linked Asset</span>}
+        {hasBrokenAssetLink(device) ? <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-700">Broken Asset Link</span> : hasValidAssetLink(device) ? <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black text-blue-700">Linked Asset</span> : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">Unlinked Device</span>}
+        {hasValidAssetLink(device) && device.asset_assignment_matches === false ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-700">Ownership Mismatch</span> : null}
         {!device.assigned_user_id ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">Unassigned Employee</span> : null}
       </div>
       <p className="mt-2 text-sm text-slate-600">{device.assigned_user || "Unassigned / shared device"}</p><p className="text-xs text-slate-500">{device.branch_name || "No branch"} · {device.department || "No department"}</p><div className="mt-2 text-xs font-semibold text-slate-500"><p>Consent: {device.consent_status || "Pending"}</p><p>Policy Synced: {device.policy_synced_at ? formatDate(device.policy_synced_at) : "Never"}</p></div><div className="mt-2 text-[10px] text-slate-400"><p>Last Seen: {formatDate(device.last_seen_at)}</p><p>Last Activity: {device.last_activity ? formatDate(device.last_activity) : "Never"}</p><p>Last Screenshot: {device.last_screenshot ? formatDate(device.last_screenshot) : "Never"}</p></div><p className="mt-1 truncate font-mono text-[10px] text-slate-400" title={device.device_uuid}>{device.device_uuid || "Legacy device awaiting UUID"}</p></button>)}</div></div>
@@ -599,16 +602,49 @@ export default function EndpointMonitoring() {
             <div>
               <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider text-slate-500 mb-3">Linked Hardware Asset</h3>
               <div className="space-y-2 text-sm text-slate-600">
-                {selectedDevice?.asset_id ? (
+                {hasValidAssetLink(selectedDevice) ? (
                   <>
                     <p><span className="font-bold">Asset Tag:</span> <a href="/dashboard/hardware-assets" className="text-blue-600 hover:underline">{selectedDevice?.asset_tag}</a></p>
                     <p><span className="font-bold">Asset Name:</span> {selectedDevice?.asset_name}</p>
+                    {selectedDevice.asset_assignment_matches === false ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                        <p className="font-black">Ownership mismatch</p>
+                        <p className="mt-1">The endpoint is assigned to {selectedDevice.assigned_user || "another employee"}, while the linked asset is assigned to {selectedDevice.asset_assigned_name || "no employee"}.</p>
+                      </div>
+                    ) : null}
                     <p><span className="font-bold">Brand/Model:</span> {selectedDevice?.model || "—"}</p>
                     <div className="mt-3"><button onClick={() => handleOpenAssign('asset')} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Change Asset</button></div>
                   </>
                 ) : (
                   <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
-                    <p className="text-xs font-bold text-amber-800 flex items-center gap-2"><span className="inline-block h-2 w-2 rounded-full bg-amber-500"></span> Unlinked Device</p>
+                    <p className="text-xs font-bold text-amber-800 flex items-center gap-2"><span className="inline-block h-2 w-2 rounded-full bg-amber-500"></span> {hasBrokenAssetLink(selectedDevice) ? "Broken Asset Link" : "Unlinked Device"}</p>
+                    {hasBrokenAssetLink(selectedDevice) ? (
+                      <>
+                        <p className="mt-1 text-xs text-amber-800">The referenced hardware record no longer exists. The endpoint, employee assignment, consent, and monitoring history are safe.</p>
+                        <button
+                          onClick={() => setConfirmAction({
+                            title: "Remove stale asset link?",
+                            message: "Only the invalid hardware reference will be cleared. Endpoint monitoring and employee assignment will remain unchanged.",
+                            confirmLabel: "Remove Stale Link",
+                            onConfirm: async () => {
+                              setLoading(true);
+                              try {
+                                const result = await monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/asset-link`, { method: "DELETE" });
+                                await loadOverview();
+                                showToast(result?.message || "Stale hardware-asset link removed.");
+                              } catch (cleanupError) {
+                                showToast(cleanupError.message || "Unable to remove the stale asset link.", "error");
+                              } finally {
+                                setLoading(false);
+                              }
+                            },
+                          })}
+                          className="mt-2 w-full rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700"
+                        >
+                          Remove Stale Link
+                        </button>
+                      </>
+                    ) : null}
                     <button onClick={() => handleOpenAssign('asset')} className="mt-2 w-full rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700">Link to Existing Asset</button>
                     <button 
                       onClick={async () => {
@@ -675,7 +711,7 @@ export default function EndpointMonitoring() {
               </div>
             </div>
 
-            {selectedDevice?.asset_id && (
+            {hasValidAssetLink(selectedDevice) && (
               <div>
                 <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider text-slate-500 mb-3">Linked Asset Verification</h3>
                 <div className="space-y-2 text-sm text-slate-600">
