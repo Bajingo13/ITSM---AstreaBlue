@@ -590,7 +590,7 @@ test("assistant handles conversational existence questions and common repair typ
   assert.equal(result.mode, "system-data");
   assert.equal(
     result.answer,
-    "Yes. You currently have 1 In Repair hardware asset visible under your role and branch access."
+    "Yes. You currently have 1 In Repair hardware asset."
   );
 });
 
@@ -847,7 +847,7 @@ test("assistant answers a specific Asset Discovery reconciliation count", async 
   assert.equal(result.mode, "system-data");
   assert.equal(
     result.answer,
-    "You currently have 1 pending verification discovery record visible under your role and branch access."
+    "You currently have 1 pending verification discovery record."
   );
 });
 
@@ -993,7 +993,7 @@ test("assistant answers a filtered Asset Finance metric", async () => {
   assert.deepEqual(requestedFilters, { assetType: "Laptop", status: null });
   assert.equal(
     result.answer,
-    "The current book value for Laptop is PHP 125,000.00 under your role and branch access."
+    "The current book value for Laptop is PHP 125,000.00."
   );
 });
 
@@ -1240,7 +1240,7 @@ test("assistant answers a specific effective-policy feature count", async () => 
   assert.equal(result.mode, "system-data");
   assert.equal(
     result.answer,
-    "You currently have 3 devices matching \"effective policy with screenshot monitoring enabled\" under your endpoint policy access."
+    "You currently have 3 devices matching \"effective policy with screenshot monitoring enabled\"."
   );
 });
 
@@ -1369,7 +1369,7 @@ test("Phase 4 assistant answers replacement workflow counts", async () => {
   assert.equal(result.mode, "system-data");
   assert.equal(
     result.answer,
-    "You currently have 1 request awaiting approval visible under your replacement-management access."
+    "You currently have 1 request awaiting approval."
   );
 });
 
@@ -1455,7 +1455,7 @@ test("Phase 5 assistant provides a date-bounded reporting summary", async () => 
 
   assert.equal(requestedDays, 90);
   assert.equal(result.mode, "system-data");
-  assert.match(result.answer, /authorized 90-day operational report/i);
+  assert.match(result.answer, /90-day operational report/i);
   assert.match(result.answer, /25 tickets/);
 });
 

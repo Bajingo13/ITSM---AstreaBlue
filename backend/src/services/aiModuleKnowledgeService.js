@@ -8,7 +8,7 @@ const MODULES = [
   {
     key: "knowledge_base",
     aliases: ["knowledge base", "kb article", "kb"],
-    purpose: "Stores reusable troubleshooting and service guidance visible under the reader's role and branch.",
+    purpose: "Stores reusable troubleshooting and service guidance for employees and support teams.",
     flow: "Authorized staff create and publish guidance; users and the assistant search only articles they are permitted to read.",
   },
   {

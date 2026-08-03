@@ -449,24 +449,24 @@ const CAPABILITIES = [
     format: (data, message) => {
       const metric = screenshotMetric(message);
       if (metric === "latest") {
-        if (!data.latest) return "No consent-approved screenshot is available under your current access.";
+      if (!data.latest) return "No consent-approved screenshot is available.";
         const endpoint = data.latest.hostname || data.latest.device_name || "an endpoint";
         const employee = data.latest.assigned_user ? ` assigned to ${data.latest.assigned_user}` : "";
-        return `The latest authorized screenshot was received from ${endpoint}${employee} on ${formatTimestamp(data.latest.captured_at)}.`;
+        return `The latest screenshot was received from ${endpoint}${employee} on ${formatTimestamp(data.latest.captured_at)}.`;
       }
       if (metric === "screenshots_today") {
-        return `${Number(data.screenshots_today || 0)} consent-approved screenshot${Number(data.screenshots_today || 0) === 1 ? "" : "s"} have been received today from ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? "" : "s"} under your access.`;
+        return `${Number(data.screenshots_today || 0)} consent-approved screenshot${Number(data.screenshots_today || 0) === 1 ? "" : "s"} have been received today from ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? "" : "s"}.`;
       }
       if (metric === "storage") {
         const megabytes = Number(data.storage_bytes || 0) / (1024 * 1024);
-        return `Authorized protected screenshots currently use ${megabytes.toFixed(1)} MB of object storage metadata tracked by AstreaBlue.`;
+        return `Protected screenshots currently use ${megabytes.toFixed(1)} MB of object storage metadata tracked by AstreaBlue.`;
       }
       if (metric === "devices_reporting_recently") {
         const count = Number(data.devices_reporting_recently || 0);
-        return `${count} device${count === 1 ? " is" : "s are"} currently sending screenshots under your access, based on screenshot activity within the last 30 minutes. Today, ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? " has" : "s have"} reported.`;
+        return `${count} device${count === 1 ? " is" : "s are"} currently sending screenshots, based on screenshot activity within the last 30 minutes. Today, ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? " has" : "s have"} reported.`;
       }
       return [
-        `Screenshot Monitoring has received ${Number(data.screenshots_today || 0)} screenshot${Number(data.screenshots_today || 0) === 1 ? "" : "s"} today from ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? "" : "s"} under your access.`,
+        `Screenshot Monitoring has received ${Number(data.screenshots_today || 0)} screenshot${Number(data.screenshots_today || 0) === 1 ? "" : "s"} today from ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? "" : "s"}.`,
         `Currently reporting (last 30 minutes): ${Number(data.devices_reporting_recently || 0)} device${Number(data.devices_reporting_recently || 0) === 1 ? "" : "s"}.`,
         `Latest screenshot: ${formatTimestamp(data.last_screenshot_at)}.`,
       ].join("\n");
@@ -484,7 +484,7 @@ const CAPABILITIES = [
     format: (data, message) => {
       const metric = usbDlpMetric(message);
       if (metric === "latest") {
-        if (!data.latest) return "No USB or DLP activity is available under your current access.";
+      if (!data.latest) return "No USB or DLP activity is available.";
         const event = data.latest;
         const subject = event.file_name
           ? ` for "${event.file_name}"`
@@ -506,7 +506,7 @@ const CAPABILITIES = [
           events_today: "USB/DLP event",
         };
         const count = Number(data[metric] || 0);
-        return `You currently have ${count} ${labels[metric]}${count === 1 ? "" : "s"} today under your access.`;
+        return `You currently have ${count} ${labels[metric]}${count === 1 ? "" : "s"} today.`;
       }
       return [
         `USB & DLP Monitoring recorded ${Number(data.events_today || 0)} event${Number(data.events_today || 0) === 1 ? "" : "s"} today across ${Number(data.devices_today || 0)} device${Number(data.devices_today || 0) === 1 ? "" : "s"}.`,
@@ -528,10 +528,10 @@ const CAPABILITIES = [
       if (metric) {
         const [key, label] = metric;
         const count = Number(data[key] || 0);
-        return `You currently have ${count} ${countLabel(label, count)} under your endpoint-health access.`;
+        return `You currently have ${count} ${countLabel(label, count)}.`;
       }
       return [
-        `You have ${Number(data.registered_endpoints || 0)} registered endpoint${Number(data.registered_endpoints || 0) === 1 ? "" : "s"} under your endpoint-health access.`,
+        `You have ${Number(data.registered_endpoints || 0)} registered endpoint${Number(data.registered_endpoints || 0) === 1 ? "" : "s"}.`,
         `Overall health: Healthy: ${Number(data.healthy || 0)}, Warning: ${Number(data.warning || 0)}, Critical: ${Number(data.critical || 0)}, Offline: ${Number(data.offline || 0)}.`,
         `Requiring attention: ${Number(data.requiring_attention || 0)}. Monitoring active: ${Number(data.monitoring_active || 0)}.`,
         `Healthy components: Heartbeat: ${Number(data.heartbeat_healthy || 0)}, Activity: ${Number(data.activity_healthy || 0)}, Hardware inventory: ${Number(data.hardware_inventory_healthy || 0)}, Software inventory: ${Number(data.software_inventory_healthy || 0)}, Policy sync: ${Number(data.policy_sync_healthy || 0)}, Consent: ${Number(data.consent_active || 0)}.`,
@@ -551,10 +551,10 @@ const CAPABILITIES = [
       if (metric) {
         const [key, label] = metric;
         const count = Number(data[key] || 0);
-        return `You currently have ${count} device${count === 1 ? "" : "s"} matching "${label}" under your endpoint policy access.`;
+        return `You currently have ${count} device${count === 1 ? "" : "s"} matching "${label}".`;
       }
       return [
-        `Endpoint Policy covers ${Number(data.total_devices || 0)} monitored device${Number(data.total_devices || 0) === 1 ? "" : "s"} under your access (${Number(data.assigned_devices || 0)} assigned, ${Number(data.unassigned_devices || 0)} unassigned).`,
+        `Endpoint Policy covers ${Number(data.total_devices || 0)} monitored device${Number(data.total_devices || 0) === 1 ? "" : "s"} (${Number(data.assigned_devices || 0)} assigned, ${Number(data.unassigned_devices || 0)} unassigned).`,
         `Effective policies: ${Number(data.generated_policies || 0)} generated, ${Number(data.policies_not_generated || 0)} not generated, ${Number(data.policies_downloaded || 0)} downloaded by agents, ${Number(data.policies_pending_download || 0)} pending download.`,
         `Consent coverage: ${Number(data.consent_approved_devices || 0)} device${Number(data.consent_approved_devices || 0) === 1 ? "" : "s"} covered; ${Number(data.devices_without_approved_consent || 0)} assigned device${Number(data.devices_without_approved_consent || 0) === 1 ? "" : "s"} without active approved consent.`,
         `Enabled effective monitoring: Activity ${Number(data.activity_enabled || 0)}, Screenshots ${Number(data.screenshot_enabled || 0)}, USB ${Number(data.usb_enabled || 0)}, Browser ${Number(data.browser_enabled || 0)}, Location ${Number(data.location_enabled || 0)}.`,
@@ -614,9 +614,9 @@ const CAPABILITIES = [
         const [key, type, label] = metric;
         const value = Number(data[key] || 0);
         if (type === "currency") {
-          return `The ${label}${scope} is ${formatCurrency(value)} under your role and branch access.`;
+          return `The ${label}${scope} is ${formatCurrency(value)}.`;
         }
-        return `You currently have ${value} ${label}${value === 1 ? "" : "s"}${scope} under your role and branch access.`;
+        return `You currently have ${value} ${label}${value === 1 ? "" : "s"}${scope}.`;
       }
       return [
         `Asset Finance${scope}: ${Number(data.total_assets || 0)} record${Number(data.total_assets || 0) === 1 ? "" : "s"}, including ${Number(data.depreciable_assets || 0)} depreciable asset${Number(data.depreciable_assets || 0) === 1 ? "" : "s"} and ${Number(data.expense_items || 0)} expense item${Number(data.expense_items || 0) === 1 ? "" : "s"}.`,
@@ -639,10 +639,10 @@ const CAPABILITIES = [
       if (metric) {
         const [key, label] = metric;
         const count = Number(data[key] || 0);
-        return `You currently have ${count} ${label} discovery record${count === 1 ? "" : "s"} visible under your role and branch access.`;
+        return `You currently have ${count} ${label} discovery record${count === 1 ? "" : "s"}.`;
       }
       return [
-        `You have ${Number(data.total || 0)} Asset Discovery record${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `You have ${Number(data.total || 0)} Asset Discovery record${Number(data.total || 0) === 1 ? "" : "s"}.`,
         `Verification: Matched: ${Number(data.matched || 0)}, Mismatched: ${Number(data.mismatched || 0)}, Pending Verification: ${Number(data.pending_verification || 0)}, Unmanaged: ${Number(data.unmanaged || 0)}, Duplicates: ${Number(data.duplicates || 0)}.`,
         `Operational status: Offline: ${Number(data.offline || 0)}. Asset linkage: Linked: ${Number(data.linked || 0)}, Unlinked: ${Number(data.unlinked || 0)}.`,
       ].join("\n");
@@ -661,10 +661,10 @@ const CAPABILITIES = [
         const value = Number(data[key] || 0);
         if (type === "percent") return `Your current ${label} is ${value}%.`;
         if (type === "duration") return `Your current ${label} is ${formatDuration(value)}.`;
-        return `You currently have ${value} ${countLabel(label, value)} visible under your ticket access.`;
+        return `You currently have ${value} ${countLabel(label, value)}.`;
       }
       return [
-        `You have ${Number(data.total || 0)} SLA-tracked ticket${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `You have ${Number(data.total || 0)} SLA-tracked ticket${Number(data.total || 0) === 1 ? "" : "s"}.`,
         `Active: ${Number(data.active || 0)}, Due within four hours: ${Number(data.due_soon || 0)}, Met: ${Number(data.met || 0)}, Breached: ${Number(data.breached || 0)}, Pending result: ${Number(data.pending || 0)}.`,
         `Compliance: ${Number(data.compliance_percent || 0)}%. Average first response: ${formatDuration(data.avg_response_time_minutes)}. Average resolution: ${formatDuration(data.avg_resolution_time_minutes)}.`,
       ].join("\n");
@@ -681,10 +681,10 @@ const CAPABILITIES = [
       if (metric) {
         const [key, label] = metric;
         const count = Number(data[key] || 0);
-        return `You currently have ${count} ${countLabel(label, count)} visible under your replacement-management access.`;
+        return `You currently have ${count} ${countLabel(label, count)}.`;
       }
       return [
-        `You have ${Number(data.total || 0)} replacement request${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `You have ${Number(data.total || 0)} replacement request${Number(data.total || 0) === 1 ? "" : "s"}.`,
         `Active: ${Number(data.active || 0)}. Submitted: ${Number(data.submitted || 0)}, Under assessment: ${Number(data.under_assessment || 0)}, Awaiting approval: ${Number(data.awaiting_approval || 0)}, Approved: ${Number(data.approved || 0)}, Reserved: ${Number(data.reserved || 0)}, Issued: ${Number(data.issued || 0)}.`,
         `Repair path: Recommended: ${Number(data.repair_recommended || 0)}, In repair: ${Number(data.in_repair || 0)}, Repaired: ${Number(data.repaired || 0)}. Terminal: Completed: ${Number(data.completed || 0)}, Rejected: ${Number(data.rejected || 0)}, Cancelled: ${Number(data.cancelled || 0)}.`,
       ].join("\n");
@@ -701,10 +701,10 @@ const CAPABILITIES = [
       if (metric) {
         const [key, label] = metric;
         const count = Number(data[key] || 0);
-        return `You currently have ${count} ${countLabel(label, count)} visible under your employee-lifecycle access.`;
+        return `You currently have ${count} ${countLabel(label, count)}.`;
       }
       return [
-        `You have ${Number(data.total || 0)} employee lifecycle case${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `You have ${Number(data.total || 0)} employee lifecycle case${Number(data.total || 0) === 1 ? "" : "s"}.`,
         `Active onboarding: ${Number(data.active_onboarding || 0)}, Active offboarding: ${Number(data.active_offboarding || 0)}, Awaiting employee: ${Number(data.awaiting_employee || 0)}, Awaiting administrator: ${Number(data.awaiting_administrator || 0)}, Ready for final review: ${Number(data.ready_for_verification || 0)}.`,
         `Required checklist tasks still pending: ${Number(data.required_pending_tasks || 0)} across ${Number(data.cases_with_pending_tasks || 0)} case${Number(data.cases_with_pending_tasks || 0) === 1 ? "" : "s"}. Completed: ${Number(data.completed || 0)}, Cancelled: ${Number(data.cancelled || 0)}.`,
       ].join("\n");
@@ -723,13 +723,13 @@ const CAPABILITIES = [
       if (metric) {
         const [key, label] = metric;
         const count = Number(data[key] || 0);
-        return `You currently have ${count} ${countLabel(label, count)} visible under your Configuration Management access.`;
+        return `You currently have ${count} ${countLabel(label, count)}.`;
       }
       const typeBreakdown = Object.entries(data.by_type || {})
         .map(([type, count]) => `${type}: ${Number(count || 0)}`)
         .join(", ");
       return [
-        `You have ${Number(data.total || 0)} configuration item${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `You have ${Number(data.total || 0)} configuration item${Number(data.total || 0) === 1 ? "" : "s"}.`,
         `Active: ${Number(data.active || 0)}, Inactive: ${Number(data.inactive || 0)}, Production: ${Number(data.production || 0)}, Non-production: ${Number(data.non_production || 0)}.`,
         `Dependency map: ${Number(data.relationships || 0)} relationship${Number(data.relationships || 0) === 1 ? "" : "s"}, ${Number(data.connected || 0)} connected CIs, ${Number(data.isolated || 0)} isolated CIs.`,
         `Change impact: Low ${Number(data.impact_low || 0)}, Medium ${Number(data.impact_medium || 0)}, High ${Number(data.impact_high || 0)}, Critical ${Number(data.impact_critical || 0)}.`,
@@ -749,18 +749,18 @@ const CAPABILITIES = [
         const [key, type, label] = metric;
         const value = Number(data[key] || 0);
         if (type === "currency") {
-          return `The ${label} is ${formatCurrency(value)} under your project access.`;
+          return `The ${label} is ${formatCurrency(value)}.`;
         }
         if (type === "percent") {
-          return `The ${label} is ${value}% under your project access.`;
+          return `The ${label} is ${value}%.`;
         }
         if (type === "number") {
-          return `The ${label} is ${value} under your project access.`;
+          return `The ${label} is ${value}.`;
         }
-        return `You currently have ${value} ${countLabel(label, value)} under your project access.`;
+        return `You currently have ${value} ${countLabel(label, value)}.`;
       }
       return [
-        `You have ${Number(data.total || 0)} active project record${Number(data.total || 0) === 1 ? "" : "s"} visible under your access.`,
+        `You have ${Number(data.total || 0)} active project record${Number(data.total || 0) === 1 ? "" : "s"}.`,
         `Portfolio: On track ${Number(data.on_track || 0)}, At risk ${Number(data.at_risk || 0)}, Delayed ${Number(data.delayed || 0)}, Completed ${Number(data.completed || 0)}; average completion ${Number(data.average_completion_percent || 0)}%.`,
         `Milestones: ${Number(data.milestones_completed || 0)} completed, ${Number(data.milestones_remaining || 0)} remaining, ${Number(data.milestones_overdue || 0)} overdue. Open risks: ${Number(data.open_risks || 0)} (${Number(data.high_risks || 0)} high/critical).`,
         `Financials: Budget ${formatCurrency(data.total_budget)}, Actual cost ${formatCurrency(data.actual_cost)}, Variance ${formatCurrency(data.budget_variance)}. Resource utilization: ${Number(data.resource_utilization_percent || 0)}%.`,
@@ -781,10 +781,10 @@ const CAPABILITIES = [
       if (metric) {
         const [key, label] = metric;
         const count = Number(data[key] || 0);
-        return `The ${Number(data.days || 30)}-day authorized report contains ${count} ${countLabel(label, count)}.`;
+        return `The ${Number(data.days || 30)}-day report contains ${count} ${countLabel(label, count)}.`;
       }
       return [
-        `Your authorized ${Number(data.days || 30)}-day operational report contains ${Number(data.total_tickets || 0)} ticket${Number(data.total_tickets || 0) === 1 ? "" : "s"} across ${Number(data.represented_branches || 0)} represented branch${Number(data.represented_branches || 0) === 1 ? "" : "es"}.`,
+        `The ${Number(data.days || 30)}-day operational report contains ${Number(data.total_tickets || 0)} ticket${Number(data.total_tickets || 0) === 1 ? "" : "s"}.`,
         `Active: ${Number(data.active_tickets || 0)}, Completed: ${Number(data.completed_tickets || 0)}, Critical active: ${Number(data.critical_active || 0)}, Assigned: ${Number(data.assigned_tickets || 0)}.`,
         `Data quality: ${Number(data.uncategorized_tickets || 0)} uncategorized and ${Number(data.root_causes_recorded || 0)} with a recorded root cause.`,
       ].join("\n");

@@ -38,7 +38,7 @@ function liveDataContext(source, lastUpdatedAt = null) {
 }
 
 function formatKnowledgeContext(articles) {
-  if (!articles.length) return "No authorized Knowledge Base articles matched.";
+  if (!articles.length) return "No Knowledge Base articles matched.";
   return articles.map((article) => [
     `${sourceLabel(article)} ${article.title}`,
     `Category: ${article.category || "Uncategorized"}`,
@@ -75,14 +75,13 @@ function extractResponseText(payload) {
 
 function createKnowledgeSearchFallback(articles) {
   if (!articles.length) {
-    return "I could not find an authorized Knowledge Base article for that question. Try using a device name, error message, module, or issue category.";
+    return "I could not find a relevant Knowledge Base article for that question. Try using a device name, error message, module, or issue category.";
   }
   const lead = articles[0];
   return [
-    `The closest authorized article is ${sourceLabel(lead)} ${lead.title}.`,
+    `The closest matching article is ${sourceLabel(lead)} ${lead.title}.`,
     lead.symptoms ? `Symptoms: ${lead.symptoms}` : "",
     lead.resolution ? `Recommended resolution: ${lead.resolution}` : "",
-    "AI-generated answers are not enabled yet, so this is a direct Knowledge Base result.",
   ].filter(Boolean).join("\n\n");
 }
 
@@ -411,7 +410,7 @@ function formatSoftwareLicenseAnswer(result, intent) {
   const selected = mentioned.length ? mentioned : licenses;
   const product = mentioned.length
     ? [...new Set(mentioned.map((item) => item.license_name))].join(", ")
-    : "Your authorized software licenses";
+    : "Your software licenses";
   const total = selected.reduce((sum, item) => sum + Number(item.total_licenses || 0), 0);
   const used = selected.reduce((sum, item) => sum + Number(item.used_licenses || 0), 0);
   const available = selected.reduce(
@@ -547,14 +546,14 @@ function formatHardwareAssetSummary(summary, intent) {
     const count = findSummaryCount(summary.byStatus, intent.key);
     if (intent.asksExistence) {
       if (count > 0) {
-        return `Yes. You currently have ${count} ${intent.label} hardware asset${count === 1 ? "" : "s"} visible under your role and branch access.`;
+        return `Yes. You currently have ${count} ${intent.label} hardware asset${count === 1 ? "" : "s"}.`;
       }
-      return `No. You currently have no ${intent.label} hardware assets visible under your role and branch access.`;
+      return `No. You currently have no ${intent.label} hardware assets.`;
     }
-    return `You currently have ${count} ${intent.label} hardware asset${count === 1 ? "" : "s"} visible under your role and branch access.`;
+    return `You currently have ${count} ${intent.label} hardware asset${count === 1 ? "" : "s"}.`;
   }
   return [
-    `You currently have ${summary.total} hardware asset${summary.total === 1 ? "" : "s"} visible under your role and branch access.`,
+    `You currently have ${summary.total} hardware asset${summary.total === 1 ? "" : "s"}.`,
     `By status: ${formatBreakdown(summary.byStatus)}.`,
     `By type: ${formatBreakdown(summary.byType)}.`,
   ].join("\n");
@@ -563,10 +562,10 @@ function formatHardwareAssetSummary(summary, intent) {
 function formatEndpointSummary(summary, intent) {
   if (intent.key) {
     const count = Number(summary[intent.key] || 0);
-    return `You currently have ${count} ${intent.label} monitored endpoint${count === 1 ? "" : "s"} visible under your role and branch access.`;
+    return `You currently have ${count} ${intent.label} monitored endpoint${count === 1 ? "" : "s"}.`;
   }
   return [
-    `AstreaBlue is currently monitoring ${summary.total} registered endpoint${summary.total === 1 ? "" : "s"} visible under your role and branch access.`,
+    `AstreaBlue is currently monitoring ${summary.total} registered endpoint${summary.total === 1 ? "" : "s"}.`,
     `Heartbeat status: Online: ${summary.online}, Offline: ${summary.offline}.`,
     `Assignment: Assigned: ${summary.assigned}, Unassigned: ${summary.unassigned}.`,
     `Asset linkage: Linked: ${summary.linked_to_asset}, Unlinked: ${summary.unlinked}.`,
@@ -712,7 +711,7 @@ function createAiAssistantService({
       return {
         answer: [
           "What would you like me to count?",
-          "I can check your authorized tickets, assets, monitored endpoints, screenshots, USB and DLP activity, licenses, SLA performance, replacements, lifecycle cases, consent, and endpoint policies.",
+        "I can check tickets, assets, monitored endpoints, screenshots, USB and DLP activity, licenses, SLA performance, replacements, lifecycle cases, consent, and endpoint policies.",
           "For example: “How many SLA tickets are breached?”, “How many replacement requests are awaiting approval?”, or “How many endpoints require attention?”",
         ].join("\n"),
         sources: [],
@@ -770,7 +769,7 @@ function createAiAssistantService({
       });
       await markCoverageResolved();
       return {
-        answer: `You currently have ${ticketCount} ${ticketCountIntent.label} ticket${ticketCount === 1 ? "" : "s"} visible under your role and branch access.`,
+        answer: `You currently have ${ticketCount} ${ticketCountIntent.label} ticket${ticketCount === 1 ? "" : "s"}.`,
         sources: [],
         mode: "system-data",
         notice: "Live read-only AstreaBlue data. Existing ticket RBAC was applied.",
@@ -904,7 +903,7 @@ function createAiAssistantService({
           store: false,
           max_output_tokens: 700,
           instructions: [
-            "You are AstreaBlue AI, a read-only enterprise ITSM assistant.",
+        "You are Odysseus, a read-only AstreaBlue enterprise ITSM assistant.",
             "Use only the authorized Knowledge Base context supplied in the request.",
             "Never claim that you changed a ticket, asset, user, policy, or endpoint.",
             "Do not reveal credentials, API keys, private screenshots, or hidden data.",

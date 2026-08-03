@@ -2,10 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   Bot,
   BookOpen,
-  Clock3,
   Loader2,
   Send,
-  ShieldCheck,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
@@ -14,13 +12,16 @@ import {
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import { authHeaders } from "../../services/authHeaders";
+import { useAuth } from "../../context/AuthContext";
 
-const welcomeMessage = {
-  role: "assistant",
-  content:
-    "Hello! I'm AstreaBlue AI. I can check supported live AstreaBlue summaries and search the Knowledge Base available to your role and branch. I'm read-only, so I will never change a ticket, asset, user, or endpoint.",
-  sources: [],
-};
+function createWelcomeMessage(firstName) {
+  return {
+    role: "assistant",
+    content: `Hello, ${firstName}! I'm Odysseus. How can I help you today?`,
+    sources: [],
+    welcome: true,
+  };
+}
 
 const fallbackSuggestions = [
   "How many devices are currently sending screenshots?",
@@ -30,20 +31,12 @@ const fallbackSuggestions = [
   "How many hardware assets do we have?",
 ];
 
-function formatManilaTimestamp(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("en-PH", {
-    timeZone: "Asia/Manila",
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
 export default function AIAssistant() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const endRef = useRef(null);
+  const firstName = String(user?.full_name || user?.name || "there").trim().split(/\s+/)[0];
+  const welcomeMessage = useRef(createWelcomeMessage(firstName)).current;
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([welcomeMessage]);
   const [input, setInput] = useState("");
@@ -120,9 +113,12 @@ export default function AIAssistant() {
     if (!userMessage || sending) return;
 
     const previousHistory = messages
-      .filter((message) => message !== welcomeMessage)
+      .filter((message) => !message.welcome)
       .slice(-8)
       .map(({ role, content }) => ({ role, content }));
+    const answerNumber = messages.filter(
+      (message) => message.role === "assistant" && message.question && !message.error
+    ).length + 1;
 
     setMessages((current) => [
       ...current,
@@ -152,6 +148,7 @@ export default function AIAssistant() {
           dataContext: payload.data.data_context || null,
           question: userMessage,
           feedback: null,
+          showFeedback: answerNumber % 5 === 0,
         },
       ]);
     } catch (error) {
@@ -175,17 +172,17 @@ export default function AIAssistant() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          aria-label="Open AstreaBlue AI assistant"
+          aria-label="Open Odysseus assistant"
           className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#2563EB_0%,#5B3FF2_100%)] px-5 py-3 text-sm font-bold text-white shadow-2xl shadow-blue-900/25 transition hover:-translate-y-1 hover:shadow-blue-900/35 focus:outline-none focus:ring-4 focus:ring-blue-200"
         >
           <Sparkles size={18} />
-          AstreaBlue AI
+          Odysseus
         </button>
       )}
 
       {open && (
         <section
-          aria-label="AstreaBlue AI assistant"
+          aria-label="Odysseus assistant"
           className="fixed bottom-4 right-4 z-40 flex h-[min(620px,calc(100vh-32px))] w-[min(420px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/25"
         >
           <header className="flex items-center justify-between border-b border-slate-200 bg-[linear-gradient(135deg,#092B5B_0%,#145FA5_60%,#149CDA_100%)] px-5 py-4">
@@ -194,11 +191,7 @@ export default function AIAssistant() {
                 <Bot size={21} />
               </div>
               <div>
-                <h2 className="font-black text-white">AstreaBlue AI</h2>
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-cyan-100">
-                  <ShieldCheck size={13} />
-                  Read-only / RBAC protected
-                </p>
+                <h2 className="font-black text-white">Odysseus</h2>
               </div>
             </div>
             <button
@@ -227,32 +220,11 @@ export default function AIAssistant() {
                   }`}
                 >
                   <p className="whitespace-pre-wrap">{message.content}</p>
-                  {message.dataContext && (
-                    <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs leading-5 text-slate-700">
-                      <p className="font-black text-cyan-900">
-                        Source: {message.dataContext.source}
-                      </p>
-                      <p className="flex items-center gap-1.5">
-                        <Clock3 size={12} />
-                        Data checked {formatManilaTimestamp(message.dataContext.as_of)}
-                      </p>
-                      {message.dataContext.last_updated_at && (
-                        <p>
-                          Latest record: {formatManilaTimestamp(message.dataContext.last_updated_at)}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {message.notice && (
-                    <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">
-                      {message.notice}
-                    </p>
-                  )}
                   {message.sources?.length > 0 && (
                     <div className="mt-3 border-t border-slate-200 pt-3">
                       <p className="mb-2 flex items-center gap-1.5 text-xs font-black uppercase tracking-wide text-slate-500">
                         <BookOpen size={13} />
-                        Authorized sources
+                        Sources
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {message.sources.map((source) => (
@@ -272,7 +244,7 @@ export default function AIAssistant() {
                       </div>
                     </div>
                   )}
-                  {message.role === "assistant" && message.question && !message.error && (
+                  {message.role === "assistant" && message.question && message.showFeedback && !message.error && (
                     <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-200 pt-3">
                       <p className="text-xs font-semibold text-slate-500">
                         {message.feedback
@@ -311,7 +283,7 @@ export default function AIAssistant() {
               <div className="flex justify-start">
                 <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
                   <Loader2 size={16} className="animate-spin text-blue-600" />
-                  Checking authorized AstreaBlue data...
+                  Checking AstreaBlue data...
                 </div>
               </div>
             )}
@@ -358,9 +330,6 @@ export default function AIAssistant() {
                 {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
               </button>
             </div>
-            <p className="mt-2 text-center text-[11px] font-medium text-slate-400">
-              Answers are limited to data your AstreaBlue role can access.
-            </p>
           </footer>
         </section>
       )}
