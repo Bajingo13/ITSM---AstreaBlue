@@ -17,7 +17,7 @@ import { useAuth } from "../../context/AuthContext";
 function createWelcomeMessage(firstName) {
   return {
     role: "assistant",
-    content: `Hello, ${firstName}! I'm Odysseus. How can I help you today?`,
+    content: `Hello, ${firstName}! I'm Odysseus. What can I help you with?`,
     sources: [],
     welcome: true,
   };
@@ -176,47 +176,51 @@ export default function AIAssistant() {
           className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#2563EB_0%,#5B3FF2_100%)] px-5 py-3 text-sm font-bold text-white shadow-2xl shadow-blue-900/25 transition hover:-translate-y-1 hover:shadow-blue-900/35 focus:outline-none focus:ring-4 focus:ring-blue-200"
         >
           <Sparkles size={18} />
-          Odysseus
+          Odysseus AI
         </button>
       )}
 
       {open && (
         <section
           aria-label="Odysseus assistant"
-          className="fixed bottom-4 right-4 z-40 flex h-[min(620px,calc(100vh-32px))] w-[min(420px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/25"
+          className="fixed bottom-4 right-4 z-40 flex h-[min(660px,calc(100vh-32px))] w-[min(440px,calc(100vw-32px))] flex-col overflow-hidden rounded-[28px] border border-blue-100 bg-white shadow-2xl shadow-slate-900/30"
         >
-          <header className="flex items-center justify-between border-b border-slate-200 bg-[linear-gradient(135deg,#092B5B_0%,#145FA5_60%,#149CDA_100%)] px-5 py-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/20 bg-white/15 text-white">
+          <header className="relative flex items-center justify-between overflow-hidden border-b border-blue-400/30 bg-[linear-gradient(135deg,#082954_0%,#145FA5_58%,#13A4DC_100%)] px-5 py-[18px]">
+            <div className="pointer-events-none absolute -right-8 -top-12 h-32 w-32 rounded-full border-[18px] border-white/10" />
+            <div className="relative flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/25 bg-white/15 text-white shadow-inner shadow-white/10">
                 <Bot size={21} />
               </div>
               <div>
-                <h2 className="font-black text-white">Odysseus</h2>
+                <h2 className="text-base font-extrabold tracking-tight text-white">Odysseus AI</h2>
+                <p className="mt-0.5 text-[11px] font-semibold text-blue-100">AstreaBlue workspace assistant</p>
               </div>
             </div>
             <button
               type="button"
               onClick={() => setOpen(false)}
               aria-label="Close assistant"
-              className="rounded-xl border border-white/20 p-2 text-white transition hover:bg-white/15 focus:outline-none focus:ring-2 focus:ring-white/70"
+              className="relative rounded-xl border border-white/25 bg-white/5 p-2 text-white transition hover:bg-white/15 focus:outline-none focus:ring-2 focus:ring-white/70"
             >
               <X size={19} />
             </button>
           </header>
 
-          <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50 p-4">
+          <div className="flex-1 space-y-4 overflow-y-auto bg-[linear-gradient(180deg,#F0F7FF_0%,#F8FAFC_45%,#F8FAFC_100%)] p-4">
             {messages.map((message, index) => (
               <div
                 key={`${message.role}-${index}`}
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[88%] rounded-2xl border px-4 py-3 text-sm leading-6 shadow-sm ${
+                  className={`rounded-2xl border px-4 py-3 text-sm leading-6 shadow-sm ${message.welcome ? "max-w-[92%] border-blue-100 bg-white/95 text-slate-700 shadow-blue-950/5" : "max-w-[88%]"} ${
                     message.role === "user"
                       ? "border-blue-600 bg-blue-600 text-white"
                       : message.error
                         ? "border-red-200 bg-red-50 text-red-800"
-                        : "border-slate-200 bg-white text-slate-700"
+                        : message.welcome
+                          ? ""
+                          : "border-slate-200 bg-white text-slate-700"
                   }`}
                 >
                   <p className="whitespace-pre-wrap">{message.content}</p>
@@ -279,6 +283,25 @@ export default function AIAssistant() {
               </div>
             ))}
 
+            {messages.length === 1 && (
+              <div className="rounded-2xl border border-blue-100 bg-white/75 p-3 shadow-sm shadow-blue-950/5 backdrop-blur-sm">
+                <p className="mb-2.5 px-1 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Try asking</p>
+                <div className="grid gap-2">
+                  {suggestions.map((suggestion) => (
+                    <button
+                      type="button"
+                      key={suggestion}
+                      onClick={() => sendMessage(suggestion)}
+                      className="group flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-left text-xs font-bold leading-5 text-slate-700 transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-sm"
+                    >
+                      <span>{suggestion}</span>
+                      <Send size={13} className="shrink-0 text-slate-300 transition group-hover:text-blue-600" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {sending && (
               <div className="flex justify-start">
                 <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
@@ -290,21 +313,7 @@ export default function AIAssistant() {
             <div ref={endRef} />
           </div>
 
-          <footer className="border-t border-slate-200 bg-white p-4">
-            {messages.length === 1 && (
-              <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-                {suggestions.map((suggestion) => (
-                  <button
-                    type="button"
-                    key={suggestion}
-                    onClick={() => sendMessage(suggestion)}
-                    className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            )}
+          <footer className="border-t border-slate-200 bg-white/95 p-4 shadow-[0_-8px_24px_rgba(15,23,42,0.04)] backdrop-blur">
             <div className="flex items-end gap-2">
               <textarea
                 value={input}
@@ -317,15 +326,16 @@ export default function AIAssistant() {
                     sendMessage();
                   }
                 }}
-                placeholder="Ask about an IT issue or AstreaBlue process..."
-                className="max-h-28 min-h-12 flex-1 resize-none rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                placeholder="Message Odysseus..."
+                aria-label="Message Odysseus"
+                className="max-h-28 min-h-12 flex-1 resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
               />
               <button
                 type="button"
                 onClick={() => sendMessage()}
                 disabled={sending || !input.trim()}
                 aria-label="Send question"
-                className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#2563EB_0%,#5B3FF2_100%)] text-white shadow-md shadow-blue-900/15 transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
               >
                 {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
               </button>
