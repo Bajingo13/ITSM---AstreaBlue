@@ -34,13 +34,6 @@ const MONITORING_CATEGORIES = [
     required: false,
   },
   {
-    id: "network_domains",
-    label: "Network Domain Logging",
-    description:
-      "Logs visited website domains (not full URLs or content) for security compliance and DLP enforcement.",
-    required: false,
-  },
-  {
     id: "window_title",
     label: "Active Window Title",
     description:
@@ -59,34 +52,6 @@ const MONITORING_CATEGORIES = [
     label: "USB Device Monitoring",
     description:
       "Detects and logs USB device connections and disconnections for data loss prevention (DLP) and security compliance. Logs device type only — no file contents are captured.",
-    required: false,
-  },
-  {
-    id: "website_monitoring",
-    label: "Website & URL Monitoring",
-    description:
-      "Monitors visited website URLs (domain-level only, not page content or search terms) for acceptable use policy and security enforcement.",
-    required: false,
-  },
-  {
-    id: "location_tracking",
-    label: "Location Tracking",
-    description:
-      "Allows an approved endpoint policy to collect device location information for asset recovery and security response.",
-    required: false,
-  },
-  {
-    id: "productivity_analytics",
-    label: "Productivity Analytics",
-    description:
-      "Uses approved activity signals to produce work-pattern and utilization analytics without changing baseline device operations.",
-    required: false,
-  },
-  {
-    id: "activity_alerts",
-    label: "Employee Activity-Based Alerts",
-    description:
-      "Allows approved activity events to create security or policy alerts when the effective endpoint policy also enables them.",
     required: false,
   },
 ];

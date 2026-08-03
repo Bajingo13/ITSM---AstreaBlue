@@ -24,13 +24,17 @@ const API_BASE = `${API_URL}/api/v1`;
 const MONITORING_CATEGORIES = [
   { id: "app_usage", label: "Application Usage Tracking", required: false },
   { id: "idle_time", label: "Idle Time Detection", required: false },
-  { id: "network_domains", label: "Network Domain Logging", required: false },
+  { id: "network_domains", label: "Network Domain Logging", required: false, historicalOnly: true },
   { id: "window_title", label: "Active Window Title", required: false },
   { id: "screenshot", label: "Periodic Screenshots", required: false },
   { id: "usb_monitoring", label: "USB Device Monitoring", required: false },
-  { id: "website_monitoring", label: "Website & URL Monitoring", required: false },
+  { id: "website_monitoring", label: "Website & URL Monitoring", required: false, historicalOnly: true },
   { id: "heartbeat", label: "Device Heartbeat & Connectivity", required: true },
 ];
+
+const SELECTABLE_MONITORING_CATEGORIES = MONITORING_CATEGORIES.filter(
+  (category) => !category.historicalOnly
+);
 
 const LEGAL_STATEMENT = `I, the undersigned employee, hereby acknowledge and consent to the collection and processing of my personal data by AstreaBlue as described in this consent document, pursuant to Republic Act No. 10173 (Data Privacy Act of 2012) and its Implementing Rules and Regulations.
 
@@ -99,7 +103,8 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
 
   const initApprovePrefs = () => {
     const cur = Array.isArray(consent.monitoring_preferences) ? consent.monitoring_preferences : [];
-    setApprovePrefs(cur);
+    const selectableIds = new Set(SELECTABLE_MONITORING_CATEGORIES.map((category) => category.id));
+    setApprovePrefs(cur.filter((preference) => selectableIds.has(preference)));
   };
   const toggleAprovePref = (id) =>
     setApprovePrefs((prev) =>
@@ -347,7 +352,7 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
               Selected Monitoring Consent Categories
             </h3>
             <div className="grid gap-2 sm:grid-cols-2">
-              {MONITORING_CATEGORIES.map((cat) => {
+              {MONITORING_CATEGORIES.filter((cat) => cat.required || prefs.includes(cat.id)).map((cat) => {
                 const selected = prefs.includes(cat.id) || cat.required;
                 return (
                   <div key={cat.id} className={`flex items-center gap-3 rounded-2xl border p-3 ${selected ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white opacity-50"}`}>
@@ -475,7 +480,7 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
               {actionType === "approve_change" && approvePrefs !== null && (
                 <div className="space-y-2">
                   <p className="text-xs font-bold text-amber-800 uppercase tracking-wide">Set New Monitoring Preferences</p>
-                  {MONITORING_CATEGORIES.map((cat) => {
+                  {SELECTABLE_MONITORING_CATEGORIES.map((cat) => {
                     const checked = cat.required || (approvePrefs || []).includes(cat.id);
                     return (
                       <label key={cat.id} className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer ${
