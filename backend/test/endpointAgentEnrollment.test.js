@@ -360,8 +360,8 @@ test("device assignment synchronizes ownership and requests consent when approva
 
   const asset = await db.query(
     `INSERT INTO hardware_assets (
-       serial_number, brand, model_name, asset_name, asset_type, status, branch_id
-     ) VALUES ($1,'AstreaBlue','Assignment Test','Assignment Test Laptop','Laptop','Active',$2)
+       serial_number, brand, model_name, asset_name, asset_type, status, branch_id, department
+     ) VALUES ($1,'AstreaBlue','Assignment Test','Assignment Test Laptop','Laptop','Active',$2,'Operations')
      RETURNING asset_id`,
     [`ASSIGN-${unique}`, branchId]
   );
@@ -449,7 +449,7 @@ test("device assignment synchronizes ownership and requests consent when approva
   );
   assert.equal(unassignedAsset.rows[0].employee_id, null);
   assert.equal(unassignedAsset.rows[0].assigned_name, null);
-  assert.equal(unassignedAsset.rows[0].department, null);
+  assert.equal(unassignedAsset.rows[0].department, "Operations");
   assert.equal(unassignedAsset.rows[0].status, "Available");
 
   const unassignedDevice = await db.query(
@@ -460,6 +460,15 @@ test("device assignment synchronizes ownership and requests consent when approva
   assert.equal(unassignedDevice.rows[0].branch_id, branchId);
   assert.equal(unassignedDevice.rows[0].asset_id, assetId);
   assert.equal(unassignedDevice.rows[0].department, null);
+
+  const ownershipHistory = await db.query(
+    `SELECT event_type FROM asset_history WHERE asset_id=$1 ORDER BY history_id`,
+    [assetId]
+  );
+  assert.deepEqual(
+    ownershipHistory.rows.map((row) => row.event_type),
+    ["Endpoint Owner Assigned", "Endpoint Owner Removed"]
+  );
 });
 
 test("approved consent policy becomes the agent baseline without a manual policy assignment", async () => {

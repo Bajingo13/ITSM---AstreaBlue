@@ -136,7 +136,6 @@ export default function EndpointMonitoring() {
   const [assignLoading, setAssignLoading] = useState(false);
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [employeeBranchFilter, setEmployeeBranchFilter] = useState("");
-  const [employeeDepartmentFilter, setEmployeeDepartmentFilter] = useState("");
   const [assetSearch, setAssetSearch] = useState("");
   const [assetBranchFilter, setAssetBranchFilter] = useState("");
   const [assetStatusFilter, setAssetStatusFilter] = useState("");
@@ -223,18 +222,12 @@ export default function EndpointMonitoring() {
 
   const selectedDevice = devices.find((device) => String(device.device_id) === String(selectedId));
   const assetBranchId = String(selectedDevice?.branch_id || "");
-  const employeeDepartments = useMemo(() => [...new Set(usersList
-    .filter((user) => String(user.role_name || user.role || "").toLowerCase() === "employee")
-    .filter((user) => !employeeBranchFilter || String(user.branch_id) === String(employeeBranchFilter))
-    .map((user) => String(user.department || "").trim())
-    .filter(Boolean))].sort((left, right) => left.localeCompare(right)), [usersList, employeeBranchFilter]);
   const filteredAssignmentUsers = useMemo(() => usersList
     .filter((user) => String(user.role_name || user.role || "").toLowerCase() === "employee")
     .filter((user) => user.is_active !== false && !["inactive", "disabled", "deactivated"].includes(String(user.status || "").toLowerCase()))
     .filter((user) => !employeeBranchFilter || String(user.branch_id) === String(employeeBranchFilter))
-    .filter((user) => !employeeDepartmentFilter || String(user.department || "") === employeeDepartmentFilter)
     .filter((user) => matchesSearch(employeeSearch, user.full_name, user.email, user.employee_number))
-    .sort((left, right) => String(left.full_name || "").localeCompare(String(right.full_name || ""))), [usersList, employeeBranchFilter, employeeDepartmentFilter, employeeSearch]);
+    .sort((left, right) => String(left.full_name || "").localeCompare(String(right.full_name || ""))), [usersList, employeeBranchFilter, employeeSearch]);
   const filteredLinkAssets = useMemo(() => assetsList
     .filter((asset) => !assetBranchFilter || String(asset.branch_id) === String(assetBranchFilter))
     .filter((asset) => !assetStatusFilter || String(asset.status || "") === assetStatusFilter)
@@ -437,7 +430,6 @@ export default function EndpointMonitoring() {
       });
       setEmployeeSearch("");
       setEmployeeBranchFilter(String(selectedDevice?.branch_id || ""));
-      setEmployeeDepartmentFilter("");
       setAssetSearch("");
       setAssetBranchFilter(String(selectedDevice?.branch_id || ""));
       setAssetStatusFilter("");
@@ -458,7 +450,6 @@ export default function EndpointMonitoring() {
         const linkedAsset = assetsList.find(a => String(a.asset_id) === String(payload.asset_id));
         if (linkedAsset) {
           payload.branch_id = linkedAsset.branch_id || null;
-          payload.department = linkedAsset.department || linkedAsset.location || null;
         }
       }
 
@@ -1322,14 +1313,12 @@ export default function EndpointMonitoring() {
               <h3 className="text-xl font-black text-slate-900">Assign Employee</h3>
               <p className="mt-1 text-sm text-slate-500">Assign {selectedDevice?.hostname} to an employee.</p>
               <div className="mt-4 space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
+                <div>
                     <label className="mb-1 block text-sm font-bold text-slate-700">Branch filter</label>
                     <select
                       value={employeeBranchFilter}
                       onChange={(event) => {
                         setEmployeeBranchFilter(event.target.value);
-                        setEmployeeDepartmentFilter("");
                         setAssignForm((current) => ({ ...current, assigned_user_id: "" }));
                       }}
                       className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
@@ -1339,21 +1328,6 @@ export default function EndpointMonitoring() {
                         <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_name}</option>
                       ))}
                     </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-bold text-slate-700">Department filter</label>
-                    <select
-                      value={employeeDepartmentFilter}
-                      onChange={(event) => {
-                        setEmployeeDepartmentFilter(event.target.value);
-                        setAssignForm((current) => ({ ...current, assigned_user_id: "" }));
-                      }}
-                      className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
-                    >
-                      <option value="">All departments</option>
-                      {employeeDepartments.map((departmentName) => <option key={departmentName} value={departmentName}>{departmentName}</option>)}
-                    </select>
-                  </div>
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-bold text-slate-700">Search employee</label>
@@ -1388,7 +1362,7 @@ export default function EndpointMonitoring() {
                             className={`w-full rounded-xl border p-3 text-left transition ${selected ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/50"} disabled:cursor-not-allowed disabled:opacity-50`}
                           >
                             <span className="block font-black text-slate-900">{user.full_name}</span>
-                            <span className="mt-1 block text-xs font-semibold text-slate-600">{branchName} · {user.department || "No department"}</span>
+                            <span className="mt-1 block text-xs font-semibold text-slate-600">{branchName}{user.department ? ` · ${user.department}` : ""}</span>
                             <span className="mt-1 block text-xs text-slate-500">{user.email}{user.employee_number ? ` · ${user.employee_number}` : ""}</span>
                           </button>
                         );
@@ -1396,9 +1370,8 @@ export default function EndpointMonitoring() {
                     </div>
                   )}
                 </div>
-                {/* Branch and Department are hidden because they flow automatically from the linked hardware asset */}
                 <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                  <p className="text-xs font-bold text-slate-600">Department supports policy, reporting, and ownership records. It is copied from the selected employee automatically and cleared when the asset becomes unassigned.</p>
+                  <p className="text-xs font-bold text-slate-600">Branch controls assignment access. Department is optional metadata and is shown only when it already exists on the employee record.</p>
                 </div>
                 {selectedDevice?.assigned_user_id && (
                   <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
@@ -1406,7 +1379,13 @@ export default function EndpointMonitoring() {
                     <p className="mt-1 text-xs text-slate-600">Removing the owner keeps this endpoint linked to the same hardware asset. The asset becomes available and privacy-sensitive monitoring stops until another eligible employee is assigned.</p>
                     <button
                       type="button"
-                      onClick={() => submitAssign({ assigned_user_id: "", department: "", reason: assignForm.reason || "Owner removed by administrator" })}
+                      onClick={() => setConfirmAction({
+                        title: "Remove current owner?",
+                        message: `This keeps ${selectedDevice?.hostname || "the endpoint"} linked to the same hardware asset, clears its employee ownership, marks an assigned asset as available, and switches privacy-sensitive monitoring to the safe unassigned policy. Consent records and historical monitoring data are retained.`,
+                        confirmLabel: "Remove Owner",
+                        tone: "danger",
+                        onConfirm: () => submitAssign({ assigned_user_id: "", reason: assignForm.reason || "Owner removed by administrator" }),
+                      })}
                       disabled={assignLoading}
                       className="mt-3 rounded-xl border border-rose-300 bg-white px-4 py-2 text-sm font-black text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
                     >

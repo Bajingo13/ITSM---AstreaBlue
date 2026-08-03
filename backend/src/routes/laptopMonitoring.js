@@ -245,6 +245,7 @@ async function resolveConsentGatedFeature(device, featureFlag) {
 registerEndpointDeviceRoutes(router, {
   requireAdmin,
   ensureConsentRequestForDevice,
+  generateEffectivePolicy,
 });
 
 

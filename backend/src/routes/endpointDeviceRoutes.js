@@ -99,7 +99,11 @@ async function refreshDeviceStatuses() {
   );
 }
 
-function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentRequestForDevice }) {
+function registerEndpointDeviceRoutes(router, {
+  requireAdmin,
+  ensureConsentRequestForDevice,
+  generateEffectivePolicy,
+}) {
   router.get("/devices", requireAdmin, async (req, res) => {
     try {
       await refreshDeviceStatuses();
@@ -359,8 +363,8 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
         return res.status(403).json({ success: false, message: "Employees cannot reassign devices." });
       }
 
-      const { assigned_user_id, branch_id, asset_id, department, reason } = req.body;
-      let finalDepartment = department || null;
+      const { assigned_user_id, branch_id, asset_id, reason } = req.body;
+      let finalDepartment = null;
       let assignedName = null;
       let assignedEmail = null;
       let assignedBranchId = null;
@@ -406,7 +410,9 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
         // agreement request after the ownership transaction. The effective
         // endpoint policy remains on its safe baseline until approval.
         req.assignmentHasApprovedConsent = approvedConsent.rows.length > 0;
-        if (!finalDepartment) finalDepartment = employee.department || null;
+        // Department is optional employee metadata. It can enrich reports
+        // when present, but it must never block ownership assignment.
+        finalDepartment = employee.department || null;
         assignedName = employee.full_name;
         assignedEmail = employee.email || null;
         assignedBranchId = employee.branch_id || null;
@@ -458,8 +464,6 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
                borrower_name=$2,
                borrower_email=$3,
                borrower_department=CASE WHEN $1::varchar IS NULL THEN NULL ELSE $4 END,
-               department=$4,
-               team_department=$4,
                assigned_date=CASE WHEN $1::varchar IS NOT NULL THEN CURRENT_DATE ELSE NULL END,
                actual_return_date=CASE WHEN $1::varchar IS NULL THEN CURRENT_DATE ELSE NULL END,
                returned_date=CASE WHEN $1::varchar IS NULL THEN CURRENT_DATE ELSE NULL END,
@@ -471,6 +475,25 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
                updated_at=CURRENT_TIMESTAMP
            WHERE asset_id=$5`,
             [assigned_user_id || null, assignedName, assignedEmail, finalDepartment, targetAssetId]
+          );
+
+          await client.query(
+            `INSERT INTO asset_history (asset_id, event_type, event_data, branch_id, created_by)
+             VALUES ($1,$2,$3::jsonb,$4,$5)`,
+            [
+              targetAssetId,
+              assigned_user_id ? "Endpoint Owner Assigned" : "Endpoint Owner Removed",
+              JSON.stringify({
+                device_id: Number(req.params.id),
+                device_uuid: oldDevice.device_uuid,
+                previous_user_id: oldDevice.assigned_user_id || null,
+                assigned_user_id: assigned_user_id || null,
+                assigned_name: assignedName,
+                reason: reason || "Manual assignment",
+              }),
+              canonicalBranchId,
+              req.monitoringUserId,
+            ]
           );
         }
 
@@ -498,6 +521,13 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
       }
 
       if (targetAssetId) await reconcileDevice(req.params.id);
+      // Persist the safe/consent-aware policy immediately. The agent also
+      // regenerates it on the next normal policy poll; no reinstall is needed.
+      await generateEffectivePolicy(updatedDevice.device_uuid, req.monitoringUserId).catch((policyError) => {
+        // Ownership is already committed. Do not report a false assignment
+        // failure; the agent's next policy poll retries this regeneration.
+        console.error("[laptop-monitoring:assign-policy]", policyError.message);
+      });
       let consentRequest = null;
       if (assigned_user_id) {
         consentRequest = await ensureConsentRequestForDevice(updatedDevice, req.monitoringUserId);
