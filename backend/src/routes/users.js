@@ -11,6 +11,25 @@ const { validateStrongPassword } = require("../services/passwordPolicyService");
 
 const router = express.Router();
 
+const EMPLOYEE_ACCOUNT_BOUNDARY_MESSAGE =
+  "Employee accounts must be created through Employee Lifecycle onboarding.";
+
+async function getRoleById(roleId) {
+  const result = await db.query(
+    `SELECT role_id, role_name
+       FROM system_roles
+      WHERE role_id = $1
+      LIMIT 1`,
+    [roleId]
+  );
+
+  return result.rows[0] || null;
+}
+
+function isEmployeeRole(role) {
+  return String(role?.role_name || "").trim().toLowerCase() === "employee";
+}
+
 router.get("/", requireAuthenticatedRequest, async (req, res) => {
   try {
     const auth = getAuthFromRequest(req);
@@ -98,6 +117,20 @@ router.post("/", requireSuperAdminRequest, async (req, res) => {
       });
     }
 
+    const targetRole = await getRoleById(role_id);
+    if (!targetRole) {
+      return res.status(400).json({
+        success: false,
+        error: "Role does not exist",
+      });
+    }
+    if (isEmployeeRole(targetRole)) {
+      return res.status(409).json({
+        success: false,
+        error: EMPLOYEE_ACCOUNT_BOUNDARY_MESSAGE,
+      });
+    }
+
     const passwordValidation = validateStrongPassword(finalPassword);
     if (!passwordValidation.valid) {
       return res.status(400).json({
@@ -166,6 +199,44 @@ router.put("/:id", requireSuperAdminRequest, async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Full name, email, and role are required",
+      });
+    }
+
+
+    const [targetRole, currentUserResult] = await Promise.all([
+      getRoleById(role_id),
+      db.query(
+        `SELECT u.user_id, sr.role_name
+           FROM users u
+           LEFT JOIN system_roles sr ON sr.role_id = u.role_id
+          WHERE u.user_id = $1
+          LIMIT 1`,
+        [id]
+      ),
+    ]);
+
+    if (!targetRole) {
+      return res.status(400).json({
+        success: false,
+        error: "Role does not exist",
+      });
+    }
+
+    const currentUser = currentUserResult.rows[0];
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    if (
+      isEmployeeRole(targetRole) &&
+      String(currentUser.role_name || "").trim().toLowerCase() !== "employee"
+    ) {
+      return res.status(409).json({
+        success: false,
+        error: EMPLOYEE_ACCOUNT_BOUNDARY_MESSAGE,
       });
     }
 

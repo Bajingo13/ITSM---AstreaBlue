@@ -134,10 +134,15 @@ export default function UserManagement() {
     return roles.filter((item) => allowedNames.includes(item.role_name));
   }, [isSuperAdmin, roles]);
 
+  const creationRoles = useMemo(
+    () => allowedRoles.filter((item) => item.role_name !== "Employee"),
+    [allowedRoles]
+  );
+
   const inviteRoles = useMemo(() => {
     const allowedNames = isSuperAdmin
-      ? ["Admin", "HR", "Technician", "Employee"]
-      : ["Technician", "Employee"];
+      ? ["SuperAdmin", "Admin", "HR", "Technician"]
+      : ["Technician"];
 
     return roles.filter((item) => allowedNames.includes(item.role_name));
   }, [isSuperAdmin, roles]);
@@ -199,7 +204,7 @@ export default function UserManagement() {
 
   return (
     <div className="space-y-6">
-      <PageHero eyebrow="System Administration" title="User Management" subtitle="Manage accounts, roles, branch access, and onboarding invitations." actions={<>
+      <PageHero eyebrow="System Administration" title="User Management" subtitle="Manage SuperAdmin, Admin, HR, and Technician accounts. Employee accounts are created through Employee Lifecycle." actions={<>
           {["SuperAdmin", "Admin"].includes(activeRole) && (
             <button
               onClick={() =>
@@ -216,13 +221,15 @@ export default function UserManagement() {
               Generate Invite
             </button>
           )}
-          <button
-            onClick={openAddUser}
-            className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
-          >
-            <Plus size={18} />
-            Add User
-          </button>
+          {isSuperAdmin && (
+            <button
+              onClick={openAddUser}
+              className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 font-black text-blue-700 shadow-lg hover:bg-blue-50"
+            >
+              <Plus size={18} />
+              Add System User
+            </button>
+          )}
         </>} />
 
       {isSuperAdmin && (
@@ -299,7 +306,7 @@ export default function UserManagement() {
           <div>
             <h2 className="text-xl font-black text-slate-900">System Users</h2>
             <p className="text-sm text-slate-500">
-              SuperAdmin, Admin, HR, Technician, and Employee accounts.
+              Existing accounts are listed here. New Employee accounts must begin in Employee Lifecycle.
             </p>
           </div>
         </div>
@@ -418,6 +425,7 @@ export default function UserManagement() {
         <UserFormModal
           user={formUser}
           roles={allowedRoles}
+          creationRoles={creationRoles}
           inviteRoles={inviteRoles}
           branches={branches}
           rolesError={rolesError}
@@ -473,6 +481,7 @@ function FilterSelect({ value, onChange, options, label }) {
 function UserFormModal({
   user,
   roles,
+  creationRoles,
   inviteRoles,
   branches,
   rolesError,
@@ -493,7 +502,12 @@ function UserFormModal({
   const [inviteMessageType, setInviteMessageType] = useState("success");
   const isEditing = Boolean(user.user_id);
   const isInvite = Boolean(user.inviteMode);
-  const roleOptions = isInvite ? inviteRoles : roles;
+  const roleOptions = isInvite ? inviteRoles : isEditing ? roles : creationRoles;
+  const selectedRoleName = roleOptions.find(
+    (item) => String(item.role_id) === String(form.role_id)
+  )?.role_name;
+  const isGlobalSuperAdminInvite =
+    isInvite && String(selectedRoleName || "").toLowerCase() === "superadmin";
   const activeBranches = isInvite
     ? branches.filter((branch) => {
         const status = String(branch.status || "").toLowerCase();
@@ -513,10 +527,10 @@ function UserFormModal({
       const next = { ...prev };
 
       if (!next.role_id && roleOptions.length) {
-        const employeeRole =
-          roleOptions.find((item) => item.role_name === "Employee") ||
+        const defaultRole =
+          roleOptions.find((item) => item.role_name === "Technician") ||
           roleOptions[0];
-        next.role_id = employeeRole?.role_id ? String(employeeRole.role_id) : "";
+        next.role_id = defaultRole?.role_id ? String(defaultRole.role_id) : "";
       }
 
       if (!isSuperAdmin && currentBranchId) {
@@ -538,16 +552,21 @@ function UserFormModal({
 
     if (isInvite) {
       const finalBranchId = isSuperAdmin ? form.branch_id : currentBranchId;
+      const branchIsRequired = !isGlobalSuperAdminInvite;
       if (roleOptions.length === 0) {
         setError(rolesError || "No invite roles are available. Please try again.");
         return;
       }
-      if (isSuperAdmin && activeBranches.length === 0) {
+      if (isSuperAdmin && branchIsRequired && activeBranches.length === 0) {
         setError(branchesError || "No active branches are available for invites.");
         return;
       }
-      if (!form.full_name || !form.personal_email || !form.company_email || !form.role_id || !finalBranchId) {
-        setError("Please complete full name, personal email, company/login email, role, and branch.");
+      if (!form.full_name || !form.personal_email || !form.company_email || !form.role_id || (branchIsRequired && !finalBranchId)) {
+        setError(
+          branchIsRequired
+            ? "Please complete full name, personal email, company/login email, role, and branch."
+            : "Please complete full name, personal email, company/login email, and role."
+        );
         return;
       }
     } else if (!form.full_name || !form.email || !form.role_id || (!isEditing && !form.password)) {
@@ -562,7 +581,11 @@ function UserFormModal({
     try {
       setSaving(true);
 
-      const finalBranchId = isSuperAdmin ? form.branch_id : currentBranchId;
+      const finalBranchId = isGlobalSuperAdminInvite
+        ? null
+        : isSuperAdmin
+        ? form.branch_id
+        : currentBranchId;
       const res = await fetch(
         isInvite
           ? `${API_BASE}/invites`
@@ -623,12 +646,12 @@ function UserFormModal({
         <div className="flex items-start justify-between border-b border-slate-200 px-7 py-5">
           <div>
             <h2 className="text-xl font-black text-slate-900">
-              {isInvite ? "Generate Invite" : isEditing ? "Edit User" : "Add User"}
+              {isInvite ? "Generate System User Invite" : isEditing ? "Edit User" : "Add System User"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               {isInvite
                 ? "Send the activation link to the company email and a link-free reminder to the personal email."
-                : "Configure account profile, branch, role, and access status."}
+                : "Configure a SuperAdmin, Admin, HR, or Technician account. Employee onboarding is managed in Employee Lifecycle."}
             </p>
           </div>
           <button
@@ -715,7 +738,9 @@ function UserFormModal({
               placeholder={roleOptions.length ? "Select role" : "No roles loaded"}
               disabled={isInvite && roleOptions.length === 0}
             />
-            {isInvite && !isSuperAdmin ? (
+            {isGlobalSuperAdminInvite ? (
+              <ReadOnlyField label="Access Scope" value="Global / All Branches" />
+            ) : isInvite && !isSuperAdmin ? (
               <ReadOnlyField
                 label="Branch"
                 value={assignedBranchName || "No branch assigned"}

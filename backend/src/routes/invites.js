@@ -9,6 +9,7 @@ const {
   sendAccountActivatedReminderEmail,
 } = require("../services/emailService");
 const { validateStrongPassword } = require("../services/passwordPolicyService");
+const { requireAuthenticatedRequest } = require("../middleware/legacyJwtAuth");
 
 const router = express.Router();
 
@@ -41,7 +42,7 @@ function buildInviteLink(req, token) {
 }
 
 async function getBranchName(branchId) {
-  if (!branchId) return "Assigned Branch";
+  if (!branchId) return "Global / All Branches";
 
   const result = await db.query(
     `SELECT branch_name FROM branches WHERE branch_id = $1`,
@@ -263,9 +264,13 @@ async function validateInvite(token) {
   return { invite };
 }
 
-ensureInviteColumns();
+const inviteColumnsReady = ensureInviteColumns();
+router.use(async (_req, _res, next) => {
+  await inviteColumnsReady;
+  next();
+});
 
-router.post("/", async (req, res) => {
+router.post("/", requireAuthenticatedRequest, async (req, res) => {
   try {
     const {
       full_name,
@@ -276,15 +281,15 @@ router.post("/", async (req, res) => {
       role_id = null,
       branch_id,
       company_name = "AstreaBlue",
-      current_role,
-      current_branch_id,
-      current_user_id = null,
     } = req.body;
 
     const personal_email = normalizeEmail(raw_pe) || null;
     const company_email = normalizeEmail(raw_ce) || null;
 
-    const actorRole = normalizeRole(current_role || req.body.role_name || req.body.actor_role);
+    const authenticatedActor = req.authenticatedUser;
+    const actorRole = normalizeRole(authenticatedActor.role);
+    const actorBranchId = authenticatedActor.branchId;
+    const actorUserId = authenticatedActor.userId;
 
     if (!["superadmin", "admin"].includes(actorRole)) {
       return res.status(403).json({
@@ -293,17 +298,10 @@ router.post("/", async (req, res) => {
       });
     }
 
-    if (!full_name || !personal_email || !company_email || !(role || role_name || role_id) || !branch_id) {
+    if (!full_name || !personal_email || !company_email || !(role || role_name || role_id)) {
       return res.status(400).json({
         success: false,
-        error: "Full name, personal email, company/login email, role, and branch are required.",
-      });
-    }
-
-    if (actorRole === "admin" && Number(branch_id) !== Number(current_branch_id)) {
-      return res.status(403).json({
-        success: false,
-        error: "Admin can invite users only within their own branch.",
+        error: "Full name, personal email, company/login email, and role are required.",
       });
     }
 
@@ -316,14 +314,49 @@ router.post("/", async (req, res) => {
       });
     }
 
+    const targetRole = normalizeRole(inviteRole.role_name);
+    if (targetRole === "employee") {
+      return res.status(409).json({
+        success: false,
+        error: "Employee invitations must be created through Employee Lifecycle onboarding.",
+      });
+    }
+
+    const permittedTargetRoles = actorRole === "superadmin"
+      ? ["superadmin", "admin", "hr", "technician"]
+      : ["technician"];
+    if (!permittedTargetRoles.includes(targetRole)) {
+      return res.status(403).json({
+        success: false,
+        error: "You are not allowed to invite this role.",
+      });
+    }
+
+    const requiresBranch = targetRole !== "superadmin";
+    if (requiresBranch && !branch_id) {
+      return res.status(400).json({
+        success: false,
+        error: "A branch is required for Admin, HR, and Technician invitations.",
+      });
+    }
+
+    if (actorRole === "admin" && Number(branch_id) !== Number(actorBranchId)) {
+      return res.status(403).json({
+        success: false,
+        error: "Admin can invite users only within their own branch.",
+      });
+    }
+
+    const invitationBranchId = requiresBranch ? branch_id : null;
+
     const token = crypto.randomBytes(32).toString("hex");
     // The company email is the account identity. The personal address is
     // retained only for link-free reminders and must never become a login.
     const loginEmail = company_email;
 
     let valid_invited_by = null;
-    if (current_user_id) {
-      const actorCheck = await db.query('SELECT user_id FROM users WHERE user_id = $1', [current_user_id]);
+    if (actorUserId) {
+      const actorCheck = await db.query('SELECT user_id FROM users WHERE user_id = $1', [actorUserId]);
       if (actorCheck.rows.length > 0) {
         valid_invited_by = actorCheck.rows[0].user_id;
       }
@@ -331,17 +364,25 @@ router.post("/", async (req, res) => {
 
     const existingResult = await db.query(
       `
-      SELECT user_id, invite_status, is_active
-      FROM users
-      WHERE LOWER(email) = LOWER($1)
-         OR LOWER(personal_email) = LOWER($2)
-         OR ($3::text IS NOT NULL AND LOWER(company_email) = LOWER($3))
+      SELECT u.user_id, u.invite_status, u.is_active, sr.role_name
+      FROM users u
+      LEFT JOIN system_roles sr ON sr.role_id = u.role_id
+      WHERE LOWER(u.email) = LOWER($1)
+         OR LOWER(u.personal_email) = LOWER($2)
+         OR ($3::text IS NOT NULL AND LOWER(u.company_email) = LOWER($3))
       LIMIT 1
       `,
       [loginEmail, personal_email, company_email]
     );
 
     const existing = existingResult.rows[0];
+
+    if (existing && normalizeRole(existing.role_name) === "employee") {
+      return res.status(409).json({
+        success: false,
+        error: "This Employee account is managed by Employee Lifecycle and cannot be reused for a system-role invitation.",
+      });
+    }
 
     if (existing && existing.invite_status !== INVITE_STATUSES.PENDING) {
       return res.status(409).json({
@@ -378,9 +419,9 @@ router.post("/", async (req, res) => {
           invite_used_at = NULL,
           invited_by = $10,
           invited_at = CURRENT_TIMESTAMP,
-          onboarding_status = 'Invited',
-          onboarding_required = TRUE,
-          onboarding_completed_at = NULL,
+          onboarding_status = 'Completed',
+          onboarding_required = FALSE,
+          onboarding_completed_at = CURRENT_TIMESTAMP,
           onboarding_consent_id = NULL
         WHERE user_id = $11
         RETURNING
@@ -401,10 +442,10 @@ router.post("/", async (req, res) => {
           company_email,
           inviteRole.role_id,
           company_name,
-          branch_id,
+          invitationBranchId,
           INVITE_STATUSES.PENDING,
           token,
-          current_user_id,
+          valid_invited_by,
           existing.user_id,
         ]
       );
@@ -418,7 +459,7 @@ router.post("/", async (req, res) => {
         fullName: full_name,
         personalEmail: personal_email,
         companyEmail: company_email,
-        branchId: branch_id,
+        branchId: invitationBranchId,
       });
     }
 
@@ -445,7 +486,7 @@ router.post("/", async (req, res) => {
         onboarding_required
       )
       VALUES
-      ($1,$2,$3,$4,'INVITE_PENDING',$5,$6,$7,'Inactive',FALSE,$8,$9,CURRENT_TIMESTAMP + INTERVAL '48 hours',$10,CURRENT_TIMESTAMP,'Invited',TRUE)
+      ($1,$2,$3,$4,'INVITE_PENDING',$5,$6,$7,'Inactive',FALSE,$8,$9,CURRENT_TIMESTAMP + INTERVAL '48 hours',$10,CURRENT_TIMESTAMP,'Completed',FALSE)
       RETURNING
         user_id,
         full_name,
@@ -464,7 +505,7 @@ router.post("/", async (req, res) => {
         company_email,
         inviteRole.role_id,
         company_name,
-        branch_id,
+        invitationBranchId,
         INVITE_STATUSES.PENDING,
         token,
         valid_invited_by,
@@ -480,7 +521,7 @@ router.post("/", async (req, res) => {
       fullName: full_name,
       personalEmail: personal_email,
       companyEmail: company_email,
-      branchId: branch_id,
+      branchId: invitationBranchId,
     });
   } catch (err) {
     console.error("Create invite error:", err);
@@ -578,9 +619,9 @@ async function completeInvite(req, res) {
         invite_status = $2,
         invite_used_at = CURRENT_TIMESTAMP,
         invitation_accepted_at = CURRENT_TIMESTAMP,
-        onboarding_status = 'Account Created',
-        onboarding_required = TRUE,
-        onboarding_completed_at = NULL
+        onboarding_status = 'Completed',
+        onboarding_required = FALSE,
+        onboarding_completed_at = CURRENT_TIMESTAMP
       WHERE user_id = $3
         AND invite_token = $4
         AND invite_status = $5
@@ -597,7 +638,7 @@ async function completeInvite(req, res) {
 
     await db.query(
       `INSERT INTO user_onboarding_history (user_id,previous_status,new_status,changed_by,reason)
-       VALUES ($1,'Invited','Account Created',$1,'Invitation accepted and account activated.')`,
+       VALUES ($1,'Completed','Completed',$1,'System-role invitation accepted and account activated; employee onboarding is not required.')`,
       [invite.user_id]
     );
 
