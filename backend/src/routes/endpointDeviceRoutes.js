@@ -394,26 +394,31 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
            ORDER BY (device_uuid IS NOT NULL) DESC, approved_at DESC NULLS LAST LIMIT 1`,
           [assigned_user_id, check.rows[0].device_uuid]
         );
-        if (!approvedConsent.rows.length) {
-          return res.status(409).json({
-            success: false,
-            message: "Assignment requires an approved general consent or an approved consent for this device.",
-          });
-        }
+        // Asset custody must be assignable before consent is completed. When
+        // consent is missing, ensureConsentRequestForDevice() creates the
+        // agreement request after the ownership transaction. The effective
+        // endpoint policy remains on its safe baseline until approval.
+        req.assignmentHasApprovedConsent = approvedConsent.rows.length > 0;
         if (!finalDepartment) finalDepartment = employee.department || null;
         assignedName = employee.full_name;
       }
 
       const oldDevice = check.rows[0];
-      const updated = await db.query(
-        `UPDATE monitored_devices
-         SET assigned_user_id=$1, branch_id=$2, asset_id=$3, department=$4, updated_at=CURRENT_TIMESTAMP
-         WHERE device_id=$5 RETURNING *`,
-        [assigned_user_id || null, branch_id || null, asset_id || null, finalDepartment, req.params.id]
-      );
       const targetAssetId = asset_id || oldDevice.asset_id;
-      if (targetAssetId) {
-        await db.query(
+      const client = await db.connect();
+      let updatedDevice;
+      try {
+        await client.query("BEGIN");
+        const updated = await client.query(
+          `UPDATE monitored_devices
+           SET assigned_user_id=$1, branch_id=$2, asset_id=$3, department=$4, updated_at=CURRENT_TIMESTAMP
+           WHERE device_id=$5 RETURNING *`,
+          [assigned_user_id || null, branch_id || null, asset_id || null, finalDepartment, req.params.id]
+        );
+        updatedDevice = updated.rows[0];
+
+        if (targetAssetId) {
+          await client.query(
           `UPDATE hardware_assets
            SET employee_id=$1,
                assigned_name=$2,
@@ -427,28 +432,51 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
                END,
                updated_at=CURRENT_TIMESTAMP
            WHERE asset_id=$5`,
-          [assigned_user_id || null, assignedName, finalDepartment, branch_id || null, targetAssetId]
+            [assigned_user_id || null, assignedName, finalDepartment, branch_id || null, targetAssetId]
+          );
+        }
+
+        await client.query(
+          `INSERT INTO monitored_device_assignments (
+             device_id, device_uuid, asset_id, old_user_id, new_user_id, old_branch_id, new_branch_id, old_department, new_department, reason, changed_by
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [
+            req.params.id, oldDevice.device_uuid, oldDevice.asset_id, oldDevice.assigned_user_id, assigned_user_id || null,
+            oldDevice.branch_id, branch_id || null, oldDevice.department, finalDepartment, reason || "Manual assignment", req.monitoringUserId,
+          ]
         );
+        const eventName = assigned_user_id ? "Device assigned" : "Device unassigned";
+        await client.query(
+          `INSERT INTO laptop_activity_logs (device_id, event_type, app_name, window_title)
+           VALUES ($1, 'system_audit', $2, $3)`,
+          [req.params.id, eventName, `Assigned User ID: ${assigned_user_id || "None"}, Branch: ${branch_id || "None"}`]
+        );
+        await client.query("COMMIT");
+      } catch (transactionError) {
+        await client.query("ROLLBACK");
+        throw transactionError;
+      } finally {
+        client.release();
       }
 
-      await db.query(
-        `INSERT INTO monitored_device_assignments (
-           device_id, device_uuid, asset_id, old_user_id, new_user_id, old_branch_id, new_branch_id, old_department, new_department, reason, changed_by
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [
-          req.params.id, oldDevice.device_uuid, oldDevice.asset_id, oldDevice.assigned_user_id, assigned_user_id || null,
-          oldDevice.branch_id, branch_id || null, oldDevice.department, finalDepartment, reason || "Manual assignment", req.monitoringUserId,
-        ]
-      );
-      const eventName = assigned_user_id ? "Device assigned" : "Device unassigned";
-      await db.query(
-        `INSERT INTO laptop_activity_logs (device_id, event_type, app_name, window_title)
-         VALUES ($1, 'system_audit', $2, $3)`,
-        [req.params.id, eventName, `Assigned User ID: ${assigned_user_id || "None"}, Branch: ${branch_id || "None"}`]
-      );
       if (targetAssetId) await reconcileDevice(req.params.id);
-      await ensureConsentRequestForDevice(updated.rows[0], req.monitoringUserId);
-      return res.json({ success: true, message: "Device assignment updated.", data: updated.rows[0] });
+      let consentRequest = null;
+      if (assigned_user_id) {
+        consentRequest = await ensureConsentRequestForDevice(updatedDevice, req.monitoringUserId);
+      }
+      const consentPending = Boolean(assigned_user_id) && !req.assignmentHasApprovedConsent;
+      return res.json({
+        success: true,
+        message: consentPending
+          ? "Ownership updated. Consent was requested; privacy-sensitive monitoring remains disabled until approval."
+          : "Device and hardware asset ownership updated.",
+        data: updatedDevice,
+        consent: {
+          approved: Boolean(assigned_user_id) && !consentPending,
+          pending: consentPending,
+          consent_id: consentRequest?.consent_id || null,
+        },
+      });
     } catch (error) {
       console.error("[laptop-monitoring:assign]", error.message);
       return res.status(500).json({ success: false, message: "Failed to assign device." });

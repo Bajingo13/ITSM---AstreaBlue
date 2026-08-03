@@ -340,7 +340,7 @@ test("legacy global token remains available during migration", async () => {
   deviceIds.push((await response.json()).data.device_id);
 });
 
-test("device assignment synchronizes a text employee ID to the linked hardware asset", async () => {
+test("device assignment synchronizes ownership and requests consent when approval is missing", async () => {
   const role = await db.query(
     `SELECT role_id FROM roles WHERE LOWER(role_name)='employee' ORDER BY role_id LIMIT 1`
   );
@@ -357,17 +357,6 @@ test("device assignment synchronizes a text employee ID to the linked hardware a
   );
   const employeeId = employee.rows[0].user_id;
   userIds.push(employeeId);
-
-  const consent = await db.query(
-    `INSERT INTO consent_documents (
-       employee_id, employee_full_name, employee_email, form_title, consent_version,
-       monitoring_preferences, status, active, approved_at
-     ) VALUES ($1,'Endpoint Assignment Test',$2,'Endpoint Monitoring Consent','1.0',
-       '[]'::jsonb,'approved',true,CURRENT_TIMESTAMP)
-     RETURNING consent_id`,
-    [employeeId, `endpoint-assignment-${unique}@astreablue.test`]
-  );
-  consentIds.push(consent.rows[0].consent_id);
 
   const asset = await db.query(
     `INSERT INTO hardware_assets (
@@ -412,6 +401,19 @@ test("device assignment synchronizes a text employee ID to the linked hardware a
   );
   const assignmentBody = await assignment.json();
   assert.equal(assignment.status, 200, JSON.stringify(assignmentBody));
+  assert.equal(assignmentBody.consent?.approved, false);
+  assert.equal(assignmentBody.consent?.pending, true);
+  assert.match(assignmentBody.message, /Consent was requested/i);
+
+  const requestedConsent = await db.query(
+    `SELECT consent_id, status
+     FROM consent_documents
+     WHERE employee_id=$1 AND status='pending_employee'
+     ORDER BY consent_id DESC LIMIT 1`,
+    [employeeId]
+  );
+  assert.equal(requestedConsent.rows[0]?.status, "pending_employee");
+  consentIds.push(requestedConsent.rows[0].consent_id);
 
   const linkedAsset = await db.query(
     `SELECT employee_id, assigned_name, status FROM hardware_assets WHERE asset_id=$1`,

@@ -425,8 +425,8 @@ export default function EndpointMonitoring() {
       if (!response.ok) throw new Error(data.message || "Failed to assign device");
       setShowLinkAssetModal(false);
       setShowAssignEmployeeModal(false);
-      loadOverview();
-      showToast("Endpoint assignment updated. Consent workflow and asset links were refreshed.");
+      await loadOverview();
+      showToast(data.message || "Endpoint assignment updated. Consent workflow and asset links were refreshed.");
     } catch (e) {
       showToast(`Assignment failed: ${e.message}`, "error");
     } finally {
