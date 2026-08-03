@@ -113,6 +113,15 @@ function inferConversationSubject(history) {
   const recent = sanitizeHistory(history).slice().reverse();
   for (const item of recent) {
     const content = item.content.toLowerCase();
+    if (/\b(branches|branch offices?|office branches?)\b/.test(content)) {
+      return "branches";
+    }
+    if (
+      /\b(users?|user accounts?|system accounts?|employees?)\b/.test(content)
+      && !/\b(employee lifecycle|onboarding|offboarding)\b/.test(content)
+    ) {
+      return "users";
+    }
     if (/\b(knowledge base|kb articles?|knowledge articles?)\b/.test(content)) {
       return "knowledge_base";
     }
@@ -194,7 +203,7 @@ function resolveContextualCountMessage(message, history) {
   const normalized = normalizeIntentText(trimmed);
 
   const hasExplicitSubject =
-    /\b(tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|screenshots?|screen captures?|usb|dlp|data loss prevention|removable media|file transfers?|endpoint health|device health|endpoint diagnostics?|sla|service level|replacement requests?|replacement management|onboarding|offboarding|employee lifecycle|lifecycle|lifecycle cases?|configuration items?|cmdb|config items?|dependency map|dependencies|ci relationships?|change impact|projects?|project forecasting|project portfolio|milestones?|project risks?|project budget|reporting analytics|operational analytics|executive dashboard|custom reports?|service desk reports?|knowledge base|kb articles?|knowledge articles?|articles?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
+    /\b(branches|branch offices?|office branches?|users?|user accounts?|system accounts?|employees?|tickets?|hardware assets?|assets?|laptops?|desktops?|computers?|software|licen[cs]es?|subscriptions?|endpoints?|devices?|screenshots?|screen captures?|usb|dlp|data loss prevention|removable media|file transfers?|endpoint health|device health|endpoint diagnostics?|sla|service level|replacement requests?|replacement management|onboarding|offboarding|employee lifecycle|lifecycle|lifecycle cases?|configuration items?|cmdb|config items?|dependency map|dependencies|ci relationships?|change impact|projects?|project forecasting|project portfolio|milestones?|project risks?|project budget|reporting analytics|operational analytics|executive dashboard|custom reports?|service desk reports?|knowledge base|kb articles?|knowledge articles?|articles?|finance|financial|depreciat(?:ion|ed|ing)?|book value|end of life|warrant(?:y|ies)|consent records?|consent documents?|privacy consent|monitoring consent|endpoint polic(?:y|ies)|effective polic(?:y|ies)|policy sync|policy download)\b/i
       .test(normalized);
   if (hasExplicitSubject) {
     const recent = sanitizeHistory(history).slice().reverse();
@@ -228,6 +237,12 @@ function resolveContextualCountMessage(message, history) {
 
   if (subject === "hardware_assets") {
     return { message: `${trimmed} hardware assets`, ambiguous: false };
+  }
+  if (subject === "branches") {
+    return { message: `${trimmed} branches`, ambiguous: false };
+  }
+  if (subject === "users") {
+    return { message: `${trimmed} user accounts`, ambiguous: false };
   }
   if (subject === "tickets") {
     return { message: `${trimmed} tickets`, ambiguous: false };

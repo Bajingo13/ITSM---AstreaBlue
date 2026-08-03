@@ -438,6 +438,44 @@ function countLabel(label, count) {
 
 const CAPABILITIES = [
   {
+    key: "branches",
+    matches: (text) => /\b(branches|branch offices?|office branches?)\b/.test(text),
+    repositoryMethod: "getAuthorizedBranchSummary",
+    outcome: "live_branch_summary",
+    notice: "Branch visibility rules were applied.",
+    format: (data) => {
+      const total = Number(data.total || 0);
+      return `There ${total === 1 ? "is" : "are"} ${total} branch${total === 1 ? "" : "es"}. Active: ${Number(data.active || 0)}, Inactive: ${Number(data.inactive || 0)}.`;
+    },
+  },
+  {
+    key: "users",
+    matches: (text) =>
+      /\b(users?|user accounts?|system accounts?|employees?)\b/.test(text)
+      && !/\b(employee lifecycle|onboarding|offboarding)\b/.test(text),
+    repositoryMethod: "getAuthorizedUserSummary",
+    outcome: "live_user_summary",
+    notice: "User Management visibility rules were applied.",
+    format: (data, message) => {
+      const total = Number(data.total || 0);
+      const active = Number(data.active || 0);
+      const inactive = Number(data.inactive || 0);
+      if (/\bactive\b/.test(normalize(message)) && !/\binactive\b/.test(normalize(message))) {
+        return `There ${active === 1 ? "is" : "are"} ${active} active user account${active === 1 ? "" : "s"}.`;
+      }
+      if (/\b(inactive|deactivated|disabled)\b/.test(normalize(message))) {
+        return `There ${inactive === 1 ? "is" : "are"} ${inactive} inactive user account${inactive === 1 ? "" : "s"}.`;
+      }
+      const roles = Object.entries(data.by_role || {})
+        .map(([role, count]) => `${role}: ${Number(count || 0)}`)
+        .join(", ");
+      return [
+        `There ${total === 1 ? "is" : "are"} ${total} user account${total === 1 ? "" : "s"}. Active: ${active}, Inactive: ${inactive}.`,
+        roles ? `By role: ${roles}.` : null,
+      ].filter(Boolean).join("\n");
+    },
+  },
+  {
     key: "screenshot monitoring",
     matches: (text) =>
       /\b(screenshots?|screen captures?|screenshot monitoring|screenshot gallery)\b/.test(text)

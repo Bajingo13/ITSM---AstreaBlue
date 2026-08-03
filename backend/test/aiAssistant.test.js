@@ -58,6 +58,19 @@ function createRepo(overrides = {}) {
         Closed: 3,
       },
     }),
+    getAuthorizedBranchSummary: async () => ({
+      authorized: true,
+      total: 4,
+      active: 3,
+      inactive: 1,
+    }),
+    getAuthorizedUserSummary: async () => ({
+      authorized: true,
+      total: 21,
+      active: 17,
+      inactive: 4,
+      by_role: { SuperAdmin: 1, Admin: 2, Technician: 5, Employee: 13 },
+    }),
     getAuthorizedKnowledgeBaseSummary: async () => ({
       authorized: true,
       total: 9,
@@ -557,6 +570,32 @@ test("assistant preserves ticket context for a status follow-up", async () => {
   assert.equal(result.mode, "system-data");
   assert.match(result.answer, /Open Queue: 20/);
   assert.match(result.answer, /In Progress: 16/);
+});
+
+test("explicit branch and user questions do not inherit the previous ticket context", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const ticketHistory = [
+    { role: "user", content: "What is the status of the tickets?" },
+    { role: "assistant", content: "You currently have 46 total tickets." },
+  ];
+
+  const branches = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many branches do we have now?",
+    history: ticketHistory,
+  });
+  const users = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "How many active users do we have now?",
+    history: ticketHistory,
+  });
+
+  assert.equal(branches.mode, "system-data");
+  assert.match(branches.answer, /4 branches/);
+  assert.doesNotMatch(branches.answer, /tickets/i);
+  assert.equal(users.mode, "system-data");
+  assert.match(users.answer, /17 active user accounts/);
+  assert.doesNotMatch(users.answer, /tickets/i);
 });
 
 test("assistant returns a live authorized hardware asset summary instead of a KB result", async () => {

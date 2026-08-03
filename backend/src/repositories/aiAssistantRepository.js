@@ -284,6 +284,69 @@ async function getAuthorizedTicketStatusSummary({ actor }) {
   return { total, byStatus };
 }
 
+async function getAuthorizedBranchSummary({ actor, queryable = db }) {
+  const role = normalizeRole(actor?.role_name);
+  const params = [];
+  let whereSql = "TRUE";
+
+  if (role !== "superadmin") {
+    if (!actor?.branch_id) return { authorized: false };
+    params.push(Number(actor.branch_id));
+    whereSql = `b.branch_id = $${params.length}`;
+  }
+
+  const result = await queryable.query(
+    `SELECT
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE COALESCE(b.is_active, TRUE) = TRUE)::int AS active,
+       COUNT(*) FILTER (WHERE COALESCE(b.is_active, TRUE) = FALSE)::int AS inactive
+     FROM branches b
+     WHERE ${whereSql}`,
+    params
+  );
+  return { authorized: true, ...(result.rows[0] || {}) };
+}
+
+async function getAuthorizedUserSummary({ actor, queryable = db }) {
+  const role = normalizeRole(actor?.role_name);
+  const params = [];
+  let whereSql = "TRUE";
+
+  if (role === "employee") {
+    params.push(Number(actor.user_id));
+    whereSql = `u.user_id = $${params.length}`;
+  } else if (role !== "superadmin") {
+    if (!actor?.branch_id) return { authorized: false };
+    params.push(Number(actor.branch_id));
+    whereSql = `u.branch_id = $${params.length}`;
+  }
+
+  const result = await queryable.query(
+    `WITH scoped_users AS (
+       SELECT
+         COALESCE(u.is_active, TRUE) AS is_active,
+         COALESCE(NULLIF(TRIM(sr.role_name), ''), 'Unspecified') AS role_name
+       FROM users u
+       LEFT JOIN system_roles sr ON sr.role_id = u.role_id
+       WHERE ${whereSql}
+     ), role_counts AS (
+       SELECT role_name, COUNT(*)::int AS count
+       FROM scoped_users
+       GROUP BY role_name
+     )
+     SELECT
+       (SELECT COUNT(*)::int FROM scoped_users) AS total,
+       (SELECT COUNT(*)::int FROM scoped_users WHERE is_active = TRUE) AS active,
+       (SELECT COUNT(*)::int FROM scoped_users WHERE is_active = FALSE) AS inactive,
+       COALESCE(
+         (SELECT jsonb_object_agg(role_name, count ORDER BY role_name) FROM role_counts),
+         '{}'::jsonb
+       ) AS by_role`,
+    params
+  );
+  return { authorized: true, ...(result.rows[0] || {}) };
+}
+
 async function getAuthorizedHardwareAssetSummary({ actor }) {
   const access = getHardwareAssetAccessFilter({
     role: actor.role_name,
@@ -1439,6 +1502,8 @@ module.exports = {
   articleSearchScore,
   countAuthorizedTickets,
   getAuthorizedTicketStatusSummary,
+  getAuthorizedBranchSummary,
+  getAuthorizedUserSummary,
   extractSearchTerms,
   getAuthorizedHardwareAssetSummary,
   getAuthorizedKnowledgeBaseSummary,
