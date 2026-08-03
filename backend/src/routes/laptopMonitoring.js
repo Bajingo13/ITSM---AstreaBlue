@@ -293,20 +293,24 @@ registerEndpointUsbDlpRoutes(router, {
   resolveConsentGatedFeature,
 });
 
-// Website monitoring permission checks consent_documents for website_monitoring preference
+// Keep website monitoring authorization aligned with the canonical effective
+// policy. This applies employee consent, endpoint policy, assignment, and all
+// supported browser/domain consent aliases in one place.
 router.get("/website-monitoring-permission", requireAgent, async (req, res) => {
   try {
     const device = await findDevice(req.query || {});
     if (!device) return res.status(404).json({ success: false, message: "Device not registered. Send a heartbeat first." });
-    let allowed = false;
-    if (device.assigned_user_id) {
-      const prefs = await endpointMonitoringRepository.findApprovedConsentPreferences(
-        device.assigned_user_id,
-        device.device_uuid
-      );
-      allowed = Array.isArray(prefs) && prefs.includes("website_monitoring");
-    }
-    return res.json({ success: true, data: { allowed, feature: "website_monitoring" } });
+    const permission = await resolveConsentGatedFeature(device, "browser_monitoring_enabled");
+    return res.json({
+      success: true,
+      data: {
+        allowed: permission.allowed,
+        feature: "website_monitoring",
+        policy_version: permission.policy?.policy_version || null,
+        consent_id: permission.policy?.consent_id || null,
+        reason: permission.reason,
+      },
+    });
   } catch (error) {
     console.error("[laptop-monitoring:website-monitoring-permission]", error.message);
     return res.status(500).json({ success: false, message: "Failed to verify website monitoring consent." });
