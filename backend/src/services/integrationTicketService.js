@@ -47,6 +47,8 @@ async function createIntegrationTicket(payload, integration, requestContext = {}
     throw validationError("category_id must be a valid integer.");
   }
 
+
+
   const priorityInput = String(payload.priority || "Medium").trim().toLowerCase();
   const priority = PRIORITIES.get(priorityInput);
   if (!priority) throw validationError("priority must be Critical, High, Medium, Low, or its P1-P4 canonical value.");
@@ -63,6 +65,8 @@ async function createIntegrationTicket(payload, integration, requestContext = {}
     error.statusCode = 400;
     throw error;
   }
+
+  
 
   if (payload.attachment_metadata !== undefined && !Array.isArray(payload.attachment_metadata)) {
     const error = new Error("attachment_metadata must be an array.");

@@ -71,6 +71,7 @@ namespace AstreaBlue.Agent
         public int screenshot_retention_days { get; set; }
         public int usb_scan_interval_seconds { get; set; }
         public int dlp_large_transfer_mb { get; set; }
+        public int dlp_Large_transfer_seconnds {get; set;}
     }
 
     internal sealed class UsbDriveState
