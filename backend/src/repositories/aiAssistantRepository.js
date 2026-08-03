@@ -250,6 +250,40 @@ async function countAuthorizedTickets({ actor, statusKey }) {
   return Number(result.rows[0]?.ticket_count || 0);
 }
 
+async function getAuthorizedTicketStatusSummary({ actor }) {
+  const params = [];
+  const request = {
+    ticketAccessContext: {
+      authenticated: true,
+      currentUserId: Number(actor.user_id),
+      roleName: actor.role_name,
+      branchId: actor.branch_id == null ? null : Number(actor.branch_id),
+      filterBranchId: null,
+    },
+    query: {},
+    body: {},
+  };
+  const clauses = addTicketAccessFilter(request, params, "t");
+  const result = await db.query(
+    `SELECT
+       COALESCE(NULLIF(TRIM(t.status), ''), 'Unspecified') AS status,
+       COUNT(*)::int AS ticket_count
+     FROM tickets t
+     WHERE ${clauses.length ? clauses.join(" AND ") : "TRUE"}
+     GROUP BY COALESCE(NULLIF(TRIM(t.status), ''), 'Unspecified')`,
+    params
+  );
+
+  const byStatus = {};
+  let total = 0;
+  for (const row of result.rows) {
+    const count = Number(row.ticket_count || 0);
+    byStatus[row.status] = count;
+    total += count;
+  }
+  return { total, byStatus };
+}
+
 async function getAuthorizedHardwareAssetSummary({ actor }) {
   const access = getHardwareAssetAccessFilter({
     role: actor.role_name,
@@ -1404,6 +1438,7 @@ async function getAssistantInsights({ actor, queryable = db }) {
 module.exports = {
   articleSearchScore,
   countAuthorizedTickets,
+  getAuthorizedTicketStatusSummary,
   extractSearchTerms,
   getAuthorizedHardwareAssetSummary,
   getAuthorizedKnowledgeBaseSummary,

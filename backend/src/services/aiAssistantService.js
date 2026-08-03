@@ -298,6 +298,37 @@ function detectTicketCountIntent(message) {
   return { statusKey: "all", label: "total" };
 }
 
+function detectTicketStatusSummaryIntent(message) {
+  const normalized = normalizeIntentText(message);
+  if (!/\btickets?\b/.test(normalized)) return false;
+  return /\b(status|statuses|status breakdown|breakdown by status)\b/.test(normalized)
+    && !/\b(how many|count|number of)\b/.test(normalized);
+}
+
+function formatTicketStatusSummary(summary) {
+  const byStatus = summary?.byStatus || {};
+  const preferredOrder = [
+    "Open Queue",
+    "In Progress",
+    "Resolved",
+    "Closed",
+    "Cancelled",
+    "Canceled",
+  ];
+  const orderedStatuses = [
+    ...preferredOrder.filter((status) => Object.prototype.hasOwnProperty.call(byStatus, status)),
+    ...Object.keys(byStatus)
+      .filter((status) => !preferredOrder.includes(status))
+      .sort((left, right) => left.localeCompare(right)),
+  ];
+  if (!orderedStatuses.length) return "There are currently no tickets.";
+
+  const breakdown = orderedStatuses
+    .map((status) => `${status}: ${Number(byStatus[status] || 0)}`)
+    .join(", ");
+  return `You currently have ${Number(summary.total || 0)} total tickets. By status: ${breakdown}.`;
+}
+
 function detectHardwareAssetSummaryIntent(message) {
   const normalized = normalizeIntentText(message);
   const asksForSummary = /\b(how many|count|total|number of|summary|breakdown)\b/.test(normalized);
@@ -757,6 +788,25 @@ function createAiAssistantService({
       };
     }
 
+    const ticketStatusSummaryIntent = detectTicketStatusSummaryIntent(
+      contextualQuestion.message
+    );
+    if (ticketStatusSummaryIntent) {
+      const summary = await repo.getAuthorizedTicketStatusSummary({ actor });
+      await repo.writeAudit({
+        actor, question: trimmedMessage, outcome: "live_ticket_status_summary",
+        sourceCount: 0, ipAddress,
+      });
+      await markCoverageResolved();
+      return {
+        answer: formatTicketStatusSummary(summary),
+        sources: [],
+        mode: "system-data",
+        notice: "Live read-only AstreaBlue data. Existing ticket RBAC was applied.",
+        data_context: liveDataContext("Service Desk - Tickets"),
+      };
+    }
+
     const ticketCountIntent = detectTicketCountIntent(contextualQuestion.message);
     if (ticketCountIntent) {
       const ticketCount = await repo.countAuthorizedTickets({
@@ -962,6 +1012,8 @@ module.exports = {
   detectHardwareAssetSummaryIntent,
   detectSoftwareLicenseIntent,
   detectTicketCountIntent,
+  detectTicketStatusSummaryIntent,
+  formatTicketStatusSummary,
   extractResponseText,
   formatKnowledgeContext,
   formatHardwareAssetSummary,

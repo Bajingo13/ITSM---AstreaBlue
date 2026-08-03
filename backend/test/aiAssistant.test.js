@@ -49,6 +49,15 @@ function createRepo(overrides = {}) {
       branch_name: "Makati Head Office",
     }],
     countAuthorizedTickets: async () => 3,
+    getAuthorizedTicketStatusSummary: async () => ({
+      total: 46,
+      byStatus: {
+        "Open Queue": 20,
+        "In Progress": 16,
+        Resolved: 7,
+        Closed: 3,
+      },
+    }),
     getAuthorizedKnowledgeBaseSummary: async () => ({
       authorized: true,
       total: 9,
@@ -509,6 +518,45 @@ test("assistant counts tickets through the authorized read-only repository query
   assert.equal(result.mode, "system-data");
   assert.match(result.answer, /7 Open Queue tickets/);
   assert.match(result.notice, /RBAC/);
+});
+
+test("assistant returns a direct ticket status breakdown", async () => {
+  let knowledgeSearchCalled = false;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      searchAuthorizedKnowledge: async () => {
+        knowledgeSearchCalled = true;
+        return [];
+      },
+    }),
+    apiKey: "",
+  });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "What is the status of the tickets?",
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /46 total tickets/);
+  assert.match(result.answer, /Open Queue: 20/);
+  assert.match(result.answer, /In Progress: 16/);
+  assert.equal(knowledgeSearchCalled, false);
+});
+
+test("assistant preserves ticket context for a status follow-up", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "What's the status?",
+    history: [
+      { role: "user", content: "How many tickets do we have right now?" },
+      { role: "assistant", content: "You currently have 46 total tickets." },
+    ],
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /Open Queue: 20/);
+  assert.match(result.answer, /In Progress: 16/);
 });
 
 test("assistant returns a live authorized hardware asset summary instead of a KB result", async () => {
