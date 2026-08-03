@@ -362,14 +362,21 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
       const { assigned_user_id, branch_id, asset_id, department, reason } = req.body;
       let finalDepartment = department || null;
       let assignedName = null;
+      let assignedEmail = null;
+      let assignedBranchId = null;
       if (assigned_user_id) {
         const user = await db.query(
-          `SELECT full_name,department,onboarding_status,onboarding_required,is_active
-             FROM users WHERE user_id=$1`,
+          `SELECT u.full_name,u.email,u.department,u.branch_id,u.onboarding_status,u.onboarding_required,u.is_active,r.role_name
+             FROM users u
+             LEFT JOIN system_roles r ON r.role_id=u.role_id
+            WHERE u.user_id=$1`,
           [assigned_user_id]
         );
         if (!user.rows.length) return res.status(404).json({ success: false, message: "Employee not found." });
         const employee = user.rows[0];
+        if (String(employee.role_name || "").toLowerCase() !== "employee") {
+          return res.status(409).json({ success: false, message: "Only an Employee account can be assigned to a managed company device." });
+        }
         if (employee.is_active === false) {
           return res.status(409).json({
             success: false,
@@ -401,19 +408,41 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
         req.assignmentHasApprovedConsent = approvedConsent.rows.length > 0;
         if (!finalDepartment) finalDepartment = employee.department || null;
         assignedName = employee.full_name;
+        assignedEmail = employee.email || null;
+        assignedBranchId = employee.branch_id || null;
       }
 
       const oldDevice = check.rows[0];
-      const targetAssetId = asset_id || oldDevice.asset_id;
+      const targetAssetId = asset_id === undefined ? oldDevice.asset_id : (asset_id || null);
       const client = await db.connect();
       let updatedDevice;
       try {
         await client.query("BEGIN");
+        let targetAsset = null;
+        if (targetAssetId) {
+          const targetAssetResult = await client.query(
+            `SELECT asset_id,branch_id,employee_id,assigned_name,borrower_name,status
+               FROM hardware_assets WHERE asset_id=$1 FOR UPDATE`,
+            [targetAssetId]
+          );
+          targetAsset = targetAssetResult.rows[0] || null;
+          if (!targetAsset) {
+            throw Object.assign(new Error("The linked hardware asset no longer exists."), { status: 409 });
+          }
+          if (!req.monitoringIsSuperAdmin && Number(targetAsset.branch_id) !== Number(req.monitoringBranchId)) {
+            throw Object.assign(new Error("The hardware asset belongs to a different branch."), { status: 403 });
+          }
+          if (assigned_user_id && Number(assignedBranchId) !== Number(targetAsset.branch_id)) {
+            throw Object.assign(new Error("The employee and linked hardware asset must belong to the same branch."), { status: 409 });
+          }
+        }
+
+        const canonicalBranchId = targetAsset?.branch_id || assignedBranchId || branch_id || oldDevice.branch_id || null;
         const updated = await client.query(
           `UPDATE monitored_devices
            SET assigned_user_id=$1, branch_id=$2, asset_id=$3, department=$4, updated_at=CURRENT_TIMESTAMP
            WHERE device_id=$5 RETURNING *`,
-          [assigned_user_id || null, branch_id || null, asset_id || null, finalDepartment, req.params.id]
+          [assigned_user_id || null, canonicalBranchId, targetAssetId, finalDepartment, req.params.id]
         );
         updatedDevice = updated.rows[0];
 
@@ -422,17 +451,22 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
           `UPDATE hardware_assets
            SET employee_id=$1,
                assigned_name=$2,
-               department=$3,
-               branch_id=$4,
-               assigned_date=CASE WHEN $1::varchar IS NOT NULL THEN CURRENT_DATE ELSE assigned_date END,
+               borrower_name=$2,
+               borrower_email=$3,
+               borrower_department=CASE WHEN $1::varchar IS NULL THEN NULL ELSE $4 END,
+               department=$4,
+               team_department=$4,
+               assigned_date=CASE WHEN $1::varchar IS NOT NULL THEN CURRENT_DATE ELSE NULL END,
+               actual_return_date=CASE WHEN $1::varchar IS NULL THEN CURRENT_DATE ELSE NULL END,
+               returned_date=CASE WHEN $1::varchar IS NULL THEN CURRENT_DATE ELSE NULL END,
                status=CASE
                  WHEN $1::varchar IS NOT NULL AND status IN ('Active', 'Available', 'In Stock') THEN 'In Use'
-                 WHEN $1::varchar IS NULL AND status='In Use' THEN 'Available'
+                 WHEN $1::varchar IS NULL AND status IN ('In Use', 'Borrowed') THEN 'Available'
                  ELSE status
                END,
                updated_at=CURRENT_TIMESTAMP
            WHERE asset_id=$5`,
-            [assigned_user_id || null, assignedName, finalDepartment, branch_id || null, targetAssetId]
+            [assigned_user_id || null, assignedName, assignedEmail, finalDepartment, targetAssetId]
           );
         }
 
@@ -442,14 +476,14 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
           [
             req.params.id, oldDevice.device_uuid, oldDevice.asset_id, oldDevice.assigned_user_id, assigned_user_id || null,
-            oldDevice.branch_id, branch_id || null, oldDevice.department, finalDepartment, reason || "Manual assignment", req.monitoringUserId,
+            oldDevice.branch_id, canonicalBranchId, oldDevice.department, finalDepartment, reason || "Manual assignment", req.monitoringUserId,
           ]
         );
         const eventName = assigned_user_id ? "Device assigned" : "Device unassigned";
         await client.query(
           `INSERT INTO laptop_activity_logs (device_id, event_type, app_name, window_title)
            VALUES ($1, 'system_audit', $2, $3)`,
-          [req.params.id, eventName, `Assigned User ID: ${assigned_user_id || "None"}, Branch: ${branch_id || "None"}`]
+          [req.params.id, eventName, `Assigned User ID: ${assigned_user_id || "None"}, Branch: ${canonicalBranchId || "None"}`]
         );
         await client.query("COMMIT");
       } catch (transactionError) {
@@ -479,7 +513,7 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
       });
     } catch (error) {
       console.error("[laptop-monitoring:assign]", error.message);
-      return res.status(500).json({ success: false, message: "Failed to assign device." });
+      return res.status(error.status || 500).json({ success: false, message: error.message || "Failed to assign device." });
     }
   });
 

@@ -1,7 +1,7 @@
 const express = require("express");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
-const { createNotification } = require("../services/notificationService");
+const { ensureConsentRequestForDevice } = require("../services/endpointConsentRequestService");
 const {
   DEFAULT_HIGH_RISK_EXTENSIONS,
   DEFAULT_SENSITIVE_FILENAME_KEYWORDS,
@@ -163,44 +163,6 @@ registerEndpointEnrollmentRoutes(router, {
 
 function hasPreference(prefs, ...names) {
   return Array.isArray(prefs) && names.some((name) => prefs.includes(name));
-}
-
-async function ensureConsentRequestForDevice(device, actorId) {
-  if (!device?.assigned_user_id || !device?.device_uuid) return null;
-
-  const existing = await endpointMonitoringRepository.findCurrentConsentRequest(
-    device.assigned_user_id,
-    device.device_uuid
-  );
-  if (existing) return existing;
-
-  const employee = await endpointMonitoringRepository.findEmployeeProfile(device.assigned_user_id);
-  if (!employee) return null;
-
-  const created = await endpointMonitoringRepository.createGeneralConsentRequest(
-    device,
-    employee,
-    actorId
-  );
-
-  await endpointMonitoringRepository.createConsentRequestAudit(
-    created.consent_id,
-    device.assigned_user_id,
-    actorId
-  ).catch((error) => console.error("[laptop-monitoring:consent-audit]", error.message));
-
-  if (typeof createNotification === "function") {
-    await createNotification({
-      userId: device.assigned_user_id,
-      title: "Monitoring agreement required",
-      message: "Complete the general monitoring agreement once to cover your assigned company devices.",
-      type: "privacy_consent",
-      metadata: { consentId: created.consent_id, consentScope: "general" },
-      dedupeKey: `general-consent-request-${device.assigned_user_id}`,
-    }).catch((error) => console.error("[laptop-monitoring:consent-notification]", error.message));
-  }
-
-  return created;
 }
 
 async function getApprovedConsentPreferences(device) {

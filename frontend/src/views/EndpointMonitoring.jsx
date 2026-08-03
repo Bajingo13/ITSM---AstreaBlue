@@ -122,6 +122,9 @@ export default function EndpointMonitoring() {
   const [assetLinkConflict, setAssetLinkConflict] = useState(null);
   const [assignForm, setAssignForm] = useState({ assigned_user_id: "", branch_id: "", asset_id: "", department: "", reason: "" });
   const [assignLoading, setAssignLoading] = useState(false);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [employeeBranchFilter, setEmployeeBranchFilter] = useState("");
+  const [employeeDepartmentFilter, setEmployeeDepartmentFilter] = useState("");
 
   const loadOverview = useCallback(async () => {
     try {
@@ -395,6 +398,9 @@ export default function EndpointMonitoring() {
         asset_id: selectedDevice?.asset_id || "",
         reason: ""
       });
+      setEmployeeSearch("");
+      setEmployeeBranchFilter(String(selectedDevice?.branch_id || ""));
+      setEmployeeDepartmentFilter("");
       if (type === 'asset') setShowLinkAssetModal(true);
       if (type === 'employee') setShowAssignEmployeeModal(true);
     } catch (e) {
@@ -1244,24 +1250,94 @@ export default function EndpointMonitoring() {
               <h3 className="text-xl font-black text-slate-900">Assign Employee</h3>
               <p className="mt-1 text-sm text-slate-500">Assign {selectedDevice?.hostname} to an employee.</p>
               <div className="mt-4 space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-bold text-slate-700">Branch filter</label>
+                    <select
+                      value={employeeBranchFilter}
+                      onChange={(event) => {
+                        setEmployeeBranchFilter(event.target.value);
+                        setEmployeeDepartmentFilter("");
+                        setAssignForm((current) => ({ ...current, assigned_user_id: "" }));
+                      }}
+                      className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
+                    >
+                      {isSuperAdmin && <option value="">All branches</option>}
+                      {branchesList.map((branch) => (
+                        <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-bold text-slate-700">Department filter</label>
+                    <select
+                      value={employeeDepartmentFilter}
+                      onChange={(event) => {
+                        setEmployeeDepartmentFilter(event.target.value);
+                        setAssignForm((current) => ({ ...current, assigned_user_id: "" }));
+                      }}
+                      className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
+                    >
+                      <option value="">All departments</option>
+                      {[...new Set(usersList
+                        .filter((user) => !employeeBranchFilter || String(user.branch_id) === String(employeeBranchFilter))
+                        .map((user) => String(user.department || "").trim())
+                        .filter(Boolean))]
+                        .sort((left, right) => left.localeCompare(right))
+                        .map((departmentName) => <option key={departmentName} value={departmentName}>{departmentName}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">Search employee</label>
+                  <input
+                    type="search"
+                    value={employeeSearch}
+                    onChange={(event) => setEmployeeSearch(event.target.value)}
+                    placeholder="Search name or email"
+                    className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
+                  />
+                </div>
                 <div>
                   <label className="mb-1 block text-sm font-bold text-slate-700">Employee</label>
                   {(() => {
-                    const filteredUsers = usersList.filter(u => !selectedDevice?.branch_id || String(u.branch_id) === String(selectedDevice.branch_id));
+                    const assetBranchId = String(selectedDevice?.branch_id || "");
+                    const selectedFilterIsOutsideAssetBranch = employeeBranchFilter
+                      && assetBranchId
+                      && String(employeeBranchFilter) !== assetBranchId;
+                    const normalizedSearch = employeeSearch.trim().toLowerCase();
+                    const filteredUsers = usersList
+                      .filter((user) => String(user.role_name || user.role || "").toLowerCase() === "employee")
+                      .filter((user) => user.is_active !== false && !["inactive", "disabled", "deactivated"].includes(String(user.status || "").toLowerCase()))
+                      .filter((user) => !employeeBranchFilter || String(user.branch_id) === String(employeeBranchFilter))
+                      .filter((user) => !employeeDepartmentFilter || String(user.department || "") === employeeDepartmentFilter)
+                      .filter((user) => !normalizedSearch || `${user.full_name || ""} ${user.email || ""}`.toLowerCase().includes(normalizedSearch))
+                      .sort((left, right) => String(left.full_name || "").localeCompare(String(right.full_name || "")));
+                    if (selectedFilterIsOutsideAssetBranch) {
+                      return <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">This hardware asset belongs to {selectedDevice?.branch_name || "another branch"}. Transfer the asset branch before assigning an employee from the selected branch.</p>;
+                    }
                     if (filteredUsers.length === 0) {
-                      return <p className="text-sm text-slate-500 italic">No employees found for this asset's branch.</p>;
+                      return <p className="text-sm text-slate-500 italic">No eligible employees match these filters.</p>;
                     }
                     return (
                       <select value={assignForm.assigned_user_id} onChange={(e) => setAssignForm(p => ({ ...p, assigned_user_id: e.target.value }))} className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500">
                         <option value="">Unassigned</option>
-                        {filteredUsers.map((u) => <option key={u.user_id} value={u.user_id}>{u.full_name} ({u.email})</option>)}
+                        {filteredUsers.map((user) => (
+                          <option
+                            key={user.user_id}
+                            value={user.user_id}
+                            disabled={Boolean(assetBranchId) && String(user.branch_id) !== assetBranchId}
+                          >
+                            {user.full_name} — {user.branch_name || branchesList.find((branch) => String(branch.branch_id) === String(user.branch_id))?.branch_name || "No branch"} · {user.department || "No department"} ({user.email})
+                          </option>
+                        ))}
                       </select>
                     );
                   })()}
                 </div>
                 {/* Branch and Department are hidden because they flow automatically from the linked hardware asset */}
                 <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                  <p className="text-xs font-bold text-slate-500">Branch & Department are automatically synced from the linked Hardware Asset.</p>
+                  <p className="text-xs font-bold text-slate-500">Assignment is restricted to the linked hardware asset's branch. The endpoint, asset owner, branch, department, and consent workflow are synchronized together.</p>
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-bold text-slate-700">Assignment Reason (Optional)</label>

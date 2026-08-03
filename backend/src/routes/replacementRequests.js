@@ -6,6 +6,7 @@ const { createNotification } = require("../services/notificationService");
 const { emitReplacementChanged } = require("../services/socketService");
 const { ensureReplacementSchema } = require("../services/replacementSchemaService");
 const { resolvePostRepairAssetStatus } = require("../services/replacementAssetStatusService");
+const { ensureConsentRequestForDevice } = require("../services/endpointConsentRequestService");
 
 const router = express.Router();
 router.use(requireAuthenticatedTicketUser);
@@ -184,14 +185,6 @@ async function exchangeAssets(client, request, actorId) {
   if (employee.onboarding_required || employee.onboarding_status !== "Completed") {
     throw Object.assign(new Error("The employee must complete consent onboarding before a replacement can be issued."), { status: 409 });
   }
-  const consent = await client.query(
-    `SELECT consent_id FROM consent_documents
-      WHERE employee_id=$1 AND status='approved' AND active=true
-      ORDER BY approved_at DESC NULLS LAST LIMIT 1`,
-    [request.employee_id]
-  );
-  if (!consent.rows.length) throw Object.assign(new Error("An active approved consent is required before issuing the replacement."), { status: 409 });
-
   const assets = await client.query(
     `SELECT * FROM hardware_assets WHERE asset_id=ANY($1::int[]) FOR UPDATE`,
     [[request.current_asset_id, request.replacement_asset_id]]
@@ -228,7 +221,7 @@ async function exchangeAssets(client, request, actorId) {
        employee_id=$1,assigned_name=$2,borrower_name=$2,borrower_email=$3,
        department=$4,borrower_department=$4,team_department=$4,branch_id=$5,
        assigned_date=CURRENT_DATE,borrow_date=CURRENT_DATE,actual_return_date=NULL,returned_date=NULL,
-       status='Borrowed',updated_at=CURRENT_TIMESTAMP
+       status='In Use',updated_at=CURRENT_TIMESTAMP
      WHERE asset_id=$6`,
     [String(employee.user_id), employee.full_name, employee.email || null, employee.department || null, request.branch_id, request.replacement_asset_id]
   );
@@ -261,13 +254,15 @@ async function exchangeAssets(client, request, actorId) {
 
   for (const [assetId, eventType, payload] of [
     [request.current_asset_id, "Replacement - old asset returned", { requestNumber: request.request_number, status: "In Repair" }],
-    [request.replacement_asset_id, "Replacement - asset issued", { requestNumber: request.request_number, employeeId: request.employee_id, status: "Borrowed" }],
+    [request.replacement_asset_id, "Replacement - asset issued", { requestNumber: request.request_number, employeeId: request.employee_id, status: "In Use" }],
   ]) {
     await client.query(
       `INSERT INTO asset_history(asset_id,event_type,event_data,branch_id,created_by) VALUES($1,$2,$3::jsonb,$4,$5)`,
       [assetId, eventType, JSON.stringify(payload), request.branch_id, actorId]
     );
   }
+
+  return { oldDevices: oldDevices.rows, newDevices: newDevices.rows };
 }
 
 router.use(async (_req, res, next) => {
@@ -543,7 +538,8 @@ router.patch("/:id/status", async (req, res) => {
       }
       if (role !== "superadmin" && Number(asset.branch_id) !== Number(request.branch_id)) throw Object.assign(new Error("The replacement asset must belong to your branch."), { status: 403 });
     }
-    if (next === "Issued") await exchangeAssets(client, { ...request, replacement_asset_id: replacementAssetId }, currentUserId);
+    let exchangedDevices = null;
+    if (next === "Issued") exchangedDevices = await exchangeAssets(client, { ...request, replacement_asset_id: replacementAssetId }, currentUserId);
     let repairAssetUpdate = null;
     if (next === "In Repair") repairAssetUpdate = await updateRepairAsset(client, request, next, currentUserId);
     if (next === "Repaired") repairAssetUpdate = await updateRepairAsset(client, request, next, currentUserId, String(req.body.repair_resolution).trim());
@@ -579,6 +575,14 @@ router.patch("/:id/status", async (req, res) => {
     });
     await client.query("COMMIT");
     committed = true;
+    if (next === "Issued") {
+      for (const device of exchangedDevices?.newDevices || []) {
+        await ensureConsentRequestForDevice(
+          { ...device, assigned_user_id: request.employee_id, branch_id: request.branch_id },
+          currentUserId
+        ).catch((error) => console.error("[replacement:consent-request]", error.message));
+      }
+    }
     emitReplacementChanged({ action: "status_changed", requestId: req.params.id });
     const updated = await loadRequest(db, req.params.id);
     createNotification({
