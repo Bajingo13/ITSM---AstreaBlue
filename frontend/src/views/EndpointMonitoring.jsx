@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, AlertTriangle, Camera, CameraOff, Clock3, Monitor, Package, RefreshCw, Search, ShieldCheck, Users } from "lucide-react";
+import { Activity, AlertTriangle, Camera, CameraOff, Clock3, Monitor, Package, RefreshCw, Search, ShieldCheck, Users, X } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
 import ProtectedScreenshotViewer from "../components/ProtectedScreenshotViewer";
 import { API_URL } from "../config/api";
@@ -1308,48 +1308,74 @@ export default function EndpointMonitoring() {
         )}
 
         {showAssignEmployeeModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-            <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
-              <h3 className="text-xl font-black text-slate-900">Assign Employee</h3>
-              <p className="mt-1 text-sm text-slate-500">Assign {selectedDevice?.hostname} to an employee.</p>
-              <div className="mt-4 space-y-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-[2px]">
+            <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+              <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
                 <div>
-                    <label className="mb-1 block text-sm font-bold text-slate-700">Branch filter</label>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Endpoint ownership</p>
+                  <h3 className="mt-1 text-2xl font-black text-slate-950">Assign Employee</h3>
+                  <p className="mt-1 text-sm text-slate-500">Choose the employee responsible for <span className="font-bold text-slate-700">{selectedDevice?.hostname}</span>.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAssignEmployeeModal(false)}
+                  aria-label="Close assign employee dialog"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 bg-slate-50 text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                >
+                  <X size={19} />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-sm font-bold text-slate-700">Branch</label>
                     <select
                       value={employeeBranchFilter}
                       onChange={(event) => {
                         setEmployeeBranchFilter(event.target.value);
                         setAssignForm((current) => ({ ...current, assigned_user_id: "" }));
                       }}
-                      className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
+                      className="h-12 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
                     >
                       {isSuperAdmin && <option value="">All branches</option>}
                       {branchesList.map((branch) => (
                         <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_name}</option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-bold text-slate-700">Search employee</label>
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <input
+                        type="search"
+                        value={employeeSearch}
+                        onChange={(event) => {
+                          setEmployeeSearch(event.target.value);
+                          setAssignForm((current) => ({ ...current, assigned_user_id: "" }));
+                        }}
+                        placeholder="Name, email, or employee number"
+                        className="h-12 w-full rounded-xl border border-slate-300 bg-slate-50 pl-10 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                      />
+                    </div>
+                  </div>
                 </div>
+
                 <div>
-                  <label className="mb-1 block text-sm font-bold text-slate-700">Search employee</label>
-                  <input
-                    type="search"
-                    value={employeeSearch}
-                    onChange={(event) => {
-                      setEmployeeSearch(event.target.value);
-                      setAssignForm((current) => ({ ...current, assigned_user_id: "" }));
-                    }}
-                    placeholder="Search name, email, or employee number"
-                    className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-bold text-slate-700">Employee</label>
+                  <div className="mb-2 flex items-end justify-between gap-3">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700">Select employee</label>
+                      <p className="mt-0.5 text-xs text-slate-500">Only eligible employees in the asset branch can be assigned.</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{filteredAssignmentUsers.length} found</span>
+                  </div>
                   {employeeBranchFilterConflicts ? (
-                    <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">This hardware asset belongs to {selectedDevice?.branch_name || "another branch"}. Transfer the asset branch before assigning an employee from the selected branch.</p>
+                    <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">This hardware asset belongs to {selectedDevice?.branch_name || "another branch"}. Transfer the asset branch before assigning an employee from the selected branch.</p>
                   ) : filteredAssignmentUsers.length === 0 ? (
-                    <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">No eligible employees match the search and filters.</p>
+                    <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-600">No eligible employees match the current search and branch.</p>
                   ) : (
-                    <div className="max-h-52 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
+                    <div className="grid max-h-64 gap-2 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2">
                       {filteredAssignmentUsers.map((user) => {
                         const selected = String(assignForm.assigned_user_id) === String(user.user_id);
                         const branchName = user.branch_name || branchesList.find((branch) => String(branch.branch_id) === String(user.branch_id))?.branch_name || "No branch";
@@ -1359,24 +1385,27 @@ export default function EndpointMonitoring() {
                             key={user.user_id}
                             disabled={Boolean(assetBranchId) && String(user.branch_id) !== assetBranchId}
                             onClick={() => setAssignForm((current) => ({ ...current, assigned_user_id: user.user_id }))}
-                            className={`w-full rounded-xl border p-3 text-left transition ${selected ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/50"} disabled:cursor-not-allowed disabled:opacity-50`}
+                            className={`min-h-[96px] w-full rounded-xl border p-3.5 text-left transition ${selected ? "border-blue-500 bg-blue-50 shadow-sm ring-2 ring-blue-100" : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-sm"} disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0`}
                           >
-                            <span className="block font-black text-slate-900">{user.full_name}</span>
-                            <span className="mt-1 block text-xs font-semibold text-slate-600">{branchName}{user.department ? ` · ${user.department}` : ""}</span>
-                            <span className="mt-1 block text-xs text-slate-500">{user.email}{user.employee_number ? ` · ${user.employee_number}` : ""}</span>
+                            <span className="flex items-start justify-between gap-2">
+                              <span className="block font-black text-slate-900">{user.full_name}</span>
+                              <span className={`mt-0.5 h-4 w-4 shrink-0 rounded-full border-2 ${selected ? "border-blue-600 bg-blue-600 ring-2 ring-blue-100" : "border-slate-300 bg-white"}`} />
+                            </span>
+                            <span className="mt-1.5 block text-xs font-semibold text-slate-600">{[branchName, user.department].filter(Boolean).join(" · ")}</span>
+                            <span className="mt-1 block break-all text-xs text-slate-500">{[user.email, user.employee_number].filter(Boolean).join(" · ")}</span>
                           </button>
                         );
                       })}
                     </div>
                   )}
                 </div>
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                  <p className="text-xs font-bold text-slate-600">Branch controls assignment access. Department is optional metadata and is shown only when it already exists on the employee record.</p>
-                </div>
+
                 {selectedDevice?.assigned_user_id && (
-                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
-                    <p className="text-sm font-black text-slate-900">Current owner: {currentlyAssignedEmployee?.full_name || selectedDevice?.assigned_user_name || selectedDevice?.employee_name || "Assigned employee"}</p>
-                    <p className="mt-1 text-xs text-slate-600">Removing the owner keeps this endpoint linked to the same hardware asset. The asset becomes available and privacy-sensitive monitoring stops until another eligible employee is assigned.</p>
+                  <div className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-black text-slate-900">Current owner: {currentlyAssignedEmployee?.full_name || selectedDevice?.assigned_user_name || selectedDevice?.employee_name || "Assigned employee"}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">Removal keeps the asset linked, makes it available, and applies the safe unassigned policy.</p>
+                    </div>
                     <button
                       type="button"
                       onClick={() => setConfirmAction({
@@ -1387,20 +1416,21 @@ export default function EndpointMonitoring() {
                         onConfirm: () => submitAssign({ assigned_user_id: "", reason: assignForm.reason || "Owner removed by administrator" }),
                       })}
                       disabled={assignLoading}
-                      className="mt-3 rounded-xl border border-rose-300 bg-white px-4 py-2 text-sm font-black text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+                      className="shrink-0 rounded-xl border border-rose-300 bg-white px-4 py-2.5 text-sm font-black text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
                     >
                       Remove current owner
                     </button>
                   </div>
                 )}
                 <div>
-                  <label className="mb-1 block text-sm font-bold text-slate-700">Assignment Reason (Optional)</label>
-                  <input type="text" value={assignForm.reason} onChange={(e) => setAssignForm(p => ({ ...p, reason: e.target.value }))} placeholder="e.g. New hire, hardware replacement" className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500" />
+                  <label className="mb-1.5 block text-sm font-bold text-slate-700">Assignment reason <span className="font-medium text-slate-400">(optional)</span></label>
+                  <input type="text" value={assignForm.reason} onChange={(e) => setAssignForm(p => ({ ...p, reason: e.target.value }))} placeholder="e.g. New hire or hardware replacement" className="h-12 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
                 </div>
-                <div className="flex justify-end gap-3 pt-4">
-                  <button onClick={() => setShowAssignEmployeeModal(false)} className="rounded-xl px-4 py-2 font-bold text-slate-500 hover:bg-slate-100">Cancel</button>
-                  <button onClick={() => submitAssign()} disabled={assignLoading || !assignForm.assigned_user_id} className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50">{assignLoading ? "Saving..." : "Save Assignment"}</button>
-                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+                <button onClick={() => setShowAssignEmployeeModal(false)} className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:border-slate-400 hover:bg-slate-100">Cancel</button>
+                <button onClick={() => submitAssign()} disabled={assignLoading || !assignForm.assigned_user_id} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none">{assignLoading ? "Saving..." : "Save Assignment"}</button>
               </div>
             </div>
           </div>
