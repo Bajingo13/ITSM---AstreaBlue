@@ -12,6 +12,18 @@ const API_BASE = `${API_URL}/api/v1/endpoint-management`;
 const formatDate = (value) => value ? new Date(value).toLocaleString() : "Never";
 const secondsSince = (value) => value ? Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000)) : null;
 const normalizeIdentityValue = (value) => String(value || "").trim().toLowerCase();
+const normalizeSearchText = (value) => String(value || "")
+  .normalize("NFKD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, " ")
+  .trim();
+const matchesSearch = (query, ...values) => {
+  const tokens = normalizeSearchText(query).split(" ").filter(Boolean);
+  if (!tokens.length) return true;
+  const searchable = normalizeSearchText(values.join(" "));
+  return tokens.every((token) => searchable.includes(token));
+};
 const ENDPOINT_ASSET_TYPES = new Set([
   "company device",
   "computer",
@@ -125,6 +137,9 @@ export default function EndpointMonitoring() {
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [employeeBranchFilter, setEmployeeBranchFilter] = useState("");
   const [employeeDepartmentFilter, setEmployeeDepartmentFilter] = useState("");
+  const [assetSearch, setAssetSearch] = useState("");
+  const [assetBranchFilter, setAssetBranchFilter] = useState("");
+  const [assetStatusFilter, setAssetStatusFilter] = useState("");
 
   const loadOverview = useCallback(async () => {
     try {
@@ -207,6 +222,28 @@ export default function EndpointMonitoring() {
   }, [devices, selectedId]);
 
   const selectedDevice = devices.find((device) => String(device.device_id) === String(selectedId));
+  const assetBranchId = String(selectedDevice?.branch_id || "");
+  const employeeDepartments = useMemo(() => [...new Set(usersList
+    .filter((user) => String(user.role_name || user.role || "").toLowerCase() === "employee")
+    .filter((user) => !employeeBranchFilter || String(user.branch_id) === String(employeeBranchFilter))
+    .map((user) => String(user.department || "").trim())
+    .filter(Boolean))].sort((left, right) => left.localeCompare(right)), [usersList, employeeBranchFilter]);
+  const filteredAssignmentUsers = useMemo(() => usersList
+    .filter((user) => String(user.role_name || user.role || "").toLowerCase() === "employee")
+    .filter((user) => user.is_active !== false && !["inactive", "disabled", "deactivated"].includes(String(user.status || "").toLowerCase()))
+    .filter((user) => !employeeBranchFilter || String(user.branch_id) === String(employeeBranchFilter))
+    .filter((user) => !employeeDepartmentFilter || String(user.department || "") === employeeDepartmentFilter)
+    .filter((user) => matchesSearch(employeeSearch, user.full_name, user.email, user.employee_number))
+    .sort((left, right) => String(left.full_name || "").localeCompare(String(right.full_name || ""))), [usersList, employeeBranchFilter, employeeDepartmentFilter, employeeSearch]);
+  const filteredLinkAssets = useMemo(() => assetsList
+    .filter((asset) => !assetBranchFilter || String(asset.branch_id) === String(assetBranchFilter))
+    .filter((asset) => !assetStatusFilter || String(asset.status || "") === assetStatusFilter)
+    .filter((asset) => matchesSearch(assetSearch, asset.asset_tag, asset.asset_name, asset.serial_number, asset.brand, asset.manufacturer, asset.model, asset.model_name))
+    .sort((left, right) => String(left.asset_tag || left.asset_name || "").localeCompare(String(right.asset_tag || right.asset_name || ""))), [assetsList, assetBranchFilter, assetStatusFilter, assetSearch]);
+  const assetStatuses = useMemo(() => [...new Set(assetsList.map((asset) => String(asset.status || "").trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right)), [assetsList]);
+  const employeeBranchFilterConflicts = Boolean(employeeBranchFilter && assetBranchId && String(employeeBranchFilter) !== assetBranchId);
+  const currentlyAssignedEmployee = usersList.find((user) => String(user.user_id) === String(selectedDevice?.assigned_user_id));
   const screenshotPolicyKnown =
     typeof details?.policy?.screenshot_monitoring_enabled === "boolean";
   const screenshotPolicyEnabled =
@@ -401,6 +438,9 @@ export default function EndpointMonitoring() {
       setEmployeeSearch("");
       setEmployeeBranchFilter(String(selectedDevice?.branch_id || ""));
       setEmployeeDepartmentFilter("");
+      setAssetSearch("");
+      setAssetBranchFilter(String(selectedDevice?.branch_id || ""));
+      setAssetStatusFilter("");
       if (type === 'asset') setShowLinkAssetModal(true);
       if (type === 'employee') setShowAssignEmployeeModal(true);
     } catch (e) {
@@ -409,10 +449,10 @@ export default function EndpointMonitoring() {
     }
   };
 
-  const submitAssign = async () => {
+  const submitAssign = async (overrides = {}) => {
     setAssignLoading(true);
     try {
-      let payload = { ...assignForm };
+      let payload = { ...assignForm, ...overrides };
       
       if (showLinkAssetModal && payload.asset_id) {
         const linkedAsset = assetsList.find(a => String(a.asset_id) === String(payload.asset_id));
@@ -1206,19 +1246,51 @@ export default function EndpointMonitoring() {
               <p className="mt-1 text-sm text-slate-500">Link {selectedDevice?.hostname} to a CMDB asset.</p>
               <div className="mt-4 space-y-4">
                 <div>
-                  <label className="mb-1 block text-sm font-bold text-slate-700">Hardware Asset (CMDB)</label>
-                  {assetsList.length === 0 ? (
-                    <p className="text-sm text-slate-500 italic">No matching endpoint assets found.</p>
-                  ) : (
-                    <select value={assignForm.asset_id} onChange={(e) => setAssignForm(p => ({ ...p, asset_id: e.target.value }))} className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500">
-                      <option value="">No Linked Asset</option>
-                      {assetsList.map((a) => (
-                        <option key={a.asset_id} value={a.asset_id}>
-                          {a.asset_tag || a.asset_name} - {[a.brand || a.manufacturer, a.model].filter(Boolean).join(" ") || "Hardware asset"} ({a.status || "No status"}){a.branch_name ? ` — ${a.branch_name}` : ""}
-                        </option>
-                      ))}
+                  <label className="mb-1 block text-sm font-bold text-slate-700">Search asset</label>
+                  <input
+                    type="search"
+                    value={assetSearch}
+                    onChange={(event) => setAssetSearch(event.target.value)}
+                    placeholder="Asset tag, name, serial, brand, or model"
+                    className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-bold text-slate-700">Branch</label>
+                    <select
+                      value={assetBranchFilter}
+                      onChange={(event) => setAssetBranchFilter(event.target.value)}
+                      className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
+                    >
+                      {isSuperAdmin && <option value="">All branches</option>}
+                      {branchesList.map((branch) => <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_name}</option>)}
                     </select>
-                  )}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-bold text-slate-700">Status</label>
+                    <select
+                      value={assetStatusFilter}
+                      onChange={(event) => setAssetStatusFilter(event.target.value)}
+                      className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
+                    >
+                      <option value="">All statuses</option>
+                      {assetStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">Hardware Asset (CMDB)</label>
+                  <select value={assignForm.asset_id} onChange={(e) => setAssignForm(p => ({ ...p, asset_id: e.target.value }))} className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500">
+                    <option value="">No Linked Asset</option>
+                    {filteredLinkAssets.map((a) => (
+                      <option key={a.asset_id} value={a.asset_id}>
+                        {a.asset_tag || a.asset_name} - {[a.brand || a.manufacturer, a.model || a.model_name].filter(Boolean).join(" ") || "Hardware asset"} ({a.status || "No status"}){a.branch_name ? ` — ${a.branch_name}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {assetsList.length === 0 && <p className="mt-2 text-sm italic text-slate-500">No eligible endpoint assets are available.</p>}
+                  {assetsList.length > 0 && filteredLinkAssets.length === 0 && <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">No hardware assets match the current search and filters. Choose “No Linked Asset” only if you intend to unlink this endpoint.</p>}
                   {assetLinkConflict && (
                     <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                       <p className="font-black">Exact serial match is already linked</p>
@@ -1237,7 +1309,7 @@ export default function EndpointMonitoring() {
                 </div>
                 <div className="flex justify-end gap-3 pt-4">
                   <button onClick={() => setShowLinkAssetModal(false)} className="rounded-xl px-4 py-2 font-bold text-slate-500 hover:bg-slate-100">Cancel</button>
-                  <button onClick={submitAssign} disabled={assignLoading} className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50">{assignLoading ? "Saving..." : "Save Link"}</button>
+                  <button onClick={() => submitAssign()} disabled={assignLoading} className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50">{assignLoading ? "Saving..." : "Save Link"}</button>
                 </div>
               </div>
             </div>
@@ -1279,12 +1351,7 @@ export default function EndpointMonitoring() {
                       className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
                     >
                       <option value="">All departments</option>
-                      {[...new Set(usersList
-                        .filter((user) => !employeeBranchFilter || String(user.branch_id) === String(employeeBranchFilter))
-                        .map((user) => String(user.department || "").trim())
-                        .filter(Boolean))]
-                        .sort((left, right) => left.localeCompare(right))
-                        .map((departmentName) => <option key={departmentName} value={departmentName}>{departmentName}</option>)}
+                      {employeeDepartments.map((departmentName) => <option key={departmentName} value={departmentName}>{departmentName}</option>)}
                     </select>
                   </div>
                 </div>
@@ -1293,59 +1360,67 @@ export default function EndpointMonitoring() {
                   <input
                     type="search"
                     value={employeeSearch}
-                    onChange={(event) => setEmployeeSearch(event.target.value)}
-                    placeholder="Search name or email"
+                    onChange={(event) => {
+                      setEmployeeSearch(event.target.value);
+                      setAssignForm((current) => ({ ...current, assigned_user_id: "" }));
+                    }}
+                    placeholder="Search name, email, or employee number"
                     className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500"
                   />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-bold text-slate-700">Employee</label>
-                  {(() => {
-                    const assetBranchId = String(selectedDevice?.branch_id || "");
-                    const selectedFilterIsOutsideAssetBranch = employeeBranchFilter
-                      && assetBranchId
-                      && String(employeeBranchFilter) !== assetBranchId;
-                    const normalizedSearch = employeeSearch.trim().toLowerCase();
-                    const filteredUsers = usersList
-                      .filter((user) => String(user.role_name || user.role || "").toLowerCase() === "employee")
-                      .filter((user) => user.is_active !== false && !["inactive", "disabled", "deactivated"].includes(String(user.status || "").toLowerCase()))
-                      .filter((user) => !employeeBranchFilter || String(user.branch_id) === String(employeeBranchFilter))
-                      .filter((user) => !employeeDepartmentFilter || String(user.department || "") === employeeDepartmentFilter)
-                      .filter((user) => !normalizedSearch || `${user.full_name || ""} ${user.email || ""}`.toLowerCase().includes(normalizedSearch))
-                      .sort((left, right) => String(left.full_name || "").localeCompare(String(right.full_name || "")));
-                    if (selectedFilterIsOutsideAssetBranch) {
-                      return <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">This hardware asset belongs to {selectedDevice?.branch_name || "another branch"}. Transfer the asset branch before assigning an employee from the selected branch.</p>;
-                    }
-                    if (filteredUsers.length === 0) {
-                      return <p className="text-sm text-slate-500 italic">No eligible employees match these filters.</p>;
-                    }
-                    return (
-                      <select value={assignForm.assigned_user_id} onChange={(e) => setAssignForm(p => ({ ...p, assigned_user_id: e.target.value }))} className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500">
-                        <option value="">Unassigned</option>
-                        {filteredUsers.map((user) => (
-                          <option
+                  {employeeBranchFilterConflicts ? (
+                    <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">This hardware asset belongs to {selectedDevice?.branch_name || "another branch"}. Transfer the asset branch before assigning an employee from the selected branch.</p>
+                  ) : filteredAssignmentUsers.length === 0 ? (
+                    <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">No eligible employees match the search and filters.</p>
+                  ) : (
+                    <div className="max-h-52 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
+                      {filteredAssignmentUsers.map((user) => {
+                        const selected = String(assignForm.assigned_user_id) === String(user.user_id);
+                        const branchName = user.branch_name || branchesList.find((branch) => String(branch.branch_id) === String(user.branch_id))?.branch_name || "No branch";
+                        return (
+                          <button
+                            type="button"
                             key={user.user_id}
-                            value={user.user_id}
                             disabled={Boolean(assetBranchId) && String(user.branch_id) !== assetBranchId}
+                            onClick={() => setAssignForm((current) => ({ ...current, assigned_user_id: user.user_id }))}
+                            className={`w-full rounded-xl border p-3 text-left transition ${selected ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/50"} disabled:cursor-not-allowed disabled:opacity-50`}
                           >
-                            {user.full_name} — {user.branch_name || branchesList.find((branch) => String(branch.branch_id) === String(user.branch_id))?.branch_name || "No branch"} · {user.department || "No department"} ({user.email})
-                          </option>
-                        ))}
-                      </select>
-                    );
-                  })()}
+                            <span className="block font-black text-slate-900">{user.full_name}</span>
+                            <span className="mt-1 block text-xs font-semibold text-slate-600">{branchName} · {user.department || "No department"}</span>
+                            <span className="mt-1 block text-xs text-slate-500">{user.email}{user.employee_number ? ` · ${user.employee_number}` : ""}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 {/* Branch and Department are hidden because they flow automatically from the linked hardware asset */}
                 <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                  <p className="text-xs font-bold text-slate-500">Assignment is restricted to the linked hardware asset's branch. The endpoint, asset owner, branch, department, and consent workflow are synchronized together.</p>
+                  <p className="text-xs font-bold text-slate-600">Department supports policy, reporting, and ownership records. It is copied from the selected employee automatically and cleared when the asset becomes unassigned.</p>
                 </div>
+                {selectedDevice?.assigned_user_id && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                    <p className="text-sm font-black text-slate-900">Current owner: {currentlyAssignedEmployee?.full_name || selectedDevice?.assigned_user_name || selectedDevice?.employee_name || "Assigned employee"}</p>
+                    <p className="mt-1 text-xs text-slate-600">Removing the owner keeps this endpoint linked to the same hardware asset. The asset becomes available and privacy-sensitive monitoring stops until another eligible employee is assigned.</p>
+                    <button
+                      type="button"
+                      onClick={() => submitAssign({ assigned_user_id: "", department: "", reason: assignForm.reason || "Owner removed by administrator" })}
+                      disabled={assignLoading}
+                      className="mt-3 rounded-xl border border-rose-300 bg-white px-4 py-2 text-sm font-black text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+                    >
+                      Remove current owner
+                    </button>
+                  </div>
+                )}
                 <div>
                   <label className="mb-1 block text-sm font-bold text-slate-700">Assignment Reason (Optional)</label>
                   <input type="text" value={assignForm.reason} onChange={(e) => setAssignForm(p => ({ ...p, reason: e.target.value }))} placeholder="e.g. New hire, hardware replacement" className="w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-500" />
                 </div>
                 <div className="flex justify-end gap-3 pt-4">
                   <button onClick={() => setShowAssignEmployeeModal(false)} className="rounded-xl px-4 py-2 font-bold text-slate-500 hover:bg-slate-100">Cancel</button>
-                  <button onClick={submitAssign} disabled={assignLoading} className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50">{assignLoading ? "Saving..." : "Save Assignment"}</button>
+                  <button onClick={() => submitAssign()} disabled={assignLoading || !assignForm.assigned_user_id} className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50">{assignLoading ? "Saving..." : "Save Assignment"}</button>
                 </div>
               </div>
             </div>

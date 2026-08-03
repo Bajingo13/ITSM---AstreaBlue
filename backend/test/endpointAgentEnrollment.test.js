@@ -430,6 +430,36 @@ test("device assignment synchronizes ownership and requests consent when approva
   assert.equal(linkedDevice.rows[0].assigned_user_id, employeeId);
   assert.equal(linkedDevice.rows[0].branch_id, branchId);
   assert.equal(linkedDevice.rows[0].asset_id, assetId);
+
+  const unassignment = await adminRequest(
+    `/devices/${enrolled.body.data.device_id}/assign`,
+    "PUT",
+    {
+      assigned_user_id: null,
+      asset_id: assetId,
+      reason: "Ownership removal regression test",
+    }
+  );
+  const unassignmentBody = await unassignment.json();
+  assert.equal(unassignment.status, 200, JSON.stringify(unassignmentBody));
+
+  const unassignedAsset = await db.query(
+    `SELECT employee_id, assigned_name, department, status FROM hardware_assets WHERE asset_id=$1`,
+    [assetId]
+  );
+  assert.equal(unassignedAsset.rows[0].employee_id, null);
+  assert.equal(unassignedAsset.rows[0].assigned_name, null);
+  assert.equal(unassignedAsset.rows[0].department, null);
+  assert.equal(unassignedAsset.rows[0].status, "Available");
+
+  const unassignedDevice = await db.query(
+    `SELECT assigned_user_id, branch_id, asset_id, department FROM monitored_devices WHERE device_id=$1`,
+    [enrolled.body.data.device_id]
+  );
+  assert.equal(unassignedDevice.rows[0].assigned_user_id, null);
+  assert.equal(unassignedDevice.rows[0].branch_id, branchId);
+  assert.equal(unassignedDevice.rows[0].asset_id, assetId);
+  assert.equal(unassignedDevice.rows[0].department, null);
 });
 
 test("approved consent policy becomes the agent baseline without a manual policy assignment", async () => {

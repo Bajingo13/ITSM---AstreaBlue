@@ -410,6 +410,10 @@ function registerEndpointDeviceRoutes(router, { requireAdmin, ensureConsentReque
         assignedName = employee.full_name;
         assignedEmail = employee.email || null;
         assignedBranchId = employee.branch_id || null;
+      } else {
+        // Ownership metadata belongs to the assigned employee. Keep the asset
+        // link and branch, but clear employee-derived department information.
+        finalDepartment = null;
       }
 
       const oldDevice = check.rows[0];

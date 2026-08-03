@@ -57,6 +57,8 @@ router.get("/", requireAuthenticatedRequest, async (req, res) => {
         u.user_id,
         u.full_name,
         u.email,
+        u.employee_number,
+        u.department,
         u.company_name,
         u.mobile_number,
         u.branch_id,
