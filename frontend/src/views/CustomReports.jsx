@@ -3,6 +3,7 @@ import { Download, FileSpreadsheet, RotateCcw, Search } from "lucide-react";
 import PageHero from "../components/layout/PageHero";
 import { API_URL } from "../config/api";
 import { authHeaders } from "../services/authHeaders";
+import { useAuth } from "../context/AuthContext";
 
 const initial = {
   date_from: "",
@@ -50,6 +51,9 @@ function normalizeOptions(data) {
 }
 
 export default function CustomReports() {
+  const { role } = useAuth();
+  const isSuperAdmin = String(role || "").toLowerCase() === "superadmin";
+
   const [filters, setFilters] = useState(initial);
   const [options, setOptions] = useState(emptyOptions);
   const [rows, setRows] = useState([]);
@@ -190,7 +194,7 @@ export default function CustomReports() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="text-xs font-bold text-slate-600">From<input type="date" value={filters.date_from} onChange={update("date_from")} className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100" /></label>
           <label className="text-xs font-bold text-slate-600">To<input type="date" value={filters.date_to} onChange={update("date_to")} className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100" /></label>
-          <SelectFilter label="Branch" value={filters.branch_id} onChange={update("branch_id")} options={options.branches} valueKey="branch_id" labelKey="branch_name" emptyLabel="All branches" />
+          {isSuperAdmin && <SelectFilter label="Branch" value={filters.branch_id} onChange={update("branch_id")} options={options.branches} valueKey="branch_id" labelKey="branch_name" emptyLabel="All branches" />}
           <SelectFilter label="Requester Department" value={filters.department} onChange={update("department")} options={filteredDepartments} emptyLabel="All requester departments" />
           <SelectFilter label="Priority" value={filters.priority} onChange={update("priority")} options={options.priorities} emptyLabel="All priorities" />
           <SelectFilter label="Category" value={filters.category_id} onChange={update("category_id")} options={options.categories} valueKey="category_id" labelKey="category_name" emptyLabel="All categories" />
