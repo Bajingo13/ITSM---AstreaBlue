@@ -13,6 +13,7 @@ let branchId;
 let superAdminUser;
 let adminUser;
 let technicianUser;
+let otherBranchId;
 
 const tokenFor = (user, claimedRole = null) => jwt.sign(
   { userId: user.user_id, role: claimedRole || user.role_name, branchId: user.branch_id },
@@ -35,6 +36,10 @@ test.before(async () => {
   technicianUser = users.rows.find((user) => String(user.role_name).toLowerCase() === "technician" && user.branch_id);
   assert.ok(superAdminUser && adminUser && technicianUser, "analytics tests require active SuperAdmin, Admin, and Technician users");
   branchId = adminUser.branch_id;
+  otherBranchId = (await db.query(
+    "SELECT branch_id FROM branches WHERE branch_id<>$1 ORDER BY branch_id LIMIT 1",
+    [branchId]
+  )).rows[0]?.branch_id;
   const app = express();
   app.use("/api/v1/analytics", analyticsCenterRoutes);
   server = app.listen(0, "127.0.0.1");
@@ -95,6 +100,44 @@ test("administrators can generate branch-scoped reports and TXT exports", async 
   assert.equal(textExport.status, 200);
   assert.match(textExport.headers.get("content-type") || "", /text\/plain/);
   assert.match(await textExport.text(), /CUSTOM SERVICE DESK REPORT/);
+});
+
+test("administrators cannot expand reports with a forged branch filter", async (t) => {
+  if (!otherBranchId) return t.skip("A second branch is required for branch-isolation coverage.");
+  const headers = { authorization: `Bearer ${tokenFor(adminUser, "SuperAdmin")}` };
+  const response = await fetch(
+    `${baseUrl}/api/v1/analytics/custom-report?branch_id=${otherBranchId}`,
+    { headers }
+  );
+  assert.equal(response.status, 200);
+  const rows = (await response.json()).data;
+  assert.ok(rows.every((row) => String(row.branch_id) === String(branchId)));
+});
+
+test("custom reports reject a technician from a different selected branch", async (t) => {
+  const fixture = (await db.query(
+    `SELECT u.user_id,u.branch_id
+       FROM users u JOIN system_roles r ON r.role_id=u.role_id
+      WHERE LOWER(r.role_name)='technician'
+        AND COALESCE(u.is_active,TRUE)=TRUE
+        AND u.branch_id IS NOT NULL
+      ORDER BY u.user_id`
+  )).rows;
+  const selected = fixture.find((candidate) => fixture.some(
+    (other) => String(other.branch_id) !== String(candidate.branch_id)
+  ));
+  const differentBranch = selected && fixture.find(
+    (candidate) => String(candidate.branch_id) !== String(selected.branch_id)
+  );
+  if (!selected || !differentBranch) return t.skip("Technicians in two branches are required for relationship coverage.");
+
+  const headers = { authorization: `Bearer ${tokenFor(superAdminUser)}` };
+  const response = await fetch(
+    `${baseUrl}/api/v1/analytics/custom-report?branch_id=${selected.branch_id}&technician_id=${differentBranch.user_id}`,
+    { headers }
+  );
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).message, /not assigned to the selected branch/i);
 });
 
 test("custom reports reject invalid date ranges instead of returning a database error", async () => {

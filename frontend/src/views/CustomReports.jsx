@@ -76,7 +76,6 @@ export default function CustomReports() {
 
   const filteredTechnicians = useMemo(() => options.technicians
     .filter((technician) => !filters.branch_id || String(technician.branch_id) === String(filters.branch_id))
-    .filter((technician) => !filters.department || String(technician.department || "").toLowerCase() === filters.department.toLowerCase())
     .map((technician) => ({
       ...technician,
       display_name: [
@@ -84,7 +83,7 @@ export default function CustomReports() {
         !filters.branch_id && technician.branch_name,
         technician.department,
       ].filter(Boolean).join(" - "),
-    })), [filters.branch_id, filters.department, options.technicians]);
+    })), [filters.branch_id, options.technicians]);
 
   const changeFilter = (key, value) => {
     setFilters((current) => {
@@ -96,10 +95,6 @@ export default function CustomReports() {
           .filter((item) => !value || String(item.branch_id) === String(value))
           .map((item) => String(item.value).toLowerCase());
         if (next.department && allowedDepartments.length && !allowedDepartments.includes(next.department.toLowerCase())) next.department = "";
-      }
-      if (key === "department") {
-        const technician = options.technicians.find((item) => String(item.user_id) === String(current.technician_id));
-        if (technician && value && String(technician.department || "").toLowerCase() !== value.toLowerCase()) next.technician_id = "";
       }
       return next;
     });
@@ -196,7 +191,7 @@ export default function CustomReports() {
           <label className="text-xs font-bold text-slate-600">From<input type="date" value={filters.date_from} onChange={update("date_from")} className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100" /></label>
           <label className="text-xs font-bold text-slate-600">To<input type="date" value={filters.date_to} onChange={update("date_to")} className="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100" /></label>
           <SelectFilter label="Branch" value={filters.branch_id} onChange={update("branch_id")} options={options.branches} valueKey="branch_id" labelKey="branch_name" emptyLabel="All branches" />
-          <SelectFilter label="Department" value={filters.department} onChange={update("department")} options={filteredDepartments} emptyLabel="All departments" />
+          <SelectFilter label="Requester Department" value={filters.department} onChange={update("department")} options={filteredDepartments} emptyLabel="All requester departments" />
           <SelectFilter label="Priority" value={filters.priority} onChange={update("priority")} options={options.priorities} emptyLabel="All priorities" />
           <SelectFilter label="Category" value={filters.category_id} onChange={update("category_id")} options={options.categories} valueKey="category_id" labelKey="category_name" emptyLabel="All categories" />
           <SelectFilter label="Status" value={filters.status} onChange={update("status")} options={options.statuses} emptyLabel="All statuses" />
@@ -207,7 +202,7 @@ export default function CustomReports() {
           {["excel", "txt", "pdf"].map((format) => <button disabled={loading || Boolean(exporting)} key={format} onClick={() => exportFile(format)} className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-2.5 text-sm font-bold uppercase text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:opacity-60"><Download size={15} className="mr-2 inline" />{exporting === format ? "Preparing..." : format}</button>)}
           <button disabled={loading || Boolean(exporting)} onClick={reset} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"><RotateCcw size={15} className="mr-2 inline" />Reset</button>
         </div>
-        <p className="mt-3 text-xs text-slate-500">Generate previews the selected records. Excel, TXT, and PDF export the same current filter combination.</p>
+        <p className="mt-3 text-xs text-slate-500">Requester Department filters the employee who filed the ticket. Technician filters the assigned technician independently. Preview, Excel, TXT, and PDF all use the same filter combination.</p>
         {message && <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{message}</p>}
         {error && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</p>}
       </section>

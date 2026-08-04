@@ -1,17 +1,40 @@
 const express = require("express");
 const db = require("../../config/db");
+const {
+  getRequestContext,
+  requireAuthenticatedTicketUser,
+} = require("./_ticketAccess");
 
 const router = express.Router();
+
+router.use(requireAuthenticatedTicketUser);
+router.use((req, res, next) => {
+  const context = getRequestContext(req);
+  if (!["superadmin", "admin"].includes(context.roleName)) {
+    return res.status(403).json({ success: false, message: "CMDB access denied." });
+  }
+  if (context.roleName === "admin" && !context.branchId) {
+    return res.status(403).json({ success: false, message: "An assigned branch is required." });
+  }
+  return next();
+});
 
 /* ─────────────────────────────────────────────
    Helper: get user info from request
    ───────────────────────────────────────────── */
 function getUser(req) {
-  const userId = parseInt(req.query.current_user_id, 10) || req.user?.user_id || null;
-  const roleName = req.query.role_name || req.user?.role_name || "Employee";
-  const branchId = parseInt(req.query.branch_id, 10) || req.user?.branch_id || null;
-  const userName = req.query.user_name || req.user?.full_name || "";
+  const context = getRequestContext(req);
+  const userId = context.currentUserId;
+  const roleName = context.roleName === "superadmin" ? "SuperAdmin" : "Admin";
+  const branchId = context.branchId;
+  const userName = "";
   return { userId, roleName, branchId, userName };
+}
+
+function appendCiScope(query, params, alias, user) {
+  if (user.roleName === "SuperAdmin") return query;
+  params.push(user.branchId);
+  return `${query} AND ${alias}.branch_id = $${params.length}`;
 }
 
 /* ─────────────────────────────────────────────
@@ -215,7 +238,6 @@ router.get("/dependencies", async (req, res) => {
 router.post("/dependencies", async (req, res) => {
   try {
     const { roleName, branchId, userId, userName } = getUser(req);
-    const isAdmin = roleName === "SuperAdmin" || roleName === "Admin";
     const isSuperAdmin = roleName === "SuperAdmin";
     const { source_ci_id, target_ci_id, relationship_type, description } = req.body;
     if (!source_ci_id || !target_ci_id || !relationship_type) {
@@ -225,16 +247,15 @@ router.post("/dependencies", async (req, res) => {
       return res.status(400).json({ success: false, message: "Source and destination CI cannot be the same." });
     }
 
-    // Check branch permission
-    if (!isSuperAdmin && roleName === "Admin") {
-      const ciCheck = await db.query(
-        `SELECT branch_id FROM config_items WHERE ci_id IN ($1, $2)`,
-        [source_ci_id, target_ci_id]
-      );
-      const branches = ciCheck.rows.map(r => r.branch_id);
-      if (branches.some(b => Number(b) !== Number(branchId))) {
-        return res.status(403).json({ success: false, message: "CIs must belong to your assigned branch." });
-      }
+    const ciCheck = await db.query(
+      `SELECT ci_id, branch_id, ci_name FROM config_items WHERE ci_id IN ($1, $2)`,
+      [source_ci_id, target_ci_id]
+    );
+    if (ciCheck.rows.length !== 2) {
+      return res.status(404).json({ success: false, message: "One or more configuration items do not exist." });
+    }
+    if (!isSuperAdmin && ciCheck.rows.some((ci) => Number(ci.branch_id) !== Number(branchId))) {
+      return res.status(403).json({ success: false, message: "CIs must belong to your assigned branch." });
     }
 
     // Check duplicate
@@ -247,8 +268,8 @@ router.post("/dependencies", async (req, res) => {
     }
 
     // Get branch_id from source CI
-    const srcResult = await db.query(`SELECT branch_id, ci_name FROM config_items WHERE ci_id = $1`, [source_ci_id]);
-    const relBranchId = srcResult.rows[0]?.branch_id || branchId;
+    const sourceCi = ciCheck.rows.find((ci) => Number(ci.ci_id) === Number(source_ci_id));
+    const relBranchId = sourceCi.branch_id || branchId;
 
     const result = await db.query(
       `INSERT INTO ci_dependencies (source_ci_id, target_ci_id, relationship_type, description, created_by, branch_id, created_at, updated_at)
@@ -280,7 +301,7 @@ router.post("/dependencies", async (req, res) => {
    ───────────────────────────────────────────── */
 router.put("/dependencies/:id", async (req, res) => {
   try {
-    const { roleName, userId } = getUser(req);
+    const { roleName, userId, branchId } = getUser(req);
     if (roleName !== "SuperAdmin" && roleName !== "Admin") {
       return res.status(403).json({ success: false, message: "Insufficient permissions." });
     }
@@ -292,10 +313,27 @@ router.put("/dependencies/:id", async (req, res) => {
     if (!relationship_type) return res.status(400).json({ success: false, message: "Relationship type is required." });
 
     // Get existing
-    const existing = await db.query(`SELECT * FROM ci_dependencies WHERE dependency_id = $1`, [depId]);
+    const existing = await db.query(
+      `SELECT d.*,
+              src.branch_id AS source_branch_id,
+              tgt.branch_id AS target_branch_id
+         FROM ci_dependencies d
+         JOIN config_items src ON src.ci_id = d.source_ci_id
+         JOIN config_items tgt ON tgt.ci_id = d.target_ci_id
+        WHERE d.dependency_id = $1`,
+      [depId]
+    );
     if (existing.rows.length === 0) return res.status(404).json({ success: false, message: "Dependency not found." });
 
     const oldData = existing.rows[0];
+    if (
+      roleName === "Admin" &&
+      [oldData.source_branch_id, oldData.target_branch_id].some(
+        (value) => Number(value) !== Number(branchId)
+      )
+    ) {
+      return res.status(403).json({ success: false, message: "Cannot update relationships outside your branch." });
+    }
 
     const result = await db.query(
       `UPDATE ci_dependencies SET relationship_type = $1, description = $2, updated_at = NOW() WHERE dependency_id = $3 RETURNING *`,
@@ -421,19 +459,23 @@ router.get("/dependencies/statistics", async (req, res) => {
    ───────────────────────────────────────────── */
 router.get("/change-impact/:id", async (req, res) => {
   try {
+    const user = getUser(req);
     const ciId = parseInt(req.params.id, 10);
     if (!ciId) {
       return res.status(400).json({ success: false, message: "Invalid CI ID." });
     }
 
     // Get the CI
-    const ciResult = await db.query(`
+    const ciParams = [ciId];
+    let ciQuery = `
       SELECT ci.*, b.branch_name, cc.category_name
       FROM config_items ci
       LEFT JOIN branches b ON ci.branch_id = b.branch_id
       LEFT JOIN ci_categories cc ON ci.category_id = cc.ci_category_id
       WHERE ci.ci_id = $1
-    `, [ciId]);
+    `;
+    ciQuery = appendCiScope(ciQuery, ciParams, "ci", user);
+    const ciResult = await db.query(ciQuery, ciParams);
 
     if (ciResult.rows.length === 0) {
       return res.status(404).json({ success: false, message: "Configuration item not found." });
@@ -588,18 +630,22 @@ router.get("/change-impact/:id", async (req, res) => {
    ───────────────────────────────────────────── */
 router.get("/config-items/:id", async (req, res) => {
   try {
+    const user = getUser(req);
     const ciId = parseInt(req.params.id, 10);
     if (!ciId) {
       return res.status(400).json({ success: false, message: "Invalid CI ID." });
     }
 
-    const result = await db.query(`
+    const params = [ciId];
+    let query = `
       SELECT ci.*, b.branch_name, cc.category_name
       FROM config_items ci
       LEFT JOIN branches b ON ci.branch_id = b.branch_id
       LEFT JOIN ci_categories cc ON ci.category_id = cc.ci_category_id
       WHERE ci.ci_id = $1
-    `, [ciId]);
+    `;
+    query = appendCiScope(query, params, "ci", user);
+    const result = await db.query(query, params);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: "Configuration item not found." });
@@ -617,6 +663,7 @@ router.get("/config-items/:id", async (req, res) => {
    ───────────────────────────────────────────── */
 router.post("/config-items", async (req, res) => {
   try {
+    const user = getUser(req);
     const {
       ci_name, ci_type, category_id, description, branch_id,
       environment, ip_address, operating_system, owner, status,
@@ -629,6 +676,9 @@ router.post("/config-items", async (req, res) => {
 
     if (!branch_id) {
       return res.status(400).json({ success: false, message: "Branch is required." });
+    }
+    if (user.roleName === "Admin" && Number(branch_id) !== Number(user.branchId)) {
+      return res.status(403).json({ success: false, message: "Cannot create configuration items outside your branch." });
     }
 
     const result = await db.query(`
@@ -659,6 +709,7 @@ router.post("/config-items", async (req, res) => {
    ───────────────────────────────────────────── */
 router.put("/config-items/:id", async (req, res) => {
   try {
+    const user = getUser(req);
     const ciId = parseInt(req.params.id, 10);
     if (!ciId) {
       return res.status(400).json({ success: false, message: "Invalid CI ID." });
@@ -669,6 +720,18 @@ router.put("/config-items/:id", async (req, res) => {
       environment, ip_address, operating_system, owner, status,
       version, location,
     } = req.body;
+
+    const existing = await db.query(`SELECT branch_id FROM config_items WHERE ci_id = $1`, [ciId]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Configuration item not found." });
+    }
+    if (
+      user.roleName === "Admin" &&
+      (Number(existing.rows[0].branch_id) !== Number(user.branchId) ||
+        (branch_id && Number(branch_id) !== Number(user.branchId)))
+    ) {
+      return res.status(403).json({ success: false, message: "Cannot update configuration items outside your branch." });
+    }
 
     const result = await db.query(`
       UPDATE config_items SET
@@ -713,9 +776,18 @@ router.put("/config-items/:id", async (req, res) => {
    ───────────────────────────────────────────── */
 router.delete("/config-items/:id", async (req, res) => {
   try {
+    const user = getUser(req);
     const ciId = parseInt(req.params.id, 10);
     if (!ciId) {
       return res.status(400).json({ success: false, message: "Invalid CI ID." });
+    }
+
+    const existing = await db.query(`SELECT branch_id FROM config_items WHERE ci_id = $1`, [ciId]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Configuration item not found." });
+    }
+    if (user.roleName === "Admin" && Number(existing.rows[0].branch_id) !== Number(user.branchId)) {
+      return res.status(403).json({ success: false, message: "Cannot delete configuration items outside your branch." });
     }
 
     // Delete related dependencies first
