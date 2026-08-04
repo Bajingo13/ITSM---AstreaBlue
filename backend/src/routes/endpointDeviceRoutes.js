@@ -397,7 +397,8 @@ function registerEndpointDeviceRoutes(router, {
         return res.status(403).json({ success: false, message: "Employees cannot reassign devices." });
       }
 
-      const { assigned_user_id, branch_id, asset_id, reason } = req.body;
+      const { branch_id, asset_id, reason } = req.body;
+      const assigned_user_id = req.body.assigned_user_id !== undefined ? req.body.assigned_user_id : check.rows[0].assigned_user_id;
       let finalDepartment = null;
       let assignedName = null;
       let assignedEmail = null;
@@ -502,8 +503,8 @@ function registerEndpointDeviceRoutes(router, {
                actual_return_date=CASE WHEN $1::varchar IS NULL THEN CURRENT_DATE ELSE NULL END,
                returned_date=CASE WHEN $1::varchar IS NULL THEN CURRENT_DATE ELSE NULL END,
                status=CASE
-                 WHEN $1::varchar IS NOT NULL AND status IN ('Active', 'Available', 'In Stock') THEN 'In Use'
-                 WHEN $1::varchar IS NULL AND status IN ('In Use', 'Borrowed') THEN 'Available'
+                 WHEN $1::varchar IS NOT NULL AND LOWER(status) IN ('active', 'available', 'in stock') THEN 'In Use'
+                 WHEN $1::varchar IS NULL AND LOWER(status) IN ('in use', 'borrowed') THEN 'Available'
                  ELSE status
                END,
                updated_at=CURRENT_TIMESTAMP
