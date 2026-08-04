@@ -433,10 +433,16 @@ function createHardwareAssetRoutes({ tablesReady }) {
       }
       return res.json(updated);
     } catch (error) {
-      console.error("Update hardware asset error:", error.message);
+      logError("PUT", error);
+      if (error.code === "23505") {
+        return res.status(409).json({ success: false, error: getErrorMessage(error) });
+      }
+      if (error.code === "23503") {
+        return res.status(400).json({ success: false, error: getErrorMessage(error) });
+      }
       return res.status(500).json({
         success: false,
-        error: "Failed to update hardware asset",
+        error: getErrorMessage(error, "Failed to update hardware asset"),
       });
     }
   });
@@ -481,7 +487,7 @@ function createHardwareAssetRoutes({ tablesReady }) {
       });
     } catch (error) {
       logError("DELETE", error);
-      if (error.code === "23503") {
+      if (error.code === "23503" || String(error.message).includes("violates") || String(error.message).includes("foreign key constraint")) {
         return res.status(409).json({
           success: false,
           error:
