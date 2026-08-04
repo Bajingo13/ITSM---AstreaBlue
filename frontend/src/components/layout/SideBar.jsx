@@ -230,14 +230,27 @@ function getVisibleNavItems(role) {
 
 function NavGroup({ item, collapsed, dashboardPath }) {
   const location = useLocation();
-  const currentLocation = `${location.pathname}${location.search}`;
   const itemPath = item.label === "Dashboard" ? dashboardPath : item.path;
+  const childMatchesLocation = (childPath) => {
+    const [pathname, query = ""] = childPath.split("?");
+    if (location.pathname !== pathname) return false;
+    if (query) {
+      const expected = new URLSearchParams(query);
+      const actual = new URLSearchParams(location.search);
+      return [...expected.entries()].every(([key, value]) => actual.get(key) === value);
+    }
+    if (pathname === "/endpoint-management") {
+      const tab = new URLSearchParams(location.search).get("tab");
+      return !tab || tab === "overview";
+    }
+    return true;
+  };
   const [open, setOpen] = useState(
-    item.children?.some((child) => child.path === currentLocation || child.path === location.pathname) || false
+    item.children?.some((child) => childMatchesLocation(child.path)) || false
   );
 
   const hasActiveChild =
-    item.children?.some((child) => currentLocation === child.path || location.pathname === child.path) || false;
+    item.children?.some((child) => childMatchesLocation(child.path)) || false;
   const isDashboardActive =
     item.label === "Dashboard" &&
     [
@@ -307,7 +320,7 @@ function NavGroup({ item, collapsed, dashboardPath }) {
         <div className="ml-4 mt-1 space-y-1 border-l border-[#BFD7FF] pl-3">
           {item.children.map((child) => {
             const ChildIcon = child.icon;
-            const childActive = currentLocation === child.path || location.pathname === child.path;
+            const childActive = childMatchesLocation(child.path);
 
             return (
               <Link

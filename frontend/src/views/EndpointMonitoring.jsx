@@ -76,6 +76,9 @@ export default function EndpointMonitoring() {
   const [reconciliation, setReconciliation] = useState([]);
   const [softwareInventory, setSoftwareInventory] = useState([]);
   const [softwareSummary, setSoftwareSummary] = useState(null);
+  const [activityTimeline, setActivityTimeline] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityDeviceFilter, setActivityDeviceFilter] = useState("");
   const [softwareFilters, setSoftwareFilters] = useState({ q: "", publisher: "", status: "active", device_uuid: "", employee_id: "", branch_id: "" });
   const [healthData, setHealthData] = useState(null);
   const [selectedHealth, setSelectedHealth] = useState(null);
@@ -190,9 +193,33 @@ export default function EndpointMonitoring() {
     }
   }, []);
 
+  const loadActivityTimeline = useCallback(async () => {
+    try {
+      setActivityLoading(true);
+      setError("");
+      const data = await monitoringRequest("/activity?limit=200");
+      setActivityTimeline(Array.isArray(data) ? data : []);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setActivityLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const requestedTab = searchParams.get("tab") || "overview";
+    const validTab = tabs.some((tab) => tab.id === requestedTab) ? requestedTab : "overview";
+    setActiveTabState((current) => current === validTab ? current : validTab);
+    const requestedDeviceId = searchParams.get("deviceId");
+    if (requestedDeviceId && !requestedDeviceId.includes("=>")) {
+      setSelectedIdState((current) => String(current || "") === requestedDeviceId ? current : requestedDeviceId);
+    }
+  }, [searchParams]);
+
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => { if (activeTab === "software") loadSoftwareInventory(); }, [activeTab, loadSoftwareInventory]);
   useEffect(() => { if (activeTab === "health") loadHealth(); }, [activeTab, loadHealth]);
+  useEffect(() => { if (activeTab === "activity") loadActivityTimeline(); }, [activeTab, loadActivityTimeline]);
   useEffect(() => {
     if (!selectedId || typeof selectedId === "function" || String(selectedId).includes("=>")) {
       setReconciliation([]);
@@ -1213,21 +1240,51 @@ export default function EndpointMonitoring() {
     )}
 
     {activeTab === "activity" && (
-      <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center text-slate-500 shadow-sm">
-        <Activity className="mx-auto mb-4 text-slate-300" size={48} />
-        <h3 className="mb-2 text-xl font-black text-slate-900">Activity Timeline</h3>
-        <p className="font-bold text-slate-700">No activity logs yet.</p>
-        <div className="mt-4 text-sm text-left max-w-sm mx-auto bg-slate-50 p-4 rounded-2xl">
-          <p className="font-bold mb-2">Steps:</p>
-          <ol className="list-decimal pl-5 space-y-1">
-            <li>Make sure the agent is running.</li>
-            <li>Confirm the device is online.</li>
-            <li>Wait for the next activity sample.</li>
-            <li>Refresh or use the Refresh button.</li>
-          </ol>
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-6">
+          <div>
+            <h3 className="text-xl font-black text-slate-900">Activity Timeline</h3>
+            <p className="mt-1 text-sm text-slate-500">Recent consent-approved endpoint activity.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={activityDeviceFilter} onChange={(event) => setActivityDeviceFilter(event.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-blue-500">
+              <option value="">All devices</option>
+              {devices.map((device) => <option key={device.device_id} value={String(device.device_id)}>{device.hostname || device.device_name}</option>)}
+            </select>
+            <button type="button" onClick={loadActivityTimeline} disabled={activityLoading} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+              <RefreshCw size={15} className={activityLoading ? "animate-spin" : ""} /> Refresh
+            </button>
+          </div>
         </div>
-        <button onClick={() => setActiveTab('devices')} className="mt-6 rounded-xl bg-blue-600 px-6 py-2 text-sm font-bold text-white hover:bg-blue-700">Go to Devices</button>
-      </div>
+        <div className="max-h-[620px] overflow-auto">
+          {activityLoading && activityTimeline.length === 0 ? (
+            <p className="p-10 text-center text-sm text-slate-500">Loading activity records...</p>
+          ) : activityTimeline.filter((item) => !activityDeviceFilter || String(item.device_id) === activityDeviceFilter).length === 0 ? (
+            <div className="p-12 text-center text-slate-500">
+              <Activity className="mx-auto mb-3 text-slate-300" size={44} />
+              <p className="font-bold text-slate-700">No activity records found.</p>
+              <p className="mt-1 text-sm">Activity appears only when the assigned employee has approved activity monitoring and the companion is reporting.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {activityTimeline.filter((item) => !activityDeviceFilter || String(item.device_id) === activityDeviceFilter).map((item) => (
+                <article key={item.id} className="grid gap-3 px-6 py-4 hover:bg-slate-50 md:grid-cols-[minmax(180px,0.7fr)_minmax(240px,1.5fr)_minmax(150px,0.7fr)]">
+                  <div>
+                    <p className="font-black text-slate-900">{item.hostname || item.device_name || `Device ${item.device_id}`}</p>
+                    <p className="text-xs text-slate-500">{item.assigned_employee || "Unassigned"}{item.branch_name ? ` · ${item.branch_name}` : ""}</p>
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-800">{item.app_name || item.event_type || "Activity"}</p>
+                    <p className="mt-1 text-sm text-slate-500">{item.window_title || item.url_domain || "No additional window details."}</p>
+                    <p className="mt-1 text-xs text-slate-400">Idle: {formatDuration(item.idle_seconds)}</p>
+                  </div>
+                  <time className="text-sm font-semibold text-slate-500 md:text-right">{formatDate(item.occurred_at)}</time>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
     )}
         
     {showLinkAssetModal && (

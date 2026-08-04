@@ -352,6 +352,40 @@ function registerEndpointDeviceRoutes(router, {
     }
   });
 
+  router.get("/activity", requireAdmin, async (req, res) => {
+    try {
+      const params = [];
+      const conditions = ["l.event_type IS DISTINCT FROM 'system_audit'"];
+      if (!req.monitoringIsSuperAdmin && req.monitoringBranchId) {
+        params.push(req.monitoringBranchId);
+        conditions.push(`d.branch_id=$${params.length}`);
+      }
+      if (req.monitoringIsEmployee) {
+        params.push(req.monitoringUserId);
+        conditions.push(`d.assigned_user_id=$${params.length}`);
+      }
+      const requestedLimit = Math.max(1, Math.min(500, Number(req.query.limit) || 200));
+      params.push(requestedLimit);
+      const result = await db.query(
+        `SELECT l.id,l.device_id,l.device_uuid,l.event_type,l.app_name,l.window_title,
+                l.idle_seconds,l.url_domain,l.occurred_at,d.hostname,d.device_name,
+                u.full_name AS assigned_employee,b.branch_name
+         FROM laptop_activity_logs l
+         JOIN monitored_devices d ON d.device_id=l.device_id
+         LEFT JOIN users u ON u.user_id=d.assigned_user_id
+         LEFT JOIN branches b ON b.branch_id=d.branch_id
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY l.occurred_at DESC
+         LIMIT $${params.length}`,
+        params
+      );
+      return res.json({ success: true, data: result.rows });
+    } catch (error) {
+      console.error("[laptop-monitoring:activity-timeline]", error.message);
+      return res.status(500).json({ success: false, message: "Failed to load endpoint activity timeline." });
+    }
+  });
+
   router.put("/devices/:id/assign", requireAdmin, async (req, res) => {
     try {
       const check = await db.query(`SELECT * FROM monitored_devices WHERE device_id=$1`, [req.params.id]);
