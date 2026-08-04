@@ -139,22 +139,129 @@ router.get("/summary", requireAnalytics, async (req, res) => {
   } catch(error) { console.error("Enterprise analytics error:",error.message); return res.status(500).json({success:false,message:"Failed to load enterprise analytics.",data:null}); }
 });
 
-function buildReportQuery(req) {
-  const { role, branchId }=req.analyticsContext; const clauses=[]; const params=[];
-  const add=(sql,value)=>{params.push(value);clauses.push(sql.replace('?',`$${params.length}`));};
-  if(role!=='superadmin') add('t.branch_id=?',branchId);
-  const q=req.query;
-  if(q.date_from)add('t.created_at::date>=?',q.date_from); if(q.date_to)add('t.created_at::date<=?',q.date_to);
-  if(q.branch_id&&role==='superadmin')add('t.branch_id=?',q.branch_id); if(q.priority)add('t.priority=?',q.priority);
-  if(q.category_id)add('t.category_id=?',q.category_id); if(q.status)add('t.status=?',q.status); if(q.technician_id)add('t.assigned_to=?',q.technician_id);
-  if(q.department)add('LOWER(COALESCE(u.department,\'\'))=LOWER(?)',q.department);
-  return {where:clauses.length?`WHERE ${clauses.join(' AND ')}`:'',params};
+class ReportFilterError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
 }
-async function reportRows(req){const {where,params}=buildReportQuery(req);return (await db.query(`SELECT t.ticket_number,t.title,t.priority,t.status,
-  COALESCE(c.category_name,'Uncategorized') category,COALESCE(b.branch_name,'Unassigned') branch,
-  COALESCE(tech.full_name,'Unassigned') technician,COALESCE(u.department,'') department,t.created_at,t.resolved_at
-  FROM tickets t LEFT JOIN ticket_categories c ON c.category_id=t.category_id LEFT JOIN branches b ON b.branch_id=t.branch_id
-  LEFT JOIN users tech ON tech.user_id=t.assigned_to LEFT JOIN users u ON u.user_id=t.requester_id ${where} ORDER BY t.created_at DESC LIMIT 5000`,params)).rows;}
+
+function validateReportFilters(req) {
+  const query = req.query || {};
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  for (const key of ["date_from", "date_to"]) {
+    if (query[key] && (!datePattern.test(query[key]) || Number.isNaN(Date.parse(`${query[key]}T00:00:00Z`)))) {
+      throw new ReportFilterError(`${key} must be a valid date.`);
+    }
+  }
+  if (query.date_from && query.date_to && query.date_from > query.date_to) {
+    throw new ReportFilterError("The From date cannot be later than the To date.");
+  }
+  for (const key of ["branch_id", "category_id", "technician_id"]) {
+    if (query[key] && !/^\d+$/.test(String(query[key]))) {
+      throw new ReportFilterError(`${key} must be a valid record ID.`);
+    }
+  }
+}
+
+async function validateReportRelationships(req) {
+  const { role, branchId } = req.analyticsContext;
+  const requestedBranchId = role === "superadmin" ? req.query.branch_id : branchId;
+  if (requestedBranchId) {
+    const branch = await db.query(
+      "SELECT branch_id FROM branches WHERE branch_id=$1 AND COALESCE(is_active,TRUE)=TRUE LIMIT 1",
+      [requestedBranchId]
+    );
+    if (!branch.rows.length) throw new ReportFilterError("The selected branch is unavailable.");
+  }
+  if (requestedBranchId && req.query.technician_id) {
+    const technician = await db.query(
+      `SELECT u.branch_id
+         FROM users u
+         JOIN system_roles r ON r.role_id=u.role_id
+        WHERE u.user_id=$1 AND LOWER(r.role_name)='technician'
+          AND COALESCE(u.is_active,TRUE)=TRUE
+        LIMIT 1`,
+      [req.query.technician_id]
+    );
+    if (!technician.rows.length) throw new ReportFilterError("The selected technician is unavailable.");
+    if (String(technician.rows[0].branch_id) !== String(requestedBranchId)) {
+      throw new ReportFilterError("The selected technician is not assigned to the selected branch.");
+    }
+  }
+  if (requestedBranchId && req.query.department) {
+    const department = await db.query(
+      `SELECT 1 FROM users
+        WHERE branch_id=$1 AND LOWER(TRIM(COALESCE(department,'')))=LOWER(TRIM($2))
+        LIMIT 1`,
+      [requestedBranchId, req.query.department]
+    );
+    if (!department.rows.length) {
+      throw new ReportFilterError("The selected department is not available in the selected branch.");
+    }
+  }
+}
+
+function buildReportQuery(req) {
+  const { role, branchId } = req.analyticsContext;
+  const clauses = [];
+  const params = [];
+  const add = (sql, value) => {
+    params.push(value);
+    clauses.push(sql.replace("?", `$${params.length}`));
+  };
+  if (role !== "superadmin") add("t.branch_id=?", branchId);
+  const query = req.query;
+  if (query.date_from) add("t.created_at::date>=?", query.date_from);
+  if (query.date_to) add("t.created_at::date<=?", query.date_to);
+  if (query.branch_id && role === "superadmin") add("t.branch_id=?", query.branch_id);
+  if (query.priority) add("t.priority=?", query.priority);
+  if (query.category_id) add("t.category_id=?", query.category_id);
+  if (query.status) add("t.status=?", query.status);
+  if (query.technician_id) add("t.assigned_to=?", query.technician_id);
+  if (query.department) add("LOWER(TRIM(COALESCE(u.department,'')))=LOWER(TRIM(?))", query.department);
+  return { where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", params };
+}
+
+async function reportRows(req) {
+  validateReportFilters(req);
+  await validateReportRelationships(req);
+  const { where, params } = buildReportQuery(req);
+  return (await db.query(
+    `SELECT t.ticket_number,t.branch_id,t.title,t.priority,t.status,
+            COALESCE(c.category_name,'Uncategorized') category,
+            COALESCE(b.branch_name,'Unassigned') branch,
+            COALESCE(tech.full_name,'Unassigned') technician,
+            COALESCE(u.department,'') department,t.created_at,t.resolved_at
+       FROM tickets t
+       LEFT JOIN ticket_categories c ON c.category_id=t.category_id
+       LEFT JOIN branches b ON b.branch_id=t.branch_id
+       LEFT JOIN users tech ON tech.user_id=t.assigned_to
+       LEFT JOIN users u ON u.user_id=t.requester_id
+       ${where}
+      ORDER BY t.created_at DESC
+      LIMIT 5000`,
+    params
+  )).rows;
+}
+
+async function reportScope(req) {
+  const { role, branchId } = req.analyticsContext;
+  const effectiveBranchId = role === "superadmin" ? req.query.branch_id : branchId;
+  let label = role === "superadmin" && !effectiveBranchId ? "All branches" : "Authorized branch";
+  if (effectiveBranchId) {
+    const branch = await db.query("SELECT branch_name FROM branches WHERE branch_id=$1 LIMIT 1", [effectiveBranchId]);
+    label = branch.rows[0]?.branch_name || label;
+  }
+  const details = [];
+  if (req.query.department) details.push(`Department: ${req.query.department}`);
+  if (req.query.priority) details.push(`Priority: ${req.query.priority}`);
+  if (req.query.status) details.push(`Status: ${req.query.status}`);
+  if (req.query.date_from || req.query.date_to) {
+    details.push(`Dates: ${req.query.date_from || "earliest"} to ${req.query.date_to || "latest"}`);
+  }
+  return [label, ...details].join(" | ");
+}
 
 router.get('/report-options',requireAnalytics,requireManagerAnalytics,async(req,res)=>{try{
   const {role,branchId}=req.analyticsContext;
@@ -165,21 +272,34 @@ router.get('/report-options',requireAnalytics,requireManagerAnalytics,async(req,
   const [branches,categories,technicians,departments,statuses]=await Promise.all([
     db.query(`SELECT b.branch_id,b.branch_name FROM branches b WHERE ${branchWhere} AND COALESCE(b.is_active,true)=true ORDER BY b.branch_name`,params),
     db.query(`SELECT category_id,category_name FROM ticket_categories ORDER BY category_name`),
-    db.query(`SELECT u.user_id,u.full_name FROM users u JOIN system_roles r ON r.role_id=u.role_id WHERE ${userWhere} AND LOWER(r.role_name)='technician' AND COALESCE(u.is_active,true)=true ORDER BY u.full_name`,params),
-    db.query(`SELECT DISTINCT u.department FROM users u WHERE ${userWhere} AND NULLIF(TRIM(u.department),'') IS NOT NULL ORDER BY u.department`,params),
+    db.query(`SELECT u.user_id,u.full_name,u.branch_id,b.branch_name,COALESCE(u.department,'') department
+      FROM users u JOIN system_roles r ON r.role_id=u.role_id LEFT JOIN branches b ON b.branch_id=u.branch_id
+      WHERE ${userWhere} AND LOWER(r.role_name)='technician' AND COALESCE(u.is_active,true)=true
+      ORDER BY b.branch_name,u.full_name`,params),
+    db.query(`SELECT DISTINCT u.branch_id,u.department FROM users u WHERE ${userWhere}
+      AND NULLIF(TRIM(u.department),'') IS NOT NULL ORDER BY u.department,u.branch_id`,params),
     db.query(`SELECT DISTINCT t.status FROM tickets t WHERE ${ticketWhere} AND NULLIF(TRIM(t.status),'') IS NOT NULL ORDER BY t.status`,params),
   ]);
-  res.json({success:true,message:'Report filters loaded.',data:{branches:branches.rows,categories:categories.rows,technicians:technicians.rows,departments:departments.rows.map(r=>r.department),statuses:statuses.rows.map(r=>r.status),priorities:['P1-Critical','P2-High','P3-Medium','P4-Low']}});
+  res.json({success:true,message:'Report filters loaded.',data:{
+    branches:branches.rows,
+    categories:categories.rows,
+    technicians:technicians.rows,
+    departments:[...new Set(departments.rows.map(row=>row.department))],
+    department_options:departments.rows.map(row=>({value:row.department,label:row.department,branch_id:row.branch_id})),
+    statuses:statuses.rows.map(row=>row.status),
+    priorities:['P1-Critical','P2-High','P3-Medium','P4-Low']
+  }});
 }catch(error){console.error('Report options error:',error.message);res.status(500).json({success:false,message:'Failed to load report filters.',data:null});}});
 
-router.get('/custom-report',requireAnalytics,requireManagerAnalytics,async(req,res)=>{try{const rows=await reportRows(req);res.json({success:true,message:'Custom report generated.',data:rows});}catch(error){console.error('Custom report error:',error.message);res.status(500).json({success:false,message:'Failed to generate report.',data:null});}});
+router.get('/custom-report',requireAnalytics,requireManagerAnalytics,async(req,res)=>{try{const rows=await reportRows(req);res.json({success:true,message:rows.length?'Custom report generated.':'No records match the selected filters.',data:rows});}catch(error){console.error('Custom report error:',error.message);res.status(error.status||500).json({success:false,message:error.status?error.message:'Failed to generate report.',data:null});}});
 router.get('/custom-report/export',requireAnalytics,requireManagerAnalytics,async(req,res)=>{try{const rows=await reportRows(req);const format=String(req.query.format||'excel').toLowerCase();const keys=['ticket_number','title','priority','status','category','branch','technician','department','created_at','resolved_at'];
   if(!['excel','txt','pdf'].includes(format)) return res.status(400).json({success:false,message:'format must be excel, txt, or pdf.',data:null});
-  const input={title:'Custom Service Desk Report',scope:req.query.branch_id?`Branch ID ${req.query.branch_id}`:'All authorized branches',columns:keys.map(key=>({key,label:key.replace(/_/g,' ').toUpperCase(),width:key==='title'?32:20})),rows};
+  if(!rows.length) return res.status(422).json({success:false,message:'No records match the selected filters. Adjust the filters before exporting.',data:null});
+  const input={title:'Custom Service Desk Report',scope:await reportScope(req),columns:keys.map(key=>({key,label:key.replace(/_/g,' ').toUpperCase(),width:key==='title'?32:20})),rows};
   const buffer=format==='txt'?createTextReport(input):format==='pdf'?await createPdfReport(input):await createExcelReport(input);
   const extension=format==='excel'?'xlsx':format;
   const contentType=format==='excel'?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':format==='pdf'?'application/pdf':'text/plain; charset=utf-8';
   res.type(contentType).set('Content-Disposition',`attachment; filename="astreablue-report.${extension}"`).send(buffer);return;
-}catch(error){console.error('Custom report export error:',error.message);if(!res.headersSent)res.status(500).json({success:false,message:'Failed to export report.',data:null});}});
+}catch(error){console.error('Custom report export error:',error.message);if(!res.headersSent)res.status(error.status||500).json({success:false,message:error.status?error.message:'Failed to export report.',data:null});}});
 
 module.exports=router;
