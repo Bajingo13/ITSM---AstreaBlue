@@ -226,10 +226,10 @@ function resolveContextualCountMessage(message, history) {
 
   const subject = inferConversationSubject(history);
   const isNaturalFollowUp =
-    /\b(whats|what(?:'s| is| are)|which|list|show|give me|tell me)\b/.test(normalized)
+    /\b(whats|what(?:'s| is| are)|which|where|list|show|give me|tell me)\b/.test(normalized)
     && (
       /\b(it|its|them|they|those|these|one|ones)\b/.test(normalized)
-      || /\b(names?|details?|status|statuses|available|used|expired|expiring|vendor|vendors|cost|costs)\b/.test(normalized)
+      || /\b(names?|details?|status|statuses|locations?|located|addresses?|available|used|expired|expiring|vendor|vendors|cost|costs)\b/.test(normalized)
     );
   if (!isCountQuestion(trimmed) && !isNaturalFollowUp) {
     return { message: normalized, ambiguous: false };

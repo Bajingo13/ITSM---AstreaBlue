@@ -299,7 +299,19 @@ async function getAuthorizedBranchSummary({ actor, queryable = db }) {
     `SELECT
        COUNT(*)::int AS total,
        COUNT(*) FILTER (WHERE COALESCE(b.is_active, TRUE) = TRUE)::int AS active,
-       COUNT(*) FILTER (WHERE COALESCE(b.is_active, TRUE) = FALSE)::int AS inactive
+       COUNT(*) FILTER (WHERE COALESCE(b.is_active, TRUE) = FALSE)::int AS inactive,
+       COALESCE(
+         jsonb_agg(
+           jsonb_build_object(
+             'branch_id', b.branch_id,
+             'branch_name', b.branch_name,
+             'branch_location', b.branch_location,
+             'is_headquarters', COALESCE(b.is_headquarters, FALSE),
+             'is_active', COALESCE(b.is_active, TRUE)
+           ) ORDER BY b.branch_name
+         ) FILTER (WHERE b.branch_id IS NOT NULL),
+         '[]'::jsonb
+       ) AS branches
      FROM branches b
      WHERE ${whereSql}`,
     params

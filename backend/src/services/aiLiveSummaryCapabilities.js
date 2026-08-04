@@ -3,7 +3,7 @@ function normalize(value) {
 }
 
 function asksForLiveSummary(message) {
-  return /\b(how many|count|total|summary|breakdown|currently|right now|latest|last|recent|today|status|enabled|disabled|pending|approved|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life|healthy|warning|critical|offline|attention|breached|compliance|due soon|response time|resolution time|submitted|assessment|issued|repaired|completed|cancelled|waiting|final review|risks?|relationships?|dependencies|connected|isolated|milestones?|budget|utilization|overdue|progress|analytics|reports?|sending|reporting|captured|activity)\b/.test(
+  return /\b(how many|count|total|summary|breakdown|currently|right now|latest|last|recent|today|status|where|locations?|located|addresses?|enabled|disabled|pending|approved|value|cost|depreciat(?:ion|ed|ing)?|warrant(?:y|ies)|end of life|healthy|warning|critical|offline|attention|breached|compliance|due soon|response time|resolution time|submitted|assessment|issued|repaired|completed|cancelled|waiting|final review|risks?|relationships?|dependencies|connected|isolated|milestones?|budget|utilization|overdue|progress|analytics|reports?|sending|reporting|captured|activity)\b/.test(
     normalize(message)
   );
 }
@@ -443,8 +443,21 @@ const CAPABILITIES = [
     repositoryMethod: "getAuthorizedBranchSummary",
     outcome: "live_branch_summary",
     notice: "Branch visibility rules were applied.",
-    format: (data) => {
+    format: (data, message) => {
       const total = Number(data.total || 0);
+      if (/\b(where|locations?|located|addresses?)\b/.test(normalize(message))) {
+        const branches = Array.isArray(data.branches) ? data.branches : [];
+        if (!branches.length) return "No branch locations are currently available.";
+        return [
+          "Branch locations:",
+          ...branches.map((branch) => {
+            const name = branch.branch_name || "Unnamed branch";
+            const location = branch.branch_location || "Location not recorded";
+            const headquarters = branch.is_headquarters ? " (Headquarters)" : "";
+            return `- ${name}${headquarters}: ${location}`;
+          }),
+        ].join("\n");
+      }
       return `There ${total === 1 ? "is" : "are"} ${total} branch${total === 1 ? "" : "es"}. Active: ${Number(data.active || 0)}, Inactive: ${Number(data.inactive || 0)}.`;
     },
   },

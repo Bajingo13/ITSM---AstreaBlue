@@ -63,6 +63,22 @@ function createRepo(overrides = {}) {
       total: 4,
       active: 3,
       inactive: 1,
+      branches: [
+        {
+          branch_id: 1,
+          branch_name: "Makati Head Office",
+          branch_location: "Makati City",
+          is_headquarters: true,
+          is_active: true,
+        },
+        {
+          branch_id: 2,
+          branch_name: "Cabanatuan Office",
+          branch_location: "Cabanatuan City",
+          is_headquarters: false,
+          is_active: true,
+        },
+      ],
     }),
     getAuthorizedUserSummary: async () => ({
       authorized: true,
@@ -596,6 +612,24 @@ test("explicit branch and user questions do not inherit the previous ticket cont
   assert.equal(users.mode, "system-data");
   assert.match(users.answer, /17 active user accounts/);
   assert.doesNotMatch(users.answer, /tickets/i);
+});
+
+test("assistant preserves branch context for a location follow-up", async () => {
+  const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
+  const result = await service.ask({
+    tokenUser: { userId: 9 },
+    message: "Where is it located?",
+    history: [
+      { role: "user", content: "How many branches do we have?" },
+      { role: "assistant", content: "There are 4 branches. Active: 3, Inactive: 1." },
+    ],
+  });
+
+  assert.equal(result.mode, "system-data");
+  assert.match(result.answer, /Branch locations:/);
+  assert.match(result.answer, /Makati Head Office \(Headquarters\): Makati City/);
+  assert.match(result.answer, /Cabanatuan Office: Cabanatuan City/);
+  assert.doesNotMatch(result.answer, /Knowledge Base/i);
 });
 
 test("assistant returns a live authorized hardware asset summary instead of a KB result", async () => {
