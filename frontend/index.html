@@ -5,10 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/astrea-blue-logo.png" />
     <title>AstreaBlue ITSM Dashboard</title>
+    <script>
+      // Recover once when a deployment replaces a hashed Vite asset while an
+      // older AstreaBlue page is still open in the browser.
+      window.addEventListener(
+        'error',
+        function (event) {
+          var source = event.target && (event.target.src || event.target.href);
+          if (!source || source.indexOf('/assets/') === -1) return;
+
+          var recoveryKey = 'astreablue-asset-recovery';
+          if (sessionStorage.getItem(recoveryKey)) return;
+          sessionStorage.setItem(recoveryKey, '1');
+
+          var url = new URL(window.location.href);
+          url.searchParams.set('_asset_refresh', Date.now().toString());
+          window.location.replace(url.toString());
+        },
+        true,
+      );
+    </script>
   </head>
   <body style="margin: 0;">
     <div id="root"></div>
-    
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
