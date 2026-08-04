@@ -321,6 +321,12 @@ async function deleteAssetSafely(assetId, branchId) {
       };
     }
 
+    // Clear out any child records to allow smooth hard-deletion (Demo override)
+    await client.query("DELETE FROM replacement_requests WHERE current_asset_id=$1 OR replacement_asset_id=$1", [assetId]);
+    await client.query("DELETE FROM asset_history WHERE asset_id=$1", [assetId]);
+    await client.query("DELETE FROM asset_inventory_history WHERE asset_id=$1", [assetId]);
+    await client.query("DELETE FROM asset_inventory_reconciliation WHERE asset_id=$1", [assetId]);
+
     await client.query("DELETE FROM hardware_assets WHERE asset_id=$1", [
       assetId,
     ]);
