@@ -457,4 +457,40 @@ router.post("/invite", requireSuperAdminRequest, async (req, res) => {
   }
 });
 
+// DEMO OVERRIDE: Force delete a user and clear the email
+router.delete("/:id", requireSuperAdminRequest, async (req, res) => {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const { id } = req.params;
+
+    // Remove user assignments from monitoring devices and hardware
+    await client.query("UPDATE monitored_devices SET assigned_user_id = NULL WHERE assigned_user_id = $1", [id]);
+    await client.query("UPDATE hardware_assets SET employee_id = NULL WHERE employee_id = $1", [id]);
+
+    // Force delete the user
+    const result = await client.query("DELETE FROM users WHERE user_id = $1 RETURNING *", [id]);
+    
+    if (result.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+
+    await client.query("COMMIT");
+    res.json({ success: true, message: "User forcefully deleted." });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Force delete user error:", err.message);
+    // If there's still a strict foreign key (like tickets), fallback to just randomizing the email
+    try {
+      await db.query("UPDATE users SET email = email || '-' || $1 || '-deleted', is_active = false, status = 'Inactive' WHERE user_id = $1", [req.params.id]);
+      res.json({ success: true, message: "User could not be hard deleted due to ticket history, but their email was forcefully scrambled and freed up!" });
+    } catch (fallbackErr) {
+      res.status(500).json({ success: false, error: "Failed to delete user and failed to scramble email." });
+    }
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;
