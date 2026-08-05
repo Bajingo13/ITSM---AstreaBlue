@@ -113,7 +113,7 @@ router.post("/login", async (req, res) => {
         onboarding_required: user.onboarding_required,
         onboarding_completed_at: user.onboarding_completed_at,
         onboarding_consent_id: user.onboarding_consent_id,
-        must_complete_onboarding: Boolean(user.onboarding_required && user.onboarding_status !== "Completed"),
+        must_complete_onboarding: Boolean((String(user.role_name || "").toLowerCase().replace(/[\s_-]/g, "") === "employee" || user.onboarding_required) && user.onboarding_status !== "Completed"),
       },
     });
   } catch (error) {

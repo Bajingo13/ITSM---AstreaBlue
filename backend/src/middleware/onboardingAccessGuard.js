@@ -41,7 +41,7 @@ module.exports = async function onboardingAccessGuard(req, res, next) {
       return next();
     }
 
-    if (user?.onboarding_required && user.onboarding_status !== "Completed") {
+    if (user.onboarding_status !== "Completed") {
       return res.status(428).json({
         success: false,
         code: "ONBOARDING_REQUIRED",

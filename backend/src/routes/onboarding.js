@@ -93,7 +93,7 @@ router.get("/status", async (req, res) => {
       success: true,
       data: {
         ...row,
-        must_complete_onboarding: Boolean(row.onboarding_required && row.onboarding_status !== "Completed"),
+        must_complete_onboarding: Boolean((String(row.role_name || "").toLowerCase().replace(/[\s_-]/g, "") === "employee" || row.onboarding_required) && row.onboarding_status !== "Completed"),
         readiness: {
           account_ready: true,
           consent_approved: row.consent_status === "approved",

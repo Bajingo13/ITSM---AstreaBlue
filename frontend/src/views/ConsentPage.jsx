@@ -259,7 +259,7 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
         </div>
 
         {/* Printable body */}
-        <div id="consent-printable" className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
+        <div id="consent-printable" className="flex-1 overflow-y-auto px-8 py-8 space-y-7">
           {/* Company header */}
           <div className="text-center border-b border-slate-200 pb-5">
             <p className="text-xs font-black uppercase tracking-widest text-blue-600">
@@ -282,48 +282,48 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
               ["Endpoint Hostname", consent.hostname || consent.device_name || "—"],
               ["Device UUID", consent.device_uuid || "—"],
             ].map(([label, value]) => (
-              <div key={label} className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate-600">{label}</p>
-                <p className="mt-1 text-sm font-black text-slate-900">{value}</p>
+              <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
+                <p className="mt-1 text-[15px] font-black text-slate-900">{value}</p>
               </div>
             ))}
           </section>
 
           {/* Monitoring categories */}
-          <section>
-            <h3 className="font-black text-slate-900 mb-3 flex items-center gap-2">
-              <Shield size={16} className="text-blue-600" />
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="font-black text-slate-900 mb-4 flex items-center gap-2 text-lg">
+              <Shield size={18} className="text-blue-600" />
               Selected Monitoring Consent Categories
             </h3>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {MONITORING_CATEGORIES.map((cat) => {
                 const selected = prefs.includes(cat.id) || cat.required;
                 return (
                   <div
                     key={cat.id}
-                    className={`flex items-start gap-3 rounded-2xl border p-4 ${
+                    className={`flex items-start gap-4 rounded-2xl border p-5 ${
                       selected
-                        ? "border-blue-200 bg-blue-50"
-                        : "border-slate-200 bg-white opacity-50"
+                        ? "border-blue-300 bg-blue-50/50 shadow-sm"
+                        : "border-slate-200 bg-white opacity-60"
                     }`}
                   >
                     <div
-                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
-                        selected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300"
+                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 ${
+                        selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300"
                       }`}
                     >
-                      {selected && <CheckCircle size={12} />}
+                      {selected && <CheckCircle size={14} strokeWidth={3} />}
                     </div>
                     <div>
-                      <p className="font-bold text-slate-900">
+                      <p className="font-black text-[15px] text-slate-900">
                         {cat.label}
                         {cat.required && (
-                          <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black text-blue-700">
-                            REQUIRED
+                          <span className="ml-2 rounded-full bg-blue-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-blue-700">
+                            Required
                           </span>
                         )}
                       </p>
-                      <p className="text-xs text-slate-500">{cat.description}</p>
+                      <p className="mt-1 text-[13px] leading-relaxed font-medium text-slate-600">{cat.description}</p>
                     </div>
                   </div>
                 );
@@ -332,48 +332,50 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
           </section>
 
           {/* Legal statement */}
-          <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-            <h3 className="font-black text-blue-900 mb-2">Legal Consent Statement</h3>
-            <p className="whitespace-pre-line text-sm leading-7 text-blue-900">{LEGAL_STATEMENT}</p>
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+            <h3 className="font-black text-slate-900 mb-3 text-lg">Legal Consent Statement</h3>
+            <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">{LEGAL_STATEMENT}</p>
           </section>
 
           {/* Signature block */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5">
-            <h3 className="font-black text-slate-900 mb-4">Employee Acknowledgement & Signature</h3>
-            <div className="grid grid-cols-2 gap-6">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="font-black text-slate-900 mb-5 text-lg">Employee Acknowledgement & Signature</h3>
+            <div className="grid grid-cols-2 gap-8">
               <div>
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   E-Signature
                 </p>
                 {consent.e_signature_image || consent.signature_object_key ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm flex items-center justify-center min-h-[120px]">
                     <ProtectedSignature consent={consent} />
                   </div>
                 ) : (
-                  <p className="text-sm font-medium text-slate-600 italic">Not yet signed.</p>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm flex items-center justify-center min-h-[120px]">
+                    <p className="text-sm font-medium text-slate-500 italic">Not yet signed.</p>
+                  </div>
                 )}
               </div>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     Printed Name
                   </p>
-                  <p className="mt-1 text-lg font-black text-slate-900">
+                  <p className="mt-1.5 text-lg font-black text-slate-900">
                     {consent.printed_name || "—"}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     Date & Time Signed
                   </p>
-                  <p className="mt-1 text-sm font-bold text-slate-700">{signedAt}</p>
-                  <p className="text-xs font-medium text-slate-600">(Asia/Manila time)</p>
+                  <p className="mt-1.5 text-sm font-bold text-slate-800">{signedAt}</p>
+                  <p className="text-[11px] font-medium text-slate-500">(Asia/Manila time)</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     Consent Version
                   </p>
-                  <p className="mt-1 text-sm font-bold text-slate-700">
+                  <p className="mt-1.5 text-sm font-bold text-slate-800">
                     v{consent.consent_version}
                   </p>
                 </div>
@@ -389,27 +391,27 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
 
           {/* Audit trail (admin only) */}
           {isAdmin && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
-              <h3 className="font-black text-slate-900 mb-3">Audit Trail</h3>
+            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="font-black text-slate-900 mb-4 text-lg">Audit Trail</h3>
               {auditLoading ? (
-                <p className="text-sm font-medium text-slate-600">Loading...</p>
+                <p className="text-sm font-medium text-slate-500">Loading...</p>
               ) : auditLogs.length === 0 ? (
-                <p className="text-sm font-medium text-slate-600">No audit events yet.</p>
+                <p className="text-sm font-medium text-slate-500">No audit events yet.</p>
               ) : (
-                <div className="space-y-2 text-sm">
+                <div className="space-y-3 text-sm">
                   {auditLogs.map((log) => (
-                    <div key={log.log_id} className="flex gap-3 items-start">
-                      <span className="shrink-0 w-32 text-xs font-bold text-slate-600">
+                    <div key={log.log_id} className="flex gap-4 items-start">
+                      <span className="shrink-0 w-32 text-[11px] font-bold uppercase tracking-wider text-slate-500 mt-0.5">
                         {new Date(log.created_at).toLocaleString("en-PH", {
                           timeZone: "Asia/Manila",
                           dateStyle: "short",
                           timeStyle: "short",
                         })}
                       </span>
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black text-blue-700 shrink-0">
+                      <span className="rounded-lg bg-blue-50 border border-blue-200 px-2.5 py-1 text-[10px] font-black text-blue-700 shrink-0 uppercase tracking-wide">
                         {log.event_type}
                       </span>
-                      <span className="text-slate-600">
+                      <span className="text-slate-700 font-medium leading-relaxed">
                         {log.details || "—"}
                         {log.actor_name ? ` (by ${log.actor_name})` : ""}
                       </span>

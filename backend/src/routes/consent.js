@@ -824,6 +824,13 @@ router.post("/request-change", requireAuth, async (req, res) => {
       "consent_change_requested",
       `Request type: ${change_type || "change"}. Ticket: ${ticket.id} (${ticketNumber}). Reason: ${reason.trim()}`);  
 
+    await notifyBranchAdmins(consent.branch_id, title, `Employee ${consent.employee_full_name} submitted a consent change request. Reason: ${reason.trim()}`, {
+      consentId: consent_id,
+      ticketId: ticket.id,
+      relatedEntityType: "ticket",
+      dedupeKey: `consent-change-${ticket.id}`,
+    });
+
     return res.json({
       success: true,
       message: "Consent change request submitted. An admin or HR officer will review it.",

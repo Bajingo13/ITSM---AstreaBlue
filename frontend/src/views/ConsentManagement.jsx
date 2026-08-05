@@ -287,7 +287,7 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
         </div>
 
         {/* Body */}
-        <div ref={bodyRef} tabIndex={-1} id={`consent-print-${consent.consent_id}`} className="flex-1 space-y-5 overflow-y-auto px-6 py-5 outline-none sm:px-8">
+        <div ref={bodyRef} tabIndex={-1} id={`consent-print-${consent.consent_id}`} className="flex-1 space-y-7 overflow-y-auto px-6 py-6 outline-none sm:px-8">
           <section className={`rounded-2xl border-2 p-4 ${waitingForEmployee ? "border-amber-300 bg-amber-50" : waitingForAdmin ? "border-blue-300 bg-blue-50" : isApproved ? "border-emerald-300 bg-emerald-50" : "border-slate-300 bg-slate-50"}`}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
@@ -331,37 +331,40 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
           </div>
 
           {/* Employee info */}
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {[
               ["Employee Full Name", consent.employee_full_name],
               ["Employee Email", consent.employee_email],
               ["Employee ID / Number", consent.employee_number || "—"],
               ["Branch", consent.branch_name || "—"],
+              ["Hardware Asset", `${consent.asset_tag || "—"}${consent.model ? ` / ${consent.model}` : ""}`],
+              ["Endpoint Hostname", consent.hostname || consent.device_name || "—"],
+              ["Device UUID", consent.device_uuid || "—"],
             ].map(([label, value]) => (
-              <div key={label} className="rounded-2xl bg-slate-50 p-3.5">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-600">{label}</p>
-                <p className="mt-1 text-sm font-black text-slate-900">{value}</p>
+              <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
+                <p className="mt-1 text-[15px] font-black text-slate-900">{value}</p>
               </div>
             ))}
           </section>
 
           {/* Monitoring categories */}
-          <section>
-            <h3 className="font-black text-slate-900 mb-3 flex items-center gap-2">
-              <Shield size={16} className="text-blue-600" />
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="font-black text-slate-900 mb-4 flex items-center gap-2 text-lg">
+              <Shield size={18} className="text-blue-600" />
               Selected Monitoring Consent Categories
             </h3>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               {MONITORING_CATEGORIES.filter((cat) => cat.required || prefs.includes(cat.id)).map((cat) => {
                 const selected = prefs.includes(cat.id) || cat.required;
                 return (
-                  <div key={cat.id} className={`flex items-center gap-3 rounded-2xl border p-3 ${selected ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white opacity-50"}`}>
-                    <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${selected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300"}`}>
-                      {selected && <CheckCircle size={12} />}
+                  <div key={cat.id} className={`flex items-center gap-3 rounded-2xl border p-4 ${selected ? "border-blue-300 bg-blue-50/50 shadow-sm" : "border-slate-200 bg-white opacity-60"}`}>
+                    <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 ${selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300"}`}>
+                      {selected && <CheckCircle size={14} strokeWidth={3} />}
                     </div>
-                    <p className="text-sm font-bold text-slate-900">
+                    <p className="text-[14px] font-black text-slate-900">
                       {cat.label}
-                      {cat.required && <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black text-blue-700">REQUIRED</span>}
+                      {cat.required && <span className="ml-2 rounded-full bg-blue-100 px-2.5 py-0.5 text-[10px] font-black uppercase text-blue-700">Required</span>}
                     </p>
                   </div>
                 );
@@ -370,50 +373,52 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
           </section>
 
           {/* Legal statement */}
-          <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-            <h3 className="font-black text-blue-900 mb-2">Legal Consent Statement</h3>
-            <p className="whitespace-pre-line text-sm leading-7 text-blue-900">{LEGAL_STATEMENT}</p>
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+            <h3 className="font-black text-slate-900 mb-3 text-lg">Legal Consent Statement</h3>
+            <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">{LEGAL_STATEMENT}</p>
           </section>
 
           {/* Signature block */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5">
-            <h3 className="font-black text-slate-900 mb-4">Employee Acknowledgement & Signature</h3>
-            <div className="grid grid-cols-2 gap-6">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="font-black text-slate-900 mb-5 text-lg">Employee Acknowledgement & Signature</h3>
+            <div className="grid grid-cols-2 gap-8">
               <div>
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">E-Signature</p>
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">E-Signature</p>
                 {consent.e_signature_image || consent.signature_object_key ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm flex items-center justify-center min-h-[120px]">
                     <ProtectedSignature consent={consent} />
                   </div>
                 ) : (
-                  <p className="text-sm font-medium text-slate-600 italic">No signature on file.</p>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm flex items-center justify-center min-h-[120px]">
+                    <p className="text-sm font-medium text-slate-500 italic">No signature on file.</p>
+                  </div>
                 )}
               </div>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Printed Name</p>
-                  <p className="mt-1 text-lg font-black text-slate-900">{consent.printed_name || "—"}</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Printed Name</p>
+                  <p className="mt-1.5 text-lg font-black text-slate-900">{consent.printed_name || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Date & Time Signed</p>
-                  <p className="mt-1 text-sm font-bold text-slate-700">{signedAt}</p>
-                  <p className="text-xs font-medium text-slate-600">(Asia/Manila time)</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Date & Time Signed</p>
+                  <p className="mt-1.5 text-sm font-bold text-slate-800">{signedAt}</p>
+                  <p className="text-[11px] font-medium text-slate-500">(Asia/Manila time)</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Consent Version</p>
-                  <p className="mt-1 text-sm font-bold text-slate-700">v{consent.consent_version}</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Consent Version</p>
+                  <p className="mt-1.5 text-sm font-bold text-slate-800">v{consent.consent_version}</p>
                 </div>
               </div>
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <h3 className="font-black text-slate-900">Private document storage</h3>
-            <div className="mt-3 grid gap-3 text-sm sm:grid-cols-4">
-              <p><span className="block text-xs font-bold uppercase text-slate-600">Onboarding</span><span className="font-black text-slate-900">{consent.onboarding_status || "Unknown"}</span></p>
-              <p><span className="block text-xs font-bold uppercase text-slate-600">R2 status</span><span className="font-black text-slate-900">{consent.storage_status || "not generated"}</span></p>
-              <p><span className="block text-xs font-bold uppercase text-slate-600">Document hash</span><span className="font-mono text-xs font-semibold text-slate-800">{consent.document_file_hash ? `${consent.document_file_hash.slice(0, 16)}…` : "Unavailable"}</span></p>
-              <p><span className="block text-xs font-bold uppercase text-slate-600">File size</span><span className="font-black text-slate-900">{consent.document_file_size ? `${Math.ceil(Number(consent.document_file_size) / 1024)} KB` : "Unavailable"}</span></p>
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+            <h3 className="font-black text-slate-900 text-lg">Private document storage</h3>
+            <div className="mt-4 grid gap-4 text-sm sm:grid-cols-4">
+              <p><span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Onboarding</span><span className="font-black text-slate-900">{consent.onboarding_status || "Unknown"}</span></p>
+              <p><span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">R2 status</span><span className="font-black text-slate-900">{consent.storage_status || "not generated"}</span></p>
+              <p><span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Document hash</span><span className="font-mono text-xs font-semibold text-slate-800">{consent.document_file_hash ? `${consent.document_file_hash.slice(0, 16)}…` : "Unavailable"}</span></p>
+              <p><span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">File size</span><span className="font-black text-slate-900">{consent.document_file_size ? `${Math.ceil(Number(consent.document_file_size) / 1024)} KB` : "Unavailable"}</span></p>
             </div>
           </section>
 
@@ -423,21 +428,21 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
           </p>
 
           {/* Audit trail */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5">
-            <h3 className="font-black text-slate-900 mb-3">Audit Trail</h3>
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="font-black text-slate-900 mb-4 text-lg">Audit Trail</h3>
             {auditLoading ? (
-              <p className="text-sm font-medium text-slate-600">Loading...</p>
+              <p className="text-sm font-medium text-slate-500">Loading...</p>
             ) : auditLogs.length === 0 ? (
-              <p className="text-sm font-medium text-slate-600">No audit events yet.</p>
+              <p className="text-sm font-medium text-slate-500">No audit events yet.</p>
             ) : (
-              <div className="space-y-2 text-sm">
+              <div className="space-y-3 text-sm">
                 {auditLogs.map((log) => (
-                  <div key={log.log_id} className="flex gap-3 items-start">
-                    <span className="shrink-0 w-32 text-xs font-bold text-slate-600">
+                  <div key={log.log_id} className="flex gap-4 items-start">
+                    <span className="shrink-0 w-32 text-[11px] font-bold uppercase tracking-wider text-slate-500 mt-0.5">
                       {new Date(log.created_at).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "short", timeStyle: "short" })}
                     </span>
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black text-blue-700 shrink-0">{log.event_type}</span>
-                    <span className="text-slate-600">{log.details || "—"}{log.actor_name ? ` (by ${log.actor_name})` : ""}</span>
+                    <span className="rounded-lg bg-blue-50 border border-blue-200 px-2.5 py-1 text-[10px] font-black text-blue-700 shrink-0 uppercase tracking-wide">{log.event_type}</span>
+                    <span className="text-slate-700 font-medium leading-relaxed">{log.details || "—"}{log.actor_name ? ` (by ${log.actor_name})` : ""}</span>
                   </div>
                 ))}
               </div>
@@ -569,9 +574,9 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
                     if (confirmed) applyAction("approve");
                   }}
                   disabled={actioning}
-                  className="flex items-center gap-2 rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-60"
+                  className="flex items-center gap-2 rounded-xl bg-green-600 px-6 py-2.5 text-sm font-black text-white shadow-md ring-2 ring-transparent transition hover:bg-green-700 focus:ring-green-600 focus:ring-offset-2 disabled:opacity-60"
                 >
-                  <CheckCircle size={16} /> {actioning ? "Approving..." : "Approve & Complete Onboarding"}
+                  <CheckCircle size={18} strokeWidth={2.5} /> {actioning ? "Approving..." : "Approve & Complete Onboarding"}
                 </button>
               )}
               {!showActionForm && (
