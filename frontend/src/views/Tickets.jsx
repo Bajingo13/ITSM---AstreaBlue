@@ -18,6 +18,7 @@ import {
   XCircle,
   Trash2,
   Download,
+  Info,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import AttachmentPreviewModal from "../components/AttachmentPreviewModal";
