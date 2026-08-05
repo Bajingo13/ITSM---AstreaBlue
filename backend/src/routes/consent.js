@@ -831,6 +831,20 @@ router.post("/request-change", requireAuth, async (req, res) => {
       dedupeKey: `consent-change-${ticket.id}`,
     });
 
+    try {
+      const { createNotification } = require("../services/notificationService");
+      await createNotification({
+        userId: employeeId,
+        title: "Consent Change Request Submitted",
+        message: `Your consent change request has been submitted successfully as Ticket ${ticketNumber}.`,
+        type: "success",
+        ticketId: ticket.id,
+        metadata: { event: "consent_change_requested" },
+      });
+    } catch (e) {
+      console.error("[consent:request-change] failed to notify employee:", e.message);
+    }
+
     return res.json({
       success: true,
       message: "Consent change request submitted. An admin or HR officer will review it.",
@@ -1385,10 +1399,16 @@ router.post("/:id/approve-change", requireAdminOrHR, async (req, res) => {
 router.get("/:id/audit", requireAdminOrHR, async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT cal.*, u.full_name actor_name
+      `WITH RECURSIVE consent_lineage AS (
+         SELECT consent_id, previous_consent_id FROM consent_documents WHERE consent_id=$1
+         UNION ALL
+         SELECT cd.consent_id, cd.previous_consent_id FROM consent_documents cd
+         INNER JOIN consent_lineage cl ON cd.consent_id = cl.previous_consent_id
+       )
+       SELECT cal.*, u.full_name actor_name
        FROM consent_audit_logs cal
        LEFT JOIN users u ON u.user_id=cal.actor_id
-       WHERE cal.consent_id=$1
+       WHERE cal.consent_id IN (SELECT consent_id FROM consent_lineage)
        ORDER BY cal.created_at ASC`,
       [req.params.id]
     );
