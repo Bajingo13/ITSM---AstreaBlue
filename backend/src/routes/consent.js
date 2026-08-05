@@ -893,8 +893,20 @@ router.get("/change-requests", requireAdminOrHR, async (req, res) => {
     const actor = req.actor;
     const role = String(actor.role || "").toLowerCase().replace(/[\s_-]/g, "");
 
-    // Base query: tickets in the Privacy Request / Consent category with full employee info
-    let query = `
+    const params = [];
+
+    // Branch filter for admin role
+    let branchFilter = "";
+    if (role === "admin") {
+      const branchId = actor.branchId || actor.branch_id;
+      if (branchId) {
+        params.push(branchId);
+        branchFilter = `AND u.branch_id = $${params.length}`;
+      }
+    }
+
+    // Audit log join — plain subquery to avoid LATERAL compatibility issues
+    const query = `
       SELECT
         t.id,
         t.ticket_number,
@@ -904,46 +916,38 @@ router.get("/change-requests", requireAdminOrHR, async (req, res) => {
         t.priority,
         t.created_at,
         t.updated_at,
-        u.full_name   AS requester_name,
-        u.email       AS requester_email,
+        u.full_name      AS requester_name,
+        u.email          AS requester_email,
         b.branch_name,
-        cal.log_id,
-        cal.consent_id,
-        cal.event_type,
-        cal.details   AS audit_details
+        alog.log_id,
+        alog.consent_id,
+        alog.event_type,
+        alog.details     AS audit_details
       FROM tickets t
-      LEFT JOIN users  u ON u.user_id   = t.requester_id
-      LEFT JOIN branches b ON b.branch_id = u.branch_id
-      LEFT JOIN ticket_categories tc ON tc.category_id = t.category_id
-      LEFT JOIN LATERAL (
-        SELECT log_id, consent_id, event_type, details
+      LEFT JOIN users             u    ON u.user_id    = t.requester_id
+      LEFT JOIN branches          b    ON b.branch_id  = u.branch_id
+      LEFT JOIN ticket_categories tc   ON tc.category_id = t.category_id
+      LEFT JOIN (
+        SELECT DISTINCT ON (employee_id)
+          log_id, consent_id, employee_id, event_type, details
         FROM consent_audit_logs
         WHERE event_type = 'consent_change_requested'
-          AND employee_id = t.requester_id
-        ORDER BY created_at DESC
-        LIMIT 1
-      ) cal ON TRUE
+        ORDER BY employee_id, created_at DESC
+      ) alog ON alog.employee_id = t.requester_id
       WHERE (
-        tc.category_name IN ('Privacy Request','Consent / Privacy Request')
+        tc.category_name IN ('Privacy Request', 'Consent / Privacy Request')
         OR t.title ILIKE '%Consent%Request%'
         OR t.title ILIKE '%Consent%Withdrawal%'
       )
+      ${branchFilter}
+      ORDER BY t.created_at DESC
     `;
-
-    const params = [];
-    // Scope by branch for non-superadmin/HR roles
-    if (role === "admin") {
-      params.push(actor.branchId || actor.branch_id);
-      query += ` AND u.branch_id = $${params.length}`;
-    }
-
-    query += ` ORDER BY t.created_at DESC`;
 
     const result = await db.query(query, params);
     return res.json({ success: true, data: result.rows });
   } catch (err) {
-    console.error("[consent:change-requests]", err.message);
-    return res.status(500).json({ success: false, message: "Failed to load consent change requests." });
+    console.error("[consent:change-requests] SQL error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to load consent change requests.", detail: err.message });
   }
 });
 
