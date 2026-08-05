@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Download,
   Eye,
+  FileEdit,
   FileText,
   Lock,
   PenLine,
@@ -602,12 +603,19 @@ function ConsentPrintModal({ consent: initialConsent, onClose, onAction }) {
 // ─── Main Admin Consent Management ────────────────────────────────────────────
 export default function ConsentManagement() {
   const { role } = useAuth();
+  const [activeTab, setActiveTab] = useState("consents");
   const [consents, setConsents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedConsent, setSelectedConsent] = useState(null);
   const [apiError, setApiError] = useState(null);
+
+  // Change Requests tab state
+  const [changeRequests, setChangeRequests] = useState([]);
+  const [crLoading, setCrLoading] = useState(false);
+  const [crError, setCrError] = useState(null);
+  const [crSearch, setCrSearch] = useState("");
 
   const fetchConsents = useCallback(async () => {
     try {
@@ -632,9 +640,28 @@ export default function ConsentManagement() {
     }
   }, []);
 
+  const fetchChangeRequests = useCallback(async () => {
+    try {
+      setCrLoading(true);
+      setCrError(null);
+      const res = await fetch(`${API_BASE}/consent/change-requests`, { headers: authHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || "Failed to load");
+      setChangeRequests(Array.isArray(data.data) ? data.data : []);
+    } catch (err) {
+      setCrError(err.message);
+    } finally {
+      setCrLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchConsents();
   }, [fetchConsents]);
+
+  useEffect(() => {
+    if (activeTab === "change-requests") fetchChangeRequests();
+  }, [activeTab, fetchChangeRequests]);
 
   const filtered = consents.filter((c) => {
     const matchSearch =
@@ -666,12 +693,146 @@ export default function ConsentManagement() {
         subtitle="View, verify, and manage all employee consent documents. Authorize consent changes and withdrawals per company policy."
       />
 
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1.5">
+        <button
+          onClick={() => setActiveTab("consents")}
+          className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition ${
+            activeTab === "consents"
+              ? "bg-white text-blue-700 shadow-sm"
+              : "text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <ClipboardList size={16} /> Consent Documents
+        </button>
+        <button
+          onClick={() => setActiveTab("change-requests")}
+          className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition ${
+            activeTab === "change-requests"
+              ? "bg-white text-blue-700 shadow-sm"
+              : "text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <FileEdit size={16} /> Change Requests
+          {changeRequests.filter((r) => r.status === "Open Queue").length > 0 && (
+            <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-black text-white">
+              {changeRequests.filter((r) => r.status === "Open Queue").length}
+            </span>
+          )}
+        </button>
+      </div>
+
       {apiError ? (
         <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center text-slate-500 shadow-sm">
           <Shield className="mx-auto mb-4 text-slate-300" size={48} />
           <h3 className="mb-2 text-xl font-black text-slate-900">Access Restricted</h3>
           <p>{apiError}</p>
         </div>
+      ) : activeTab === "change-requests" ? (
+        /* ─── Change Requests Tab ─────────────────────────────────────── */
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-black text-slate-900">Consent Change Requests</h2>
+              <p className="text-sm font-medium text-slate-500 mt-0.5">
+                Employees who filed a consent change or withdrawal. These appear as Privacy Request tickets.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={crSearch}
+                  onChange={(e) => setCrSearch(e.target.value)}
+                  placeholder="Search employee or reason..."
+                  className="w-64 rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm font-medium outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                />
+              </div>
+              <button
+                onClick={fetchChangeRequests}
+                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50"
+              >
+                <RefreshCw size={14} /> Refresh
+              </button>
+            </div>
+          </div>
+
+          {crLoading ? (
+            <p className="py-10 text-center text-sm font-semibold text-slate-500">Loading change requests...</p>
+          ) : crError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">{crError}</div>
+          ) : changeRequests.length === 0 ? (
+            <div className="rounded-2xl border-2 border-dashed border-slate-200 py-16 text-center">
+              <FileEdit className="mx-auto mb-3 text-slate-300" size={36} />
+              <p className="text-sm font-bold text-slate-500">No consent change requests found.</p>
+              <p className="text-xs font-medium text-slate-400 mt-1">When employees submit change requests, they will appear here.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Ticket #</th>
+                    <th className="px-4 py-3">Employee</th>
+                    <th className="px-4 py-3">Branch</th>
+                    <th className="px-4 py-3">Request Type</th>
+                    <th className="px-4 py-3">Ticket Status</th>
+                    <th className="px-4 py-3">Submitted</th>
+                    <th className="px-4 py-3">Audit Log</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {changeRequests
+                    .filter((r) =>
+                      !crSearch ||
+                      r.requester_name?.toLowerCase().includes(crSearch.toLowerCase()) ||
+                      r.requester_email?.toLowerCase().includes(crSearch.toLowerCase()) ||
+                      r.description?.toLowerCase().includes(crSearch.toLowerCase())
+                    )
+                    .map((r) => {
+                      const isWithdrawal = r.title?.toLowerCase().includes("withdrawal");
+                      const statusColor =
+                        r.status === "Open Queue" ? "bg-amber-100 text-amber-700"
+                        : r.status === "In Progress" ? "bg-blue-100 text-blue-700"
+                        : r.status === "Resolved" || r.status === "Closed" ? "bg-green-100 text-green-700"
+                        : r.status === "Cancelled" ? "bg-red-100 text-red-700"
+                        : "bg-slate-100 text-slate-600";
+                      return (
+                        <tr key={r.id} className="border-t border-slate-100 hover:bg-blue-50/30 transition">
+                          <td className="px-4 py-4 font-black text-blue-700">{r.ticket_number || `#${r.id}`}</td>
+                          <td className="px-4 py-4">
+                            <p className="font-bold text-slate-900">{r.requester_name || "—"}</p>
+                            <p className="text-xs text-slate-500">{r.requester_email}</p>
+                          </td>
+                          <td className="px-4 py-4 text-slate-600">{r.branch_name || "—"}</td>
+                          <td className="px-4 py-4">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-black uppercase ${
+                              isWithdrawal ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
+                            }`}>
+                              {isWithdrawal ? "Withdrawal" : "Change"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-black uppercase ${statusColor}`}>
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-xs text-slate-500">
+                            {new Date(r.created_at).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" })}
+                          </td>
+                          <td className="px-4 py-4 text-xs text-slate-600">
+                            {r.audit_details
+                              ? <span className="block max-w-xs truncate" title={r.audit_details}>{r.audit_details}</span>
+                              : <span className="italic text-slate-400">No audit log yet</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       ) : (
         <>
           {/* Stats */}

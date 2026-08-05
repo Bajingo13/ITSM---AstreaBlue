@@ -70,10 +70,18 @@ const tablesReady = (async () => {
         employee_id  INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
         actor_id     INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
         actor_role   VARCHAR(50),
-        event_type   VARCHAR(80) NOT NULL,
+        event_type   VARCHAR(80),
+        action       VARCHAR(80),
+        user_id      INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
         details      TEXT,
+        ip_address   VARCHAR(45),
+        metadata     JSONB,
         created_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE consent_audit_logs ADD COLUMN IF NOT EXISTS action     VARCHAR(80);
+      ALTER TABLE consent_audit_logs ADD COLUMN IF NOT EXISTS user_id    INTEGER REFERENCES users(user_id) ON DELETE SET NULL;
+      ALTER TABLE consent_audit_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45);
+      ALTER TABLE consent_audit_logs ADD COLUMN IF NOT EXISTS metadata   JSONB;
       CREATE INDEX IF NOT EXISTS consent_documents_employee_idx ON consent_documents(employee_id);
       CREATE INDEX IF NOT EXISTS consent_documents_status_idx   ON consent_documents(status);
       CREATE INDEX IF NOT EXISTS consent_audit_employee_idx ON consent_audit_logs(employee_id);
@@ -201,19 +209,25 @@ function requireAdminOrHR(req, res, next) {
 // ─── Audit helper ─────────────────────────────────────────────────────────────
 async function audit(consentId, employeeId, actorId, actorRole, eventType, details) {
   try {
-    const detailsJson = typeof details === "string" ? JSON.stringify({ message: details }) : (details ? JSON.stringify(details) : null);
+    // Serialize details: store plain strings as-is in the TEXT column
+    const detailsText = details == null
+      ? null
+      : typeof details === "string"
+        ? details
+        : JSON.stringify(details);
     await db.query(
-      `INSERT INTO consent_audit_logs (consent_id,employee_id,user_id,actor_id,actor_role,action,event_type,details)
+      `INSERT INTO consent_audit_logs
+         (consent_id, employee_id, user_id, actor_id, actor_role, action, event_type, details)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [
-        consentId || null, 
-        employeeId || null, 
-        actorId || employeeId || null, 
-        actorId || null, 
-        actorRole || null, 
-        eventType, 
-        eventType, 
-        detailsJson
+        consentId   || null,
+        employeeId  || null,
+        actorId     || employeeId || null,
+        actorId     || null,
+        actorRole   || null,
+        eventType   || null,   // action
+        eventType   || null,   // event_type
+        detailsText,
       ]
     );
   } catch (err) {
@@ -872,6 +886,66 @@ router.post("/request-change", requireAuth, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // ADMIN / HR ENDPOINTS
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /consent/change-requests — dedicated list of consent change/withdrawal tickets for admins/HR
+router.get("/change-requests", requireAdminOrHR, async (req, res) => {
+  try {
+    const actor = req.actor;
+    const role = String(actor.role || "").toLowerCase().replace(/[\s_-]/g, "");
+
+    // Base query: tickets in the Privacy Request / Consent category with full employee info
+    let query = `
+      SELECT
+        t.id,
+        t.ticket_number,
+        t.title,
+        t.description,
+        t.status,
+        t.priority,
+        t.created_at,
+        t.updated_at,
+        u.full_name   AS requester_name,
+        u.email       AS requester_email,
+        b.branch_name,
+        cal.log_id,
+        cal.consent_id,
+        cal.event_type,
+        cal.details   AS audit_details
+      FROM tickets t
+      LEFT JOIN users  u ON u.user_id   = t.requester_id
+      LEFT JOIN branches b ON b.branch_id = u.branch_id
+      LEFT JOIN ticket_categories tc ON tc.category_id = t.category_id
+      LEFT JOIN LATERAL (
+        SELECT log_id, consent_id, event_type, details
+        FROM consent_audit_logs
+        WHERE event_type = 'consent_change_requested'
+          AND employee_id = t.requester_id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) cal ON TRUE
+      WHERE (
+        tc.category_name IN ('Privacy Request','Consent / Privacy Request')
+        OR t.title ILIKE '%Consent%Request%'
+        OR t.title ILIKE '%Consent%Withdrawal%'
+      )
+    `;
+
+    const params = [];
+    // Scope by branch for non-superadmin/HR roles
+    if (role === "admin") {
+      params.push(actor.branchId || actor.branch_id);
+      query += ` AND u.branch_id = $${params.length}`;
+    }
+
+    query += ` ORDER BY t.created_at DESC`;
+
+    const result = await db.query(query, params);
+    return res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error("[consent:change-requests]", err.message);
+    return res.status(500).json({ success: false, message: "Failed to load consent change requests." });
+  }
+});
 
 // GET /consent/all — list all consent documents
 router.get("/all", requireAuth, async (req, res) => {
