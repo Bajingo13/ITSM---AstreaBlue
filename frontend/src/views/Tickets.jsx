@@ -754,43 +754,43 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
 
   return (
     <>
-    <div className="astrea-modal-backdrop z-[80]">
-      <div className="astrea-modal-panel flex w-full max-w-2xl flex-col border border-slate-300 shadow-2xl shadow-slate-950/25">
-        <div className="sticky top-0 z-10 border-b-2 border-slate-200 bg-white px-7 py-5">
+<div className="astrea-modal-backdrop z-[80]">
+      <div className="astrea-modal-panel flex w-full max-w-3xl flex-col bg-slate-50 border-2 border-slate-300 shadow-2xl">
+        <div className="sticky top-0 z-10 border-b-2 border-slate-200 bg-white px-8 py-6 shadow-sm">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-widest text-blue-600">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1">
                 {item.ticket_number || `TKT-${item.id}`}
               </p>
-              <h2 className="mt-1 text-2xl font-black text-slate-900">
+              <h2 className="text-3xl font-black text-slate-900">
                 {item.title}
               </h2>
             </div>
             <button
               onClick={handleCloseDrawer}
-              className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition shadow-sm border border-transparent hover:border-slate-200"
             >
-              <X size={22} />
+              <X size={24} />
             </button>
           </div>
         </div>
         {loading ? (
-          <div className="flex-1 p-8 font-bold text-slate-500">
+          <div className="flex-1 p-8 font-bold text-slate-500 text-center">
             Loading details...
           </div>
         ) : (
-          <div className="flex-1 space-y-6 overflow-y-auto p-7 pb-28">
+          <div className="flex-1 space-y-8 overflow-y-auto p-8 pb-28">
             {actionError && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              <div className="rounded-xl border-2 border-red-300 bg-red-50 px-5 py-4 text-sm font-bold text-red-800 shadow-sm">
                 {actionError}
               </div>
             )}
-            {kbMessage && <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{kbMessage}</div>}
+            {kbMessage && <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-800 shadow-sm">{kbMessage}</div>}
 
-            <section className="grid grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
-                <p className="text-xs font-bold text-slate-400">Status</p>
-                <p className="mt-1 flex flex-wrap items-center gap-2 font-black text-slate-900">
+            <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="rounded-2xl border border-slate-300 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Status</p>
+                <p className="mt-2 flex flex-wrap items-center gap-2 font-black text-slate-900">
                   {selectedStatus}
                   {isCancelled && (
                     <span className="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-red-700">
@@ -798,15 +798,15 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                     </span>
                   )}
                   {hasStatusChange && (
-                    <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-700">
+                    <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-700">
                       Unsaved
                     </span>
                   )}
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
-                <p className="text-xs font-bold text-slate-400">Priority</p>
+              <div className="rounded-2xl border border-slate-300 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Priority</p>
                 {canEditPriority && !isCancelled ? (
                   <div className="mt-2">
                     <div className="grid grid-cols-2 gap-2" role="group" aria-label="Correct ticket priority">
@@ -818,19 +818,16 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                           disabled={assigning || loading}
                           onClick={() => setSelectedPriority(priority)}
                           aria-pressed={selected}
-                          className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-black transition ${priorityStyle[priority]} ${selected ? "ring-2 ring-slate-900 ring-offset-1" : "opacity-80 hover:opacity-100"} disabled:cursor-not-allowed disabled:opacity-50`}
+                          className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-black transition ${priorityStyle[priority]} ${selected ? "ring-2 ring-slate-900 ring-offset-1 border-slate-900" : "opacity-80 hover:opacity-100"} disabled:cursor-not-allowed disabled:opacity-50`}
                         >
                           <span className={`h-2 w-2 rounded-full ${priorityDotStyle[priority]}`} />
                           {formatPriority(priority)}
                         </button>;
                       })}
                     </div>
-                    <p className="mt-2 text-[11px] font-semibold text-blue-700">
-                      Admin correction is recorded in the activity timeline.
-                    </p>
                   </div>
                 ) : (
-                  <p className="mt-1">
+                  <p className="mt-2">
                     <span className={getPriorityBadgeClass(item.priority)}>
                       {formatPriority(item.priority)}
                     </span>
@@ -838,29 +835,29 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                 )}
               </div>
 
-              <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
-                <p className="text-xs font-bold text-slate-400">Category</p>
-                <p className="mt-1 font-black text-slate-900">
+              <div className="rounded-2xl border border-slate-300 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Category</p>
+                <p className="mt-2 font-black text-slate-900">
                   {item.category || "Uncategorized"}
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-md">
-                <p className="text-xs font-bold text-slate-400">
+              <div className="rounded-2xl border border-slate-300 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
                   Assigned To
                 </p>
-                <p className="mt-1 font-black text-slate-900">
+                <p className="mt-2 font-black text-slate-900">
                   {item.assigned_name || "Unassigned"}
                 </p>
               </div>
             </section>
 
-            <section className="rounded-2xl border-2 border-blue-200 bg-gradient-to-br from-blue-50 to-sky-50 p-5 shadow-sm shadow-blue-900/5">
-              <div className="mb-4 flex items-center gap-2">
-                <History size={18} className="text-blue-600" />
-                <h3 className="font-black text-slate-900">Ticket Work Tracker</h3>
+            <section className="rounded-2xl border border-slate-300 bg-white p-6 shadow-sm">
+              <div className="mb-5 flex items-center gap-2">
+                <History size={18} className="text-slate-500" />
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Ticket Work Tracker</h3>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <ResolutionDetail
                   label="Ticket Created"
                   value={item.created_at ? new Date(item.created_at).toLocaleString() : "Not recorded"}
@@ -888,242 +885,115 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                   }
                 />
               </div>
-              <p className="mt-3 text-[11px] font-semibold text-blue-700">Completion Time is calculated automatically from Work Started to Resolved or Closed.</p>
             </section>
 
-            {(item.origin_system || item.created_via || item.external_reference) && (
-              <section className="rounded-2xl border-2 border-blue-200 bg-blue-50/50 p-5 shadow-sm shadow-blue-900/5">
-                <h3 className="mb-4 font-black text-slate-900">Integration Origin</h3>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <ResolutionDetail label="Created Via" value={item.created_via || item.source || "Integration Gateway"} />
-                  <ResolutionDetail label="Origin System" value={item.origin_system || "Not recorded"} />
-                  <ResolutionDetail label="Module" value={item.origin_module || "Not recorded"} />
-                  <ResolutionDetail label="Feature" value={item.origin_feature || "Not recorded"} />
-                  <ResolutionDetail label="External Reference" value={item.external_reference || "Not recorded"} />
-                  <ResolutionDetail label="External Employee ID" value={item.external_employee_id || "Not recorded"} />
-                </div>
-              </section>
-            )}
-
-            {isCancelled && (
-              <section className="rounded-2xl border border-red-100 bg-red-50/60 p-5">
-                <div className="mb-3 flex items-center gap-2">
-                  <Ban size={18} className="text-red-600" />
-                  <h3 className="font-black text-slate-900">Cancellation</h3>
-                </div>
-                <p className="whitespace-pre-line text-sm leading-7 text-red-700">
-                  {item.cancellation_reason || "No cancellation reason recorded."}
-                </p>
-                {item.cancelled_at && (
-                  <p className="mt-2 text-xs font-bold text-red-500">
-                    Cancelled {new Date(item.cancelled_at).toLocaleString()}
-                  </p>
-                )}
-              </section>
-            )}
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
-              <h3 className="mb-4 font-black text-slate-900">
+            <section className="rounded-2xl border border-slate-300 bg-white p-6 shadow-sm">
+              <h3 className="mb-4 text-sm font-black text-slate-900 uppercase tracking-widest">
                 Assign Technician
               </h3>
 
               <div>
                 {isCancelled ? (
-  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
-    Cancelled tickets cannot be assigned.
-  </div>
-) : !canAssignTicket ? (
-  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-600">
-    You can only assign technicians for tickets in your permitted branch.
-  </div>
-) : technicians.length === 0 ? (
-  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
-    No technician available for this branch.
-  </div>
-) : (
-  <select
-    value={selectedTechnician}
-    onChange={(e) => setSelectedTechnician(e.target.value)}
-    className="w-full rounded-xl border border-blue-200 bg-blue-50/50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition hover:border-blue-300 hover:bg-blue-50 focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100"
-    style={{ color: "#0f172a" }}
-  >
-    <option value="" style={{ color: "#0f172a" }}>
-      Unassigned
-    </option>
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                    Cancelled tickets cannot be assigned.
+                  </div>
+                ) : !canAssignTicket ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-600">
+                    You can only assign technicians for tickets in your permitted branch.
+                  </div>
+                ) : technicians.length === 0 ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+                    No technician available for this branch.
+                  </div>
+                ) : (
+                  <select
+                    value={selectedTechnician}
+                    onChange={(e) => setSelectedTechnician(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-500 focus:bg-white focus:ring-2 focus:ring-slate-200 shadow-sm"
+                  >
+                    <option value="">
+                      Unassigned
+                    </option>
 
-    {technicians.map((tech) => (
-      <option key={tech.user_id} value={tech.user_id}>
-        {tech.full_name} — {tech.email} ({tech.branch_name})
-      </option>
-    ))}
-  </select>
-)}
-              </div>
-
-              <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm">
-                <p className="text-xs font-bold text-blue-400">Branch</p>
-                <p className="mt-1 font-black text-blue-800">
-                  {item.branch_name || "Unassigned Branch"}
-                </p>
+                    {technicians.map((tech) => (
+                      <option key={tech.user_id} value={tech.user_id}>
+                        {tech.full_name} — {tech.email} ({tech.branch_name})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
-              <h3 className="mb-3 font-black text-slate-900">Description</h3>
-              <div className="min-h-24 rounded-xl border border-blue-200 bg-blue-50/40 p-4 shadow-sm">
-                <p className="whitespace-pre-line text-sm leading-7 text-slate-700">
+            <section className="rounded-2xl border border-slate-300 bg-white p-6 shadow-sm">
+              <h3 className="mb-4 text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                <Info size={18} className="text-slate-500" /> Description
+              </h3>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 shadow-inner">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
                   {item.desc || item.description}
                 </p>
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <section className="rounded-2xl border border-slate-300 bg-white p-6 shadow-sm">
               <div className="mb-4 flex items-center gap-2">
-                <Paperclip size={18} className="text-blue-600" />
-                <h3 className="font-black text-slate-900">Attachments</h3>
+                <Paperclip size={18} className="text-slate-500" />
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Attachments</h3>
               </div>
               {item.attachments?.length ? (
-                <div className="space-y-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   {item.attachments.map((attachment) => (
                     <button
                       key={attachment.attachment_id}
                       onClick={() => openAttachment(attachment)}
-                      className="flex w-full items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/40 px-4 py-3 text-left text-sm font-bold text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                      className="flex items-center gap-3 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-left text-sm font-bold text-slate-800 shadow-sm transition hover:bg-slate-100 hover:border-slate-400"
                     >
-                      {attachment.mime_type?.startsWith("image/") && (
-                        <img
-                          src={`${API_URL}${attachment.file_path}`}
-                          alt={attachment.file_name}
-                          className="h-12 w-16 rounded-lg object-cover"
-                        />
-                      )}
-                      <span className="flex-1">{attachment.file_name}</span>
-                      <span className="text-xs text-slate-400">
-                        {attachment.mime_type}
-                      </span>
+                      <Paperclip size={16} className="text-slate-400 shrink-0" />
+                      <span className="flex-1 truncate">{attachment.file_name}</span>
                     </button>
                   ))}
                 </div>
               ) : (
-                <p className="rounded-xl border border-dashed border-blue-200 bg-blue-50/40 px-4 py-5 text-sm font-semibold text-slate-500">
-                  No attachments uploaded.
-                </p>
+                <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 py-8 text-center">
+                  <p className="text-sm font-bold text-slate-400">
+                    No attachments uploaded.
+                  </p>
+                </div>
               )}
             </section>
 
             {hasResolution && (
-              <section className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-5">
-                <div className="mb-4 flex items-center gap-2">
+              <section className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/50 p-6 shadow-sm">
+                <div className="mb-5 flex items-center gap-2">
                   <CheckCircle size={18} className="text-emerald-600" />
-                  <h3 className="font-black text-slate-900">Resolution</h3>
+                  <h3 className="text-sm font-black text-emerald-900 uppercase tracking-widest">Resolution</h3>
                 </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                <div className="space-y-5">
+                  <div className="rounded-xl border border-emerald-200 bg-white p-5 shadow-sm">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-600 mb-2">
                       Resolution Notes
                     </p>
-                    <p className="mt-1 whitespace-pre-line text-sm leading-7 text-slate-700">
+                    <p className="whitespace-pre-line text-sm leading-relaxed text-slate-800 font-medium">
                       {item.resolution_notes || "No resolution notes provided."}
                     </p>
                   </div>
-
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <ResolutionDetail
-                      label="Root Cause"
-                      value={item.root_cause || "Not specified"}
-                    />
-                    <ResolutionDetail
-                      label="Time Spent"
-                      value={
-                        item.time_spent_minutes !== null &&
-                        item.time_spent_minutes !== undefined &&
-                        item.time_spent_minutes !== ""
-                          ? `${item.time_spent_minutes} minutes`
-                          : "Not specified"
-                      }
-                    />
-                    <ResolutionDetail
-                      label="Parts Used"
-                      value={item.parts_used || "None recorded"}
-                    />
-                    <ResolutionDetail
-                      label="Work Started"
-                      value={
-                        item.in_progress_started_at
-                          ? new Date(item.in_progress_started_at).toLocaleString()
-                          : "Not recorded"
-                      }
-                    />
-                    <ResolutionDetail
-                      label="Resolved At"
-                      value={
-                        item.resolved_at
-                          ? new Date(item.resolved_at).toLocaleString()
-                          : "Not recorded"
-                      }
-                    />
-                    <ResolutionDetail
-                      label="Completion Time"
-                      value={getTicketCompletionLabel(item)}
-                    />
-                  </div>
-                </div>
-
-                {canCreateKbArticle && ["Resolved", "Closed"].includes(item.status) && (
-                  <button
-                    onClick={createKnowledgeBaseArticle}
-                    className="mt-5 flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-black text-white hover:bg-blue-800"
-                  >
-                    <BookOpen size={17} />
-                    Create Article from Ticket
-                  </button>
-                )}
-              </section>
-            )}
-
-            {isCancelled && (
-              <section className="rounded-2xl border border-red-100 bg-red-50/60 p-5">
-                <div className="mb-4 flex items-center gap-2">
-                  <AlertCircle size={18} className="text-red-600" />
-                  <h3 className="font-black text-slate-900">
-                    Cancellation Details
-                  </h3>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                      Reason
-                    </p>
-                    <p className="mt-1 whitespace-pre-line text-sm leading-7 text-slate-700">
-                      {item.cancellation_reason || "No cancellation reason recorded."}
-                    </p>
-                  </div>
-
-                  <ResolutionDetail
-                    label="Cancelled At"
-                    value={
-                      item.cancelled_at
-                        ? new Date(item.cancelled_at).toLocaleString()
-                        : "Not recorded"
-                    }
-                  />
                 </div>
               </section>
             )}
 
-            <section className="astrea-card border-2 border-slate-200 p-6">
-              <h3 className="mb-1 font-black text-slate-900">
+            <section className="rounded-2xl border border-slate-300 bg-white p-6 shadow-sm">
+              <h3 className="mb-2 text-sm font-black text-slate-900 uppercase tracking-widest">
                 Update Status
               </h3>
-              <p className="mb-4 text-sm text-slate-500">Select the next valid workflow state, then save your changes.</p>
+              <p className="mb-5 text-sm text-slate-500 font-medium">Select the next valid workflow state, then save your changes.</p>
               {isCancelled ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                <div className="rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-sm font-bold text-red-800 shadow-sm">
                   Cancelled tickets cannot be updated.
                 </div>
               ) : (
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-4">
                   {columns
                     .filter((col) => col.id !== "Cancelled")
                     .map((col) => (
@@ -1132,11 +1002,11 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                       type="button"
                       onClick={() => selectStatus(col.id)}
                       disabled={selectedStatus === col.id || assigning || loading}
-                      className={`min-h-11 rounded-xl border-2 px-4 py-2.5 text-sm font-black transition ${
+                      className={`rounded-xl border-2 px-4 py-3 text-sm font-black transition ${
                         selectedStatus === col.id
-                          ? "border-blue-700 bg-blue-700 text-white shadow-lg shadow-blue-700/20 ring-2 ring-blue-200"
-                          : "border-blue-200 bg-blue-50/60 text-slate-700 shadow-sm hover:border-blue-500 hover:bg-blue-100/70 hover:text-blue-800"
-                      } disabled:cursor-not-allowed disabled:opacity-70`}
+                          ? "border-slate-900 bg-slate-900 text-white shadow-md"
+                          : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-400 hover:bg-slate-100 hover:text-slate-900"
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
                     >
                       {col.label}
                     </button>
@@ -1145,103 +1015,66 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
               )}
             </section>
 
-            <section className="astrea-card border-2 border-slate-200 p-6">
-              <div className="mb-4 flex items-center gap-2">
-                <MessageSquare size={18} className="text-blue-600" />
-                <h3 className="font-black text-slate-900">Comments</h3>
+            <section className="rounded-2xl border border-slate-300 bg-white p-6 shadow-sm">
+              <div className="mb-5 flex items-center gap-2">
+                <MessageSquare size={18} className="text-slate-500" />
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Comments</h3>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {item.comments?.length ? (
                   item.comments.map((c) => (
                     <div
                       key={c.comment_id}
-                      className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 shadow-sm"
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-5 shadow-sm"
                     >
-                      <p className="text-sm text-slate-700">
+                      <div className="flex justify-between items-start mb-2">
+                        <p className="text-xs font-black text-slate-800">{c.full_name || "User"}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                          {new Date(c.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                      <p className="text-sm text-slate-700 leading-relaxed font-medium">
                         {c.comment_text}
-                      </p>
-                      <p className="mt-2 text-xs text-slate-400">
-                        {c.full_name || "User"} ·{" "}
-                        {new Date(c.created_at).toLocaleString()}
                       </p>
                     </div>
                   ))
                 ) : (
-                  <p className="rounded-xl border border-dashed border-blue-200 bg-blue-50/40 p-5 text-center text-sm font-semibold text-slate-500">
-                    No comments yet. Add context or an update for everyone following this ticket.
-                  </p>
+                  <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 py-8 text-center">
+                    <p className="text-sm font-bold text-slate-400">
+                      No comments yet.
+                    </p>
+                  </div>
                 )}
               </div>
 
-              <div className="mt-5 flex gap-3">
+              <div className="mt-6 flex gap-3">
                 <input
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="Write a comment..."
-                  className="astrea-control flex-1 border-blue-200 bg-blue-50/40 text-sm hover:border-blue-300 focus:bg-white"
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-slate-500 focus:bg-white focus:ring-2 focus:ring-slate-200 shadow-sm"
                 />
                 <button
                   onClick={addComment}
                   disabled={savingComment || hasUnsavedChanges || !comment.trim()}
-                  className="astrea-button astrea-button-primary min-w-28"
+                  className="rounded-xl bg-slate-900 px-6 py-3 font-bold text-white shadow-md hover:bg-slate-800 disabled:opacity-50 transition"
                 >
-                  <Send size={18} />
                   {savingComment ? "Sending..." : "Send"}
                 </button>
-              </div>
-
-              {hasUnsavedChanges && (
-                <p className="mt-2 text-xs font-semibold text-slate-400">
-                  Save or cancel pending changes before sending a comment.
-                </p>
-              )}
-            </section>
-
-            <section className="astrea-card border border-slate-200 p-6">
-              <div className="mb-4 flex items-center gap-2">
-                <History size={18} className="text-blue-600" />
-                <h3 className="font-black text-slate-900">
-                  Activity Timeline
-                </h3>
-              </div>
-
-              <div className="space-y-3">
-                {item.history?.length ? (
-                  item.history.map((h) => (
-                    <div
-                      key={h.history_id}
-                      className="astrea-timeline-item rounded-xl border border-blue-100 bg-blue-50/40 p-4 shadow-sm"
-                    >
-                      <p className="text-sm font-black text-slate-800">
-                        {h.action}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {h.old_value || "—"} → {h.new_value || "—"}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {new Date(h.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="rounded-xl border border-dashed border-blue-200 bg-blue-50/40 p-5 text-sm font-semibold text-slate-500">
-                    No activity yet.
-                  </p>
-                )}
               </div>
             </section>
           </div>
         )}
 
-        <div className="sticky bottom-0 z-10 border-t border-slate-200 bg-white/95 px-7 py-4 backdrop-blur">
+        <div className="sticky bottom-0 z-10 border-t-2 border-slate-200 bg-white px-8 py-5 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="flex items-center justify-between gap-3">
             <div>
               {canCancelTicket && (
                 <button
                   onClick={openCancelModal}
                   disabled={loading || cancelling}
-                  className="rounded-xl border border-red-200 px-5 py-3 font-bold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                  className="rounded-xl border border-red-200 bg-white px-6 py-3 font-bold text-red-600 hover:bg-red-50 hover:border-red-300 shadow-sm transition disabled:opacity-50"
                 >
                   Cancel Ticket
                 </button>
@@ -1249,28 +1082,28 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             </div>
 
             <div className="flex items-center justify-end gap-3">
-            <button
-              onClick={openDeleteModal}
-              className="flex items-center gap-2 rounded-xl border border-red-300 px-5 py-3 font-bold text-red-700 hover:bg-red-50 disabled:opacity-60"
-            >
-              <Trash2 size={18} />
-              Delete
-            </button>
+              <button
+                onClick={openDeleteModal}
+                className="flex items-center gap-2 rounded-xl border border-red-200 bg-white px-6 py-3 font-bold text-red-600 hover:bg-red-50 hover:border-red-300 shadow-sm transition disabled:opacity-50"
+              >
+                <Trash2 size={18} />
+                Delete
+              </button>
 
-            <button
-              onClick={saveChanges}
-              disabled={loading || assigning || isCancelled || !hasUnsavedChanges}
-              className="astrea-button astrea-button-primary"
-            >
-              {assigning ? "Saving..." : "Save Changes"}
-            </button>
+              <button
+                onClick={saveChanges}
+                disabled={loading || assigning || isCancelled || !hasUnsavedChanges}
+                className="rounded-xl bg-blue-600 px-8 py-3 font-bold text-white shadow-md hover:bg-blue-700 hover:shadow-lg disabled:opacity-50 disabled:shadow-none transition"
+              >
+                {assigning ? "Saving..." : "Save Changes"}
+              </button>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    {cancelModalOpen && (
+        {cancelModalOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">

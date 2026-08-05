@@ -31,7 +31,7 @@ export default function TicketDetails({ id, onClose }) {
   if (error) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
-        <div className="bg-white p-6 rounded-3xl shadow-2xl relative max-w-md w-full border border-slate-200">
+        <div className="bg-white p-6 rounded-3xl shadow-2xl relative max-w-md w-full border border-slate-300">
           <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
             <X size={20} />
           </button>
@@ -61,85 +61,85 @@ export default function TicketDetails({ id, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-xl border border-slate-200 flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-slate-50 shadow-2xl border-2 border-slate-300 flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 bg-white z-10">
+        <div className="flex items-center justify-between border-b-2 border-slate-200 px-7 py-5 bg-white z-10 shadow-sm">
           <div>
-            <div className="text-sm font-medium text-slate-500 mb-1">{ticket.ticket_number}</div>
-            <h2 className="text-xl font-bold text-slate-900">{ticket.title}</h2>
+            <div className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1">{ticket.ticket_number}</div>
+            <h2 className="text-2xl font-black text-slate-900">{ticket.title}</h2>
           </div>
           <button 
             onClick={onClose} 
-            className="p-2 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shadow-sm border border-transparent hover:border-slate-200"
           >
             <X size={24} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto p-6 space-y-8">
+        <div className="overflow-y-auto p-7 space-y-8">
           
           {/* Top Section */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col items-start gap-2 shadow-sm">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</span>
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${statusBadgeClass}`}>
+            <div className="bg-white p-4 rounded-2xl border border-slate-300 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Status</span>
+              <span className={`px-3 py-1 rounded-full text-sm font-bold ${statusBadgeClass}`}>
                 {ticket.status}
               </span>
             </div>
             
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col items-start gap-2 shadow-sm">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Priority</span>
+            <div className="bg-white p-4 rounded-2xl border border-slate-300 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Priority</span>
               <span className={getPriorityBadgeClass(ticket.priority)}>
                 {formatPriority(ticket.priority)}
               </span>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col items-start gap-2 shadow-sm">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                <User size={14} /> Requester
+            <div className="bg-white p-4 rounded-2xl border border-slate-300 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                <User size={13} /> Requester
               </span>
-              <span className="text-sm font-medium text-slate-800">
+              <span className="text-sm font-black text-slate-900">
                 {ticket.requester_name || "N/A"}
               </span>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col items-start gap-2 shadow-sm">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                <Building size={14} /> Branch
+            <div className="bg-white p-4 rounded-2xl border border-slate-300 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                <Building size={13} /> Branch
               </span>
-              <span className="text-sm font-medium text-slate-800">
+              <span className="text-sm font-black text-slate-900">
                 {ticket.branch_name || "N/A"}
               </span>
             </div>
           </div>
 
           {/* Description Box */}
-          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200">
-            <h3 className="flex items-center gap-2 font-semibold text-slate-800 mb-3">
-              <Info size={18} className="text-blue-500" />
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm">
+            <h3 className="flex items-center gap-2 font-black text-slate-900 mb-4">
+              <Info size={18} className="text-blue-600" />
               Description
             </h3>
-            <div className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 shadow-inner text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">
               {ticket.description}
             </div>
           </div>
 
           {/* Attachments Section */}
           {ticket.attachments && ticket.attachments.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                <Paperclip size={16} className="text-slate-400" />
+            <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm">
+              <h3 className="text-sm font-black text-slate-900 mb-4 flex items-center gap-2">
+                <Paperclip size={18} className="text-blue-600" />
                 Attachments
               </h3>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3">
                 {ticket.attachments.map((attachment, idx) => (
                   <a 
                     key={idx} 
                     href={attachment.url || "#"} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors shadow-sm"
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 transition-colors shadow-sm"
                   >
                     <Paperclip size={14} className="text-slate-500" />
                     {attachment.name || `Attachment ${idx + 1}`}

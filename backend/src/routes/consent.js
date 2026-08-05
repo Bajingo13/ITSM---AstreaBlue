@@ -201,10 +201,20 @@ function requireAdminOrHR(req, res, next) {
 // ─── Audit helper ─────────────────────────────────────────────────────────────
 async function audit(consentId, employeeId, actorId, actorRole, eventType, details) {
   try {
+    const detailsJson = typeof details === "string" ? JSON.stringify({ message: details }) : (details ? JSON.stringify(details) : null);
     await db.query(
-      `INSERT INTO consent_audit_logs (consent_id,employee_id,actor_id,actor_role,event_type,details)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [consentId || null, employeeId || null, actorId || null, actorRole || null, eventType, details || null]
+      `INSERT INTO consent_audit_logs (consent_id,employee_id,user_id,actor_id,actor_role,action,event_type,details)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        consentId || null, 
+        employeeId || null, 
+        actorId || employeeId || null, 
+        actorId || null, 
+        actorRole || null, 
+        eventType, 
+        eventType, 
+        detailsJson
+      ]
     );
   } catch (err) {
     console.error("[consent:audit] failed:", err.message);
@@ -841,6 +851,8 @@ router.post("/request-change", requireAuth, async (req, res) => {
         ticketId: ticket.id,
         metadata: { event: "consent_change_requested" },
       });
+      const { emitTicketChanged } = require("../services/socketService");
+      emitTicketChanged({ action: "created", timestamp: new Date().toISOString() });
     } catch (e) {
       console.error("[consent:request-change] failed to notify employee:", e.message);
     }
