@@ -61,7 +61,7 @@ export default function TicketDetails({ id, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-slate-50 shadow-2xl border-2 border-slate-300 flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between border-b-2 border-slate-200 px-7 py-5 bg-white z-10 shadow-sm">
           <div>
@@ -81,21 +81,21 @@ export default function TicketDetails({ id, onClose }) {
           
           {/* Top Section */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-2xl border border-slate-300 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+            <div className="astrea-card p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Status</span>
               <span className={`px-3 py-1 rounded-full text-sm font-bold ${statusBadgeClass}`}>
                 {ticket.status}
               </span>
             </div>
             
-            <div className="bg-white p-4 rounded-2xl border border-slate-300 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+            <div className="astrea-card p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Priority</span>
               <span className={getPriorityBadgeClass(ticket.priority)}>
                 {formatPriority(ticket.priority)}
               </span>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-300 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+            <div className="astrea-card p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
                 <User size={13} /> Requester
               </span>
@@ -104,7 +104,7 @@ export default function TicketDetails({ id, onClose }) {
               </span>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-300 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+            <div className="astrea-card p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
                 <Building size={13} /> Branch
               </span>
@@ -115,9 +115,9 @@ export default function TicketDetails({ id, onClose }) {
           </div>
 
           {/* Description Box */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm">
+          <div className="astrea-card p-6 shadow-sm">
             <h3 className="flex items-center gap-2 font-black text-slate-900 mb-4">
-              <Info size={18} className="text-blue-600" />
+              <Info size={18} className="text-astrea-primary" />
               Description
             </h3>
             <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 shadow-inner text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">
@@ -127,9 +127,9 @@ export default function TicketDetails({ id, onClose }) {
 
           {/* Attachments Section */}
           {ticket.attachments && ticket.attachments.length > 0 && (
-            <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm">
+            <div className="astrea-card p-6 shadow-sm">
               <h3 className="text-sm font-black text-slate-900 mb-4 flex items-center gap-2">
-                <Paperclip size={18} className="text-blue-600" />
+                <Paperclip size={18} className="text-astrea-primary" />
                 Attachments
               </h3>
               <div className="flex flex-wrap gap-3">
