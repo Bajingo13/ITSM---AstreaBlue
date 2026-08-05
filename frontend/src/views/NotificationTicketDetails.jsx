@@ -37,7 +37,7 @@ function SlaProgressBar({ status, assignedAt }) {
   const activeIdx = STEPS.findIndex((s) => s.key === effectiveStep);
 
   return (
-    <div className="astrea-card p-6 shadow-sm">
+    <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
       <h3 className="mb-4 text-sm font-black text-slate-900">SLA Progress</h3>
       <div className="relative">
         {STEPS.length > 1 && (
@@ -97,7 +97,7 @@ function SlaTimeline({ ticket }) {
   }
 
   return (
-    <div className="astrea-card p-6 shadow-sm">
+    <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
       <h3 className="mb-4 text-sm font-black text-slate-900">SLA Activity Timeline</h3>
       <div className="relative">
         {relevantEntries.length > 1 && (
@@ -217,7 +217,7 @@ export default function NotificationTicketDetails() {
         
         <div className="grid gap-4 p-7 sm:grid-cols-2 xl:grid-cols-4 bg-slate-50/50">
           {fields.map(([label, value, Icon]) => (
-            <div key={label} className="astrea-card p-5 shadow-sm transition-shadow hover:shadow-md">
+            <div key={label} className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm transition-shadow hover:shadow-md">
               <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-500">
                 <Icon size={14} className="text-slate-400" /> {label}
               </div>
@@ -227,7 +227,7 @@ export default function NotificationTicketDetails() {
         </div>
         
         <div className="px-7 pb-7 bg-slate-50/50">
-          <div className="astrea-card p-6 shadow-sm">
+          <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
             <h2 className="text-sm font-black text-slate-900 mb-4 flex items-center gap-2">
               <Ticket size={18} className="text-slate-400" />
               Description

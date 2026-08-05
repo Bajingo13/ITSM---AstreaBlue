@@ -556,7 +556,7 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
 
   return (
     <div className="astrea-modal-backdrop z-[80]">
-      <div className="astrea-modal-panel flex w-full max-w-2xl flex-col bg-white rounded-3xl shadow-2xl overflow-hidden">
+      <div className="astrea-modal-panel flex w-full max-w-2xl flex-col bg-slate-50 border-2 border-blue-200 rounded-3xl shadow-2xl overflow-hidden">
         <div className="border-b border-astrea-border bg-white px-7 py-5">
           <div className="flex items-start justify-between">
             <div>
@@ -590,14 +590,14 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
               <InfoTile label="Category" value={item.category || "Uncategorized"} />
             </section>
 
-            <section className="astrea-card p-5">
+            <section className="rounded-2xl border border-blue-200 bg-white p-5">
               <h3 className="mb-3 font-black text-slate-900">Description</h3>
               <p className="whitespace-pre-line text-sm leading-7 text-slate-600">
                 {item.desc || item.description || "No description provided."}
               </p>
             </section>
 
-            <section className="astrea-card p-5">
+            <section className="rounded-2xl border border-blue-200 bg-white p-5">
               <div className="mb-4 flex items-center gap-2">
                 <Paperclip size={18} className="text-astrea-primary" />
                 <h3 className="font-black text-slate-900">Attachments</h3>
@@ -624,7 +624,7 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
               )}
             </section>
 
-            <section className="astrea-card border-emerald-100 bg-emerald-50/40 p-5">
+            <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5">
               <div className="mb-4 flex items-center gap-2">
                 <CheckCircle size={18} className="text-emerald-600" />
                 <h3 className="font-black text-slate-900">Resolution Details</h3>
@@ -671,7 +671,7 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
             </section>
 
             {(item.status === "Resolved" || item.status === "Closed") && (
-              <section className="astrea-card border-blue-100 bg-blue-50/40 p-5">
+              <section className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5">
                 <h3 className="mb-3 font-black text-slate-900">
                   Satisfaction Rating
                 </h3>
@@ -764,7 +764,7 @@ function SelectField({ label, value, onChange, options }) {
 
 function InfoTile({ label, value }) {
   return (
-    <div className="rounded-2xl bg-slate-50 p-4">
+    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
       <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
         {label}
       </p>

@@ -81,21 +81,21 @@ export default function TicketDetails({ id, onClose }) {
           
           {/* Top Section */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="astrea-card p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Status</span>
               <span className={`px-3 py-1 rounded-full text-sm font-bold ${statusBadgeClass}`}>
                 {ticket.status}
               </span>
             </div>
             
-            <div className="astrea-card p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Priority</span>
               <span className={getPriorityBadgeClass(ticket.priority)}>
                 {formatPriority(ticket.priority)}
               </span>
             </div>
 
-            <div className="astrea-card p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
                 <User size={13} /> Requester
               </span>
@@ -104,7 +104,7 @@ export default function TicketDetails({ id, onClose }) {
               </span>
             </div>
 
-            <div className="astrea-card p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
                 <Building size={13} /> Branch
               </span>
@@ -115,7 +115,7 @@ export default function TicketDetails({ id, onClose }) {
           </div>
 
           {/* Description Box */}
-          <div className="astrea-card p-6 shadow-sm">
+          <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
             <h3 className="flex items-center gap-2 font-black text-slate-900 mb-4">
               <Info size={18} className="text-astrea-primary" />
               Description
@@ -127,7 +127,7 @@ export default function TicketDetails({ id, onClose }) {
 
           {/* Attachments Section */}
           {ticket.attachments && ticket.attachments.length > 0 && (
-            <div className="astrea-card p-6 shadow-sm">
+            <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
               <h3 className="text-sm font-black text-slate-900 mb-4 flex items-center gap-2">
                 <Paperclip size={18} className="text-astrea-primary" />
                 Attachments
