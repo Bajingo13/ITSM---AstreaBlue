@@ -894,8 +894,6 @@ router.get("/change-requests", requireAdminOrHR, async (req, res) => {
     const role = String(actor.role || "").toLowerCase().replace(/[\s_-]/g, "");
 
     const params = [];
-
-    // Branch filter for admin role
     let branchFilter = "";
     if (role === "admin") {
       const branchId = actor.branchId || actor.branch_id;
@@ -905,8 +903,8 @@ router.get("/change-requests", requireAdminOrHR, async (req, res) => {
       }
     }
 
-    // Audit log join — plain subquery to avoid LATERAL compatibility issues
-    const query = `
+    // First: get matching tickets (always works)
+    const ticketQuery = `
       SELECT
         t.id,
         t.ticket_number,
@@ -916,24 +914,14 @@ router.get("/change-requests", requireAdminOrHR, async (req, res) => {
         t.priority,
         t.created_at,
         t.updated_at,
-        u.full_name      AS requester_name,
-        u.email          AS requester_email,
-        b.branch_name,
-        alog.log_id,
-        alog.consent_id,
-        alog.event_type,
-        alog.details     AS audit_details
+        t.requester_id,
+        u.full_name   AS requester_name,
+        u.email       AS requester_email,
+        b.branch_name
       FROM tickets t
-      LEFT JOIN users             u    ON u.user_id    = t.requester_id
-      LEFT JOIN branches          b    ON b.branch_id  = u.branch_id
-      LEFT JOIN ticket_categories tc   ON tc.category_id = t.category_id
-      LEFT JOIN (
-        SELECT DISTINCT ON (employee_id)
-          log_id, consent_id, employee_id, event_type, details
-        FROM consent_audit_logs
-        WHERE event_type = 'consent_change_requested'
-        ORDER BY employee_id, created_at DESC
-      ) alog ON alog.employee_id = t.requester_id
+      LEFT JOIN users             u  ON u.user_id    = t.requester_id
+      LEFT JOIN branches          b  ON b.branch_id  = u.branch_id
+      LEFT JOIN ticket_categories tc ON tc.category_id = t.category_id
       WHERE (
         tc.category_name IN ('Privacy Request', 'Consent / Privacy Request')
         OR t.title ILIKE '%Consent%Request%'
@@ -942,14 +930,51 @@ router.get("/change-requests", requireAdminOrHR, async (req, res) => {
       ${branchFilter}
       ORDER BY t.created_at DESC
     `;
+    const ticketResult = await db.query(ticketQuery, params);
+    const tickets = ticketResult.rows;
 
-    const result = await db.query(query, params);
-    return res.json({ success: true, data: result.rows });
+    // Second: try to fetch audit logs separately — safe fallback if table/column missing
+    let auditMap = {};
+    try {
+      const employeeIds = [...new Set(tickets.map((t) => t.requester_id).filter(Boolean))];
+      if (employeeIds.length > 0) {
+        const placeholders = employeeIds.map((_, i) => `$${i + 1}`).join(",");
+        const auditResult = await db.query(
+          `SELECT DISTINCT ON (employee_id)
+             log_id, consent_id, employee_id,
+             COALESCE(event_type, action) AS event_type,
+             details
+           FROM consent_audit_logs
+           WHERE employee_id IN (${placeholders})
+             AND (event_type = 'consent_change_requested' OR action = 'consent_change_requested')
+           ORDER BY employee_id, created_at DESC`,
+          employeeIds
+        );
+        for (const row of auditResult.rows) {
+          auditMap[row.employee_id] = row;
+        }
+      }
+    } catch (auditErr) {
+      // Audit log table may have a different schema on this DB — safe to skip
+      console.warn("[consent:change-requests] audit join skipped:", auditErr.message);
+    }
+
+    // Merge audit data into tickets
+    const data = tickets.map((t) => ({
+      ...t,
+      log_id: auditMap[t.requester_id]?.log_id ?? null,
+      consent_id: auditMap[t.requester_id]?.consent_id ?? null,
+      event_type: auditMap[t.requester_id]?.event_type ?? null,
+      audit_details: auditMap[t.requester_id]?.details ?? null,
+    }));
+
+    return res.json({ success: true, data });
   } catch (err) {
-    console.error("[consent:change-requests] SQL error:", err.message);
+    console.error("[consent:change-requests] error:", err.message);
     return res.status(500).json({ success: false, message: "Failed to load consent change requests.", detail: err.message });
   }
 });
+
 
 // GET /consent/all — list all consent documents
 router.get("/all", requireAuth, async (req, res) => {

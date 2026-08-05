@@ -3,18 +3,24 @@ const path = require("path");
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const pool = new Pool({
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-});
+// Support both Railway-style DATABASE_URL and local individual DB_* vars
+const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL.includes("railway.app") || process.env.NODE_ENV === "production"
+        ? { rejectUnauthorized: false }
+        : false,
+    })
+  : new Pool({
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      host: process.env.DB_HOST,
+      port: process.env.DB_PORT,
+      database: process.env.DB_NAME,
+    });
 
 console.log(
-  `[AstreaBlue DB] host=${process.env.DB_HOST || "localhost"} port=${
-    process.env.DB_PORT || 5432
-  } database=${process.env.DB_NAME || ""}`
+  `[AstreaBlue DB] ${process.env.DATABASE_URL ? "Railway DATABASE_URL" : `host=${process.env.DB_HOST || "localhost"} port=${process.env.DB_PORT || 5432} database=${process.env.DB_NAME || ""}`}`
 );
 
 pool.query("SELECT NOW()", (err, res) => {
