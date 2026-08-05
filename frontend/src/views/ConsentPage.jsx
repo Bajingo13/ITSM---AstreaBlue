@@ -466,15 +466,31 @@ function ConsentDocumentView({ consent, onClose, onRequestChange, onLogPrint }) 
 
 // ─── Change Request Modal ──────────────────────────────────────────────────────
 function ConsentChangeModal({ consent, onClose, onSubmitted }) {
+  const currentPrefs = Array.isArray(consent.monitoring_preferences) ? consent.monitoring_preferences : [];
   const [changeType, setChangeType] = useState("change");
   const [reason, setReason] = useState("");
-  const [requestedChanges, setRequestedChanges] = useState("");
+  // For preference change: desired state of each optional category
+  const [desiredPrefs, setDesiredPrefs] = useState(currentPrefs);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const selectableCategories = MONITORING_CATEGORIES.filter((c) => !c.required);
+
+  const togglePref = (id) =>
+    setDesiredPrefs((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
+
+  // Compute diff for description
+  const addedPrefs = desiredPrefs.filter((p) => !currentPrefs.includes(p));
+  const removedPrefs = currentPrefs.filter((p) => !desiredPrefs.includes(p));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!reason.trim()) { setError("Reason is required."); return; }
+    if (changeType === "change" && addedPrefs.length === 0 && removedPrefs.length === 0) {
+      setError("Please select at least one category to add or remove."); return;
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -485,10 +501,20 @@ function ConsentChangeModal({ consent, onClose, onSubmitted }) {
           consent_id: consent.consent_id,
           change_type: changeType,
           reason: reason.trim(),
-          requested_changes: requestedChanges.trim(),
-          current_preferences: Array.isArray(consent.monitoring_preferences)
-            ? consent.monitoring_preferences
-            : [],
+          desired_preferences: changeType === "change" ? desiredPrefs : [],
+          current_preferences: currentPrefs,
+          requested_changes: changeType === "change"
+            ? [
+                addedPrefs.length > 0
+                  ? `Add: ${addedPrefs.map((id) => MONITORING_CATEGORIES.find((c) => c.id === id)?.label || id).join(", ")}`
+                  : null,
+                removedPrefs.length > 0
+                  ? `Remove: ${removedPrefs.map((id) => MONITORING_CATEGORIES.find((c) => c.id === id)?.label || id).join(", ")}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join("\n")
+            : "",
         }),
       });
       const data = await res.json();
@@ -504,6 +530,7 @@ function ConsentChangeModal({ consent, onClose, onSubmitted }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
       <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl overflow-hidden">
+        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 bg-amber-50 px-6 py-5">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500 text-white">
@@ -512,7 +539,7 @@ function ConsentChangeModal({ consent, onClose, onSubmitted }) {
             <div>
               <h2 className="font-black text-slate-900">Request Consent Change</h2>
               <p className="text-xs font-semibold text-slate-500">
-                Your request will be reviewed by an authorized HR or Admin officer.
+                Reviewed by an authorized HR or Admin officer.
               </p>
             </div>
           </div>
@@ -520,12 +547,15 @@ function ConsentChangeModal({ consent, onClose, onSubmitted }) {
             <X size={18} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
           {error && (
             <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
               <AlertCircle size={16} /> {error}
             </div>
           )}
+
+          {/* Request Type */}
           <div>
             <label className="mb-2 block text-sm font-bold text-slate-700">Request Type</label>
             <div className="flex gap-3">
@@ -547,6 +577,106 @@ function ConsentChangeModal({ consent, onClose, onSubmitted }) {
               ))}
             </div>
           </div>
+
+          {/* Category checkboxes — only for Preference Change */}
+          {changeType === "change" && (
+            <div>
+              <label className="mb-2 block text-sm font-bold text-slate-700">
+                Desired Monitoring Preferences
+              </label>
+              <p className="mb-3 text-xs font-medium text-slate-500">
+                Select the categories you want <strong>enabled</strong>. Unchecked categories will be disabled.
+                Required categories cannot be changed.
+              </p>
+              <div className="space-y-2">
+                {MONITORING_CATEGORIES.map((cat) => {
+                  const isChecked = cat.required || desiredPrefs.includes(cat.id);
+                  const wasChecked = cat.required || currentPrefs.includes(cat.id);
+                  const isAdded = !cat.required && isChecked && !wasChecked;
+                  const isRemoved = !cat.required && !isChecked && wasChecked;
+                  return (
+                    <label
+                      key={cat.id}
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border-2 p-3.5 transition ${
+                        cat.required
+                          ? "cursor-not-allowed border-slate-100 bg-slate-50 opacity-70"
+                          : isAdded
+                          ? "border-emerald-300 bg-emerald-50"
+                          : isRemoved
+                          ? "border-red-200 bg-red-50"
+                          : isChecked
+                          ? "border-blue-200 bg-blue-50"
+                          : "border-slate-200 bg-white hover:border-slate-300"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={cat.required}
+                        onChange={() => togglePref(cat.id)}
+                        className="mt-0.5 h-4 w-4 accent-blue-600"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-bold ${cat.required ? "text-slate-500" : "text-slate-900"}`}>
+                            {cat.label}
+                          </span>
+                          {cat.required && (
+                            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-black uppercase text-slate-500">
+                              Required
+                            </span>
+                          )}
+                          {isAdded && (
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700">
+                              + Adding
+                            </span>
+                          )}
+                          {isRemoved && (
+                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-black uppercase text-red-700">
+                              − Removing
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-xs font-medium text-slate-500 leading-relaxed">{cat.description}</p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {/* Change summary */}
+              {(addedPrefs.length > 0 || removedPrefs.length > 0) && (
+                <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-semibold text-blue-800 space-y-1">
+                  {addedPrefs.length > 0 && (
+                    <p>✅ <strong>Enabling:</strong> {addedPrefs.map((id) => MONITORING_CATEGORIES.find((c) => c.id === id)?.label || id).join(", ")}</p>
+                  )}
+                  {removedPrefs.length > 0 && (
+                    <p>❌ <strong>Disabling:</strong> {removedPrefs.map((id) => MONITORING_CATEGORIES.find((c) => c.id === id)?.label || id).join(", ")}</p>
+                  )}
+                </div>
+              )}
+
+              {/* No reinstall banner */}
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-600 flex items-start gap-2">
+                <CheckCircle size={14} className="mt-0.5 shrink-0 text-emerald-500" />
+                <span>
+                  <strong>No agent reinstallation required.</strong> Preference changes take effect automatically
+                  on the next monitoring agent heartbeat (within ~60 seconds after admin approval).
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Withdrawal warning */}
+          {changeType === "withdraw" && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              <strong>Note:</strong> Withdrawing consent will disable all optional monitoring for your device.
+              Required telemetry (Device Heartbeat) may continue per company policy.
+              An Admin or HR officer must approve this request.
+            </div>
+          )}
+
+          {/* Reason */}
           <div>
             <label className="mb-2 block text-sm font-bold text-slate-700">
               Reason <span className="text-red-600">*</span>
@@ -560,28 +690,9 @@ function ConsentChangeModal({ consent, onClose, onSubmitted }) {
               required
             />
           </div>
-          {changeType === "change" && (
-            <div>
-              <label className="mb-2 block text-sm font-bold text-slate-700">
-                Requested Changes (optional)
-              </label>
-              <textarea
-                value={requestedChanges}
-                onChange={(e) => setRequestedChanges(e.target.value)}
-                placeholder="Describe which monitoring categories you want to add or remove..."
-                rows={3}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100 resize-none"
-              />
-            </div>
-          )}
-          {changeType === "withdraw" && (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-              <strong>Note:</strong> Withdrawing consent will disable all optional monitoring
-              for your device. Required telemetry (device heartbeat) may continue per company policy.
-              An Admin or HR officer must approve this request.
-            </div>
-          )}
-          <div className="flex gap-3 pt-2">
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
               Cancel
             </button>
@@ -598,6 +709,7 @@ function ConsentChangeModal({ consent, onClose, onSubmitted }) {
     </div>
   );
 }
+
 
 // ─── Main Consent Page ─────────────────────────────────────────────────────────
 export default function ConsentPage() {

@@ -765,7 +765,7 @@ router.post("/:id/sign", requireAuth, async (req, res) => {
 // POST /consent/request-change — employee files a change/withdrawal request (creates a service ticket)
 router.post("/request-change", requireAuth, async (req, res) => {
   const employeeId = req.actor.userId || req.actor.user_id;
-  const { consent_id, change_type, reason, requested_changes, current_preferences } = req.body;
+  const { consent_id, change_type, reason, requested_changes, current_preferences, desired_preferences } = req.body;
   if (!reason || !reason.trim())
     return res.status(400).json({ success: false, message: "Reason is required." });
 
@@ -783,10 +783,17 @@ router.post("/request-change", requireAuth, async (req, res) => {
     const title = change_type === "withdraw"
       ? "Consent Withdrawal Request — RA 10173"
       : "Consent Change Request — RA 10173";
-    const currentPrefs = Array.isArray(current_preferences || consent.monitoring_preferences)
-      ? (current_preferences || consent.monitoring_preferences).join(", ") || "None"
-      : "None";
-    const description = [
+
+    const currentPrefsArr = Array.isArray(current_preferences || consent.monitoring_preferences)
+      ? (current_preferences || consent.monitoring_preferences)
+      : [];
+    const desiredPrefsArr = Array.isArray(desired_preferences) ? desired_preferences : [];
+
+    // Compute added/removed for readability in the ticket
+    const addedPrefs = desiredPrefsArr.filter((p) => !currentPrefsArr.includes(p));
+    const removedPrefs = currentPrefsArr.filter((p) => !desiredPrefsArr.includes(p));
+
+    const descParts = [
       `[Category: Privacy Request | Subtype: Consent Change]`,
       ``,
       `Employee: ${consent.employee_full_name} (${consent.employee_email})`,
@@ -796,12 +803,21 @@ router.post("/request-change", requireAuth, async (req, res) => {
       `Request Type: ${change_type === "withdraw" ? "Full Withdrawal" : "Preference Change"}`,
       ``,
       `Current Monitoring Preferences:`,
-      currentPrefs,
-      ``,
-      `Reason:`,
-      reason.trim(),
-      requested_changes ? `\nRequested Changes:\n${requested_changes.trim()}` : "",
-    ].join("\n");
+      currentPrefsArr.length > 0 ? currentPrefsArr.join(", ") : "None",
+    ];
+
+    if (change_type !== "withdraw" && desiredPrefsArr.length > 0) {
+      descParts.push(``, `Desired Monitoring Preferences:`, desiredPrefsArr.join(", "));
+      if (addedPrefs.length > 0) descParts.push(``, `Enabling (new additions):`, addedPrefs.join(", "));
+      if (removedPrefs.length > 0) descParts.push(``, `Disabling (to be removed):`, removedPrefs.join(", "));
+    }
+
+    descParts.push(``, `Reason:`, reason.trim());
+    if (requested_changes && requested_changes.trim()) {
+      descParts.push(``, `Additional Details:`, requested_changes.trim());
+    }
+
+    const description = descParts.join("\n");
 
     // Find or create "Consent / Privacy Request" category
     let categoryId = null;
