@@ -276,20 +276,12 @@ router.post("/", async (req, res) => {
       resolution = null,
       related_ticket_id = null,
       branch_id = null,
-      publication_status = "Published",
     } = req.body;
 
     if (!title) {
       return res
         .status(400)
         .json({ success: false, error: "Title is required" });
-    }
-    const effectivePublicationStatus = normalizePublicationStatus(publication_status);
-    if (!effectivePublicationStatus) {
-      return res.status(400).json({
-        success: false,
-        error: "Publication status must be Draft, Published, or Archived.",
-      });
     }
 
     const articleBranchId = isSuperAdmin(user.role)
@@ -324,9 +316,7 @@ router.post("/", async (req, res) => {
       INSERT INTO knowledge_base
       (title, category, tags, symptoms, resolution, branch_id, created_by,
        related_ticket_id, publication_status, published_at, archived_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-              CASE WHEN $9 = 'Published' THEN CURRENT_TIMESTAMP ELSE NULL END,
-              CASE WHEN $9 = 'Archived' THEN CURRENT_TIMESTAMP ELSE NULL END)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Published', CURRENT_TIMESTAMP, NULL)
       RETURNING *
       `,
       [
@@ -338,7 +328,6 @@ router.post("/", async (req, res) => {
         articleBranchId,
         user.userId || user.id || null,
         related_ticket_id || null,
-        effectivePublicationStatus,
       ]
     );
 
@@ -378,20 +367,12 @@ router.put("/:id", async (req, res) => {
       resolution = null,
       related_ticket_id = null,
       branch_id = null,
-      publication_status = "Published",
     } = req.body;
 
     if (!title) {
       return res
         .status(400)
         .json({ success: false, error: "Title is required" });
-    }
-    const effectivePublicationStatus = normalizePublicationStatus(publication_status);
-    if (!effectivePublicationStatus) {
-      return res.status(400).json({
-        success: false,
-        error: "Publication status must be Draft, Published, or Archived.",
-      });
     }
 
     const existing = await db.query(
@@ -429,17 +410,8 @@ router.put("/:id", async (req, res) => {
         resolution = $5,
         branch_id = $6,
         related_ticket_id = $7,
-        publication_status = $8,
-        published_at = CASE
-          WHEN $8 = 'Published' THEN COALESCE(published_at, CURRENT_TIMESTAMP)
-          ELSE published_at
-        END,
-        archived_at = CASE
-          WHEN $8 = 'Archived' THEN CURRENT_TIMESTAMP
-          ELSE NULL
-        END,
         updated_at = CURRENT_TIMESTAMP
-      WHERE kb_id = $9
+      WHERE kb_id = $8
       RETURNING *
       `,
       [
@@ -450,7 +422,6 @@ router.put("/:id", async (req, res) => {
         resolution || null,
         effectiveBranchId,
         related_ticket_id || null,
-        effectivePublicationStatus,
         id,
       ]
     );

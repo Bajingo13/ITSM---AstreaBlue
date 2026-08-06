@@ -26,7 +26,6 @@ const emptyArticle = {
   symptoms: "",
   resolution: "",
   related_ticket_id: "",
-  publication_status: "Published",
 };
 
 export default function KnowledgeBase() {
@@ -467,17 +466,16 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
       setSaving(true);
 
       const payload = {
-        title: form.title.trim(),
-        category: form.category.trim() || null,
+        title: form.title?.trim(),
+        category: form.category?.trim() || null,
         tags: form.tags?.trim() || null,
-        symptoms: form.symptoms.trim() || null,
-        resolution: form.resolution.trim() || null,
+        symptoms: form.symptoms?.trim() || null,
+        resolution: form.resolution?.trim() || null,
         related_ticket_id: form.related_ticket_id
           ? Number(form.related_ticket_id)
           : null,
         branch_id: isSuperAdmin ? Number(form.branch_id) : undefined,
         created_by: user?.user_id || null,
-        publication_status: form.publication_status || "Published",
       };
 
       const res = await fetch(
@@ -548,8 +546,9 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
                 Category
               </label>
               <input
-                value={form.category}
+                value={form.category || ""}
                 onChange={(e) => updateForm("category", e.target.value)}
+                placeholder="Optional category..."
                 className="astrea-control"
               />
             </div>
@@ -561,24 +560,9 @@ function ArticleFormModal({ article, tickets, branches = [], isSuperAdmin, user,
               <input
                 value={form.tags || ""}
                 onChange={(e) => updateForm("tags", e.target.value)}
-                placeholder="hardware, vpn, windows"
+                placeholder="Optional tags (e.g. hardware, vpn)"
                 className="astrea-control"
               />
-            </div>
-
-            <div>
-              <label className="astrea-field-label">
-                Publication Status
-              </label>
-              <select
-                value={form.publication_status || "Published"}
-                onChange={(e) => updateForm("publication_status", e.target.value)}
-                className="astrea-control"
-              >
-                <option value="Draft">Draft</option>
-                <option value="Published">Published</option>
-                <option value="Archived">Archived</option>
-              </select>
             </div>
           </div>
 
