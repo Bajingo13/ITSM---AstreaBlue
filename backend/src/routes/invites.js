@@ -418,11 +418,7 @@ router.post("/", requireAuthenticatedRequest, async (req, res) => {
           invite_expires_at = CURRENT_TIMESTAMP + INTERVAL '48 hours',
           invite_used_at = NULL,
           invited_by = $10,
-          invited_at = CURRENT_TIMESTAMP,
-          onboarding_status = 'Completed',
-          onboarding_required = FALSE,
-          onboarding_completed_at = CURRENT_TIMESTAMP,
-          onboarding_consent_id = NULL
+          invited_at = CURRENT_TIMESTAMP
         WHERE user_id = $11
         RETURNING
           user_id,
@@ -486,7 +482,9 @@ router.post("/", requireAuthenticatedRequest, async (req, res) => {
         onboarding_required
       )
       VALUES
-      ($1,$2,$3,$4,'INVITE_PENDING',$5,$6,$7,'Inactive',FALSE,$8,$9,CURRENT_TIMESTAMP + INTERVAL '48 hours',$10,CURRENT_TIMESTAMP,'Completed',FALSE)
+      ($1,$2,$3,$4,'INVITE_PENDING',$5,$6,$7,'Inactive',FALSE,$8,$9,CURRENT_TIMESTAMP + INTERVAL '48 hours',$10,CURRENT_TIMESTAMP,
+        CASE WHEN (SELECT LOWER(role_name) FROM system_roles WHERE role_id=$5) = 'employee' THEN 'Action Required' ELSE 'Completed' END,
+        CASE WHEN (SELECT LOWER(role_name) FROM system_roles WHERE role_id=$5) = 'employee' THEN TRUE ELSE FALSE END)
       RETURNING
         user_id,
         full_name,
@@ -618,10 +616,7 @@ async function completeInvite(req, res) {
         is_active = TRUE,
         invite_status = $2,
         invite_used_at = CURRENT_TIMESTAMP,
-        invitation_accepted_at = CURRENT_TIMESTAMP,
-        onboarding_status = 'Completed',
-        onboarding_required = FALSE,
-        onboarding_completed_at = CURRENT_TIMESTAMP
+        invitation_accepted_at = CURRENT_TIMESTAMP
       WHERE user_id = $3
         AND invite_token = $4
         AND invite_status = $5
