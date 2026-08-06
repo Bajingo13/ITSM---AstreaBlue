@@ -24,6 +24,8 @@ import {
   Trash2,
   Truck,
   User,
+  UserMinus,
+  UserPlus,
   X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -1976,11 +1978,115 @@ function LegacyAssetDetailsModal({ asset, onClose }) {
 }
 
 function AssetHistoryModal({ asset, records, loading, onClose }) {
+  const formatValue = (val) => {
+    if (val === null || val === undefined || val === "") return "—";
+    return String(val);
+  };
+
+  const getEventIcon = (type) => {
+    const t = type.toLowerCase();
+    if (t.includes("assigned") || t.includes("owner added") || t.includes("assign")) return <UserPlus size={16} className="text-blue-600" />;
+    if (t.includes("removed") || t.includes("unassigned") || t.includes("unassign")) return <UserMinus size={16} className="text-blue-600" />;
+    return <RefreshCw size={16} className="text-blue-600" />;
+  };
+
+  const renderEventData = (data) => {
+    if (!data) return null;
+    const entries = Object.entries(data);
+    if (entries.length === 0) return null;
+
+    if (entries.length === 1 && entries[0][0].toLowerCase() === "status") {
+      return (
+        <div className="mt-3">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-400">Status</p>
+          <p className="font-bold text-slate-700">{formatValue(entries[0][1])}</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+        {entries.map(([key, value]) => {
+          const displayKey = key.replace(/_/g, " ");
+          return (
+            <div key={key}>
+              <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">{displayKey}</p>
+              <p className="font-medium text-slate-700 mt-0.5">{formatValue(value)}</p>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 p-6"><div><h2 className="text-xl font-black text-slate-900">Asset History</h2><p className="text-sm text-slate-500">{asset.asset_name}</p></div><button onClick={onClose} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X size={20} /></button></div>
-        <div className="space-y-3 p-6">{loading ? <p className="text-slate-500">Loading history...</p> : records.length === 0 ? <p className="text-slate-500">No history records found.</p> : records.map((record) => <div key={record.history_id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between gap-4"><p className="font-black text-slate-900">{record.event_type}</p><p className="text-xs text-slate-500">{new Date(record.created_at).toLocaleString()}</p></div>{record.event_data && <p className="mt-2 text-sm text-slate-600">{Object.entries(record.event_data).map(([key, value]) => `${key}: ${value}`).join(" · ")}</p>}</div>)}</div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm sm:p-6 md:p-8">
+      <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <div className="flex shrink-0 items-start justify-between border-b border-slate-100 bg-slate-50/50 p-6 sm:p-8">
+          <div className="flex items-center gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-100 text-blue-600 shadow-sm">
+              <History size={24} />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black tracking-tight text-slate-900">Asset History</h2>
+              <p className="mt-1 text-sm font-medium text-slate-500">{asset.asset_name}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full p-2.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 sm:p-8">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+              <RefreshCw className="mb-4 h-8 w-8 animate-spin text-blue-300" />
+              <p className="font-medium">Loading history...</p>
+            </div>
+          ) : records.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 py-16 text-center">
+              <History className="mb-4 h-10 w-10 text-slate-300" />
+              <p className="text-base font-bold text-slate-500">No history records found.</p>
+              <p className="mt-1 text-sm text-slate-400">Events and changes will appear here.</p>
+            </div>
+          ) : (
+            <div className="relative ml-3 border-l-2 border-blue-100/50 pl-6 sm:ml-4 sm:pl-8">
+              <div className="space-y-6">
+                {records.map((record) => (
+                  <div key={record.history_id} className="group relative">
+                    <div className="absolute -left-[35px] top-4 flex h-5 w-5 items-center justify-center rounded-full border-4 border-white bg-blue-400 shadow-sm transition-transform group-hover:scale-110 sm:-left-[43px]" />
+
+                    <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.02)] transition-all hover:border-blue-200 hover:shadow-[0_8px_30px_-6px_rgba(0,0,0,0.05)]">
+                      <div className="flex flex-col gap-2 border-b border-slate-50 pb-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-50">
+                            {getEventIcon(record.event_type)}
+                          </div>
+                          <p className="text-base font-black text-slate-900">
+                            {record.event_type}
+                          </p>
+                        </div>
+                        <p className="mt-1 whitespace-nowrap text-xs font-semibold text-slate-400 sm:mt-0">
+                          {new Date(record.created_at).toLocaleString(undefined, {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      </div>
+                      {renderEventData(record.event_data)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
