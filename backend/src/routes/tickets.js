@@ -712,11 +712,9 @@ router.post("/", async (req, res) => {
     if (normalizedRole === "employee" && requester_id && Number(requester_id) !== Number(context.currentUserId)) {
       return res.status(403).json({ success: false, error: "Employees can only create their own tickets." });
     }
-    if (normalizedRole === "hr" && !requester_id) {
-      return res.status(400).json({ success: false, error: "Select the employee this ticket is for." });
-    }
 
-    const finalRequesterId = normalizedRole === "employee" ? context.currentUserId : requester_id;
+
+    const finalRequesterId = (normalizedRole === "employee" || (normalizedRole === "hr" && !requester_id)) ? context.currentUserId : requester_id;
 
     const { ticket: createdTicket } = await createServiceDeskTicket({
       title,
@@ -735,7 +733,7 @@ router.post("/", async (req, res) => {
       // valid requester/branch combination. Branch-bound roles retain the
       // existing same-branch validation.
       enforceRequesterBranch: Boolean(!isSuperAdmin && finalRequesterId && finalBranchId),
-      requiredRequesterRole: normalizedRole === "hr" ? "Employee" : null,
+      requiredRequesterRole: (normalizedRole === "hr" && requester_id && Number(requester_id) !== Number(context.currentUserId)) ? "Employee" : null,
       enforceRequesterExists: Boolean(isSuperAdmin && finalRequesterId),
       auditEvent: "Internal Ticket Created",
       requestMethod: req.method,

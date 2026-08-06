@@ -126,6 +126,7 @@ const technicianNavItems = [
     label: "Service Desk & Ticketing",
     icon: Ticket,
     children: [
+      { label: "Create Ticket", icon: FileText, path: "/technician/create-ticket" },
       { label: "Available Tickets", icon: FileText, path: "/technician/available-tickets" },
       { label: "Resolved Tickets", icon: Activity, path: "/technician/resolved-tickets" },
       { label: "Knowledge Base", icon: BookOpen, path: "/knowledge-base" },
@@ -175,7 +176,9 @@ const hrNavItems = [
     label: "Service Desk & Ticketing",
     icon: Ticket,
     children: [
+      { label: "Create My Ticket", icon: FileText, path: "/hr/create-my-ticket" },
       { label: "Create Employee Ticket", icon: FileText, path: "/hr/create-ticket" },
+      { label: "My Tickets", icon: Ticket, path: "/hr/my-tickets" },
     ],
   },
   {

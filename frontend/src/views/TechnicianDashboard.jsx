@@ -7,13 +7,16 @@ import {
   AlertCircle,
   Play,
   X,
+  Plus,
+  Paperclip,
+  FileText,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketPayload, buildTicketQuery } from "../utils/ticketAccess";
 import { authHeaders } from "../services/authHeaders";
 import DashboardHero from "../components/DashboardHero";
 import { subscribeToTicketChanges } from "../services/realtimeTickets";
-import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass, getSeverityLevel } from "../utils/ticketVisuals";
+import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass, getSeverityLevel, getSeverityOptionStyle, getSeveritySelectClass, priorityOptions } from "../utils/ticketVisuals";
 import { getTicketCompletionLabel } from "../utils/ticketDuration";
 
 const API_BASE = `${API_URL}/api/v1`;
@@ -25,6 +28,8 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
   const [resolutionTicket, setResolutionTicket] = useState(null);
   const [ignoredTicketIds, setIgnoredTicketIds] = useState([]);
   const [acceptingTicketId, setAcceptingTicketId] = useState(null);
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
+  const [categories, setCategories] = useState([]);
 
   const technicianId = user?.user_id || null;
   const technicianBranchId = user?.branch_id || null;
@@ -73,6 +78,20 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
       unsubscribe();
     };
   }, [fetchTickets]);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/ticket-categories`);
+      const data = await res.json();
+      setCategories(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Fetch ticket categories failed:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
 
   const myTickets = useMemo(() => {
     return tickets.filter((ticket) => Number(ticket.assigned_to) === Number(technicianId));
@@ -471,6 +490,19 @@ export default function TechnicianDashboard({ view = "dashboard" }) {
           }}
         />
       )}
+
+      {ticketModalOpen && (
+        <TechCreateTicketModal
+          categories={categories}
+          user={user}
+          onClose={() => setTicketModalOpen(false)}
+          onCreated={() => {
+            setTicketModalOpen(false);
+            fetchTickets();
+            fetchCategories();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -663,3 +695,199 @@ function Card({ icon: Icon, label, value, color }) {
   );
 }
 
+function TechCreateTicketModal({ categories, user, onClose, onCreated }) {
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    priority: "P3-Medium",
+    category_id: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [files, setFiles] = useState([]);
+  const [isOtherCategory, setIsOtherCategory] = useState(false);
+  const [customCategory, setCustomCategory] = useState("");
+
+  const updateForm = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const handleCategoryChange = (value) => {
+    if (value === "__other__") {
+      setIsOtherCategory(true);
+      updateForm("category_id", "");
+    } else {
+      setIsOtherCategory(false);
+      setCustomCategory("");
+      updateForm("category_id", value);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (!form.title.trim() || !form.description.trim()) {
+      setError("Title and description are required.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      let categoryId = form.category_id || null;
+      if (isOtherCategory && customCategory.trim()) {
+        const catRes = await fetch(`${API_BASE}/ticket-categories`, {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ category_name: customCategory.trim() }),
+        });
+        const catData = await catRes.json();
+        if (catRes.ok && catData.category) categoryId = catData.category.category_id;
+      }
+
+      const res = await fetch(`${API_BASE}/tickets`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(buildTicketPayload(user, {
+          ...form,
+          category_id: categoryId,
+          requester_id: user?.user_id,
+          branch_id: user?.branch_id || null,
+          impact: "Medium",
+          urgency: "Medium",
+          status: "Open Queue",
+          source: "portal",
+        })),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create ticket.");
+
+      const createdTicket = data.data || data;
+      await uploadTechTicketAttachments(createdTicket.id, files, user?.user_id);
+      onCreated();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const priorityList = [
+    { value: "P1-Critical", label: "P1 — Critical", dot: "bg-red-500", bg: "bg-red-600 text-white" },
+    { value: "P2-High", label: "P2 — High", dot: "bg-orange-500", bg: "bg-red-50 text-red-700" },
+    { value: "P3-Medium", label: "P3 — Medium", dot: "bg-amber-500", bg: "bg-yellow-50 text-yellow-800" },
+    { value: "P4-Low", label: "P4 — Low", dot: "bg-green-500", bg: "bg-green-50 text-green-700" },
+  ];
+
+  const inputClass = "astrea-control text-sm font-medium";
+  const labelClass = "astrea-field-label";
+
+  return (
+    <div className="astrea-modal-backdrop">
+      <div className="astrea-modal-panel max-w-2xl">
+        <div className="astrea-modal-header bg-gradient-to-r from-blue-50 to-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-600/30">
+              <Plus size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-slate-900">Create New Ticket</h2>
+              <p className="text-xs font-medium text-slate-500">
+                Submit your own incident or service request to the IT service desk.
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-xl p-2 text-slate-400 transition hover:bg-white hover:text-slate-700 hover:shadow-sm">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="astrea-modal-body space-y-5">
+          {error && (
+            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+              <AlertCircle size={16} className="shrink-0" />
+              {error}
+            </div>
+          )}
+
+          <div>
+            <label className={labelClass}>Title <span className="text-red-600">*</span></label>
+            <input value={form.title} onChange={(e) => updateForm("title", e.target.value)} placeholder="Brief description of the issue..." className={inputClass} required />
+          </div>
+
+          <div>
+            <label className={labelClass}>Description <span className="text-red-600">*</span></label>
+            <textarea value={form.description} onChange={(e) => updateForm("description", e.target.value)} placeholder="Detailed description..." rows={4} className={`${inputClass} resize-none`} required />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className={labelClass}>Category</label>
+              <select value={isOtherCategory ? "__other__" : form.category_id} onChange={(e) => handleCategoryChange(e.target.value)} className={inputClass}>
+                <option value="">Select category</option>
+                {categories.filter(c => c.category_name && c.category_name.toLowerCase() !== "other").map((cat) => (
+                  <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>
+                ))}
+                <option value="__other__">Other...</option>
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass}>Priority</label>
+              <div className="flex flex-wrap gap-2">
+                {priorityList.map((p) => (
+                  <button key={p.value} type="button" onClick={() => updateForm("priority", p.value)} className={`inline-flex items-center gap-1.5 rounded-xl border-2 px-3.5 py-2 text-xs font-black transition ${form.priority === p.value ? `${p.bg} border-current shadow-sm` : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50"}`}>
+                    <span className={`h-2 w-2 rounded-full ${p.dot}`} />
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {isOtherCategory && (
+            <div className="rounded-2xl border-2 border-blue-200 bg-blue-50/50 p-4">
+              <label className={labelClass}>Specify Category <span className="text-red-600">*</span></label>
+              <input value={customCategory} onChange={(e) => setCustomCategory(e.target.value)} placeholder="e.g. CCTV, WiFi..." className={inputClass} autoFocus required />
+            </div>
+          )}
+
+          <div>
+            <label className={labelClass}>Attachments</label>
+            <label className="astrea-upload-zone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setFiles(Array.from(event.dataTransfer.files || [])); }}>
+              <span className="rounded-full bg-blue-100 p-3 text-blue-700"><Paperclip size={22} /></span>
+              <span className="font-black">{files.length ? `${files.length} file(s) selected` : "Choose PNG, JPG, JPEG, WEBP, or PDF"}</span>
+              <span className="text-xs font-semibold text-slate-600">Upload screenshots, PDF, or supporting files</span>
+              <span className="text-xs text-slate-500">PNG, JPG, JPEG, WEBP or PDF · Maximum 10MB · Drag & Drop supported</span>
+              <input type="file" multiple accept=".png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setFiles(Array.from(e.target.files || []))} className="hidden" />
+            </label>
+          </div>
+
+          <div className="astrea-modal-footer -mx-6 -mb-6 mt-6">
+            <button type="button" onClick={onClose} className="astrea-button astrea-button-secondary">Cancel</button>
+            <button type="submit" disabled={saving} className="astrea-button astrea-button-primary">{saving ? "Creating..." : "Create Ticket"}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+async function uploadTechTicketAttachments(ticketId, files, uploadedBy) {
+  if (!ticketId || !files.length) return;
+
+  const formData = new FormData();
+  files.forEach((file) => formData.append("attachments", file));
+  if (uploadedBy) formData.append("uploaded_by", uploadedBy);
+
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to upload attachments");
+  }
+}

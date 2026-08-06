@@ -31,6 +31,7 @@ export default function CreateTicket() {
   const [success, setSuccess] = useState("");
   const [isOtherCategory, setIsOtherCategory] = useState(false);
   const [customCategory, setCustomCategory] = useState("");
+  const [ticketForSelf, setTicketForSelf] = useState(false);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -97,7 +98,7 @@ export default function CreateTicket() {
       setError("Title and description are required.");
       return;
     }
-    if (isHr && !form.requester_id) {
+    if (isHr && !ticketForSelf && !form.requester_id) {
       setError("Select the employee this ticket is for.");
       return;
     }
@@ -129,7 +130,7 @@ export default function CreateTicket() {
           impact: "Medium",
           urgency: "Medium",
           category_id: categoryId,
-          requester_id: isHr ? form.requester_id : user?.user_id,
+          requester_id: (isHr && !ticketForSelf) ? form.requester_id : user?.user_id,
           branch_id: user?.branch_id || null,
           status: "Open Queue",
           source: "portal",
@@ -153,10 +154,12 @@ export default function CreateTicket() {
   return (
     <div className="space-y-6">
       <PageHero
-        eyebrow={isHr ? "HR Service Desk" : "Employee Service Hub"}
-        title={isHr ? "Create Employee Ticket" : "Create Ticket"}
+        eyebrow={isHr ? (ticketForSelf ? "HR Service Hub" : "HR Service Desk") : "Employee Service Hub"}
+        title={isHr ? (ticketForSelf ? "Create My Ticket" : "Create Employee Ticket") : "Create Ticket"}
         subtitle={isHr
-          ? "Submit a branch-scoped IT request on behalf of an employee. IT retains assignment and resolution control."
+          ? (ticketForSelf
+              ? "Submit your own IT request or report an issue you're experiencing."
+              : "Submit a branch-scoped IT request on behalf of an employee. IT retains assignment and resolution control.")
           : "Submit an incident or service request with the details needed for a fast response."}
         compact
       />
@@ -174,6 +177,33 @@ export default function CreateTicket() {
         )}
 
         {isHr && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setTicketForSelf(true)}
+              className={`rounded-xl px-4 py-2 text-sm font-black transition-all ${
+                ticketForSelf
+                  ? "bg-blue-600 text-white shadow-md"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              My Own Ticket
+            </button>
+            <button
+              type="button"
+              onClick={() => setTicketForSelf(false)}
+              className={`rounded-xl px-4 py-2 text-sm font-black transition-all ${
+                !ticketForSelf
+                  ? "bg-blue-600 text-white shadow-md"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              On Behalf of Employee
+            </button>
+          </div>
+        )}
+
+        {isHr && !ticketForSelf && (
           <SelectField
             label="Ticket For Employee *"
             value={form.requester_id}

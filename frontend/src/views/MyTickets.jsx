@@ -51,6 +51,7 @@ export default function MyTickets() {
               <tr>
                 <th className="px-4 py-3">Ticket No.</th>
                 <th className="px-4 py-3">Title</th>
+                <th className="px-4 py-3">Requester</th>
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Priority</th>
                 <th className="px-4 py-3">Status</th>
@@ -61,13 +62,13 @@ export default function MyTickets() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="px-4 py-8 text-center font-bold text-slate-400">
+                  <td colSpan="8" className="px-4 py-8 text-center font-bold text-slate-400">
                     Loading your tickets...
                   </td>
                 </tr>
               ) : myTickets.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="px-4 py-8 text-center font-bold text-slate-400">
+                  <td colSpan="8" className="px-4 py-8 text-center font-bold text-slate-400">
                     No tickets filed yet.
                   </td>
                 </tr>
@@ -86,6 +87,9 @@ export default function MyTickets() {
                       <p className="line-clamp-1 text-sm text-slate-400">
                         {ticket.desc || ticket.description}
                       </p>
+                    </td>
+                    <td className="px-4 py-4 text-sm font-semibold text-slate-600">
+                      {ticket.requester_name || "Unknown"}
                     </td>
                     <td className="px-4 py-4 text-sm font-semibold text-slate-600">
                       {ticket.category || "Uncategorized"}
@@ -232,9 +236,9 @@ function TicketDetails({ ticket, user, onClose, onUpdated }) {
           <div className="flex-1 space-y-6 overflow-y-auto p-7 pb-28">
             <section className="grid grid-cols-2 gap-4">
               <InfoTile label="Status" value={item.status} />
-              <InfoTile label="Assigned Technician" value={item.assigned_name || "Unassigned"} />
               <InfoTile label="Priority" value={formatPriority(item.priority)} />
               <InfoTile label="Category" value={item.category || "Uncategorized"} />
+              <InfoTile label="Assigned To" value={item.assigned_name || "Unassigned"} />
             </section>
 
             <section className="rounded-2xl border border-blue-200 bg-white p-5">

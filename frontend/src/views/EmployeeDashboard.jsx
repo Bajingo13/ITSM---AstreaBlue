@@ -585,9 +585,9 @@ function EmployeeTicketDetails({ ticket, user, onClose, onUpdated }) {
           <div className="flex-1 space-y-6 overflow-y-auto p-7 pb-28">
             <section className="grid grid-cols-2 gap-4">
               <InfoTile label="Status" value={item.status} />
-              <InfoTile label="Assigned Technician" value={item.assigned_name || "Unassigned"} />
               <InfoTile label="Priority" value={formatPriority(item.priority)} />
               <InfoTile label="Category" value={item.category || "Uncategorized"} />
+              <InfoTile label="Assigned To" value={item.assigned_name || "Unassigned"} />
             </section>
 
             <section className="rounded-2xl border border-blue-200 bg-white p-5">

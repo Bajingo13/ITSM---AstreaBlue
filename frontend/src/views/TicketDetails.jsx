@@ -80,7 +80,7 @@ export default function TicketDetails({ id, onClose }) {
         <div className="overflow-y-auto p-7 space-y-8">
           
           {/* Top Section */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Status</span>
               <span className={`px-3 py-1 rounded-full text-sm font-bold ${statusBadgeClass}`}>
@@ -96,20 +96,16 @@ export default function TicketDetails({ id, onClose }) {
             </div>
 
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                <User size={13} /> Requester
-              </span>
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Category</span>
               <span className="text-sm font-black text-slate-900">
-                {ticket.requester_name || "N/A"}
+                {ticket.category || "Uncategorized"}
               </span>
             </div>
 
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 flex flex-col items-start gap-2 shadow-sm transition-shadow hover:shadow-md">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                <Building size={13} /> Branch
-              </span>
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Assigned To</span>
               <span className="text-sm font-black text-slate-900">
-                {ticket.branch_name || "N/A"}
+                {ticket.assigned_name || "Unassigned"}
               </span>
             </div>
           </div>

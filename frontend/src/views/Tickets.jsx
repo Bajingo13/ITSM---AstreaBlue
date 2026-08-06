@@ -761,7 +761,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1">
-                {item.ticket_number || `TKT-${item.id}`}
+                {item.ticket_number || `TKT-${item.id}`} &bull; Requested by {item.requester_name || "Unknown"}
               </p>
               <h2 className="text-3xl font-black text-slate-900">
                 {item.title}
@@ -788,7 +788,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             )}
             {kbMessage && <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-800 shadow-sm">{kbMessage}</div>}
 
-            <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
                 <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Status</p>
                 <p className="mt-2 flex flex-wrap items-center gap-2 font-black text-slate-900">
@@ -819,7 +819,7 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
                           disabled={assigning || loading}
                           onClick={() => setSelectedPriority(priority)}
                           aria-pressed={selected}
-                          className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-black transition ${priorityStyle[priority]} ${selected ? "ring-2 ring-slate-900 ring-offset-1 border-slate-900" : "opacity-80 hover:opacity-100"} disabled:cursor-not-allowed disabled:opacity-50`}
+                          className={`flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-black whitespace-nowrap transition ${priorityStyle[priority]} ${selected ? "border-slate-800 ring-2 ring-current ring-offset-1 opacity-100" : "opacity-80 hover:opacity-100"} disabled:cursor-not-allowed disabled:opacity-50`}
                         >
                           <span className={`h-2 w-2 rounded-full ${priorityDotStyle[priority]}`} />
                           {formatPriority(priority)}
@@ -1354,7 +1354,12 @@ function TicketCard({ ticket, onClick }) {
 
         <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
           <User size={12} />
-          {ticket.assigned_name || "Unassigned"}
+          Assignee: {ticket.assigned_name || "Unassigned"}
+        </span>
+
+        <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+          <User size={12} />
+          Requester: {ticket.requester_name || "Unknown"}
         </span>
 
         <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-black text-blue-700">

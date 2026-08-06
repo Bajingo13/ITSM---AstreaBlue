@@ -195,13 +195,13 @@ export default function NotificationTicketDetails() {
   }
 
   const fields = [
-    ["Ticket Number", ticket.ticket_number, Ticket],
-    ["Priority", ticket.priority, AlertTriangle],
     ["Status", ticket.status, CalendarClock],
+    ["Priority", ticket.priority, AlertTriangle],
+    ["Category", ticket.category || "Uncategorized", Ticket],
     ["Assigned Technician", ticket.assigned_name, CircleUserRound],
     ["Requester", ticket.requester_name, CircleUserRound],
+    ["Ticket Number", ticket.ticket_number, Ticket],
     ["Created Date", formatDate(ticket.created_at), CalendarClock],
-    ["Branch / Department", ticket.branch_name, MapPin],
     ["SLA State", ticket.resolution_sla_status || ticket.response_sla_status, CalendarClock],
   ];
 

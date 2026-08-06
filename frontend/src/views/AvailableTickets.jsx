@@ -99,7 +99,7 @@ export default function AvailableTickets() {
         loading={loading}
         tickets={availableTickets}
         emptyText="No available tickets right now."
-        columns={["Ticket No.", "Title", "Priority", "Category", "Created", "Actions"]}
+        columns={["Ticket No.", "Title", "Requester", "Priority", "Category", "Created", "Actions"]}
         renderRow={(ticket) => (
           <tr key={ticket.id} className="border-t border-slate-100">
             <td className="px-4 py-4 text-sm font-black text-blue-700">
@@ -110,6 +110,9 @@ export default function AvailableTickets() {
               <p className="line-clamp-1 text-sm text-slate-400">
                 {ticket.desc || ticket.description}
               </p>
+            </td>
+            <td className="px-4 py-4 text-sm font-semibold text-slate-600">
+              {ticket.requester_name || "Unknown"}
             </td>
             <td className="px-4 py-4">
               <span className={getPriorityBadgeClass(ticket.priority)}>

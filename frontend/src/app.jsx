@@ -136,6 +136,22 @@ export default function App() {
           }
         />
         <Route
+          path="/hr/create-my-ticket"
+          element={
+            <ProtectedRoute allowedRoles={["HR"]}>
+              <CreateTicket />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/hr/my-tickets"
+          element={
+            <ProtectedRoute allowedRoles={["HR"]}>
+              <MyTickets />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/employee-lifecycle"
           element={
             <ProtectedRoute allowedRoles={["SuperAdmin", "Admin", "HR"]}>
@@ -172,6 +188,14 @@ export default function App() {
           element={
             <ProtectedRoute allowedRoles={["Technician"]}>
               <ResolvedTickets />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/technician/create-ticket"
+          element={
+            <ProtectedRoute allowedRoles={["Technician"]}>
+              <CreateTicket />
             </ProtectedRoute>
           }
         />

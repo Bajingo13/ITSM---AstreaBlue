@@ -63,7 +63,7 @@ async function createServiceDeskTicket(input) {
 
   const branchId = integerOrNull(input.branchId);
   const requesterId = integerOrNull(input.requesterId);
-  let categoryId = integerOrNull(input.categoryId);
+  let categoryId = String(input.categoryId || "").trim() || null;
   const categoryName = String(input.categoryName || "").trim() || null;
   const assignedTo = integerOrNull(input.assignedTo);
   const priority = input.priority || "P3-Medium";
