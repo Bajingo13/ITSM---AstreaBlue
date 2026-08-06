@@ -253,14 +253,15 @@ function createHardwareAssetPdfReport(assets, metadata) {
 
     const columns = [
       { key: "asset_id", label: "ID", width: 45 },
-      { key: "asset_name", label: "Asset Name", width: 100 },
+      { key: "asset_name", label: "Asset Name", width: 90 },
       { key: "asset_type", label: "Type", width: 65 },
-      { key: "asset_tag", label: "Asset Tag", width: 70 },
-      { key: "serial_number", label: "Serial", width: 80 },
-      { key: "brand_model", label: "Brand / Model", width: 90 },
-      { key: "branch_name", label: "Branch / Company", width: 100 },
-      { key: "assigned_user", label: "Assigned", width: 92 },
+      { key: "asset_tag", label: "Asset Tag", width: 65 },
+      { key: "serial_number", label: "Serial", width: 72 },
+      { key: "brand_model", label: "Brand / Model", width: 80 },
+      { key: "branch_name", label: "Branch / Company", width: 85 },
+      { key: "assigned_user", label: "Assigned", width: 80 },
       { key: "status", label: "Status", width: 70 },
+      { key: "warranty_date", label: "Warranty", width: 60 },
       { key: "updated_at", label: "Updated", width: 65 },
     ];
     const rows = normalizeRows(assets);
