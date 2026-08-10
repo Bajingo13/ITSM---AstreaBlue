@@ -28,6 +28,7 @@ Thumbs.db
 
 # Cache
 .cache/
+.npm-cache/
 .eslintcache
 .npx-cache/
 .venv-pdf/
