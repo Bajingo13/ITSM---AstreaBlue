@@ -138,7 +138,7 @@ test("Employee can create a ticket in their own branch with an integer category"
   ticketIds.push(payload.data.id);
 });
 
-test("HR can create a ticket only for an employee in HR's branch", async () => {
+test("HR can create a ticket for a branch employee or for their own IT request", async () => {
   const response = await createTicket(hr, "HR", {
     title: "HR branch employee ticket test",
     description: "Verifies HR can file an IT request for a branch employee.",
@@ -153,22 +153,29 @@ test("HR can create a ticket only for an employee in HR's branch", async () => {
   assert.equal(Number(payload.data.branch_id), Number(hr.branch_id));
   ticketIds.push(payload.data.id);
 
-  const missingEmployee = await createTicket(hr, "HR", {
-    title: "HR missing requester test",
-    description: "HR must select the employee represented by the request.",
+  const ownRequest = await createTicket(hr, "HR", {
+    title: "HR own IT request test",
+    description: "HR can file a standard IT request without selecting another employee.",
     category_id: categoryId,
     branch_id: hr.branch_id,
   });
-  assert.equal(missingEmployee.status, 400);
+  const ownRequestPayload = await ownRequest.json();
+  assert.equal(ownRequest.status, 201, ownRequestPayload.error || JSON.stringify(ownRequestPayload));
+  assert.equal(Number(ownRequestPayload.data.requester_id), Number(hr.user_id));
+  assert.equal(Number(ownRequestPayload.data.branch_id), Number(hr.branch_id));
+  ticketIds.push(ownRequestPayload.data.id);
 
-  const nonEmployee = await createTicket(hr, "HR", {
-    title: "HR invalid requester role test",
-    description: "HR cannot file an employee request using an HR account as requester.",
+  const explicitOwnRequest = await createTicket(hr, "HR", {
+    title: "HR explicit own requester test",
+    description: "HR can explicitly identify themselves as requester for a standard IT request.",
     category_id: categoryId,
     requester_id: hr.user_id,
     branch_id: hr.branch_id,
   });
-  assert.equal(nonEmployee.status, 400);
+  const explicitOwnPayload = await explicitOwnRequest.json();
+  assert.equal(explicitOwnRequest.status, 201, explicitOwnPayload.error || JSON.stringify(explicitOwnPayload));
+  assert.equal(Number(explicitOwnPayload.data.requester_id), Number(hr.user_id));
+  ticketIds.push(explicitOwnPayload.data.id);
 });
 
 test("HR remains blocked from creating tickets for another branch", async () => {

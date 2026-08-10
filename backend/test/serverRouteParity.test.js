@@ -39,6 +39,7 @@ const expectedModules = {
     "PUT /:id",
   ],
   "users.js": [
+    "DELETE /:id",
     "GET /",
     "PATCH /:id/reset-password",
     "PATCH /:id/status",
@@ -166,7 +167,7 @@ test("administrative mutations retain JWT and SuperAdmin guards", () => {
   );
   assert.equal(
     (userSource.match(/requireSuperAdminRequest,\s*async/g) || []).length,
-    5
+    6
   );
 
   assert.match(

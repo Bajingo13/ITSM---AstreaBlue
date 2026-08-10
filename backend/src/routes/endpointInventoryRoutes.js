@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const db = require("../../config/db");
 const { reconcileDevice } = require("../services/reconciliationService");
 const { upsertAgentInventoryDiscovery } = require("../services/assetDiscoveryInventoryService");
+const { syncEndpointAssetReferences } = require("../services/endpointAssetLinkService");
 
 const DEVICE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PLACEHOLDER_SERIALS = new Set([
@@ -452,14 +453,14 @@ function registerEndpointInventoryRoutes(router, {
           endpointBranchAligned = true;
         }
 
-        await client.query(
-          `UPDATE monitored_devices
-              SET asset_id=$1,
-                  branch_id=COALESCE($2, branch_id),
-                  updated_at=CURRENT_TIMESTAMP
-            WHERE device_id=$3`,
-          [existingAsset.asset_id, existingAsset.branch_id, deviceId]
-        );
+        await syncEndpointAssetReferences(client, {
+          device,
+          inventory: inv,
+          assetId: existingAsset.asset_id,
+          branchId: existingAsset.branch_id,
+          actorUserId: req.monitoringUserId,
+          created: false,
+        });
         if (endpointBranchAligned) {
           await client.query(
             `INSERT INTO monitored_device_assignments (
@@ -543,7 +544,7 @@ function registerEndpointInventoryRoutes(router, {
           asset_name, asset_type, brand, manufacturer, model, model_name, serial_number, asset_tag,
           processor, ram, storage, operating_system, branch_id, status
         ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-        RETURNING asset_id
+        RETURNING asset_id, asset_name, asset_type, asset_tag, serial_number, branch_id, status
       `, [
         assetName, "Computer", manufacturer, manufacturer, model, serialNumber, assetTag,
         cleanInventoryText(inv.cpu_name, 150), formatSize(inv.total_ram_gb), formatSize(inv.disk_total_gb), operatingSystem,
@@ -551,12 +552,14 @@ function registerEndpointInventoryRoutes(router, {
       ]);
 
       const newAssetId = insertAsset.rows[0].asset_id;
-      await client.query(
-        `UPDATE monitored_devices
-            SET asset_id=$1, updated_at=CURRENT_TIMESTAMP
-          WHERE device_id=$2`,
-        [newAssetId, deviceId]
-      );
+      await syncEndpointAssetReferences(client, {
+        device,
+        inventory: inv,
+        assetId: newAssetId,
+        branchId: device.branch_id,
+        actorUserId: req.monitoringUserId,
+        created: true,
+      });
       await client.query("COMMIT");
       client.release();
       client = null;
@@ -565,6 +568,7 @@ function registerEndpointInventoryRoutes(router, {
         success: true,
         data: {
           asset_id: newAssetId,
+          asset: insertAsset.rows[0],
           created: true,
           message: "Hardware asset created and linked from endpoint specifications.",
         },

@@ -1,0 +1,52 @@
+Installing phase:
+
+Current ZIP package: AstreaBlue-Native-Agent-Windows.zip
+
+1. Download the Zip Folder named (AstreaBlue-Agent-Windows.zip) extract it
+
+2. Run CMD as administrator
+
+3. Navigate to the folder where you extract the zip file
+
+example (cd C:\AstreaBlue\agent-windows)
+
+In AstreaBlue ITSM:
+
+Sign in as SuperAdmin or an authorized Admin.
+
+Open:
+Endpoint Management → Administration
+
+Select Create Enrollment Code.
+
+Enter the target laptop’s hostname.
+
+(To find the hostname, type "hostname" in the cmd")
+
+4. Run this script
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\native-install.ps1" -EnrollmentCode "PASTE THE ENROLLMENT CODE HERE"
+
+To verify if the agent is working, run:
+
+sc.exe query AstreaBlueMonitoringAgent
+
+The expected result is:
+STATE : 4 RUNNING
+
+If it shows STOPPED, run:
+sc.exe start AstreaBlueMonitoringAgent
+
+to diagnost, run:
+
+"C:\Program Files\AstreaBlue\Monitoring Agent\AstreaBlue.Agent.Service.exe" --diagnostics
+
+A healthy result should show:
+"heartbeat":"success"
+"healthy":true
+
+IF AGENT HAS ERROR OR IS OUTDATED USE REPAIR COMMAND: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\native-repair.ps1"
+
+If the agent is outdated then we need to share again the latest zip file and extract it, Run CMD as administrator, navigate to the file directory of the extracted files then run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\native-repair.ps1"
+
