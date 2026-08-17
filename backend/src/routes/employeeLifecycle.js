@@ -33,6 +33,7 @@ const {
   assignEmployeeLicenses,
   getEmployeeTechnologyValue,
   listEmployeeTechnologyValues,
+  loadEmployee,
 } = require("../services/employeeTechnologyValueService");
 
 const router = express.Router();
@@ -291,6 +292,78 @@ router.get("/technology-values", async (req, res) => {
   } catch (error) {
     console.error("[employee-lifecycle:technology-values]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load employee technology values." });
+  }
+});
+
+router.get("/technology-values/:employeeId", async (req, res) => {
+  try {
+    const employeeId = Number.parseInt(req.params.employeeId, 10);
+    if (!Number.isInteger(employeeId) || employeeId < 1) {
+      return res.status(400).json({ success: false, message: "Invalid employee ID." });
+    }
+    const branchId = req.lifecycleActor.role === "superadmin"
+      ? null
+      : Number(req.lifecycleActor.branch_id);
+    const value = await getEmployeeTechnologyValue(db, {
+      employeeId,
+      branchId,
+    });
+    return res.json({ success: true, data: value });
+  } catch (error) {
+    console.error("[employee-lifecycle:employee-technology-value]", error.message);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : "Failed to load employee technology details.",
+    });
+  }
+});
+
+router.post("/technology-values/:employeeId/license-assignments", async (req, res) => {
+  if (!["superadmin", "admin"].includes(req.lifecycleActor.role)) {
+    return res.status(403).json({ success: false, message: "Software-license assignment requires an administrator." });
+  }
+  const client = await db.rawPool.connect();
+  try {
+    const employeeId = Number.parseInt(req.params.employeeId, 10);
+    if (!Number.isInteger(employeeId) || employeeId < 1) {
+      return res.status(400).json({ success: false, message: "Invalid employee ID." });
+    }
+    await client.query("BEGIN");
+    const branchId = req.lifecycleActor.role === "superadmin"
+      ? null
+      : Number(req.lifecycleActor.branch_id);
+    const employee = await loadEmployee(client, employeeId, branchId);
+    if (!employee) throw Object.assign(new Error("Employee not found in the authorized branch."), { status: 404 });
+    if (employee.is_active === false) {
+      throw Object.assign(new Error("Inactive employees cannot receive new software licenses."), { status: 409 });
+    }
+    await assignEmployeeLicenses(client, {
+      lifecycleCase: null,
+      employee,
+      actor: req.lifecycleActor,
+      assetId: req.body.asset_id ? Number(req.body.asset_id) : null,
+      licenseIds: Array.isArray(req.body.license_ids) ? req.body.license_ids : [],
+      requireAsset: false,
+      assignmentSource: "Direct",
+    });
+    await client.query("COMMIT");
+    const value = await getEmployeeTechnologyValue(db, {
+      employeeId: employee.user_id,
+      branchId,
+    });
+    return res.status(201).json({ success: true, data: value });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[employee-lifecycle:direct-license-assignment]", error.message);
+    if (error.code === "23505") {
+      return res.status(409).json({ success: false, message: "The employee already has one of the selected licenses." });
+    }
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : "Failed to assign software licenses.",
+    });
+  } finally {
+    client.release();
   }
 });
 

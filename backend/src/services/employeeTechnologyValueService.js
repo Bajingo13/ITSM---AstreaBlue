@@ -82,7 +82,7 @@ async function loadEmployee(queryable, employeeId, branchId = null) {
   const params = [Number(employeeId)];
   const branchClause = branchId ? (params.push(Number(branchId)), `AND u.branch_id=$${params.length}`) : "";
   const result = await queryable.query(
-    `SELECT u.user_id,u.full_name,u.email,u.employee_number,u.department,u.branch_id,b.branch_name
+    `SELECT u.user_id,u.full_name,u.email,u.employee_number,u.department,u.branch_id,u.is_active,b.branch_name
        FROM users u
        LEFT JOIN branches b ON b.branch_id=u.branch_id
       WHERE u.user_id=$1 ${branchClause}
@@ -111,7 +111,7 @@ async function getEmployeeTechnologyValue(queryable, { employeeId, branchId = nu
   const employee = await loadEmployee(queryable, employeeId, branchId);
   if (!employee) throw httpError(404, "Employee not found in the authorized branch.");
 
-  const [assetResult, assignmentResult, availableResult] = await Promise.all([
+  const [assetResult, assignmentResult, historyResult, availableResult] = await Promise.all([
     loadAssignedAssets(queryable, employee),
     queryable.query(
       `SELECT assignment.assignment_id,assignment.license_id,assignment.asset_id,
@@ -131,6 +131,20 @@ async function getEmployeeTechnologyValue(queryable, { employeeId, branchId = nu
       [employee.user_id]
     ),
     queryable.query(
+      `SELECT assignment.assignment_id,assignment.license_id,assignment.asset_id,
+              assignment.status,assignment.assignment_source,assignment.assigned_at,
+              assignment.released_at,assignment.release_reason,
+              assignment.seat_annual_cost_snapshot,
+              license.license_name,license.vendor,
+              asset.asset_tag,asset.asset_name
+         FROM software_license_assignments assignment
+         JOIN software_licenses license ON license.license_id=assignment.license_id
+         LEFT JOIN hardware_assets asset ON asset.asset_id=assignment.asset_id
+        WHERE assignment.user_id=$1
+        ORDER BY assignment.assigned_at DESC,assignment.assignment_id DESC`,
+      [employee.user_id]
+    ),
+    queryable.query(
       `SELECT license_id,license_name,vendor,license_type,total_licenses,used_licenses,
               GREATEST(total_licenses-used_licenses,0)::int available_licenses,
               annual_cost,expiry_date,
@@ -139,8 +153,14 @@ async function getEmployeeTechnologyValue(queryable, { employeeId, branchId = nu
         WHERE branch_id=$1
           AND total_licenses>used_licenses
           AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)
+          AND NOT EXISTS (
+            SELECT 1 FROM software_license_assignments assignment
+             WHERE assignment.license_id=software_licenses.license_id
+               AND assignment.user_id=$2
+               AND assignment.status='Active'
+          )
         ORDER BY license_name`,
-      [employee.branch_id]
+      [employee.branch_id, employee.user_id]
     ),
   ]);
 
@@ -148,6 +168,7 @@ async function getEmployeeTechnologyValue(queryable, { employeeId, branchId = nu
     employee,
     assets: assetResult.rows,
     assignments: assignmentResult.rows,
+    assignment_history: historyResult.rows,
     available_licenses: availableResult.rows,
     totals: summarizeTechnologyValue(assetResult.rows, assignmentResult.rows),
   };
@@ -160,6 +181,8 @@ async function assignEmployeeLicenses(queryable, {
   assetId,
   licenseIds,
   noLicenseRequired = false,
+  requireAsset = true,
+  assignmentSource = "Lifecycle",
 }) {
   const normalizedLicenseIds = [...new Set((licenseIds || []).map(Number).filter(Number.isInteger))]
     .sort((left, right) => left - right);
@@ -168,11 +191,15 @@ async function assignEmployeeLicenses(queryable, {
     return { action: "no_software_license_required", affected: 0, assignmentIds: [], licenseIds: [] };
   }
 
-  const assets = await loadAssignedAssets(queryable, employee, { lock: true });
-  const asset = assets.rows.find((candidate) => Number(candidate.asset_id) === Number(assetId));
-  if (!asset) throw httpError(400, "Select an asset currently assigned to this employee.");
-  if (Number(asset.branch_id) !== Number(lifecycleCase.branch_id)) {
-    throw httpError(403, "The assigned asset is outside the lifecycle branch.");
+  const assignmentBranchId = Number(lifecycleCase?.branch_id || employee.branch_id);
+  let asset = null;
+  if (assetId || requireAsset) {
+    const assets = await loadAssignedAssets(queryable, employee, { lock: true });
+    asset = assets.rows.find((candidate) => Number(candidate.asset_id) === Number(assetId));
+    if (!asset) throw httpError(400, "Select an asset currently assigned to this employee.");
+    if (Number(asset.branch_id) !== assignmentBranchId) {
+      throw httpError(403, "The assigned asset is outside the employee branch.");
+    }
   }
 
   const licenseResult = await queryable.query(
@@ -193,8 +220,8 @@ async function assignEmployeeLicenses(queryable, {
 
   const assignmentIds = [];
   for (const license of licenseResult.rows) {
-    if (Number(license.branch_id) !== Number(lifecycleCase.branch_id)) {
-      throw httpError(403, `${license.license_name} is outside the lifecycle branch.`);
+    if (Number(license.branch_id) !== assignmentBranchId) {
+      throw httpError(403, `${license.license_name} is outside the employee branch.`);
     }
     if (Number(license.used_licenses) >= Number(license.total_licenses)) {
       throw httpError(409, `${license.license_name} has no available seats.`);
@@ -204,10 +231,10 @@ async function assignEmployeeLicenses(queryable, {
       `INSERT INTO software_license_assignments
          (license_id,user_id,asset_id,lifecycle_case_id,assigned_by,
           annual_cost_snapshot,seat_annual_cost_snapshot,status,assignment_source)
-       VALUES($1,$2,$3,$4,$5,$6,$7,'Active','Lifecycle')
+       VALUES($1,$2,$3,$4,$5,$6,$7,'Active',$8)
        RETURNING assignment_id`,
-      [license.license_id, employee.user_id, asset.asset_id, lifecycleCase.lifecycle_case_id,
-        actor.user_id, Number(license.annual_cost) || 0, seatCost]
+      [license.license_id, employee.user_id, asset?.asset_id || null, lifecycleCase?.lifecycle_case_id || null,
+        actor.user_id, Number(license.annual_cost) || 0, seatCost, assignmentSource]
     );
     assignmentIds.push(Number(inserted.rows[0].assignment_id));
     await queryable.query(
@@ -223,7 +250,7 @@ async function assignEmployeeLicenses(queryable, {
     affected: assignmentIds.length,
     assignmentIds,
     licenseIds: normalizedLicenseIds,
-    assetId: Number(asset.asset_id),
+    assetId: asset ? Number(asset.asset_id) : null,
   };
 }
 

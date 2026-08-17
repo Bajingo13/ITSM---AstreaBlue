@@ -6,6 +6,8 @@ import {
   ClipboardCheck,
   Copy,
   DollarSign,
+  Eye,
+  History,
   KeyRound,
   Laptop,
   RefreshCw,
@@ -410,7 +412,7 @@ export default function EmployeeLifecycle() {
         </div>
       </section></>}
 
-      {activeView === "technology" && <TechnologyValueWorkspace value={technologyValues} loading={loading} onRefresh={loadWorkspace}/>}
+      {activeView === "technology" && <TechnologyValueWorkspace value={technologyValues} loading={loading} role={normalizedRole} onRefresh={loadWorkspace}/>}
 
       {showCreate && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
         <form onSubmit={createCase} className="w-full max-w-2xl overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-2xl">
@@ -440,20 +442,39 @@ export default function EmployeeLifecycle() {
   );
 }
 
-function TechnologyValueWorkspace({ value, loading, onRefresh }) {
+function TechnologyValueWorkspace({ value, loading, role, onRefresh }) {
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("active");
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [employeeDetails, setEmployeeDetails] = useState(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
   const employees = value?.employees || [];
   const totals = value?.totals || {};
   const visibleEmployees = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return employees;
-    return employees.filter((employee) => [
-      employee.full_name,
-      employee.employee_number,
-      employee.department,
-      employee.branch_name,
-    ].some((field) => String(field || "").toLowerCase().includes(query)));
-  }, [employees, search]);
+    return employees.filter((employee) => {
+      if (statusFilter === "active" && employee.is_active === false) return false;
+      if (statusFilter === "inactive" && employee.is_active !== false) return false;
+      if (!query) return true;
+      return [employee.full_name,employee.employee_number,employee.department,employee.branch_name]
+        .some((field) => String(field || "").toLowerCase().includes(query));
+    });
+  }, [employees, search, statusFilter]);
+
+  async function openEmployee(employee) {
+    setSelectedEmployee(employee);
+    setEmployeeDetails(null);
+    setDetailsError("");
+    setDetailsLoading(true);
+    try {
+      setEmployeeDetails(await lifecycleRequest(`/technology-values/${employee.user_id}`));
+    } catch (requestError) {
+      setDetailsError(requestError.message);
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
 
   return <section className="border-y border-slate-200 bg-white py-5 shadow-sm">
     <div className="px-5">
@@ -469,25 +490,100 @@ function TechnologyValueWorkspace({ value, loading, onRefresh }) {
         <ValueMetric icon={UserPlus} label="Employees tracked" value={Number(totals.employee_count || 0).toLocaleString("en-PH")} detail="Branch-scoped employee records"/>
       </div>
 
-      <label className="mt-5 flex max-w-xl items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4"><Search size={17} className="text-blue-500"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search employee, number, department, or branch" className="w-full bg-transparent py-3 text-sm outline-none"/></label>
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <label className="flex w-full max-w-xl items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4"><Search size={17} className="text-blue-500"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search employee, number, department, or branch" className="w-full bg-transparent py-3 text-sm outline-none"/></label>
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Employee status filter">{[["active","Active"],["inactive","Inactive"],["all","All"]].map(([key,label]) => <button key={key} type="button" onClick={() => setStatusFilter(key)} className={`rounded-md px-3 py-2 text-xs font-black ${statusFilter === key ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>{label}</button>)}</div>
+      </div>
     </div>
 
     <div className="mt-5 overflow-x-auto border-y border-slate-200">
       <table className="min-w-full text-left text-sm">
-        <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Employee", "Branch", "Hardware", "Active seats", "Annual software", "First-year value"].map((heading) => <th key={heading} className="px-5 py-3">{heading}</th>)}</tr></thead>
+        <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Employee", "Branch", "Hardware", "Active seats", "Annual software", "First-year value", ""].map((heading,index) => <th key={`${heading}-${index}`} className="px-5 py-3">{heading}</th>)}</tr></thead>
         <tbody className="divide-y divide-slate-100">
-          {loading ? <tr><td colSpan="6" className="px-5 py-14 text-center text-slate-500">Loading employee technology values...</td></tr> : visibleEmployees.length ? visibleEmployees.map((employee) => <tr key={employee.user_id} className="hover:bg-blue-50/40">
-            <td className="px-5 py-4"><p className="font-bold text-slate-900">{employee.full_name}</p><p className="text-xs text-slate-500">{employee.employee_number || "No employee number"} · {employee.department || "No department"}</p></td>
+          {loading ? <tr><td colSpan="7" className="px-5 py-14 text-center text-slate-500">Loading employee technology values...</td></tr> : visibleEmployees.length ? visibleEmployees.map((employee) => <tr key={employee.user_id} className="hover:bg-blue-50/40">
+            <td className="px-5 py-4"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-900">{employee.full_name}</p><span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${employee.is_active === false ? "bg-slate-200 text-slate-600" : "bg-emerald-100 text-emerald-700"}`}>{employee.is_active === false ? "Inactive" : "Active"}</span></div><p className="text-xs text-slate-500">{employee.employee_number || "No employee number"} · {employee.department || "No department"}</p></td>
             <td className="px-5 py-4 text-slate-600">{employee.branch_name}</td>
             <td className="px-5 py-4"><p className="font-bold text-slate-900">{formatCurrency(employee.asset_value)}</p><p className="text-xs text-slate-500">{Number(employee.asset_count || 0)} assigned</p></td>
             <td className="px-5 py-4 font-bold text-slate-800">{Number(employee.license_count || 0)}</td>
             <td className="px-5 py-4 font-bold text-slate-800">{formatCurrency(employee.annual_software_cost)}</td>
             <td className="px-5 py-4 font-black text-blue-700">{formatCurrency(employee.first_year_assigned_value)}</td>
-          </tr>) : <tr><td colSpan="6" className="px-5 py-14 text-center text-slate-500">{employees.length ? "No employees match the search." : "No employee records are available in this local database yet."}</td></tr>}
+            <td className="px-5 py-4 text-right"><button type="button" onClick={() => void openEmployee(employee)} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50"><Eye size={14}/> Manage</button></td>
+          </tr>) : <tr><td colSpan="7" className="px-5 py-14 text-center text-slate-500">{employees.length ? "No employees match the current filters." : "No employee records are available in this local database yet."}</td></tr>}
         </tbody>
       </table>
     </div>
+    {selectedEmployee && <TechnologyEmployeeDrawer
+      employee={selectedEmployee}
+      value={employeeDetails}
+      role={role}
+      loading={detailsLoading}
+      error={detailsError}
+      onClose={() => { setSelectedEmployee(null); setEmployeeDetails(null); setDetailsError(""); }}
+      onAssigned={async (nextValue) => { setEmployeeDetails(nextValue); await onRefresh(); }}
+    />}
   </section>;
+}
+
+function TechnologyEmployeeDrawer({ employee, value, role, loading, error, onClose, onAssigned }) {
+  const [selectedAssetId, setSelectedAssetId] = useState("");
+  const [selectedLicenseIds, setSelectedLicenseIds] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const details = value || {};
+  const activeAssignments = details.assignments || [];
+  const history = details.assignment_history || [];
+  const assets = details.assets || [];
+  const availableLicenses = details.available_licenses || [];
+  const canAssign = employee.is_active !== false && ["admin", "superadmin"].includes(role);
+
+  function toggleLicense(licenseId) {
+    setSelectedLicenseIds((current) => current.includes(licenseId)
+      ? current.filter((id) => id !== licenseId)
+      : [...current, licenseId]);
+  }
+
+  async function assignLicenses() {
+    setSaving(true);
+    setSaveError("");
+    try {
+      const nextValue = await lifecycleRequest(`/technology-values/${employee.user_id}/license-assignments`, {
+        method: "POST",
+        body: JSON.stringify({
+          asset_id: selectedAssetId ? Number(selectedAssetId) : null,
+          license_ids: selectedLicenseIds,
+        }),
+      });
+      setSelectedLicenseIds([]);
+      await onAssigned(nextValue);
+    } catch (requestError) {
+      setSaveError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60 backdrop-blur-sm">
+    <aside className="h-full w-full max-w-3xl overflow-y-auto border-l border-blue-100 bg-[#f7faff] shadow-2xl">
+      <header className="sticky top-0 z-10 flex items-start justify-between border-b border-blue-100 bg-white p-5">
+        <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-black text-slate-950">{employee.full_name}</h2><span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${employee.is_active === false ? "bg-slate-200 text-slate-600" : "bg-emerald-100 text-emerald-700"}`}>{employee.is_active === false ? "Inactive" : "Active"}</span></div><p className="mt-1 text-sm text-slate-500">{employee.branch_name} · {employee.employee_number || "No employee number"}</p></div>
+        <button type="button" onClick={onClose} className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-100" title="Close"><X size={18}/></button>
+      </header>
+      <div className="space-y-5 p-5">
+        {(error || saveError) && <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700"><AlertTriangle size={16}/>{error || saveError}</div>}
+        {loading ? <p className="py-16 text-center text-sm text-slate-500">Loading employee technology records...</p> : <>
+          <div className="grid gap-3 sm:grid-cols-3"><ValueMetric icon={Laptop} label="Hardware" value={formatCurrency(details.totals?.asset_value)} detail={`${assets.length} assigned`}/><ValueMetric icon={KeyRound} label="Annual software" value={formatCurrency(details.totals?.annual_software_cost)} detail={`${activeAssignments.length} active seats`}/><ValueMetric icon={DollarSign} label="First-year value" value={formatCurrency(details.totals?.first_year_assigned_value)} detail="Hardware plus one year" emphasis/></div>
+
+          <section><h3 className="text-xs font-black uppercase text-slate-500">Active software licenses</h3><div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-white"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">License</th><th className="px-3 py-2">Linked asset</th><th className="px-3 py-2 text-right">Annual seat cost</th></tr></thead><tbody>{activeAssignments.length ? activeAssignments.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-800">{assignment.license_name}<span className="block font-normal text-slate-500">{assignment.vendor}</span></td><td className="px-3 py-2 text-slate-600">{assignment.asset_tag || assignment.asset_name || "Employee only"}</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(assignment.seat_annual_cost_snapshot || assignment.annual_seat_cost)}</td></tr>) : <tr><td colSpan="3" className="px-3 py-5 text-center text-slate-500">No active software licenses assigned.</td></tr>}</tbody></table></div></section>
+
+          {canAssign && <section className="border-t border-blue-100 pt-5"><div className="flex items-center justify-between"><div><h3 className="font-black text-slate-900">Assign software licenses</h3><p className="mt-1 text-xs text-slate-500">Link the seat to the employee, with an optional assigned asset.</p></div><span className="text-xs font-black text-blue-700">{selectedLicenseIds.length} selected</span></div><label className="mt-4 block"><span className="mb-1 block text-xs font-black uppercase text-slate-600">Assigned asset (optional)</span><select value={selectedAssetId} onChange={(event) => setSelectedAssetId(event.target.value)} className="field"><option value="">Employee only</option>{assets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag || asset.asset_name} - {asset.asset_name}</option>)}</select></label><div className="mt-3 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white">{availableLicenses.length ? availableLicenses.map((license) => <label key={license.license_id} className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0 hover:bg-slate-50"><input type="checkbox" checked={selectedLicenseIds.includes(Number(license.license_id))} onChange={() => toggleLicense(Number(license.license_id))} className="h-4 w-4 accent-blue-600"/><span className="min-w-0 flex-1"><span className="block text-sm font-black text-slate-800">{license.license_name}</span><span className="block text-xs text-slate-500">{license.vendor} · {license.available_licenses} available</span></span><span className="text-xs font-black">{formatCurrency(license.annual_seat_cost)}/yr</span></label>) : <p className="px-3 py-5 text-center text-xs text-slate-500">No available seats in this employee's branch.</p>}</div><div className="mt-3 flex justify-end"><button type="button" disabled={saving || !selectedLicenseIds.length} onClick={() => void assignLicenses()} className="rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-700 disabled:opacity-50">{saving ? "Assigning..." : "Assign selected licenses"}</button></div></section>}
+
+          {employee.is_active === false && <p className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">This employee is inactive. Historical records remain visible, but new licenses cannot be assigned.</p>}
+
+          <section><div className="flex items-center gap-2 text-xs font-black uppercase text-slate-500"><History size={15}/> License assignment history</div><div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-white"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">License</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Assigned</th><th className="px-3 py-2">Released</th><th className="px-3 py-2">Source</th></tr></thead><tbody>{history.length ? history.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-800">{assignment.license_name}</td><td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 font-black ${assignment.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>{assignment.status}</span></td><td className="px-3 py-2 text-slate-600">{formatDate(assignment.assigned_at)}</td><td className="px-3 py-2 text-slate-600">{formatDate(assignment.released_at)}</td><td className="px-3 py-2 text-slate-600">{assignment.assignment_source}</td></tr>) : <tr><td colSpan="5" className="px-3 py-5 text-center text-slate-500">No license assignment history.</td></tr>}</tbody></table></div></section>
+        </>}
+      </div>
+    </aside>
+  </div>;
 }
 
 function ValueMetric({ icon: Icon, label, value, detail, emphasis = false }) {

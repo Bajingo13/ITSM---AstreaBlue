@@ -9,6 +9,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const db = require("../config/db");
 const softwareLicenseRoutes = require("../src/routes/softwareLicenses");
+const employeeLifecycleRoutes = require("../src/routes/employeeLifecycle");
 const createHardwareAssetRoutes = require("../src/routes/hardwareAssets");
 const { executeInternalOffboardingTask } = require("../src/services/internalOffboardingService");
 const { getEmployeeTechnologyValue } = require("../src/services/employeeTechnologyValueService");
@@ -24,6 +25,7 @@ let superAdminId;
 let assetId;
 let deviceId;
 let licenseId;
+let directLicenseId;
 
 function headers(userId, role, branchIdValue = null) {
   const token = jwt.sign({ userId, role, branchId: branchIdValue }, secret, { expiresIn: "5m" });
@@ -35,6 +37,7 @@ test.before(async () => {
     "2026-07-21-internal-offboarding-automation.sql",
     "2026-08-17-employee-technology-value.sql",
     "2026-08-17-software-license-reconciliation.sql",
+    "2026-08-17-direct-license-assignment.sql",
   ]) {
     await db.query(fs.readFileSync(path.join(__dirname, "..", "database", fileName), "utf8"));
   }
@@ -86,10 +89,17 @@ test.before(async () => {
     [`Restored Aggregate License ${suffix}`, branchId]
   );
   licenseId = license.rows[0].license_id;
+  const directLicense = await db.query(
+    `INSERT INTO software_licenses(license_name,vendor,license_type,total_licenses,used_licenses,annual_cost,status,branch_id)
+     VALUES($1,'AstreaBlue Vendor','Annual',5,0,30000,'Active',$2) RETURNING license_id`,
+    [`Direct Employee License ${suffix}`, branchId]
+  );
+  directLicenseId = directLicense.rows[0].license_id;
 
   const app = express();
   app.use(express.json());
   app.use("/api/v1/software-licenses", softwareLicenseRoutes);
+  app.use("/api/v1/employee-lifecycle", employeeLifecycleRoutes);
   app.use("/api/v1", createHardwareAssetRoutes({ tablesReady: Promise.resolve(true) }));
   server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
@@ -97,7 +107,9 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  if (licenseId) await db.query("DELETE FROM software_licenses WHERE license_id=$1", [licenseId]);
+  if (licenseId || directLicenseId) {
+    await db.query("DELETE FROM software_licenses WHERE license_id=ANY($1::int[])", [[licenseId, directLicenseId].filter(Boolean)]);
+  }
   if (deviceId) await db.query("DELETE FROM monitored_devices WHERE device_id=$1", [deviceId]);
   if (assetId) await db.query("DELETE FROM hardware_assets WHERE asset_id=$1", [assetId]);
   await db.query("DELETE FROM users WHERE user_id=ANY($1::int[])", [[employeeId, shadowEmployeeId, superAdminId].filter(Boolean)]);
@@ -170,6 +182,23 @@ test("restored aggregate usage is mapped without double-counting and releases du
   assert.equal(Number(technologyValue.totals.annual_software_cost), 12000);
   assert.equal(Number(technologyValue.totals.first_year_assigned_value), 62000);
 
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/technology-values/${employeeId}/license-assignments`, {
+    method: "POST",
+    headers: auth,
+    body: JSON.stringify({ license_ids: [directLicenseId], asset_id: null }),
+  });
+  const directBody = await response.text();
+  assert.equal(response.status, 201, directBody);
+  const directValue = JSON.parse(directBody).data;
+  assert.equal(Number(directValue.totals.annual_software_cost), 18000);
+  assert.equal(Number(directValue.totals.first_year_assigned_value), 68000);
+  const directHistory = directValue.assignment_history.find(
+    (item) => Number(item.license_id) === Number(directLicenseId)
+  );
+  assert.equal(directHistory.status, "Active");
+  assert.equal(directHistory.assignment_source, "Direct");
+  assert.equal(directHistory.asset_id, null);
+
   response = await fetch(`${baseUrl}/api/v1/hardware-assets/${assetId}/status`, {
     method: "PATCH",
     headers: auth,
@@ -211,12 +240,23 @@ test("restored aggregate usage is mapped without double-counting and releases du
     employee: { user_id: employeeId, full_name: "Reconciliation Employee" },
     actor: { user_id: superAdminId },
   });
-  const [released, licenseAfter] = await Promise.all([
+  const [released, licenseAfter, directLicenseAfter] = await Promise.all([
     db.query("SELECT status,released_at FROM software_license_assignments WHERE license_id=$1 AND user_id=$2", [licenseId, employeeId]),
     db.query("SELECT used_licenses FROM software_licenses WHERE license_id=$1", [licenseId]),
+    db.query("SELECT used_licenses FROM software_licenses WHERE license_id=$1", [directLicenseId]),
   ]);
   assert.equal(released.rows[0].status, "Released");
   assert.ok(released.rows[0].released_at);
   assert.equal(Number(licenseAfter.rows[0].used_licenses), 2);
+  assert.equal(Number(directLicenseAfter.rows[0].used_licenses), 0);
+
+  await db.query("UPDATE users SET is_active=FALSE WHERE user_id=$1", [employeeId]);
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/technology-values/${employeeId}/license-assignments`, {
+    method: "POST",
+    headers: auth,
+    body: JSON.stringify({ license_ids: [directLicenseId] }),
+  });
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).message, /Inactive employees/);
 
 });

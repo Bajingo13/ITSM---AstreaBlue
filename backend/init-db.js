@@ -49,6 +49,7 @@ const migrationFiles = [
   "2026-08-03-endpoint-asset-link-integrity.sql",
   "2026-08-17-employee-technology-value.sql",
   "2026-08-17-software-license-reconciliation.sql",
+  "2026-08-17-direct-license-assignment.sql",
 ];
 
 const defaultTicketCategories = [
