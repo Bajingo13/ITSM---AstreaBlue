@@ -244,6 +244,26 @@ function createHardwareAssetRoutes({ tablesReady }) {
     }
   });
 
+  router.get("/hardware-assets/assignment-options", async (req, res) => {
+    try {
+      const auth = getAuthFromRequest(req);
+      const role = normalizeRole(auth?.role);
+      if (!auth?.userId || !["admin", "superadmin"].includes(role)) {
+        return res.status(auth?.userId ? 403 : 401).json({ success: false, error: "Administrator access required." });
+      }
+      const requestedBranchId = Number(req.query.branch_id) || null;
+      const branchId = role === "superadmin" ? requestedBranchId : Number(auth.branchId);
+      if (!branchId || (role !== "superadmin" && requestedBranchId && requestedBranchId !== branchId)) {
+        return res.status(403).json({ success: false, error: "Employee options are restricted to the asset branch." });
+      }
+      const result = await repository.listAssignmentEmployees(branchId);
+      return res.json({ success: true, data: result.rows });
+    } catch (error) {
+      logError("load assignment options", error);
+      return res.status(500).json({ success: false, error: "Failed to load employee assignment options." });
+    }
+  });
+
   router.get("/hardware-assets/:id/history", async (req, res) => {
     try {
       await requireTables();
@@ -588,11 +608,15 @@ function createHardwareAssetRoutes({ tablesReady }) {
           .json({ success: false, error: "Asset not found" });
       }
       const current = existing.rows[0];
-      const role = normalizeRole(
-        req.query.role_name || req.body.role_name
-      );
-      const currentBranchId =
-        req.query.current_branch_id || req.body.current_branch_id;
+      const auth = getAuthFromRequest(req);
+      if (!auth?.userId) {
+        return res.status(401).json({ success: false, error: "Authentication required." });
+      }
+      const role = normalizeRole(auth.role);
+      if (!["admin", "superadmin"].includes(role)) {
+        return res.status(403).json({ success: false, error: "Administrator access required." });
+      }
+      const currentBranchId = auth.branchId;
       if (
         role !== "superadmin" &&
         currentBranchId &&
@@ -605,16 +629,14 @@ function createHardwareAssetRoutes({ tablesReady }) {
       }
       if (
         status === "Borrowed" &&
-        (!req.body.borrower_name ||
-          !req.body.employee_id ||
-          !req.body.borrower_department ||
+        (!req.body.assigned_to ||
           !req.body.borrow_date ||
           !req.body.expected_return_date)
       ) {
         return res.status(400).json({
           success: false,
           error:
-            "Borrower name, employee ID, department, borrow date, and expected return date are required for borrowed assets",
+            "Employee, borrow date, and expected return date are required for borrowed assets",
         });
       }
       if (
@@ -626,27 +648,63 @@ function createHardwareAssetRoutes({ tablesReady }) {
           error: "Actual return date is required when returning an asset",
         });
       }
+      let assignedTo = current.assigned_to || null;
+      let assignedName = current.assigned_name || current.borrower_name || null;
+      let borrowerName = req.body.borrower_name || current.borrower_name || null;
+      let employeeId = req.body.employee_id || current.employee_id || null;
+      let borrowerDepartment = req.body.borrower_department || current.borrower_department || null;
+      if (status === "Borrowed") {
+        const employeeResult = await repository.findAssignmentEmployee(Number(req.body.assigned_to), current.branch_id);
+        const employee = employeeResult.rows[0];
+        if (!employee) {
+          return res.status(400).json({ success: false, error: "Select an active employee from the asset branch." });
+        }
+        assignedTo = Number(employee.user_id);
+        assignedName = employee.full_name;
+        borrowerName = employee.full_name;
+        employeeId = employee.employee_number || String(employee.user_id);
+        borrowerDepartment = employee.department || null;
+      } else if (["Active", "In Stock"].includes(status)) {
+        assignedTo = null;
+        assignedName = null;
+        borrowerName = null;
+        employeeId = null;
+        borrowerDepartment = null;
+      }
       const values = [
         status,
-        req.body.borrower_name || null,
-        req.body.employee_id || null,
-        req.body.borrower_department || null,
+        borrowerName,
+        employeeId,
+        borrowerDepartment,
         req.body.borrow_date || null,
         req.body.expected_return_date || null,
         req.body.actual_return_date || null,
         req.body.condition_before || null,
         req.body.condition_after || null,
         req.body.notes || null,
+        assignedTo,
+        assignedName,
       ];
       const updated = (
         await repository.updateStatus(req.params.id, values)
       ).rows[0];
+      let detachedLicenseAssignments = { rowCount: 0, rows: [] };
+      if (current.assigned_to && Number(current.assigned_to) !== Number(assignedTo)) {
+        detachedLicenseAssignments = await repository.detachActiveLicenseAssignments(
+          updated.asset_id,
+          current.assigned_to
+        );
+      }
       const event = {
         from: current.status,
         to: status,
-        borrower_name: req.body.borrower_name,
-        employee_id: req.body.employee_id,
-        borrower_department: req.body.borrower_department,
+        previous_assigned_to: current.assigned_to || null,
+        previous_borrower_name: current.borrower_name || null,
+        detached_license_assignment_ids: detachedLicenseAssignments.rows.map((assignment) => Number(assignment.assignment_id)),
+        borrower_name: borrowerName,
+        employee_id: employeeId,
+        assigned_to: assignedTo,
+        borrower_department: borrowerDepartment,
         borrow_date: req.body.borrow_date,
         expected_return_date: req.body.expected_return_date,
         actual_return_date: req.body.actual_return_date,
@@ -663,11 +721,20 @@ function createHardwareAssetRoutes({ tablesReady }) {
       );
       await recordBorrow(updated.asset_id, {
         ...req.body,
+        borrower_name: borrowerName || current.borrower_name || null,
+        employee_id: employeeId || current.employee_id || null,
+        borrower_department: borrowerDepartment || current.borrower_department || null,
         status_from: current.status,
         status_to: status,
         branch_id: current.branch_id,
         created_by: null,
       });
+      await repository.syncMonitoredAssignment(
+        updated.asset_id,
+        assignedTo,
+        borrowerDepartment,
+        current.branch_id
+      );
       return res.json(updated);
     } catch (error) {
       console.error("Update hardware asset status error:", error.message);

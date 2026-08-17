@@ -15,6 +15,7 @@ import {
   FileText,
   History,
   Layers,
+  Link2,
   Package,
   PieChart,
   Plus,
@@ -480,6 +481,54 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
   );
 }
 
+function ReconcileLicenseModal({ license, data, loading, saving, error, onClose, onSave }) {
+  const [employeeId, setEmployeeId] = useState("");
+  const [assetId, setAssetId] = useState("");
+  const employees = data?.employees || [];
+  const assignments = data?.assignments || [];
+  const employeeAssets = (data?.assets || []).filter((asset) => String(asset.user_id) === String(employeeId));
+  const unlinked = Number(data?.license?.unlinked_used_licenses ?? license.unlinked_used_licenses ?? 0);
+
+  function selectEmployee(value) {
+    setEmployeeId(value);
+    const assets = (data?.assets || []).filter((asset) => String(asset.user_id) === String(value));
+    setAssetId(assets.length === 1 ? String(assets[0].asset_id) : "");
+  }
+
+  return <div className="astrea-modal-backdrop">
+    <div className="astrea-modal-panel relative max-w-2xl">
+      <div className="astrea-modal-header">
+        <div><p className="text-xs font-black uppercase text-blue-600">Usage reconciliation</p><h2 className="mt-1 text-base font-black text-slate-900">{license.license_name}</h2></div>
+        <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100" title="Close"><X size={18}/></button>
+      </div>
+
+      <div className="astrea-modal-body space-y-5">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-bold text-slate-500">Used</p><p className="mt-1 text-xl font-black text-slate-900">{Number(data?.license?.used_licenses ?? license.used_licenses ?? 0)}</p></div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-bold text-slate-500">Employee-linked</p><p className="mt-1 text-xl font-black text-slate-900">{Number(data?.license?.tracked_assignments ?? license.tracked_assignments ?? 0)}</p></div>
+          <div className={`rounded-lg border p-3 ${unlinked ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}><p className="text-xs font-bold text-slate-500">Unlinked</p><p className={`mt-1 text-xl font-black ${unlinked ? "text-amber-800" : "text-emerald-700"}`}>{unlinked}</p></div>
+        </div>
+
+        {loading ? <p className="py-8 text-center text-sm text-slate-500">Loading reconciliation records...</p> : <>
+          {unlinked > 0 && <form onSubmit={(event) => { event.preventDefault(); void onSave({ user_id: Number(employeeId), asset_id: assetId ? Number(assetId) : null }); }} className="grid gap-4 sm:grid-cols-2">
+            <Field label="Employee" required><select required value={employeeId} onChange={(event) => selectEmployee(event.target.value)} className={inputClass}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.user_id} value={employee.user_id}>{employee.full_name}{employee.employee_number ? ` · ${employee.employee_number}` : ""}</option>)}</select></Field>
+            <Field label="Assigned asset"><select value={assetId} onChange={(event) => setAssetId(event.target.value)} disabled={!employeeId || employeeAssets.length === 0} className={inputClass}><option value="">{employeeAssets.length ? "No asset link" : "No assigned asset"}</option>{employeeAssets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag} · {asset.asset_name}</option>)}</select></Field>
+            {error && <div className="sm:col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">{error}</div>}
+            <div className="sm:col-span-2 flex justify-end"><button type="submit" disabled={saving || !employeeId} className="astrea-button astrea-button-primary"><Link2 size={16}/>{saving ? "Linking..." : "Link used seat"}</button></div>
+          </form>}
+
+          <div>
+            <h3 className="text-xs font-black uppercase text-slate-500">Active employee links</h3>
+            <div className="mt-2 max-h-48 overflow-y-auto border-y border-slate-200">
+              {assignments.length ? assignments.map((assignment) => <div key={assignment.assignment_id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0"><div><p className="text-sm font-bold text-slate-900">{assignment.full_name}</p><p className="text-xs text-slate-500">{assignment.asset_tag || "No asset link"} · {assignment.assignment_source}</p></div><CheckCircle size={16} className="text-emerald-600"/></div>) : <p className="px-3 py-6 text-center text-sm text-slate-500">No employee-linked seats yet.</p>}
+            </div>
+          </div>
+        </>}
+      </div>
+    </div>
+  </div>;
+}
+
 function suggestedRenewalDate(expiryDate) {
   const base = expiryDate ? new Date(expiryDate) : new Date();
   if (Number.isNaN(base.getTime())) return "";
@@ -571,6 +620,9 @@ export default function SoftwareLicenses() {
   const [renewingLicense, setRenewingLicense] = useState(null);
   const [renewalHistory, setRenewalHistory] = useState([]);
   const [renewalHistoryLoading, setRenewalHistoryLoading] = useState(false);
+  const [reconcilingLicense, setReconcilingLicense] = useState(null);
+  const [reconciliationData, setReconciliationData] = useState(null);
+  const [reconciliationLoading, setReconciliationLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
@@ -720,6 +772,46 @@ export default function SoftwareLicenses() {
       await fetchData();
     } catch (err) {
       setSaveError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const loadReconciliation = async (license) => {
+    setReconcilingLicense(license);
+    setReconciliationData(null);
+    setReconciliationLoading(true);
+    setSaveError("");
+    try {
+      const response = await fetch(`${API_BASE}/software-licenses/${license.license_id}/reconciliation`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.success === false) throw new Error(payload.error || "Failed to load reconciliation.");
+      setReconciliationData(payload.data);
+    } catch (requestError) {
+      setSaveError(requestError.message);
+    } finally {
+      setReconciliationLoading(false);
+    }
+  };
+
+  const handleReconciliation = async (values) => {
+    if (!reconcilingLicense) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      const response = await fetch(`${API_BASE}/software-licenses/${reconcilingLicense.license_id}/reconcile`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(values),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.success === false) throw new Error(payload.error || "Failed to reconcile license usage.");
+      await Promise.all([fetchData(), loadReconciliation(reconcilingLicense)]);
+    } catch (requestError) {
+      setSaveError(requestError.message);
     } finally {
       setSaving(false);
     }
@@ -924,7 +1016,7 @@ export default function SoftwareLicenses() {
                       {isSuperAdmin && <td className="px-5 py-3.5 text-slate-600">{l.branch_name || "—"}</td>}
                       <td className="px-5 py-3.5 text-slate-600">{l.license_type}</td>
                       <td className="px-5 py-3.5 font-bold text-slate-800">{l.total_licenses}</td>
-                      <td className="px-5 py-3.5 font-bold text-slate-800">{l.used_licenses}</td>
+                      <td className="px-5 py-3.5 font-bold text-slate-800">{l.used_licenses}<span className="mt-0.5 block text-[10px] font-semibold text-slate-400">{Number(l.tracked_assignments || 0)} employee-linked</span>{Number(l.unlinked_used_licenses || 0) > 0 && <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800">{Number(l.unlinked_used_licenses)} unlinked</span>}</td>
                       <td className="px-5 py-3.5 font-bold text-slate-800">{Math.max(Number(l.available_licenses ?? l.total_licenses - l.used_licenses), 0)}</td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2">
@@ -947,6 +1039,7 @@ export default function SoftwareLicenses() {
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {Number(l.unlinked_used_licenses || 0) > 0 && <button type="button" onClick={() => void loadReconciliation(l)} className="rounded-lg p-1.5 text-amber-600 transition hover:bg-amber-50 hover:text-amber-800" title="Link untracked used seats to employees"><Link2 size={15}/></button>}
                           {l.license_type !== "Perpetual" && (
                             <button
                               type="button"
@@ -1023,6 +1116,21 @@ export default function SoftwareLicenses() {
           onRenew={handleRenew}
           loading={saving}
           error={saveError}
+        />
+      )}
+      {reconcilingLicense && (
+        <ReconcileLicenseModal
+          license={reconcilingLicense}
+          data={reconciliationData}
+          loading={reconciliationLoading}
+          saving={saving}
+          error={saveError}
+          onClose={() => {
+            setReconcilingLicense(null);
+            setReconciliationData(null);
+            setSaveError("");
+          }}
+          onSave={handleReconciliation}
         />
       )}
       {exportOpen && (

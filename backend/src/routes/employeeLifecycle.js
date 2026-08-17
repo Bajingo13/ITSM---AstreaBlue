@@ -29,6 +29,11 @@ const {
 const {
   completeLifecycleOnboarding,
 } = require("../services/onboardingStateService");
+const {
+  assignEmployeeLicenses,
+  getEmployeeTechnologyValue,
+  listEmployeeTechnologyValues,
+} = require("../services/employeeTechnologyValueService");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -272,6 +277,20 @@ router.get("/employees", async (req, res) => {
   } catch (error) {
     console.error("[employee-lifecycle:employees]", error.message);
     return res.status(500).json({ success: false, message: "Failed to load lifecycle employees." });
+  }
+});
+
+router.get("/technology-values", async (req, res) => {
+  try {
+    const requestedBranch = Number(req.query.branch_id) || null;
+    const branchId = req.lifecycleActor.role === "superadmin"
+      ? requestedBranch
+      : Number(req.lifecycleActor.branch_id);
+    const value = await listEmployeeTechnologyValues(db, { branchId });
+    return res.json({ success: true, data: value });
+  } catch (error) {
+    console.error("[employee-lifecycle:technology-values]", error.message);
+    return res.status(500).json({ success: false, message: "Failed to load employee technology values." });
   }
 });
 
@@ -800,6 +819,135 @@ router.delete("/cases/:id", async (req, res) => {
   }
 });
 
+router.get("/cases/:id/technology-value", async (req, res) => {
+  try {
+    if (!(await assertScopedCase(req, db, req.params.id))) {
+      return res.status(404).json({ success: false, message: "Lifecycle case not found." });
+    }
+    const lifecycleCase = await loadCase(db, req.params.id);
+    if (!lifecycleCase?.employee_id) {
+      return res.json({
+        success: true,
+        data: {
+          employee: null,
+          assets: [],
+          assignments: [],
+          available_licenses: [],
+          totals: { asset_value: 0, annual_software_cost: 0, first_year_assigned_value: 0 },
+        },
+      });
+    }
+    const value = await getEmployeeTechnologyValue(db, {
+      employeeId: lifecycleCase.employee_id,
+      branchId: lifecycleCase.branch_id,
+    });
+    return res.json({ success: true, data: value });
+  } catch (error) {
+    console.error("[employee-lifecycle:technology-value]", error.message);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : "Failed to load employee technology value.",
+    });
+  }
+});
+
+router.post("/cases/:id/license-assignments", async (req, res) => {
+  if (!["superadmin", "admin"].includes(req.lifecycleActor.role)) {
+    return res.status(403).json({ success: false, message: "Software-license assignment requires an administrator." });
+  }
+  const client = await db.rawPool.connect();
+  try {
+    await client.query("BEGIN");
+    if (!(await assertScopedCase(req, client, req.params.id, true))) {
+      throw Object.assign(new Error("Lifecycle case not found."), { status: 404 });
+    }
+    const caseResult = await client.query(
+      `SELECT lc.lifecycle_case_id,lc.lifecycle_type,lc.status,lc.employee_id,lc.branch_id,lc.case_number,
+              employee.user_id,employee.full_name,employee.employee_number
+         FROM employee_lifecycle_cases lc
+         LEFT JOIN users employee ON employee.user_id=lc.employee_id
+        WHERE lc.lifecycle_case_id=$1
+        FOR UPDATE OF lc`,
+      [req.params.id]
+    );
+    const lifecycleCase = caseResult.rows[0];
+    if (!lifecycleCase || lifecycleCase.lifecycle_type !== "Onboarding") {
+      throw Object.assign(new Error("Software licenses can only be assigned from an onboarding case."), { status: 409 });
+    }
+    if (TERMINAL_STATUSES.has(lifecycleCase.status)) {
+      throw Object.assign(new Error("A completed or cancelled case cannot assign software licenses."), { status: 409 });
+    }
+    if (!lifecycleCase.employee_id) {
+      throw Object.assign(new Error("Create and link the employee account before assigning software licenses."), { status: 409 });
+    }
+    const taskResult = await client.query(
+      `SELECT task.lifecycle_task_id,task.status,
+              asset_task.status AS asset_task_status
+         FROM employee_lifecycle_tasks task
+         LEFT JOIN employee_lifecycle_tasks asset_task
+           ON asset_task.lifecycle_case_id=task.lifecycle_case_id AND asset_task.task_key='assign_asset'
+        WHERE task.lifecycle_case_id=$1 AND task.task_key='assign_licenses'
+        FOR UPDATE OF task`,
+      [req.params.id]
+    );
+    const task = taskResult.rows[0];
+    if (!task) throw Object.assign(new Error("The software-license onboarding task is unavailable."), { status: 409 });
+    if (task.status === "Completed") throw Object.assign(new Error("Software-license onboarding is already complete."), { status: 409 });
+    if (task.asset_task_status !== "Completed") {
+      throw Object.assign(new Error("Complete managed asset assignment before assigning software licenses."), { status: 409 });
+    }
+
+    const automationResult = await assignEmployeeLicenses(client, {
+      lifecycleCase,
+      employee: lifecycleCase,
+      actor: req.lifecycleActor,
+      assetId: Number(req.body.asset_id) || null,
+      licenseIds: Array.isArray(req.body.license_ids) ? req.body.license_ids : [],
+      noLicenseRequired: req.body.no_license_required === true,
+    });
+    await client.query(
+      `UPDATE employee_lifecycle_tasks
+          SET status='Completed',completed_by=$1,completed_at=CURRENT_TIMESTAMP,
+              completion_notes=$2,automation_result=$3::jsonb,
+              automation_completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+        WHERE lifecycle_task_id=$4`,
+      [req.lifecycleActor.user_id,
+        automationResult.affected ? `${automationResult.affected} software license seat(s) assigned.` : "No software license required.",
+        JSON.stringify(automationResult), task.lifecycle_task_id]
+    );
+    await addHistory(
+      client,
+      Number(req.params.id),
+      req.lifecycleActor.user_id,
+      "software_licenses_assigned",
+      automationResult.affected
+        ? `${automationResult.affected} software license seat(s) assigned during onboarding.`
+        : "Onboarding confirmed that no software license is required.",
+      null,
+      null,
+      automationResult
+    );
+    await client.query("COMMIT");
+    const value = await getEmployeeTechnologyValue(db, {
+      employeeId: lifecycleCase.employee_id,
+      branchId: lifecycleCase.branch_id,
+    });
+    return res.status(201).json({ success: true, data: value });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[employee-lifecycle:assign-licenses]", error.message);
+    if (error.code === "23505") {
+      return res.status(409).json({ success: false, message: "The employee already has one of the selected licenses." });
+    }
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : "Failed to assign software licenses.",
+    });
+  } finally {
+    client.release();
+  }
+});
+
 router.get("/cases/:id", async (req, res) => {
   try {
     if (!(await assertScopedCase(req, db, req.params.id))) return res.status(404).json({ success: false, message: "Lifecycle case not found." });
@@ -852,6 +1000,9 @@ router.patch("/cases/:id/tasks/:taskId", async (req, res) => {
     if (TERMINAL_STATUSES.has(task.case_status)) throw Object.assign(new Error("A completed or cancelled case cannot be edited."), { status: 409 });
     if (!canUpdateLifecycleTask(req.lifecycleActor.role, task.assigned_role)) {
       throw Object.assign(new Error("You do not have permission to complete this checklist item."), { status: 403 });
+    }
+    if (task.lifecycle_type === "Onboarding" && task.task_key === "assign_licenses") {
+      throw Object.assign(new Error("Use the Employee Technology Value panel to complete software-license assignment."), { status: 409 });
     }
     if (task.lifecycle_type === "Onboarding" && AUTOMATED_ONBOARDING_TASK_KEYS.has(task.task_key)) {
       throw Object.assign(new Error("This onboarding item is synchronized automatically from system evidence and cannot be checked manually."), { status: 409 });

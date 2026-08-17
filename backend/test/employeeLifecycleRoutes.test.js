@@ -18,6 +18,7 @@ const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 let server;
 let baseUrl;
 let branchId;
+let createdBranchId;
 let employeeId;
 let hrId;
 let superAdminId;
@@ -26,6 +27,7 @@ let offboardingCaseId;
 let assetId;
 let deviceId;
 let ticketId;
+let licenseId;
 let preHireCaseId;
 let preHireUserId;
 const automaticTicketIds = [];
@@ -44,8 +46,19 @@ test.before(async () => {
   await db.query(preHireMigration);
   const softDeleteMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-07-22-employee-lifecycle-soft-delete.sql"), "utf8");
   await db.query(softDeleteMigration);
-  const branch = await db.query(`SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1`);
-  assert.ok(branch.rows[0]?.branch_id);
+  const technologyValueMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-08-17-employee-technology-value.sql"), "utf8");
+  await db.query(technologyValueMigration);
+  const reconciliationMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-08-17-software-license-reconciliation.sql"), "utf8");
+  await db.query(reconciliationMigration);
+  let branch = await db.query(`SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1`);
+  if (!branch.rows.length) {
+    branch = await db.query(
+      `INSERT INTO branches(branch_name,branch_code,is_active)
+       VALUES('Lifecycle Test Branch',$1,TRUE) RETURNING branch_id`,
+      [`LIFECYCLE-${Date.now()}`]
+    );
+    createdBranchId = branch.rows[0].branch_id;
+  }
   branchId = branch.rows[0].branch_id;
   const roles = await db.query(`SELECT role_id,LOWER(role_name) role FROM system_roles WHERE LOWER(role_name) IN ('employee','hr','superadmin')`);
   const roleMap = Object.fromEntries(roles.rows.map((row) => [row.role, row.role_id]));
@@ -79,6 +92,7 @@ test.before(async () => {
 
 test.after(async () => {
   if (deviceId) await db.query(`DELETE FROM monitored_devices WHERE device_id=$1`, [deviceId]);
+  if (licenseId) await db.query(`DELETE FROM software_licenses WHERE license_id=$1`, [licenseId]);
   if (assetId) await db.query(`DELETE FROM hardware_assets WHERE asset_id=$1`, [assetId]);
   if (offboardingCaseId) await db.query(`DELETE FROM employee_lifecycle_cases WHERE lifecycle_case_id=$1`, [offboardingCaseId]);
   if (ticketId) await db.query(`DELETE FROM tickets WHERE id=$1`, [ticketId]);
@@ -91,6 +105,7 @@ test.after(async () => {
     await db.query(`DELETE FROM tickets WHERE id=ANY($1::int[])`, [automaticTicketIds]);
   }
   await db.query(`DELETE FROM users WHERE user_id=ANY($1::int[])`, [[employeeId, hrId, superAdminId, preHireUserId].filter(Boolean)]);
+  if (createdBranchId) await db.query(`DELETE FROM branches WHERE branch_id=$1`, [createdBranchId]);
   if (server) await new Promise((resolve) => server.close(resolve));
   await db.rawPool.end();
 });
@@ -214,10 +229,11 @@ test("HR creates a branch-scoped onboarding case with a complete template", asyn
   });
   assert.equal(details.status, 200);
   const data = (await details.json()).data;
-  assert.equal(data.tasks.length, 9);
-  assert.equal(data.required_pending_count, 7);
+  assert.equal(data.tasks.length, 10);
+  assert.equal(data.required_pending_count, 8);
   assert.equal(data.tasks.find((task) => task.task_key === "create_account").status, "Completed");
   assert.equal(data.tasks.find((task) => task.task_key === "complete_profile").status, "Completed");
+  assert.equal(data.tasks.find((task) => task.task_key === "assign_licenses").status, "Pending");
 });
 
 test("HR can oversee IT tasks but cannot falsely complete them", async () => {
@@ -380,11 +396,50 @@ test("only SuperAdmin can safely remove a non-completed lifecycle case", async (
 test("offboarding executes only internal AstreaBlue actions and preserves endpoint identity", async () => {
   const suffix = Date.now();
   const asset = await db.query(
-    `INSERT INTO hardware_assets(asset_name,asset_type,brand,model_name,serial_number,branch_id,status,assigned_to,employee_id,assigned_name)
-     VALUES('Lifecycle Laptop','Laptop','AstreaBlue','QA Laptop',$1,$2,'In Use',$3::int,$3::text,'Lifecycle Employee') RETURNING asset_id`,
+    `INSERT INTO hardware_assets(asset_name,asset_type,brand,model_name,serial_number,branch_id,status,assigned_to,employee_id,assigned_name,purchase_price)
+     VALUES('Lifecycle Laptop','Laptop','AstreaBlue','QA Laptop',$1,$2,'In Use',$3::int,$3::text,'Lifecycle Employee',60000) RETURNING asset_id`,
     [`LIFECYCLE-${suffix}`, branchId, employeeId]
   );
   assetId = asset.rows[0].asset_id;
+  const license = await db.query(
+    `INSERT INTO software_licenses
+       (license_name,vendor,license_type,total_licenses,used_licenses,annual_cost,status,branch_id)
+     VALUES($1,'AstreaBlue Vendor','Annual',12,0,12000,'Active',$2)
+     RETURNING license_id`,
+    [`Lifecycle License ${suffix}`, branchId]
+  );
+  licenseId = license.rows[0].license_id;
+  await db.query(
+    `UPDATE employee_lifecycle_tasks SET status='Completed',completed_by=$2,completed_at=CURRENT_TIMESTAMP
+      WHERE lifecycle_case_id=$1 AND task_key='assign_asset'`,
+    [caseId, superAdminId]
+  );
+  let assignmentResponse = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}/license-assignments`, {
+    method: "POST",
+    headers: authHeaders(superAdminId, "SuperAdmin", null),
+    body: JSON.stringify({ asset_id: assetId, license_ids: [licenseId] }),
+  });
+  const assignmentBody = await assignmentResponse.text();
+  assert.equal(assignmentResponse.status, 201, assignmentBody);
+  const assignedValue = JSON.parse(assignmentBody).data;
+  assert.equal(assignedValue.assignments.length, 1);
+  assert.equal(Number(assignedValue.totals.asset_value), 60000);
+  assert.equal(Number(assignedValue.totals.annual_software_cost), 1000);
+  assert.equal(Number(assignedValue.totals.first_year_assigned_value), 61000);
+  const inventoryResponse = await fetch(`${baseUrl}/api/v1/employee-lifecycle/technology-values`, {
+    headers: authHeaders(superAdminId, "SuperAdmin", null),
+  });
+  const inventoryBody = await inventoryResponse.text();
+  assert.equal(inventoryResponse.status, 200, inventoryBody);
+  const employeeValue = JSON.parse(inventoryBody).data.employees.find(
+    (employee) => Number(employee.user_id) === Number(employeeId)
+  );
+  assert.ok(employeeValue);
+  assert.equal(Number(employeeValue.asset_value), 60000);
+  assert.equal(Number(employeeValue.annual_software_cost), 1000);
+  assert.equal(Number(employeeValue.first_year_assigned_value), 61000);
+  const licenseAfterAssignment = await db.query(`SELECT used_licenses FROM software_licenses WHERE license_id=$1`, [licenseId]);
+  assert.equal(licenseAfterAssignment.rows[0].used_licenses, 1);
   const deviceUuid = "8a49d563-8b24-4c37-a0ad-25a58cdf55a9";
   const device = await db.query(
     `INSERT INTO monitored_devices(hostname,assigned_user_id,branch_id,asset_id,device_uuid,status)
@@ -463,6 +518,14 @@ test("offboarding executes only internal AstreaBlue actions and preserves endpoi
   assert.equal(completedCase.rows[0].status, "Completed");
   assert.equal(Number(completedCase.rows[0].verified_by), Number(superAdminId));
   assert.ok(completedCase.rows[0].completed_at);
+  const [releasedAssignment, licenseAfterRelease] = await Promise.all([
+    db.query(`SELECT status,released_at,release_reason FROM software_license_assignments WHERE license_id=$1 AND user_id=$2`, [licenseId, employeeId]),
+    db.query(`SELECT used_licenses FROM software_licenses WHERE license_id=$1`, [licenseId]),
+  ]);
+  assert.equal(releasedAssignment.rows[0].status, "Released");
+  assert.ok(releasedAssignment.rows[0].released_at);
+  assert.match(releasedAssignment.rows[0].release_reason, /Offboarding/);
+  assert.equal(licenseAfterRelease.rows[0].used_licenses, 0);
 
   response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases`, {
     method: "POST",

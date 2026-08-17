@@ -233,10 +233,32 @@ function updateStatus(assetId, values) {
      SET status=$1, borrower_name=$2, employee_id=$3, borrower_department=$4,
          borrow_date=$5, expected_return_date=$6, actual_return_date=$7,
          condition_before=$8, condition_after=$9, notes=$10,
+         assigned_to=$11,assigned_name=$12,
          updated_at=CURRENT_TIMESTAMP
-     WHERE asset_id=$11
+     WHERE asset_id=$13
      RETURNING *`,
     [...values, assetId]
+  );
+}
+
+function listAssignmentEmployees(branchId) {
+  return db.query(
+    `SELECT employee.user_id,employee.full_name,employee.employee_number,employee.department,employee.branch_id
+       FROM users employee JOIN system_roles role ON role.role_id=employee.role_id
+      WHERE LOWER(role.role_name)='employee' AND employee.is_active=TRUE AND employee.branch_id=$1
+      ORDER BY employee.full_name`,
+    [branchId]
+  );
+}
+
+function findAssignmentEmployee(userId, branchId) {
+  return db.query(
+    `SELECT employee.user_id,employee.full_name,employee.employee_number,employee.department,employee.branch_id
+       FROM users employee JOIN system_roles role ON role.role_id=employee.role_id
+      WHERE employee.user_id=$1 AND employee.branch_id=$2
+        AND LOWER(role.role_name)='employee' AND employee.is_active=TRUE
+      LIMIT 1`,
+    [userId, branchId]
   );
 }
 
@@ -286,6 +308,17 @@ function unlinkAssetDevices(assetId) {
 
 function deleteAsset(assetId) {
   return db.query("DELETE FROM hardware_assets WHERE asset_id = $1", [assetId]);
+}
+
+function detachActiveLicenseAssignments(assetId, employeeId) {
+  if (!employeeId) return Promise.resolve({ rowCount: 0, rows: [] });
+  return db.query(
+    `UPDATE software_license_assignments
+        SET asset_id=NULL,updated_at=CURRENT_TIMESTAMP
+      WHERE asset_id=$1 AND user_id=$2 AND status='Active'
+      RETURNING assignment_id,license_id`,
+    [assetId, employeeId]
+  );
 }
 
 async function deleteAssetSafely(assetId, branchId) {
@@ -374,9 +407,11 @@ module.exports = {
   createAsset,
   deleteAsset,
   deleteAssetSafely,
+  detachActiveLicenseAssignments,
   findAsset,
   findAssetBranch,
   findAssetTag,
+  findAssignmentEmployee,
   findDeletableAsset,
   findDevice,
   getHistory,
@@ -385,6 +420,7 @@ module.exports = {
   insertBorrowRecord,
   insertHistory,
   linkDevice,
+  listAssignmentEmployees,
   listAssets,
   syncMonitoredAssignment,
   unlinkAssetDevices,

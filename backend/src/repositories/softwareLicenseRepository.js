@@ -48,7 +48,10 @@ async function list(branchId, { alphabetical = false } = {}) {
   return db.query(
     `SELECT
       sl.*,
-      GREATEST(sl.total_licenses - sl.used_licenses, 0) AS available_licenses
+      GREATEST(sl.total_licenses - sl.used_licenses, 0) AS available_licenses,
+      COALESCE(assignment_usage.tracked_assignments,0)::int AS tracked_assignments,
+      GREATEST(sl.used_licenses-COALESCE(assignment_usage.tracked_assignments,0),0)::int AS unlinked_used_licenses,
+      GREATEST(COALESCE(assignment_usage.tracked_assignments,0)-sl.used_licenses,0)::int AS counter_shortfall
       ${overuseColumn},
       CASE
         WHEN sl.expiry_date < CURRENT_DATE THEN 'Expired'
@@ -58,6 +61,11 @@ async function list(branchId, { alphabetical = false } = {}) {
       b.branch_name
     FROM software_licenses sl
     LEFT JOIN branches b ON sl.branch_id = b.branch_id
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int tracked_assignments
+      FROM software_license_assignments assignment
+      WHERE assignment.license_id=sl.license_id AND assignment.status='Active'
+    ) assignment_usage ON TRUE
     ${filter.clause}
     ORDER BY ${alphabetical ? "sl.license_name" : "sl.created_at DESC"}`,
     filter.params
@@ -93,7 +101,7 @@ async function branchExists(branchId) {
 
 function findById(licenseId, executor = db) {
   return executor.query(
-    `SELECT license_id, branch_id, expiry_date, annual_cost
+    `SELECT license_id, branch_id, expiry_date, annual_cost,total_licenses,used_licenses,license_name,vendor,license_type
      FROM software_licenses
      WHERE license_id = $1
      LIMIT 1`,
@@ -101,9 +109,66 @@ function findById(licenseId, executor = db) {
   );
 }
 
+function getReconciliation(licenseId, executor = db) {
+  return Promise.all([
+    executor.query(
+      `SELECT assignment.assignment_id,assignment.user_id,assignment.asset_id,
+              assignment.assignment_source,assignment.assigned_at,
+              employee.full_name,employee.employee_number,employee.department,
+              asset.asset_tag,asset.asset_name
+         FROM software_license_assignments assignment
+         JOIN users employee ON employee.user_id=assignment.user_id
+         LEFT JOIN hardware_assets asset ON asset.asset_id=assignment.asset_id
+        WHERE assignment.license_id=$1 AND assignment.status='Active'
+        ORDER BY employee.full_name`,
+      [licenseId]
+    ),
+    executor.query(
+      `SELECT employee.user_id,employee.full_name,employee.employee_number,employee.department
+         FROM users employee
+         JOIN system_roles role ON role.role_id=employee.role_id
+         JOIN software_licenses license ON license.license_id=$1
+        WHERE LOWER(role.role_name)='employee'
+          AND employee.is_active=TRUE
+          AND employee.branch_id=license.branch_id
+          AND NOT EXISTS (
+            SELECT 1 FROM software_license_assignments assignment
+             WHERE assignment.license_id=license.license_id
+               AND assignment.user_id=employee.user_id
+               AND assignment.status='Active'
+          )
+        ORDER BY employee.full_name`,
+      [licenseId]
+    ),
+    executor.query(
+      `SELECT asset.asset_id,asset.asset_tag,asset.asset_name,employee.user_id
+         FROM hardware_assets asset
+         JOIN users employee
+           ON asset.assigned_to=employee.user_id
+           OR (asset.assigned_to IS NULL AND (
+                asset.employee_id=employee.user_id::text
+                OR (COALESCE(employee.employee_number,'')<>'' AND asset.employee_id=employee.employee_number)
+              ))
+         JOIN software_licenses license ON license.license_id=$1
+        WHERE asset.branch_id=license.branch_id
+        ORDER BY asset.asset_name,asset.asset_tag`,
+      [licenseId]
+    ),
+  ]);
+}
+
+function countActiveAssignments(licenseId, executor = db) {
+  return executor.query(
+    `SELECT COUNT(*)::int count FROM software_license_assignments
+      WHERE license_id=$1 AND status='Active'`,
+    [licenseId]
+  );
+}
+
 function findByIdForUpdate(licenseId, executor) {
   return executor.query(
-    `SELECT license_id, branch_id, expiry_date, annual_cost
+    `SELECT license_id,branch_id,expiry_date,annual_cost,total_licenses,used_licenses,
+            license_name,vendor,license_type
      FROM software_licenses
      WHERE license_id = $1
      FOR UPDATE`,
@@ -195,11 +260,13 @@ function connect() {
 module.exports = {
   branchExists,
   connect,
+  countActiveAssignments,
   create,
   ensureSchema,
   findById,
   findByIdForUpdate,
   getSummary,
+  getReconciliation,
   insertRenewal,
   list,
   listRenewals,

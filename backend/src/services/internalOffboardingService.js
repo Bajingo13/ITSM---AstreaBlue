@@ -6,7 +6,7 @@ const TASK_PREREQUISITES = Object.freeze({
   notify_parties: ["verify_checklist"],
   close_linked_ticket: ["notify_parties"],
 });
-const NOTE_REQUIRED_TASKS = new Set(["audit_licenses", "secure_data", "classify_assets"]);
+const NOTE_REQUIRED_TASKS = new Set(["secure_data", "classify_assets"]);
 const CLASSIFIED_ASSET_STATUSES = new Set(["available", "in stock", "in repair", "retired", "disposed"]);
 
 function httpError(status, message) {
@@ -33,7 +33,9 @@ async function assignedAssets(queryable, employee) {
   const employeeNumber = String(employee.employee_number || "").trim();
   return queryable.query(
     `SELECT asset_id,asset_name,asset_tag,status,branch_id FROM hardware_assets
-      WHERE assigned_to=$1 OR employee_id=$1::text OR ($2::text<>'' AND employee_id=$2::text)
+      WHERE assigned_to=$1 OR (assigned_to IS NULL AND (
+        employee_id=$1::text OR ($2::text<>'' AND employee_id=$2::text)
+      ))
       FOR UPDATE`,
     [employee.user_id, employeeNumber]
   );
@@ -87,7 +89,8 @@ async function releaseLicenses(queryable, context) {
   const released = await queryable.query(
     `UPDATE software_license_assignments SET status='Released',released_at=CURRENT_TIMESTAMP,
        released_by=$2,release_reason=$3,updated_at=CURRENT_TIMESTAMP
-     WHERE user_id=$1 AND status='Active' RETURNING license_id`,
+     WHERE user_id=$1 AND status='Active'
+     RETURNING assignment_id,license_id,asset_id,seat_annual_cost_snapshot`,
     [context.employee.user_id, context.actor.user_id, `Offboarding ${context.lifecycleCase.case_number}`]
   );
   const counts = new Map();
@@ -99,7 +102,18 @@ async function releaseLicenses(queryable, context) {
       [licenseId, count]
     );
   }
-  return { action: "internal_license_assignments_released", affected: released.rowCount, licenseIds: [...counts.keys()] };
+  const releasedAnnualCost = released.rows.reduce(
+    (sum, row) => sum + (Number(row.seat_annual_cost_snapshot) || 0),
+    0
+  );
+  return {
+    action: "internal_license_assignments_released",
+    affected: released.rowCount,
+    assignmentIds: released.rows.map((row) => Number(row.assignment_id)),
+    licenseIds: [...counts.keys()],
+    assetIds: [...new Set(released.rows.map((row) => Number(row.asset_id)).filter(Boolean))],
+    releasedAnnualCost: Number(releasedAnnualCost.toFixed(2)),
+  };
 }
 
 async function recordEvidence(_queryable, context) {
@@ -124,6 +138,14 @@ async function classifyAssets(queryable, context) {
 }
 
 async function verifyChecklist(queryable, context) {
+  const activeAssignments = await queryable.query(
+    `SELECT COUNT(*)::int count FROM software_license_assignments
+      WHERE user_id=$1 AND status='Active'`,
+    [context.employee.user_id]
+  );
+  if (activeAssignments.rows[0].count > 0) {
+    throw httpError(409, "Release every active software-license assignment before final offboarding verification.");
+  }
   return { action: "internal_offboarding_verified", requiredPending: 0 };
 }
 

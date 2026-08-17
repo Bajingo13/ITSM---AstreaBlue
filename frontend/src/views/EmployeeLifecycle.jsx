@@ -5,6 +5,9 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Copy,
+  DollarSign,
+  KeyRound,
+  Laptop,
   RefreshCw,
   Search,
   Trash2,
@@ -64,7 +67,6 @@ const OFFBOARDING_TASK_PREREQUISITES = {
 };
 
 const OFFBOARDING_EVIDENCE_GUIDANCE = {
-  audit_licenses: "Example: Microsoft 365 and Canva assignments released to the available pool; no active assignments remain.",
   secure_data: "Example: Required company files were backed up and ownership was transferred to the designated custodian.",
   classify_assets: "Example: Asset AST-001 was inspected and classified as In Stock for redeployment.",
 };
@@ -113,6 +115,14 @@ function formatDate(value, withTime = false) {
   }).format(new Date(value));
 }
 
+function formatCurrency(value) {
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+  }).format(Number(value) || 0);
+}
+
 function statusClass(status) {
   if (status === "Completed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "Cancelled") return "border-rose-200 bg-rose-50 text-rose-700";
@@ -128,6 +138,8 @@ export default function EmployeeLifecycle() {
   const [cases, setCases] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [branches, setBranches] = useState([]);
+  const [technologyValues, setTechnologyValues] = useState({ employees: [], totals: {} });
+  const [activeView, setActiveView] = useState("cases");
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -150,16 +162,18 @@ export default function EmployeeLifecycle() {
     setLoading(true);
     setError("");
     try {
-      const [summaryData, caseData, employeeData, branchData] = await Promise.all([
+      const [summaryData, caseData, employeeData, branchData, technologyData] = await Promise.all([
         lifecycleRequest("/summary"),
         lifecycleRequest(`/cases${query ? `?${query}` : ""}`),
         lifecycleRequest("/employees"),
         lifecycleRequest("/branches"),
+        lifecycleRequest("/technology-values"),
       ]);
       setSummary(summaryData || {});
       setCases(caseData || []);
       setEmployees(employeeData || []);
       setBranches(branchData || []);
+      setTechnologyValues(technologyData || { employees: [], totals: {} });
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -345,7 +359,12 @@ export default function EmployeeLifecycle() {
       {error && !details && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-bold text-rose-700">{error}</div>}
       {notice && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-700">{notice}</div>}
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="inline-flex w-full gap-1 rounded-lg border border-slate-200 bg-white p-1 sm:w-auto" role="tablist" aria-label="Employee lifecycle views">
+        <button type="button" role="tab" aria-selected={activeView === "cases"} onClick={() => setActiveView("cases")} className={`inline-flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold sm:flex-none ${activeView === "cases" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}><ClipboardCheck size={16}/> Lifecycle cases</button>
+        <button type="button" role="tab" aria-selected={activeView === "technology"} onClick={() => setActiveView("technology")} className={`inline-flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold sm:flex-none ${activeView === "technology" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}><DollarSign size={16}/> Technology value</button>
+      </div>
+
+      {activeView === "cases" && <><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map(([label, value, Icon, color, background]) => (
           <article key={label} className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md">
             <div className="flex items-center justify-between">
@@ -389,7 +408,9 @@ export default function EmployeeLifecycle() {
             </tbody>
           </table>
         </div>
-      </section>
+      </section></>}
+
+      {activeView === "technology" && <TechnologyValueWorkspace value={technologyValues} loading={loading} onRefresh={loadWorkspace}/>}
 
       {showCreate && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
         <form onSubmit={createCase} className="w-full max-w-2xl overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-2xl">
@@ -413,17 +434,184 @@ export default function EmployeeLifecycle() {
         </form>
       </div>}
 
-      {details && <CaseDrawer key={details.lifecycle_case_id} details={details} role={normalizedRole} busy={busy} error={error} invitation={invitation} onDismissError={() => setError("")} onClose={() => { setError(""); setDetails(null); }} onTask={updateTask} onStatus={updateStatus} onDelete={deleteCase} onProvision={createAccountInvitation} onResend={resendAccountInvitation}/>}
+      {details && <CaseDrawer key={details.lifecycle_case_id} details={details} role={normalizedRole} busy={busy} error={error} invitation={invitation} onDismissError={() => setError("")} onClose={() => { setError(""); setDetails(null); }} onTask={updateTask} onStatus={updateStatus} onDelete={deleteCase} onProvision={createAccountInvitation} onResend={resendAccountInvitation} onRefresh={async () => { await openCase(details.lifecycle_case_id); await loadWorkspace(); }}/>}
       <style>{`.field{width:100%;border:1px solid #bfdbfe;border-radius:.75rem;background:#f8fafc;padding:.75rem 1rem;font-size:.875rem;outline:none}.field:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12)}`}</style>
     </div>
   );
+}
+
+function TechnologyValueWorkspace({ value, loading, onRefresh }) {
+  const [search, setSearch] = useState("");
+  const employees = value?.employees || [];
+  const totals = value?.totals || {};
+  const visibleEmployees = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return employees;
+    return employees.filter((employee) => [
+      employee.full_name,
+      employee.employee_number,
+      employee.department,
+      employee.branch_name,
+    ].some((field) => String(field || "").toLowerCase().includes(query)));
+  }, [employees, search]);
+
+  return <section className="border-y border-slate-200 bg-white py-5 shadow-sm">
+    <div className="px-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div><h2 className="text-xl font-black text-slate-950">Employee Technology Value</h2><p className="mt-1 text-sm text-slate-500">Hardware currently lent to each employee plus the annual cost of their active software seats.</p></div>
+        <button type="button" onClick={() => void onRefresh()} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 px-4 py-2.5 text-sm font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-50"><RefreshCw size={16} className={loading ? "animate-spin" : ""}/> Refresh</button>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <ValueMetric icon={Laptop} label="Assigned hardware" value={formatCurrency(totals.asset_value)} detail={`${Number(totals.asset_count || 0)} assets`}/>
+        <ValueMetric icon={KeyRound} label="Annual software" value={formatCurrency(totals.annual_software_cost)} detail={`${Number(totals.license_count || 0)} active seats`}/>
+        <ValueMetric icon={DollarSign} label="First-year value" value={formatCurrency(totals.first_year_assigned_value)} detail="Hardware plus one software year" emphasis/>
+        <ValueMetric icon={UserPlus} label="Employees tracked" value={Number(totals.employee_count || 0).toLocaleString("en-PH")} detail="Branch-scoped employee records"/>
+      </div>
+
+      <label className="mt-5 flex max-w-xl items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4"><Search size={17} className="text-blue-500"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search employee, number, department, or branch" className="w-full bg-transparent py-3 text-sm outline-none"/></label>
+    </div>
+
+    <div className="mt-5 overflow-x-auto border-y border-slate-200">
+      <table className="min-w-full text-left text-sm">
+        <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Employee", "Branch", "Hardware", "Active seats", "Annual software", "First-year value"].map((heading) => <th key={heading} className="px-5 py-3">{heading}</th>)}</tr></thead>
+        <tbody className="divide-y divide-slate-100">
+          {loading ? <tr><td colSpan="6" className="px-5 py-14 text-center text-slate-500">Loading employee technology values...</td></tr> : visibleEmployees.length ? visibleEmployees.map((employee) => <tr key={employee.user_id} className="hover:bg-blue-50/40">
+            <td className="px-5 py-4"><p className="font-bold text-slate-900">{employee.full_name}</p><p className="text-xs text-slate-500">{employee.employee_number || "No employee number"} · {employee.department || "No department"}</p></td>
+            <td className="px-5 py-4 text-slate-600">{employee.branch_name}</td>
+            <td className="px-5 py-4"><p className="font-bold text-slate-900">{formatCurrency(employee.asset_value)}</p><p className="text-xs text-slate-500">{Number(employee.asset_count || 0)} assigned</p></td>
+            <td className="px-5 py-4 font-bold text-slate-800">{Number(employee.license_count || 0)}</td>
+            <td className="px-5 py-4 font-bold text-slate-800">{formatCurrency(employee.annual_software_cost)}</td>
+            <td className="px-5 py-4 font-black text-blue-700">{formatCurrency(employee.first_year_assigned_value)}</td>
+          </tr>) : <tr><td colSpan="6" className="px-5 py-14 text-center text-slate-500">{employees.length ? "No employees match the search." : "No employee records are available in this local database yet."}</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  </section>;
+}
+
+function ValueMetric({ icon: Icon, label, value, detail, emphasis = false }) {
+  return <div className={`rounded-lg border p-4 ${emphasis ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
+    <div className={`flex items-center gap-2 text-xs font-black uppercase ${emphasis ? "text-blue-700" : "text-slate-500"}`}><Icon size={15}/>{label}</div>
+    <p className={`mt-2 text-lg font-black ${emphasis ? "text-blue-950" : "text-slate-950"}`}>{value}</p>
+    <p className="mt-1 text-xs text-slate-500">{detail}</p>
+  </div>;
 }
 
 function Field({ label, children }) {
   return <label><span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-600">{label}</span>{children}</label>;
 }
 
-function CaseDrawer({ details, role, busy, error, invitation, onDismissError, onClose, onTask, onStatus, onDelete, onProvision, onResend }) {
+function TechnologyValuePanel({ details, role, onRefresh }) {
+  const [value, setValue] = useState(null);
+  const [selectedAssetId, setSelectedAssetId] = useState("");
+  const [selectedLicenseIds, setSelectedLicenseIds] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [panelError, setPanelError] = useState("");
+
+  const licenseTask = details.tasks?.find((task) => task.task_key === "assign_licenses");
+  const assetTask = details.tasks?.find((task) => task.task_key === "assign_asset");
+  const canAssign = details.lifecycle_type === "Onboarding"
+    && ["superadmin", "admin"].includes(role)
+    && licenseTask?.status === "Pending"
+    && !["Completed", "Cancelled"].includes(details.status);
+
+  const loadValue = useCallback(async () => {
+    setLoading(true);
+    setPanelError("");
+    try {
+      const data = await lifecycleRequest(`/cases/${details.lifecycle_case_id}/technology-value`);
+      setValue(data);
+      setSelectedAssetId((current) => current || (data.assets?.length === 1 ? String(data.assets[0].asset_id) : ""));
+    } catch (requestError) {
+      setPanelError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [details.lifecycle_case_id]);
+
+  useEffect(() => { void loadValue(); }, [loadValue, details.completed_task_count, details.updated_at]);
+
+  function toggleLicense(licenseId) {
+    setSelectedLicenseIds((current) => current.includes(licenseId)
+      ? current.filter((id) => id !== licenseId)
+      : [...current, licenseId]);
+  }
+
+  async function saveAssignments(noLicenseRequired = false) {
+    setSaving(true);
+    setPanelError("");
+    try {
+      const data = await lifecycleRequest(`/cases/${details.lifecycle_case_id}/license-assignments`, {
+        method: "POST",
+        body: JSON.stringify({
+          asset_id: selectedAssetId ? Number(selectedAssetId) : null,
+          license_ids: noLicenseRequired ? [] : selectedLicenseIds,
+          no_license_required: noLicenseRequired,
+        }),
+      });
+      setValue(data);
+      setSelectedLicenseIds([]);
+      await onRefresh();
+    } catch (requestError) {
+      setPanelError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const totals = value?.totals || {};
+  const assignments = value?.assignments || [];
+  const assets = value?.assets || [];
+  const availableLicenses = value?.available_licenses || [];
+
+  return <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h3 className="font-black text-slate-950">Employee Technology Value</h3>
+        <p className="mt-1 text-sm text-slate-500">Assigned asset value and annual software-seat cost from connected records.</p>
+      </div>
+      <button type="button" onClick={() => void loadValue()} disabled={loading || saving} title="Refresh technology value" className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-50"><RefreshCw size={16} className={loading ? "animate-spin" : ""}/></button>
+    </div>
+
+    {panelError && <div className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700"><AlertTriangle size={16} className="mt-0.5 shrink-0"/>{panelError}</div>}
+
+    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><div className="flex items-center gap-2 text-xs font-black uppercase text-slate-500"><Laptop size={15}/> Asset value</div><p className="mt-2 text-lg font-black text-slate-950">{loading ? "Loading..." : formatCurrency(totals.asset_value)}</p></div>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><div className="flex items-center gap-2 text-xs font-black uppercase text-slate-500"><KeyRound size={15}/> Annual software</div><p className="mt-2 text-lg font-black text-slate-950">{loading ? "Loading..." : formatCurrency(totals.annual_software_cost)}</p></div>
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><div className="flex items-center gap-2 text-xs font-black uppercase text-blue-600"><DollarSign size={15}/> First-year value</div><p className="mt-2 text-lg font-black text-blue-950">{loading ? "Loading..." : formatCurrency(totals.first_year_assigned_value)}</p></div>
+    </div>
+
+    {!loading && <div className="mt-5 grid gap-5 lg:grid-cols-2">
+      <div className="min-w-0">
+        <h4 className="text-xs font-black uppercase text-slate-500">Assigned assets</h4>
+        <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">Asset</th><th className="px-3 py-2">Status</th><th className="px-3 py-2 text-right">Value</th></tr></thead><tbody>{assets.length ? assets.map((asset) => <tr key={asset.asset_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-800">{asset.asset_tag || asset.asset_name}<span className="block font-normal text-slate-500">{asset.asset_name}</span></td><td className="px-3 py-2 text-slate-600">{asset.status}</td><td className="px-3 py-2 text-right font-bold text-slate-800">{formatCurrency(asset.purchase_price)}</td></tr>) : <tr><td colSpan="3" className="px-3 py-4 text-center text-slate-500">No assigned asset found.</td></tr>}</tbody></table>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <h4 className="text-xs font-black uppercase text-slate-500">Active software assignments</h4>
+        <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">License</th><th className="px-3 py-2">Asset</th><th className="px-3 py-2 text-right">Annual seat cost</th></tr></thead><tbody>{assignments.length ? assignments.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-800">{assignment.license_name}<span className="block font-normal text-slate-500">{assignment.vendor}</span></td><td className="px-3 py-2 text-slate-600">{assignment.asset_tag || assignment.asset_name || "Employee assignment"}</td><td className="px-3 py-2 text-right font-bold text-slate-800">{formatCurrency(assignment.annual_seat_cost)}</td></tr>) : <tr><td colSpan="3" className="px-3 py-4 text-center text-slate-500">No active software assignments.</td></tr>}</tbody></table>
+        </div>
+      </div>
+    </div>}
+
+    {canAssign && <div className="mt-5 border-t border-blue-100 pt-5">
+      <div className="flex items-center justify-between gap-3"><div><h4 className="font-black text-slate-900">Assign onboarding licenses</h4><p className="mt-1 text-xs text-slate-500">Available seats are filtered to the employee branch.</p></div><span className="text-xs font-black text-blue-700">{selectedLicenseIds.length} selected</span></div>
+      {assetTask?.status !== "Completed" ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">Complete managed asset assignment first.</p> : <>
+        <label className="mt-4 block"><span className="mb-1 block text-xs font-black uppercase text-slate-600">Assigned asset</span><select value={selectedAssetId} onChange={(event) => setSelectedAssetId(event.target.value)} className="field"><option value="">Select assigned asset</option>{assets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag || asset.asset_name} - {asset.asset_name}</option>)}</select></label>
+        <div className="mt-4 max-h-52 overflow-y-auto rounded-lg border border-slate-200">{availableLicenses.length ? availableLicenses.map((license) => <label key={license.license_id} className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0 hover:bg-slate-50"><input type="checkbox" checked={selectedLicenseIds.includes(Number(license.license_id))} onChange={() => toggleLicense(Number(license.license_id))} className="h-4 w-4 accent-blue-600"/><span className="min-w-0 flex-1"><span className="block text-sm font-black text-slate-800">{license.license_name}</span><span className="block text-xs text-slate-500">{license.vendor} - {license.available_licenses} available</span></span><span className="text-xs font-black text-slate-700">{formatCurrency(license.annual_seat_cost)}/yr</span></label>) : <p className="px-3 py-4 text-center text-xs text-slate-500">No available license seats in this branch.</p>}</div>
+        <div className="mt-4 flex flex-wrap justify-end gap-2"><button type="button" disabled={saving} onClick={() => void saveAssignments(true)} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50">No licenses required</button><button type="button" disabled={saving || !selectedAssetId || !selectedLicenseIds.length} onClick={() => void saveAssignments(false)} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Assign selected licenses"}</button></div>
+      </>}
+    </div>}
+
+    {details.lifecycle_type === "Offboarding" && assignments.length > 0 && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">Completing Release software licenses will return all {assignments.length} active seat{assignments.length === 1 ? "" : "s"} to Software License Management automatically.</p>}
+  </section>;
+}
+
+function CaseDrawer({ details, role, busy, error, invitation, onDismissError, onClose, onTask, onStatus, onDelete, onProvision, onResend, onRefresh }) {
   const [taskNotes, setTaskNotes] = useState({});
   const [accountForm, setAccountForm] = useState({
     personal_email: details.subject_contact_email || "",
@@ -468,6 +656,7 @@ function CaseDrawer({ details, role, busy, error, invitation, onDismissError, on
           {details.employee_id && !details.employee_is_active && ["superadmin", "admin"].includes(role) && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4"><div><p className="text-sm font-black text-blue-950">Employee activation is pending</p><p className="mt-1 text-xs text-blue-700">Generate a fresh 48-hour link and email it again.</p></div><button type="button" disabled={busy} onClick={() => void onResend()} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:opacity-50">{busy ? "Sending…" : "Resend invitation"}</button></div>}
           {invitation?.invite_link && <div className={`mt-4 rounded-xl border p-4 ${invitation.email_sent ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}><p className={`text-sm font-black ${invitation.email_sent ? "text-emerald-800" : "text-amber-900"}`}>{invitation.email_sent ? "Invitation created and emailed" : "Invitation created — email not delivered"}</p><p className={`mt-1 text-xs ${invitation.email_sent ? "text-emerald-700" : "text-amber-800"}`}>{invitation.email_sent ? `Sent to ${invitation.email_recipients.join(", ")}. The link expires in 48 hours.` : (invitation.email_warning || "Copy the one-time activation link and provide it securely to the employee.")}</p><div className="mt-3 flex flex-wrap gap-2"><input readOnly value={invitation.invite_link} className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"/><a href={invitation.invite_link} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50">Open link</a><button type="button" onClick={() => navigator.clipboard?.writeText(invitation.invite_link)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-800 hover:bg-slate-50"><Copy size={14}/> Copy</button></div></div>}
         </section>}
+        {details.employee_id && <TechnologyValuePanel details={details} role={role} onRefresh={onRefresh}/>}
         <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between"><div><h3 className="font-black text-slate-950">Required checklist</h3><p className="text-sm text-slate-500">{details.completed_task_count} of {details.task_count} tasks complete</p></div><span className="text-2xl font-black text-blue-600">{progress}%</span></div>
           <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" style={{ width: `${progress}%` }}/></div>
@@ -477,16 +666,18 @@ function CaseDrawer({ details, role, busy, error, invitation, onDismissError, on
             const accessBlocked = role === "hr" && String(task.assigned_role).toLowerCase() !== "hr";
             const awaitingAccount = details.lifecycle_type === "Onboarding" && !details.employee_id && task.task_key !== "confirm_employment";
             const awaitingActivation = details.lifecycle_type === "Onboarding" && details.employee_id && details.employee_is_active === false && !["confirm_employment", "create_account"].includes(task.task_key);
-            const notesRequired = details.lifecycle_type === "Offboarding" && ["audit_licenses", "secure_data", "classify_assets"].includes(task.task_key);
+            const notesRequired = details.lifecycle_type === "Offboarding" && ["secure_data", "classify_assets"].includes(task.task_key);
+            const structuredLicenseTask = details.lifecycle_type === "Onboarding" && task.task_key === "assign_licenses";
             const unmetPrerequisites = details.lifecycle_type === "Offboarding"
               ? (OFFBOARDING_TASK_PREREQUISITES[task.task_key] || []).filter((taskKey) => !completedTaskKeys.has(taskKey))
               : [];
             const prerequisiteLabels = unmetPrerequisites.map((taskKey) => details.tasks?.find((candidate) => candidate.task_key === taskKey)?.task_label || taskKey);
             return <article key={task.lifecycle_task_id} className={`rounded-2xl border p-4 ${completed ? "border-emerald-200 bg-emerald-50/60" : "border-blue-100 bg-slate-50"}`}>
-              <div className="flex gap-3"><button disabled={busy || evidenceSynchronized || (completed && details.lifecycle_type === "Offboarding") || accessBlocked || awaitingAccount || awaitingActivation || unmetPrerequisites.length > 0 || ["Completed", "Cancelled"].includes(details.status) || (notesRequired && String(taskNotes[task.lifecycle_task_id] || "").trim().length < 5)} onClick={() => void onTask(task, completed ? "Pending" : "Completed", taskNotes[task.lifecycle_task_id] || "")} title={evidenceSynchronized ? "This item is synchronized from system evidence" : awaitingAccount ? "Create and link the employee account first" : awaitingActivation ? "The employee must activate the account first" : accessBlocked ? "You do not have permission to complete this checklist item" : unmetPrerequisites.length ? `Complete first: ${prerequisiteLabels.join(", ")}` : completed && details.lifecycle_type === "Offboarding" ? "The internal action is complete and cannot be reversed here" : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
+              <div className="flex gap-3"><button disabled={busy || structuredLicenseTask || evidenceSynchronized || (completed && details.lifecycle_type === "Offboarding") || accessBlocked || awaitingAccount || awaitingActivation || unmetPrerequisites.length > 0 || ["Completed", "Cancelled"].includes(details.status) || (notesRequired && String(taskNotes[task.lifecycle_task_id] || "").trim().length < 5)} onClick={() => void onTask(task, completed ? "Pending" : "Completed", taskNotes[task.lifecycle_task_id] || "")} title={structuredLicenseTask ? "Use the Employee Technology Value panel above" : evidenceSynchronized ? "This item is synchronized from system evidence" : awaitingAccount ? "Create and link the employee account first" : awaitingActivation ? "The employee must activate the account first" : accessBlocked ? "You do not have permission to complete this checklist item" : unmetPrerequisites.length ? `Complete first: ${prerequisiteLabels.join(", ")}` : completed && details.lifecycle_type === "Offboarding" ? "The internal action is complete and cannot be reversed here" : "Update checklist task"} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-blue-300 bg-white text-transparent"} disabled:cursor-not-allowed disabled:opacity-50`}><CheckCircle2 size={16}/></button>
                 <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-slate-900">{task.task_label}</h4>{task.is_required && <span className="text-[10px] font-black uppercase text-rose-600">Required</span>}{evidenceSynchronized && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">Auto-synced</span>}</div><p className="mt-1 text-sm leading-6 text-slate-600">{task.task_description}</p>{completed && <p className="mt-2 text-xs font-semibold text-emerald-700">{evidenceSynchronized ? "Verified automatically" : `Completed by ${task.completed_by_name || "authorized user"}`} · {formatDate(task.completed_at, true)}</p>}{accessBlocked && !completed && !evidenceSynchronized && <p className="mt-2 text-xs font-semibold text-amber-700">You can track this item, but your role cannot mark it complete.</p>}</div>
               </div>
               {evidenceSynchronized && <p className={`mt-2 pl-9 text-xs font-bold ${completed ? "text-emerald-700" : "text-amber-700"}`}>{completed ? "Verified automatically from current AstreaBlue records." : "Auto-synced item; it will complete when the required evidence is available."}</p>}
+              {structuredLicenseTask && !completed && <p className="mt-2 pl-9 text-xs font-bold text-blue-700">Select the assigned asset and required license seats in Employee Technology Value above.</p>}
               {!completed && unmetPrerequisites.length > 0 && <p className="mt-2 pl-9 text-xs font-semibold text-amber-700">Complete first: {prerequisiteLabels.join(", ")}.</p>}
               {notesRequired && !completed && !accessBlocked && <label className="mt-3 block pl-9"><span className="mb-1 flex items-center justify-between gap-3 text-xs font-bold text-slate-600"><span>Required completion evidence</span><span className={String(taskNotes[task.lifecycle_task_id] || "").trim().length >= 5 ? "text-emerald-600" : "text-amber-700"}>{String(taskNotes[task.lifecycle_task_id] || "").trim().length}/5 minimum</span></span><textarea rows="2" minLength={5} value={taskNotes[task.lifecycle_task_id] || ""} onChange={(event) => setTaskNotes((current) => ({ ...current, [task.lifecycle_task_id]: event.target.value }))} className="field resize-none" placeholder="Enter at least 5 characters describing the completed action or result."/></label>}
               {notesRequired && !completed && !accessBlocked && <p className="mt-2 pl-9 text-xs leading-5 text-slate-500">{OFFBOARDING_EVIDENCE_GUIDANCE[task.task_key]}</p>}

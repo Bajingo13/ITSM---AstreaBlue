@@ -404,6 +404,8 @@ export default function Assets() {
   const [editingAsset, setEditingAsset] = useState(null);
   const [actionMode, setActionMode] = useState("");
   const [actionAsset, setActionAsset] = useState(null);
+  const [assignmentEmployees, setAssignmentEmployees] = useState([]);
+  const [assignmentEmployeesLoading, setAssignmentEmployeesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState("");
   const [viewMode, setViewMode] = useState(() => localStorage.getItem("hardwareAssetsView") || "grid");
@@ -924,15 +926,32 @@ export default function Assets() {
   };
 
 
-  const openAction = (asset, mode) => {
+  const openAction = async (asset, mode) => {
     setActionAsset(asset);
     setActionMode(mode);
     setModalError("");
+    setAssignmentEmployees([]);
+    if (mode !== "borrow") return;
+    setAssignmentEmployeesLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/hardware-assets/assignment-options?branch_id=${asset.branch_id}`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.success === false) throw new Error(payload.error || "Unable to load employees.");
+      setAssignmentEmployees(payload.data || []);
+    } catch (requestError) {
+      setModalError(requestError.message);
+    } finally {
+      setAssignmentEmployeesLoading(false);
+    }
   };
 
   const closeAction = () => {
     setActionAsset(null);
     setActionMode("");
+    setAssignmentEmployees([]);
     setModalError("");
   };
 
@@ -943,7 +962,7 @@ export default function Assets() {
       const body = { ...payload, ...buildTicketPayload(user) };
       const res = await fetch(`${API_BASE}/hardware-assets/${actionAsset.asset_id}/status`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -1524,6 +1543,8 @@ export default function Assets() {
           onSave={handleSaveAsset}
           loading={saving}
           error={modalError}
+          employees={assignmentEmployees}
+          employeesLoading={assignmentEmployeesLoading}
         />
       )}
 
@@ -2530,12 +2551,13 @@ function AssetSelect({ value, onChange, options, placeholder, ...props }) {
   );
 }
 
-function AssetActionModal({ asset, mode, onClose, onSubmit, loading, error }) {
+function AssetActionModal({ asset, mode, onClose, onSubmit, loading, error, employees = [], employeesLoading = false }) {
   const [form, setForm] = useState({
     status: ACTION_MODES[mode]?.status || "Active",
     borrower_name: asset.borrower_name || "",
     employee_id: asset.employee_id || "",
     borrower_department: asset.borrower_department || "",
+    assigned_to: asset.assigned_to || "",
     borrow_date: asset.borrow_date || "",
     expected_return_date: asset.expected_return_date || "",
     actual_return_date: asset.actual_return_date || "",
@@ -2546,6 +2568,17 @@ function AssetActionModal({ asset, mode, onClose, onSubmit, loading, error }) {
   const [returnStatus, setReturnStatus] = useState("Active");
 
   const updateField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const selectEmployee = (value) => {
+    const employee = employees.find((candidate) => String(candidate.user_id) === String(value));
+    setForm((current) => ({
+      ...current,
+      assigned_to: value,
+      borrower_name: employee?.full_name || "",
+      employee_id: employee?.employee_number || (employee ? String(employee.user_id) : ""),
+      borrower_department: employee?.department || "",
+    }));
+  };
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -2579,34 +2612,20 @@ function AssetActionModal({ asset, mode, onClose, onSubmit, loading, error }) {
         <form onSubmit={handleSubmit} className="space-y-6 p-6">
           {mode === "borrow" && (
             <>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <label className="block space-y-2 text-sm font-semibold text-slate-700">
-                  Borrower Name
-                  <input
-                    value={form.borrower_name}
-                    onChange={(e) => updateField("borrower_name", e.target.value)}
-                    className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
-                    required
-                  />
-                </label>
-                <label className="block space-y-2 text-sm font-semibold text-slate-700">
-                  Employee ID
-                  <input
-                    value={form.employee_id}
-                    onChange={(e) => updateField("employee_id", e.target.value)}
-                    className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
-                    required
-                  />
-                </label>
-              </div>
+              <label className="block space-y-2 text-sm font-semibold text-slate-700">
+                Employee
+                <select value={form.assigned_to} onChange={(event) => selectEmployee(event.target.value)} disabled={employeesLoading} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none" required>
+                  <option value="">{employeesLoading ? "Loading employees..." : "Select employee"}</option>
+                  {employees.map((employee) => <option key={employee.user_id} value={employee.user_id}>{employee.full_name}{employee.employee_number ? ` · ${employee.employee_number}` : ""}</option>)}
+                </select>
+              </label>
               <div className="grid gap-4 lg:grid-cols-2">
                 <label className="block space-y-2 text-sm font-semibold text-slate-700">
                   Department
                   <input
                     value={form.borrower_department}
-                    onChange={(e) => updateField("borrower_department", e.target.value)}
-                    className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none"
-                    required
+                    readOnly
+                    className="w-full rounded-lg border border-slate-200 bg-slate-100 px-4 py-3 text-slate-700 outline-none"
                   />
                 </label>
                 <label className="block space-y-2 text-sm font-semibold text-slate-700">
