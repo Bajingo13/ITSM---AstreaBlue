@@ -481,11 +481,27 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
   );
 }
 
+function formatDateTime(dateStr) {
+  if (!dateStr) return "—";
+  try {
+    return new Date(dateStr).toLocaleString("en-PH", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}
+
 function ReconcileLicenseModal({ license, data, loading, saving, error, onClose, onSave }) {
   const [employeeId, setEmployeeId] = useState("");
   const [assetId, setAssetId] = useState("");
   const employees = data?.employees || [];
   const assignments = data?.assignments || [];
+  const assignmentHistory = data?.assignment_history || [];
   const employeeAssets = (data?.assets || []).filter((asset) => String(asset.user_id) === String(employeeId));
   const unlinked = Number(data?.license?.unlinked_used_licenses ?? license.unlinked_used_licenses ?? 0);
 
@@ -496,9 +512,9 @@ function ReconcileLicenseModal({ license, data, loading, saving, error, onClose,
   }
 
   return <div className="astrea-modal-backdrop">
-    <div className="astrea-modal-panel relative max-w-2xl">
+    <div className="astrea-modal-panel relative max-w-5xl">
       <div className="astrea-modal-header">
-        <div><p className="text-xs font-black uppercase text-blue-600">Usage reconciliation</p><h2 className="mt-1 text-base font-black text-slate-900">{license.license_name}</h2></div>
+        <div><p className="text-xs font-black uppercase text-blue-600">Seat holders and usage</p><h2 className="mt-1 text-base font-black text-slate-900">{license.license_name}</h2></div>
         <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100" title="Close"><X size={18}/></button>
       </div>
 
@@ -518,9 +534,16 @@ function ReconcileLicenseModal({ license, data, loading, saving, error, onClose,
           </form>}
 
           <div>
-            <h3 className="text-xs font-black uppercase text-slate-500">Active employee links</h3>
-            <div className="mt-2 max-h-48 overflow-y-auto border-y border-slate-200">
-              {assignments.length ? assignments.map((assignment) => <div key={assignment.assignment_id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0"><div><p className="text-sm font-bold text-slate-900">{assignment.full_name}</p><p className="text-xs text-slate-500">{assignment.asset_tag || "No asset link"} · {assignment.assignment_source}</p></div><CheckCircle size={16} className="text-emerald-600"/></div>) : <p className="px-3 py-6 text-center text-sm text-slate-500">No employee-linked seats yet.</p>}
+            <h3 className="text-xs font-black uppercase text-slate-500">Active seat holders</h3>
+            <div className="mt-2 max-h-56 overflow-auto border-y border-slate-200">
+              <table className="min-w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">Employee</th><th className="px-3 py-2">Asset</th><th className="px-3 py-2">Assigned</th><th className="px-3 py-2">Assigned by</th><th className="px-3 py-2">Source</th></tr></thead><tbody>{assignments.length ? assignments.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-900">{assignment.full_name}<span className="block font-normal text-slate-500">{assignment.employee_number || "No employee number"}</span></td><td className="px-3 py-2 text-slate-600">{assignment.asset_tag || assignment.asset_name || "Employee only"}</td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateTime(assignment.assigned_at)}</td><td className="px-3 py-2 text-slate-600">{assignment.assigned_by_name || "System / restored"}</td><td className="px-3 py-2 text-slate-600">{assignment.assignment_source}</td></tr>) : <tr><td colSpan="5" className="px-3 py-6 text-center text-sm text-slate-500">No employee-linked seats yet.</td></tr>}</tbody></table>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-xs font-black uppercase text-slate-500">Assignment history</h3>
+            <div className="mt-2 max-h-56 overflow-auto border-y border-slate-200">
+              <table className="min-w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">Employee</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Assigned</th><th className="px-3 py-2">Assigned by</th><th className="px-3 py-2">Released</th><th className="px-3 py-2">Released by</th></tr></thead><tbody>{assignmentHistory.length ? assignmentHistory.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-900">{assignment.full_name}<span className="block font-normal text-slate-500">{assignment.asset_tag || assignment.asset_name || "Employee only"}</span></td><td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 font-black ${assignment.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>{assignment.status}</span></td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateTime(assignment.assigned_at)}</td><td className="px-3 py-2 text-slate-600">{assignment.assigned_by_name || "System / restored"}</td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateTime(assignment.released_at)}</td><td className="px-3 py-2 text-slate-600">{assignment.released_by_name || (assignment.released_at ? "System" : "—")}</td></tr>) : <tr><td colSpan="6" className="px-3 py-6 text-center text-sm text-slate-500">No assignment history yet.</td></tr>}</tbody></table>
             </div>
           </div>
         </>}
@@ -1039,7 +1062,7 @@ export default function SoftwareLicenses() {
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {Number(l.unlinked_used_licenses || 0) > 0 && <button type="button" onClick={() => void loadReconciliation(l)} className="rounded-lg p-1.5 text-amber-600 transition hover:bg-amber-50 hover:text-amber-800" title="Link untracked used seats to employees"><Link2 size={15}/></button>}
+                          {(Number(l.tracked_assignments || 0) > 0 || Number(l.unlinked_used_licenses || 0) > 0) && <button type="button" onClick={() => void loadReconciliation(l)} className={`rounded-lg p-1.5 transition ${Number(l.unlinked_used_licenses || 0) > 0 ? "text-amber-600 hover:bg-amber-50 hover:text-amber-800" : "text-blue-600 hover:bg-blue-50 hover:text-blue-800"}`} title="View seat holders and reconcile usage"><Link2 size={15}/></button>}
                           {l.license_type !== "Perpetual" && (
                             <button
                               type="button"

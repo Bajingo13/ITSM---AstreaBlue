@@ -17,6 +17,7 @@ test("onboarding and offboarding templates contain the required operational gate
   const offboarding = getDefaultTasks("Offboarding");
   assert.ok(onboarding.some((task) => task.taskKey === "general_consent"));
   assert.ok(onboarding.some((task) => task.taskKey === "assign_licenses"));
+  assert.equal(onboarding.find((task) => task.taskKey === "assign_licenses").assignedRole, "Admin");
   assert.ok(onboarding.some((task) => task.taskKey === "verify_endpoint"));
   assert.ok(offboarding.some((task) => task.taskKey === "recover_assets"));
   assert.ok(offboarding.some((task) => task.taskKey === "audit_licenses"));

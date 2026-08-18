@@ -267,7 +267,7 @@ router.get("/:id/reconciliation", async (req, res) => {
     if (!canManage(scope, license.branch_id)) {
       return res.status(403).json({ success: false, error: "Reconciliation denied for this license branch." });
     }
-    const [assignmentsResult, employeesResult, assetsResult] = await repository.getReconciliation(licenseId);
+    const [assignmentsResult, employeesResult, assetsResult, historyResult] = await repository.getReconciliation(licenseId);
     const trackedAssignments = assignmentsResult.rowCount;
     return res.json({
       success: true,
@@ -278,6 +278,7 @@ router.get("/:id/reconciliation", async (req, res) => {
           unlinked_used_licenses: Math.max(Number(license.used_licenses) - trackedAssignments, 0),
         },
         assignments: assignmentsResult.rows,
+        assignment_history: historyResult.rows,
         employees: employeesResult.rows,
         assets: assetsResult.rows,
       },

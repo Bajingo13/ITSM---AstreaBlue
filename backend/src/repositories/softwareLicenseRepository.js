@@ -115,10 +115,12 @@ function getReconciliation(licenseId, executor = db) {
       `SELECT assignment.assignment_id,assignment.user_id,assignment.asset_id,
               assignment.assignment_source,assignment.assigned_at,
               employee.full_name,employee.employee_number,employee.department,
-              asset.asset_tag,asset.asset_name
+              asset.asset_tag,asset.asset_name,
+              assigned_actor.full_name AS assigned_by_name
          FROM software_license_assignments assignment
          JOIN users employee ON employee.user_id=assignment.user_id
          LEFT JOIN hardware_assets asset ON asset.asset_id=assignment.asset_id
+         LEFT JOIN users assigned_actor ON assigned_actor.user_id=assignment.assigned_by
         WHERE assignment.license_id=$1 AND assignment.status='Active'
         ORDER BY employee.full_name`,
       [licenseId]
@@ -152,6 +154,23 @@ function getReconciliation(licenseId, executor = db) {
          JOIN software_licenses license ON license.license_id=$1
         WHERE asset.branch_id=license.branch_id
         ORDER BY asset.asset_name,asset.asset_tag`,
+      [licenseId]
+    ),
+    executor.query(
+      `SELECT assignment.assignment_id,assignment.user_id,assignment.asset_id,
+              assignment.status,assignment.assignment_source,assignment.assigned_at,
+              assignment.released_at,assignment.release_reason,
+              employee.full_name,employee.employee_number,
+              asset.asset_tag,asset.asset_name,
+              assigned_actor.full_name AS assigned_by_name,
+              released_actor.full_name AS released_by_name
+         FROM software_license_assignments assignment
+         JOIN users employee ON employee.user_id=assignment.user_id
+         LEFT JOIN hardware_assets asset ON asset.asset_id=assignment.asset_id
+         LEFT JOIN users assigned_actor ON assigned_actor.user_id=assignment.assigned_by
+         LEFT JOIN users released_actor ON released_actor.user_id=assignment.released_by
+        WHERE assignment.license_id=$1
+        ORDER BY assignment.assigned_at DESC,assignment.assignment_id DESC`,
       [licenseId]
     ),
   ]);

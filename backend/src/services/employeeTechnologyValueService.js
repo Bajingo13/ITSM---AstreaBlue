@@ -120,12 +120,14 @@ async function getEmployeeTechnologyValue(queryable, { employeeId, branchId = nu
               license.annual_cost,license.total_licenses,license.expiry_date,
               assignment.annual_cost_snapshot,assignment.seat_annual_cost_snapshot,
               asset.asset_tag,asset.asset_name,
+              assigned_actor.full_name AS assigned_by_name,
               CASE WHEN license.total_licenses>0
                    THEN ROUND(license.annual_cost/license.total_licenses,2)
                    ELSE 0 END AS annual_seat_cost
          FROM software_license_assignments assignment
          JOIN software_licenses license ON license.license_id=assignment.license_id
          LEFT JOIN hardware_assets asset ON asset.asset_id=assignment.asset_id
+         LEFT JOIN users assigned_actor ON assigned_actor.user_id=assignment.assigned_by
         WHERE assignment.user_id=$1 AND assignment.status='Active'
         ORDER BY license.license_name`,
       [employee.user_id]
@@ -136,10 +138,14 @@ async function getEmployeeTechnologyValue(queryable, { employeeId, branchId = nu
               assignment.released_at,assignment.release_reason,
               assignment.seat_annual_cost_snapshot,
               license.license_name,license.vendor,
-              asset.asset_tag,asset.asset_name
+              asset.asset_tag,asset.asset_name,
+              assigned_actor.full_name AS assigned_by_name,
+              released_actor.full_name AS released_by_name
          FROM software_license_assignments assignment
          JOIN software_licenses license ON license.license_id=assignment.license_id
          LEFT JOIN hardware_assets asset ON asset.asset_id=assignment.asset_id
+         LEFT JOIN users assigned_actor ON assigned_actor.user_id=assignment.assigned_by
+         LEFT JOIN users released_actor ON released_actor.user_id=assignment.released_by
         WHERE assignment.user_id=$1
         ORDER BY assignment.assigned_at DESC,assignment.assignment_id DESC`,
       [employee.user_id]

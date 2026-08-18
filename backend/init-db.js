@@ -50,6 +50,7 @@ const migrationFiles = [
   "2026-08-17-employee-technology-value.sql",
   "2026-08-17-software-license-reconciliation.sql",
   "2026-08-17-direct-license-assignment.sql",
+  "2026-08-18-license-assignment-audit.sql",
 ];
 
 const defaultTicketCategories = [

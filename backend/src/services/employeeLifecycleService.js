@@ -28,7 +28,7 @@ const ONBOARDING_TASKS = Object.freeze([
   ["general_consent", "Sign general monitoring consent", "Obtain one employee consent record used for assigned managed devices.", "Employee"],
   ["approve_consent", "Review and approve consent", "Authorized IT administrator validates the signed consent.", "IT"],
   ["assign_asset", "Assign managed asset", "Link the employee to the intended hardware asset without changing device identity.", "IT"],
-  ["assign_licenses", "Assign software licenses", "Assign branch-authorized software seats to the employee and their managed asset.", "IT"],
+  ["assign_licenses", "Assign software licenses", "Assign branch-authorized software seats to the employee and their managed asset.", "Admin"],
   ["verify_endpoint", "Verify endpoint diagnostics", "Confirm heartbeat, inventory, policy synchronization, and required monitoring health.", "IT"],
   ["final_verification", "Complete HR and IT verification", "Confirm all required onboarding tasks are complete before closure.", "HR"],
 ]);

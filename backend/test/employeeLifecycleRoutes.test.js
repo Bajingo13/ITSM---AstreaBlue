@@ -50,6 +50,8 @@ test.before(async () => {
   await db.query(technologyValueMigration);
   const reconciliationMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-08-17-software-license-reconciliation.sql"), "utf8");
   await db.query(reconciliationMigration);
+  const assignmentAuditMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-08-18-license-assignment-audit.sql"), "utf8");
+  await db.query(assignmentAuditMigration);
   let branch = await db.query(`SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1`);
   if (!branch.rows.length) {
     branch = await db.query(
@@ -240,13 +242,23 @@ test("HR can oversee IT tasks but cannot falsely complete them", async () => {
   const details = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}`, {
     headers: authHeaders(hrId, "HR", branchId),
   });
-  const task = (await details.json()).data.tasks.find((item) => item.assigned_role === "IT");
+  const task = (await details.json()).data.tasks.find((item) => item.assigned_role === "Admin");
   const response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}/tasks/${task.lifecycle_task_id}`, {
     method: "PATCH",
     headers: authHeaders(hrId, "HR", branchId),
     body: JSON.stringify({ status: "Completed" }),
   });
   assert.equal(response.status, 403);
+});
+
+test("HR cannot assign software licenses directly", async () => {
+  const response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/technology-values/${employeeId}/license-assignments`, {
+    method: "POST",
+    headers: authHeaders(hrId, "HR", branchId),
+    body: JSON.stringify({ license_ids: [] }),
+  });
+  assert.equal(response.status, 403);
+  assert.match((await response.json()).message, /requires an administrator/i);
 });
 
 test("required evidence tasks cannot be falsely checked and continue to block completion", async () => {

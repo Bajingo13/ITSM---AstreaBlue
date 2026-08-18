@@ -38,6 +38,7 @@ test.before(async () => {
     "2026-08-17-employee-technology-value.sql",
     "2026-08-17-software-license-reconciliation.sql",
     "2026-08-17-direct-license-assignment.sql",
+    "2026-08-18-license-assignment-audit.sql",
   ]) {
     await db.query(fs.readFileSync(path.join(__dirname, "..", "database", fileName), "utf8"));
   }
@@ -169,6 +170,14 @@ test("restored aggregate usage is mapped without double-counting and releases du
   assert.equal(reconciliation.tracked_assignments, 1);
   assert.equal(reconciliation.unlinked_used_licenses, 2);
 
+  response = await fetch(`${baseUrl}/api/v1/software-licenses/${licenseId}/reconciliation`, { headers: auth });
+  assert.equal(response.status, 200);
+  const seatAudit = (await response.json()).data;
+  assert.equal(seatAudit.assignments[0].full_name, "Reconciliation Employee");
+  assert.equal(seatAudit.assignments[0].assigned_by_name, "Reconciliation SuperAdmin");
+  assert.ok(seatAudit.assignments[0].assigned_at);
+  assert.equal(seatAudit.assignment_history[0].assignment_source, "Reconciliation");
+
   const assignment = await db.query(
     "SELECT status,assignment_source,asset_id,seat_annual_cost_snapshot FROM software_license_assignments WHERE license_id=$1 AND user_id=$2",
     [licenseId, employeeId]
@@ -198,6 +207,7 @@ test("restored aggregate usage is mapped without double-counting and releases du
   assert.equal(directHistory.status, "Active");
   assert.equal(directHistory.assignment_source, "Direct");
   assert.equal(directHistory.asset_id, null);
+  assert.equal(directHistory.assigned_by_name, "Reconciliation SuperAdmin");
 
   response = await fetch(`${baseUrl}/api/v1/hardware-assets/${assetId}/status`, {
     method: "PATCH",
@@ -249,6 +259,16 @@ test("restored aggregate usage is mapped without double-counting and releases du
   assert.ok(released.rows[0].released_at);
   assert.equal(Number(licenseAfter.rows[0].used_licenses), 2);
   assert.equal(Number(directLicenseAfter.rows[0].used_licenses), 0);
+
+  response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/technology-values/${employeeId}`, { headers: auth });
+  assert.equal(response.status, 200);
+  const releasedAudit = (await response.json()).data.assignment_history.find(
+    (item) => Number(item.license_id) === Number(licenseId)
+  );
+  assert.equal(releasedAudit.status, "Released");
+  assert.equal(releasedAudit.assigned_by_name, "Reconciliation SuperAdmin");
+  assert.equal(releasedAudit.released_by_name, "Reconciliation SuperAdmin");
+  assert.ok(releasedAudit.released_at);
 
   await db.query("UPDATE users SET is_active=FALSE WHERE user_id=$1", [employeeId]);
   response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/technology-values/${employeeId}/license-assignments`, {
