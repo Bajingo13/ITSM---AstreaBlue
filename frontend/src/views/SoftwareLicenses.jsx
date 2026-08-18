@@ -260,10 +260,13 @@ function AddLicenseModal({ onClose, onSave, loading, error, branches = [], isSup
     if (!form.license_name.trim()) errs.license_name = "License name is required.";
     if (!form.vendor.trim()) errs.vendor = "Vendor is required.";
     if (!form.license_type) errs.license_type = "License type is required.";
-    if (!form.expiry_date) errs.expiry_date = "Expiry date is required.";
     if (form.total_licenses === "" || isNaN(form.total_licenses)) errs.total_licenses = "Must be a number.";
     if (form.used_licenses === "" || isNaN(form.used_licenses)) errs.used_licenses = "Must be a number.";
     if (form.annual_cost !== "" && isNaN(form.annual_cost)) errs.annual_cost = "Must be numeric.";
+    if (Number(form.total_licenses) < 0) errs.total_licenses = "Cannot be negative.";
+    if (Number(form.used_licenses) < 0) errs.used_licenses = "Cannot be negative.";
+    if (Number(form.used_licenses) > Number(form.total_licenses)) errs.used_licenses = "Cannot exceed total licenses.";
+    if (form.annual_cost !== "" && Number(form.annual_cost) < 0) errs.annual_cost = "Cannot be negative.";
     if (isSuperAdmin && !form.branch_id) errs.branch_id = "Branch is required.";
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -292,7 +295,7 @@ function AddLicenseModal({ onClose, onSave, loading, error, branches = [], isSup
             </div>
             <h2 className="text-base font-black text-slate-900">Add License</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">
+          <button type="button" onClick={onClose} aria-label="Close add license" title="Close" className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">
             <X size={18} />
           </button>
         </div>
@@ -325,7 +328,7 @@ function AddLicenseModal({ onClose, onSave, loading, error, branches = [], isSup
           </div>
 
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-            <Field label="Expiry Date" required error={errors.expiry_date}>
+            <Field label="Expiry Date" error={errors.expiry_date}>
               <input type="date" value={form.expiry_date} onChange={(e) => update("expiry_date", e.target.value)} className={inputClass} />
             </Field>
             <Field label="Annual Cost" error={errors.annual_cost}>
@@ -381,10 +384,13 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
     if (!form.license_name.trim()) errs.license_name = "License name is required.";
     if (!form.vendor.trim()) errs.vendor = "Vendor is required.";
     if (!form.license_type) errs.license_type = "License type is required.";
-    if (!form.expiry_date) errs.expiry_date = "Expiry date is required.";
     if (form.total_licenses === "" || isNaN(form.total_licenses)) errs.total_licenses = "Must be a number.";
     if (form.used_licenses === "" || isNaN(form.used_licenses)) errs.used_licenses = "Must be a number.";
     if (form.annual_cost !== "" && isNaN(form.annual_cost)) errs.annual_cost = "Must be numeric.";
+    if (Number(form.total_licenses) < 0) errs.total_licenses = "Cannot be negative.";
+    if (Number(form.used_licenses) < 0) errs.used_licenses = "Cannot be negative.";
+    if (Number(form.used_licenses) > Number(form.total_licenses)) errs.used_licenses = "Cannot exceed total licenses.";
+    if (form.annual_cost !== "" && Number(form.annual_cost) < 0) errs.annual_cost = "Cannot be negative.";
     if (isSuperAdmin && !form.branch_id) errs.branch_id = "Branch is required.";
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -413,7 +419,7 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
             </div>
             <h2 className="text-base font-black text-slate-900">Edit License</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">
+          <button type="button" onClick={onClose} aria-label="Close edit license" title="Close" className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">
             <X size={18} />
           </button>
         </div>
@@ -446,7 +452,7 @@ function EditLicenseModal({ license, onClose, onSave, loading, error, branches =
           </div>
 
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-            <Field label="Expiry Date" required error={errors.expiry_date}>
+            <Field label="Expiry Date" error={errors.expiry_date}>
               <input type="date" value={form.expiry_date} onChange={(e) => update("expiry_date", e.target.value)} className={inputClass} />
             </Field>
             <Field label="Annual Cost" error={errors.annual_cost}>
@@ -515,7 +521,7 @@ function ReconcileLicenseModal({ license, data, loading, saving, error, onClose,
     <div className="astrea-modal-panel relative max-w-5xl">
       <div className="astrea-modal-header">
         <div><p className="text-xs font-black uppercase text-blue-600">Seat holders and usage</p><h2 className="mt-1 text-base font-black text-slate-900">{license.license_name}</h2></div>
-        <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100" title="Close"><X size={18}/></button>
+        <button type="button" onClick={onClose} aria-label="Close seat reconciliation" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" title="Close"><X size={18}/></button>
       </div>
 
       <div className="astrea-modal-body space-y-5">
@@ -580,7 +586,7 @@ function RenewLicenseModal({ license, history, historyLoading, onClose, onRenew,
             <h2 className="text-base font-black text-slate-900">Renew {license.license_name}</h2>
             <p className="mt-1 text-xs font-semibold text-slate-500">The previous term remains in the renewal history.</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"><X size={18}/></button>
+          <button type="button" onClick={onClose} aria-label="Close license renewal" title="Close" className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"><X size={18}/></button>
         </div>
 
         <form onSubmit={submit} className="astrea-modal-body space-y-5">
@@ -960,7 +966,7 @@ export default function SoftwareLicenses() {
                 className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
               />
               {search && (
-                <button type="button" onClick={() => setSearch("")}>
+                <button type="button" onClick={() => setSearch("")} aria-label="Clear license search" title="Clear search">
                   <X size={14} className="text-slate-400 hover:text-slate-600" />
                 </button>
               )}

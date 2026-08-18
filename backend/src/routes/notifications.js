@@ -1,26 +1,13 @@
 const express = require("express");
-const jwt = require("jsonwebtoken");
 const router = express.Router();
 const db = require("../../config/db");
+const { requireCurrentRoles } = require("../middleware/currentActor");
 
-function requireUser(req, res, next) {
-  const authHeader = req.headers.authorization || "";
-  if (!authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ success: false, message: "Authentication required" });
-  }
-
-  try {
-    req.authUser = jwt.verify(
-      authHeader.slice(7),
-      process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod"
-    );
-    return next();
-  } catch {
-    return res.status(401).json({ success: false, message: "Session expired. Please sign in again." });
-  }
-}
-
-router.use(requireUser);
+router.use(requireCurrentRoles());
+router.use((req, _res, next) => {
+  req.authUser = req.currentActor;
+  next();
+});
 
 // Fetch all notifications for the current user
 router.get("/", async (req, res) => {

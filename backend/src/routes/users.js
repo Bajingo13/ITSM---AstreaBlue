@@ -32,7 +32,7 @@ function isEmployeeRole(role) {
 
 router.get("/", requireAuthenticatedRequest, async (req, res) => {
   try {
-    const auth = getAuthFromRequest(req);
+    const auth = req.currentActor || getAuthFromRequest(req);
     let whereClause = "";
     const params = [];
 

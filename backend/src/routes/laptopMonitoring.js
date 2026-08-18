@@ -1,6 +1,6 @@
 const express = require("express");
 const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
+const { loadCurrentActor } = require("../middleware/currentActor");
 const { ensureConsentRequestForDevice } = require("../services/endpointConsentRequestService");
 const {
   DEFAULT_HIGH_RISK_EXTENSIONS,
@@ -23,7 +23,6 @@ const { registerEndpointUsbDlpRoutes } = require("./endpointUsbDlpRoutes");
 const { registerEndpointTelemetryRoutes } = require("./endpointTelemetryRoutes");
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 
 router.use(async (_req, res, next) => {
   if (await endpointMonitoringTablesReady) return next();
@@ -114,22 +113,22 @@ async function requireAgent(req, res, next) {
   }
 }
 
-function requireAdmin(req, res, next) {
+async function requireAdmin(req, res, next) {
   try {
-    const authorization = req.headers.authorization || "";
-    if (!authorization.startsWith("Bearer ")) throw new Error("Authentication required.");
-    const user = jwt.verify(authorization.slice(7), JWT_SECRET);
-    const role = String(user.role || "").toLowerCase().replace(/[\s_-]/g, "");
+    const user = await loadCurrentActor(req);
+    if (!user) return res.status(401).json({ success: false, message: "Authentication required." });
+    const role = user.role;
     if (!["superadmin", "admin", "technician", "employee"].includes(role)) return res.status(403).json({ success: false, message: "Monitoring access required." });
     req.monitoringUser = user;
     req.monitoringRole = role;
-    req.monitoringUserId = user.userId || user.user_id || null;
+    req.monitoringUserId = user.userId;
     req.monitoringIsSuperAdmin = role === "superadmin";
     req.monitoringIsEmployee = role === "employee";
     req.monitoringBranchId = (role === "admin" || role === "technician") ? user.branchId : null;
     return next();
-  } catch (_error) {
-    return res.status(401).json({ success: false, message: "Authentication required." });
+  } catch (error) {
+    console.error("[laptop-monitoring] Authorization failed:", error.message);
+    return res.status(503).json({ success: false, message: "Authorization service is temporarily unavailable." });
   }
 }
 

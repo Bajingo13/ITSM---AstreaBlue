@@ -58,7 +58,7 @@ function normalizeOptionalEmail(value) {
 }
 
 function buildInviteLink(req, token) {
-  const configuredOrigin = String(process.env.FRONTEND_URL || req.get("origin") || "http://localhost:5173").trim();
+  const configuredOrigin = String(process.env.FRONTEND_URL || "http://localhost:5173").trim();
   const origin = /^https?:\/\//i.test(configuredOrigin)
     ? configuredOrigin
     : `${/^(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configuredOrigin) ? "http" : "https"}://${configuredOrigin}`;
@@ -133,14 +133,17 @@ async function requireLifecycleAccess(req, res, next) {
     const claim = jwt.verify(header.slice(7), JWT_SECRET);
     const actorId = Number(claim.userId || claim.user_id);
     const result = await db.query(
-      `SELECT u.user_id,u.full_name,u.branch_id,u.is_active,r.role_name
+      `SELECT u.user_id,u.full_name,u.branch_id,u.is_active,u.status,r.role_name
          FROM users u JOIN system_roles r ON r.role_id=u.role_id
         WHERE u.user_id=$1 LIMIT 1`,
       [actorId]
     );
     const actor = result.rows[0];
     const role = normalizeRole(actor?.role_name);
-    if (!actor || actor.is_active === false) {
+    const inactiveStatus = ["inactive", "disabled", "deactivated"].includes(
+      String(actor?.status || "").trim().toLowerCase()
+    );
+    if (!actor || actor.is_active === false || inactiveStatus) {
       return res.status(401).json({ success: false, message: "Authentication required." });
     }
     if (!ACCESS_ROLES.has(role)) {
@@ -334,7 +337,10 @@ router.post("/technology-values/:employeeId/license-assignments", async (req, re
       : Number(req.lifecycleActor.branch_id);
     const employee = await loadEmployee(client, employeeId, branchId);
     if (!employee) throw Object.assign(new Error("Employee not found in the authorized branch."), { status: 404 });
-    if (employee.is_active === false) {
+    if (
+      employee.is_active === false ||
+      ["inactive", "disabled", "deactivated"].includes(String(employee.status || "").toLowerCase())
+    ) {
       throw Object.assign(new Error("Inactive employees cannot receive new software licenses."), { status: 409 });
     }
     await assignEmployeeLicenses(client, {
@@ -953,20 +959,14 @@ router.post("/cases/:id/license-assignments", async (req, res) => {
     if (!lifecycleCase.employee_id) {
       throw Object.assign(new Error("Create and link the employee account before assigning software licenses."), { status: 409 });
     }
-    const taskResult = await client.query(
-      `SELECT task.lifecycle_task_id,task.status,
-              asset_task.status AS asset_task_status
-         FROM employee_lifecycle_tasks task
-         LEFT JOIN employee_lifecycle_tasks asset_task
-           ON asset_task.lifecycle_case_id=task.lifecycle_case_id AND asset_task.task_key='assign_asset'
-        WHERE task.lifecycle_case_id=$1 AND task.task_key='assign_licenses'
-        FOR UPDATE OF task`,
+    const assetTaskResult = await client.query(
+      `SELECT status AS asset_task_status
+         FROM employee_lifecycle_tasks
+        WHERE lifecycle_case_id=$1 AND task_key='assign_asset'
+        FOR UPDATE`,
       [req.params.id]
     );
-    const task = taskResult.rows[0];
-    if (!task) throw Object.assign(new Error("The software-license onboarding task is unavailable."), { status: 409 });
-    if (task.status === "Completed") throw Object.assign(new Error("Software-license onboarding is already complete."), { status: 409 });
-    if (task.asset_task_status !== "Completed") {
+    if (assetTaskResult.rows[0]?.asset_task_status !== "Completed") {
       throw Object.assign(new Error("Complete managed asset assignment before assigning software licenses."), { status: 409 });
     }
 
@@ -976,26 +976,13 @@ router.post("/cases/:id/license-assignments", async (req, res) => {
       actor: req.lifecycleActor,
       assetId: Number(req.body.asset_id) || null,
       licenseIds: Array.isArray(req.body.license_ids) ? req.body.license_ids : [],
-      noLicenseRequired: req.body.no_license_required === true,
     });
-    await client.query(
-      `UPDATE employee_lifecycle_tasks
-          SET status='Completed',completed_by=$1,completed_at=CURRENT_TIMESTAMP,
-              completion_notes=$2,automation_result=$3::jsonb,
-              automation_completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
-        WHERE lifecycle_task_id=$4`,
-      [req.lifecycleActor.user_id,
-        automationResult.affected ? `${automationResult.affected} software license seat(s) assigned.` : "No software license required.",
-        JSON.stringify(automationResult), task.lifecycle_task_id]
-    );
     await addHistory(
       client,
       Number(req.params.id),
       req.lifecycleActor.user_id,
       "software_licenses_assigned",
-      automationResult.affected
-        ? `${automationResult.affected} software license seat(s) assigned during onboarding.`
-        : "Onboarding confirmed that no software license is required.",
+      `${automationResult.affected} software license seat(s) assigned during onboarding.`,
       null,
       null,
       automationResult

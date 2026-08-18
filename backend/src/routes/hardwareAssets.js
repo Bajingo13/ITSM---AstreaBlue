@@ -1,6 +1,7 @@
 const express = require("express");
 const repository = require("../repositories/hardwareAssetRepository");
 const { getAuthFromRequest } = require("../middleware/legacyJwtAuth");
+const { loadCurrentActor } = require("../middleware/currentActor");
 const { calculateStraightLine } = require("../services/assetFinancialService");
 const {
   DEFAULT_ONLINE_THRESHOLD_SECONDS,
@@ -11,6 +12,24 @@ const { reconcileDevice } = require("../services/reconciliationService");
 const {
   getHardwareAssetAccessFilter,
 } = require("../services/hardwareAssetAccessService");
+
+const ASSET_STATUSES = new Set([
+  "Available",
+  "In Use",
+  "Maintenance",
+  "Active",
+  "In Stock",
+  "Borrowed",
+  "In Repair",
+  "Retired",
+  "Disposed",
+  "Lost/Damaged",
+]);
+
+function isValidDateOrder(start, end) {
+  if (!start || !end) return true;
+  return new Date(`${end}T00:00:00Z`) >= new Date(`${start}T00:00:00Z`);
+}
 
 function normalizeRole(role) {
   return String(role || "")
@@ -44,11 +63,12 @@ function logError(operation, error) {
 }
 
 function getAccessFilter(req) {
-  const auth = getAuthFromRequest(req);
+  const auth = req.currentActor || getAuthFromRequest(req);
   if (!auth) return { whereSql: "WHERE 1=0", params: [] };
   return getHardwareAssetAccessFilter({
     role: auth.role,
     userId: auth.userId,
+    employeeNumber: auth.employeeNumber,
     branchId: auth.branchId,
     filterBranchId: req.query.filter_branch_id,
   });
@@ -118,24 +138,31 @@ function validateRequiredAsset(payload) {
       payload.status &&
       payload.finalManufacturer &&
       payload.model &&
-      payload.serial_number
+      payload.serial_number &&
+      ASSET_STATUSES.has(payload.status)
   );
 }
 
 function resolveBranchId(req, auth, requestedBranchId, fallback = null) {
-  const currentBranchId =
-    req.query.current_branch_id || req.body.current_branch_id;
   const role = normalizeRole(auth?.role);
   if (role === "admin" && auth.branchId) return auth.branchId;
   if (role === "superadmin") {
-    return requestedBranchId || currentBranchId || fallback;
+    return requestedBranchId || fallback;
   }
-  const legacyRole = normalizeRole(
-    req.query.role_name || req.body.role_name
-  );
-  return legacyRole === "superadmin"
-    ? requestedBranchId || currentBranchId || fallback
-    : currentBranchId || fallback || requestedBranchId || null;
+  return null;
+}
+
+function canReadAsset(actor, asset) {
+  if (!actor || !asset) return false;
+  if (actor.role === "superadmin") return true;
+  if (["admin", "technician"].includes(actor.role)) {
+    return actor.branchId && Number(actor.branchId) === Number(asset.branch_id);
+  }
+  if (actor.role !== "employee") return false;
+  if (Number(asset.assigned_to) === Number(actor.userId)) return true;
+  if (asset.assigned_to != null) return false;
+  return String(asset.employee_id || "") === String(actor.userId)
+    || Boolean(actor.employeeNumber && String(asset.employee_id || "") === String(actor.employeeNumber));
 }
 
 function assetValues(payload, branchId, status) {
@@ -199,22 +226,41 @@ async function recordBorrow(...args) {
   }
 }
 
-function createHardwareAssetRoutes({ tablesReady }) {
+function createHardwareAssetRoutes({ tablesReady, actorResolver = loadCurrentActor }) {
   const router = express.Router();
   const requireTables = async () => {
     if (!(await tablesReady)) {
       throw new Error("Hardware asset database initialization failed.");
     }
   };
+  const requireActor = async (req, res, allowedRoles = []) => {
+    try {
+      const actor = await actorResolver(req);
+      if (!actor) {
+        res.status(401).json({ success: false, error: "Authentication required." });
+        return null;
+      }
+      if (allowedRoles.length && !allowedRoles.includes(actor.role)) {
+        res.status(403).json({ success: false, error: "Access denied for your role." });
+        return null;
+      }
+      if (actor.role === "admin" && !actor.branchId) {
+        res.status(403).json({ success: false, error: "An assigned branch is required." });
+        return null;
+      }
+      req.currentActor = actor;
+      return actor;
+    } catch (error) {
+      logError("authorization", error);
+      res.status(503).json({ success: false, error: "Authorization service is temporarily unavailable." });
+      return null;
+    }
+  };
 
   router.get("/hardware-assets", async (req, res) => {
     try {
       await requireTables();
-      if (!getAuthFromRequest(req)) {
-        return res
-          .status(401)
-          .json({ success: false, error: "Authentication required." });
-      }
+      if (!(await requireActor(req, res))) return;
       const filter = buildListFilter(req);
       const result = await repository.listAssets(
         filter.whereSql,
@@ -246,11 +292,9 @@ function createHardwareAssetRoutes({ tablesReady }) {
 
   router.get("/hardware-assets/assignment-options", async (req, res) => {
     try {
-      const auth = getAuthFromRequest(req);
-      const role = normalizeRole(auth?.role);
-      if (!auth?.userId || !["admin", "superadmin"].includes(role)) {
-        return res.status(auth?.userId ? 403 : 401).json({ success: false, error: "Administrator access required." });
-      }
+      const auth = await requireActor(req, res, ["admin", "superadmin"]);
+      if (!auth) return;
+      const role = auth.role;
       const requestedBranchId = Number(req.query.branch_id) || null;
       const branchId = role === "superadmin" ? requestedBranchId : Number(auth.branchId);
       if (!branchId || (role !== "superadmin" && requestedBranchId && requestedBranchId !== branchId)) {
@@ -267,6 +311,13 @@ function createHardwareAssetRoutes({ tablesReady }) {
   router.get("/hardware-assets/:id/history", async (req, res) => {
     try {
       await requireTables();
+      const actor = await requireActor(req, res);
+      if (!actor) return;
+      const asset = (await repository.findAsset(req.params.id)).rows[0];
+      if (!asset) return res.status(404).json({ success: false, error: "Asset not found." });
+      if (!canReadAsset(actor, asset)) {
+        return res.status(403).json({ success: false, error: "Access denied for this asset." });
+      }
       const result = await repository.getHistory(req.params.id);
       return res.json(result.rows);
     } catch (error) {
@@ -281,6 +332,8 @@ function createHardwareAssetRoutes({ tablesReady }) {
   router.post("/hardware-assets", async (req, res) => {
     try {
       await requireTables();
+      const auth = await requireActor(req, res, ["admin", "superadmin"]);
+      if (!auth) return;
       const payload = normalizeAssetPayload({
         status: "Active",
         ...req.body,
@@ -292,12 +345,11 @@ function createHardwareAssetRoutes({ tablesReady }) {
             "Asset tag, status, manufacturer, model, asset type, and serial number are required",
         });
       }
-      const auth = getAuthFromRequest(req);
       const branchId = resolveBranchId(
         req,
         auth,
         payload.branch_id,
-        null
+        auth.branchId
       );
       if (!branchId) {
         return res
@@ -323,7 +375,7 @@ function createHardwareAssetRoutes({ tablesReady }) {
           created: new Date().toISOString(),
         },
         branchId,
-        null
+        auth.userId
       );
       if (payload.status === "Borrowed") {
         await recordBorrow(asset.asset_id, {
@@ -331,7 +383,7 @@ function createHardwareAssetRoutes({ tablesReady }) {
           status_from: "Active",
           status_to: "Borrowed",
           branch_id: branchId,
-          created_by: null,
+          created_by: auth.userId,
         });
       }
       return res.status(201).json(asset);
@@ -351,28 +403,12 @@ function createHardwareAssetRoutes({ tablesReady }) {
 
   router.get("/assets/:assetId/reconciliation", async (req, res) => {
     try {
-      const auth = getAuthFromRequest(req);
-      if (!auth) {
-        return res
-          .status(401)
-          .json({ success: false, error: "Unauthorized" });
-      }
-      const role = normalizeRole(auth.role);
-      if (role === "employee") {
-        return res
-          .status(403)
-          .json({ success: false, error: "Access denied" });
-      }
-      if (role !== "superadmin" && auth.branchId) {
-        const asset = await repository.findAssetBranch(req.params.assetId);
-        if (
-          !asset.rows.length ||
-          Number(asset.rows[0].branch_id) !== Number(auth.branchId)
-        ) {
-          return res
-            .status(403)
-            .json({ success: false, error: "Access denied" });
-        }
+      const auth = await requireActor(req, res, ["superadmin", "admin", "technician"]);
+      if (!auth) return;
+      const asset = await repository.findAssetBranch(req.params.assetId);
+      if (!asset.rows.length) return res.status(404).json({ success: false, error: "Asset not found." });
+      if (auth.role !== "superadmin" && Number(asset.rows[0].branch_id) !== Number(auth.branchId)) {
+        return res.status(403).json({ success: false, error: "Access denied" });
       }
       const result = await repository.getReconciliation(req.params.assetId);
       return res.json({ success: true, data: result.rows });
@@ -388,6 +424,8 @@ function createHardwareAssetRoutes({ tablesReady }) {
   router.put("/hardware-assets/:id", async (req, res) => {
     try {
       await requireTables();
+      const auth = await requireActor(req, res, ["admin", "superadmin"]);
+      if (!auth) return;
       const payload = normalizeAssetPayload(req.body);
       if (!validateRequiredAsset(payload)) {
         return res.status(400).json({
@@ -403,9 +441,12 @@ function createHardwareAssetRoutes({ tablesReady }) {
           .json({ success: false, error: "Asset not found" });
       }
       const current = existing.rows[0];
+      if (auth.role !== "superadmin" && Number(current.branch_id) !== Number(auth.branchId)) {
+        return res.status(403).json({ success: false, error: "Cannot update an asset from another branch." });
+      }
       const branchId = resolveBranchId(
         req,
-        getAuthFromRequest(req),
+        auth,
         payload.branch_id,
         current.branch_id
       );
@@ -445,7 +486,7 @@ function createHardwareAssetRoutes({ tablesReady }) {
         "Asset Updated",
         { status },
         branchId,
-        null
+        auth.userId
       );
       const linked = await repository.getLinkedDevice(req.params.id);
       if (linked.rows.length) {
@@ -470,20 +511,9 @@ function createHardwareAssetRoutes({ tablesReady }) {
   router.delete("/hardware-assets/:id", async (req, res) => {
     try {
       await requireTables();
-      const auth = getAuthFromRequest(req);
-      if (!auth) {
-        return res
-          .status(401)
-          .json({ success: false, error: "Authentication required." });
-      }
-      const role = normalizeRole(auth.role);
-      if (!["superadmin", "admin"].includes(role)) {
-        return res.status(403).json({
-          success: false,
-          error:
-            "Only Super Admin and Admin Branch can delete hardware assets.",
-        });
-      }
+      const auth = await requireActor(req, res, ["superadmin", "admin"]);
+      if (!auth) return;
+      const role = auth.role;
       const deletion = await repository.deleteAssetSafely(
         req.params.id,
         role === "admin" ? auth.branchId : null
@@ -526,24 +556,21 @@ function createHardwareAssetRoutes({ tablesReady }) {
 
   router.put("/hardware-assets/:id/link-device", async (req, res) => {
     try {
-      const auth = getAuthFromRequest(req);
-      const role = normalizeRole(auth?.role);
-      if (!auth || !["superadmin", "admin"].includes(role)) {
-        return res
-          .status(403)
-          .json({ success: false, error: "Unauthorized" });
+      const auth = await requireActor(req, res, ["superadmin", "admin"]);
+      if (!auth) return;
+      const asset = await repository.findAssetBranch(req.params.id);
+      if (!asset.rows.length) {
+        return res.status(404).json({ success: false, error: "Asset not found." });
       }
-      if (role === "admin" && auth.branchId) {
-        const asset = await repository.findAssetBranch(req.params.id);
-        if (
-          !asset.rows.length ||
-          Number(asset.rows[0].branch_id) !== Number(auth.branchId)
-        ) {
-          return res.status(403).json({
-            success: false,
-            error: "Cannot link/unlink assets from another branch.",
-          });
-        }
+      const assetBranchId = asset.rows[0].branch_id;
+      if (
+        auth.role === "admin" &&
+        (!auth.branchId || Number(assetBranchId) !== Number(auth.branchId))
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Cannot link or unlink assets from another branch.",
+        });
       }
       const { device_id: deviceId } = req.body;
       if (deviceId === null || deviceId === "") {
@@ -559,6 +586,12 @@ function createHardwareAssetRoutes({ tablesReady }) {
         return res.status(404).json({
           success: false,
           error: "Monitored device not found.",
+        });
+      }
+      if (Number(device.rows[0].branch_id) !== Number(assetBranchId)) {
+        return res.status(409).json({
+          success: false,
+          error: "The monitoring device and hardware asset must belong to the same branch.",
         });
       }
       const existingAssetId = device.rows[0].asset_id;
@@ -595,6 +628,8 @@ function createHardwareAssetRoutes({ tablesReady }) {
   router.patch("/hardware-assets/:id/status", async (req, res) => {
     try {
       await requireTables();
+      const auth = await requireActor(req, res, ["superadmin", "admin"]);
+      if (!auth) return;
       const { status } = req.body;
       if (!status) {
         return res
@@ -607,20 +642,13 @@ function createHardwareAssetRoutes({ tablesReady }) {
           .status(404)
           .json({ success: false, error: "Asset not found" });
       }
+      if (!ASSET_STATUSES.has(status)) {
+        return res.status(400).json({ success: false, error: "Select a valid asset status." });
+      }
       const current = existing.rows[0];
-      const auth = getAuthFromRequest(req);
-      if (!auth?.userId) {
-        return res.status(401).json({ success: false, error: "Authentication required." });
-      }
-      const role = normalizeRole(auth.role);
-      if (!["admin", "superadmin"].includes(role)) {
-        return res.status(403).json({ success: false, error: "Administrator access required." });
-      }
-      const currentBranchId = auth.branchId;
       if (
-        role !== "superadmin" &&
-        currentBranchId &&
-        Number(current.branch_id) !== Number(currentBranchId)
+        auth.role !== "superadmin" &&
+        (!auth.branchId || Number(current.branch_id) !== Number(auth.branchId))
       ) {
         return res.status(403).json({
           success: false,
@@ -637,6 +665,12 @@ function createHardwareAssetRoutes({ tablesReady }) {
           success: false,
           error:
             "Employee, borrow date, and expected return date are required for borrowed assets",
+        });
+      }
+      if (status === "Borrowed" && !isValidDateOrder(req.body.borrow_date, req.body.expected_return_date)) {
+        return res.status(400).json({
+          success: false,
+          error: "Expected return date cannot be before the borrow date.",
         });
       }
       if (
@@ -717,7 +751,7 @@ function createHardwareAssetRoutes({ tablesReady }) {
         "Status Change",
         event,
         current.branch_id,
-        null
+        auth.userId
       );
       await recordBorrow(updated.asset_id, {
         ...req.body,
@@ -727,7 +761,7 @@ function createHardwareAssetRoutes({ tablesReady }) {
         status_from: current.status,
         status_to: status,
         branch_id: current.branch_id,
-        created_by: null,
+        created_by: auth.userId,
       });
       await repository.syncMonitoredAssignment(
         updated.asset_id,

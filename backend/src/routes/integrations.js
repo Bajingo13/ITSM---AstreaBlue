@@ -1,6 +1,6 @@
 const express = require("express");
-const jwt = require("jsonwebtoken");
 const db = require("../../config/db");
+const { requireCurrentRoles } = require("../middleware/currentActor");
 const {
   auditIntegrationRequest,
   ensureIntegrationGatewaySchema,
@@ -9,43 +9,14 @@ const {
 } = require("../services/integrationService");
 
 const router = express.Router();
-const JWT_FALLBACK_SECRET = "astreablue_dev_secret_change_in_prod";
-const JWT_SECRET = process.env.JWT_SECRET || JWT_FALLBACK_SECRET;
 
 function normalizeRole(role) {
   return String(role || "").toLowerCase().replace(/[\s_-]+/g, "");
 }
 
-function decodeUser(req) {
-  const authHeader = req.headers.authorization || "";
-  if (!authHeader.startsWith("Bearer ")) return null;
-  const token = authHeader.slice(7);
-
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (err) {
-    if (JWT_SECRET === JWT_FALLBACK_SECRET) return null;
-    try {
-      return jwt.verify(token, JWT_FALLBACK_SECRET);
-    } catch {
-      return null;
-    }
-  }
-}
-
 function requireIntegrationHubRead(req, res, next) {
-  const user = decodeUser(req);
-  if (!user) {
-    return res.status(401).json({ success: false, message: "Authentication required.", data: null });
-  }
-
-  const role = normalizeRole(user.role);
-  if (!["superadmin", "admin"].includes(role)) {
-    return res.status(403).json({ success: false, message: "Integration Hub access denied.", data: null });
-  }
-
-  req.user = user;
-  req.userRole = role;
+  req.user = req.currentActor;
+  req.userRole = req.currentActor.role;
   return next();
 }
 
@@ -66,6 +37,7 @@ router.use(async (_req, res, next) => {
   }
 });
 
+router.use(requireCurrentRoles("superadmin", "admin"));
 router.use(requireIntegrationHubRead);
 
 router.get("/dashboard", async (_req, res) => {

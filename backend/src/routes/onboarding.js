@@ -1,24 +1,12 @@
 const express = require("express");
-const jwt = require("jsonwebtoken");
 const db = require("../../config/db");
+const { requireCurrentRoles } = require("../middleware/currentActor");
 const { getR2Status } = require("../services/r2StorageService");
 const {
   applyApprovedConsentOnboardingState,
 } = require("../services/onboardingStateService");
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
-
-function requireAuth(req, res, next) {
-  try {
-    const header = String(req.headers.authorization || "");
-    if (!header.startsWith("Bearer ")) throw new Error("Authentication required.");
-    req.actor = jwt.verify(header.slice(7), JWT_SECRET);
-    return next();
-  } catch (_error) {
-    return res.status(401).json({ success: false, message: "Authentication required." });
-  }
-}
 
 const tablesReady = db.query(`
   ALTER TABLE users
@@ -43,7 +31,11 @@ const tablesReady = db.query(`
   return null;
 });
 
-router.use(requireAuth);
+router.use(requireCurrentRoles());
+router.use((req, _res, next) => {
+  req.actor = req.currentActor;
+  next();
+});
 router.use(async (_req, res, next) => {
   if (await tablesReady) return next();
   return res.status(503).json({ success: false, message: "Onboarding storage is unavailable." });

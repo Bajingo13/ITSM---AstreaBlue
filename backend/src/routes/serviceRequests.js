@@ -1,11 +1,9 @@
 const express = require("express");
-const jwt = require("jsonwebtoken");
 const db = require("../../config/db");
+const { requireCurrentRoles } = require("../middleware/currentActor");
 
 const router = express.Router();
 
-const JWT_FALLBACK_SECRET = "astreablue_dev_secret_change_in_prod";
-const JWT_SECRET = process.env.JWT_SECRET || JWT_FALLBACK_SECRET;
 
 // Normalise any role variant to a canonical lowercase token
 function normalizeRole(role) {
@@ -34,22 +32,10 @@ function isServiceRequestRole(role) {
 // Decode the Bearer JWT and attach user context. Does NOT abort — falls through
 // so endpoints can decide whether auth is required.
 function decodeRequestUser(req) {
-  try {
-    const auth = req.headers.authorization || "";
-    if (!auth.startsWith("Bearer ")) return null;
-    const token = auth.slice(7);
-    try {
-      return jwt.verify(token, JWT_SECRET);
-    } catch (err) {
-      if (JWT_SECRET === JWT_FALLBACK_SECRET) {
-        throw err;
-      }
-      return jwt.verify(token, JWT_FALLBACK_SECRET);
-    }
-  } catch {
-    return null;
-  }
+  return req.currentActor || null;
 }
+
+router.use(requireCurrentRoles("superadmin", "admin", "technician"));
 
 // Returns { clause, params } or { forbidden: true, unauthorized: true }
 // startIndex is the $N index for the first new param.

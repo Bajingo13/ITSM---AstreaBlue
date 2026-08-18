@@ -416,7 +416,7 @@ export default function EmployeeLifecycle() {
 
       {showCreate && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
         <form onSubmit={createCase} className="w-full max-w-2xl overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-2xl">
-          <header className="flex items-center justify-between border-b border-blue-100 p-6"><div><h2 className="text-2xl font-black">Create lifecycle case</h2><p className="text-sm text-slate-500">The required checklist and linked internal ticket are created automatically.</p></div><button type="button" onClick={() => setShowCreate(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X/></button></header>
+          <header className="flex items-center justify-between border-b border-blue-100 p-6"><div><h2 className="text-2xl font-black">Create lifecycle case</h2><p className="text-sm text-slate-500">The required checklist and linked internal ticket are created automatically.</p></div><button type="button" onClick={() => setShowCreate(false)} aria-label="Close create lifecycle case" title="Close" className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X/></button></header>
           <div className="grid max-h-[70vh] gap-4 overflow-y-auto p-6 sm:grid-cols-2">
             <Field label="Lifecycle type"><select value={form.lifecycle_type} onChange={(event) => setForm((current) => ({ ...current, lifecycle_type: event.target.value, subject_mode: event.target.value === "Offboarding" ? "existing" : current.subject_mode }))} className="field"><option>Onboarding</option><option>Offboarding</option></select></Field>
             {form.lifecycle_type === "Onboarding" && <Field label="Employee record"><select value={form.subject_mode} onChange={(event) => setForm((current) => ({ ...current, subject_mode: event.target.value }))} className="field"><option value="new">New employee (no account yet)</option><option value="existing">Existing employee account</option></select></Field>}
@@ -498,16 +498,16 @@ function TechnologyValueWorkspace({ value, loading, role, onRefresh }) {
 
     <div className="mt-5 overflow-x-auto border-y border-slate-200">
       <table className="min-w-full text-left text-sm">
-        <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Employee", "Branch", "Hardware", "Active seats", "Annual software", "First-year value", ""].map((heading,index) => <th key={`${heading}-${index}`} className="px-5 py-3">{heading}</th>)}</tr></thead>
+        <thead className="bg-slate-50 text-xs uppercase text-slate-600"><tr>{["Employee", "Branch", "Hardware", "Active seats", "Annual software", "First-year value", ""].map((heading,index) => <th key={`${heading}-${index}`} className={`px-5 py-3 ${index === 6 ? "sticky right-0 bg-slate-50 text-right" : ""}`}>{heading}</th>)}</tr></thead>
         <tbody className="divide-y divide-slate-100">
           {loading ? <tr><td colSpan="7" className="px-5 py-14 text-center text-slate-500">Loading employee technology values...</td></tr> : visibleEmployees.length ? visibleEmployees.map((employee) => <tr key={employee.user_id} className="hover:bg-blue-50/40">
-            <td className="px-5 py-4"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-900">{employee.full_name}</p><span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${employee.is_active === false ? "bg-slate-200 text-slate-600" : "bg-emerald-100 text-emerald-700"}`}>{employee.is_active === false ? "Inactive" : "Active"}</span></div><p className="text-xs text-slate-500">{employee.employee_number || "No employee number"} · {employee.department || "No department"}</p></td>
+            <td className="px-5 py-4"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-900">{employee.full_name}</p><span className={`rounded-full px-2 py-0.5 text-xs font-black uppercase ${employee.is_active === false ? "bg-slate-200 text-slate-700" : "bg-emerald-100 text-emerald-800"}`}>{employee.is_active === false ? "Inactive" : "Active"}</span></div><p className="text-xs text-slate-600">{employee.employee_number || "No employee number"} · {employee.department || "No department"}</p></td>
             <td className="px-5 py-4 text-slate-600">{employee.branch_name}</td>
             <td className="px-5 py-4"><p className="font-bold text-slate-900">{formatCurrency(employee.asset_value)}</p><p className="text-xs text-slate-500">{Number(employee.asset_count || 0)} assigned</p></td>
             <td className="px-5 py-4 font-bold text-slate-800">{Number(employee.license_count || 0)}</td>
             <td className="px-5 py-4 font-bold text-slate-800">{formatCurrency(employee.annual_software_cost)}</td>
             <td className="px-5 py-4 font-black text-blue-700">{formatCurrency(employee.first_year_assigned_value)}</td>
-            <td className="px-5 py-4 text-right"><button type="button" onClick={() => void openEmployee(employee)} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50"><Eye size={14}/> Manage</button></td>
+            <td className="sticky right-0 bg-white px-5 py-4 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]"><button type="button" onClick={() => void openEmployee(employee)} aria-label={`Manage technology assignments for ${employee.full_name}`} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50"><Eye size={14}/> Manage</button></td>
           </tr>) : <tr><td colSpan="7" className="px-5 py-14 text-center text-slate-500">{employees.length ? "No employees match the current filters." : "No employee records are available in this local database yet."}</td></tr>}
         </tbody>
       </table>
@@ -606,11 +606,9 @@ function TechnologyValuePanel({ details, role, onRefresh }) {
   const [saving, setSaving] = useState(false);
   const [panelError, setPanelError] = useState("");
 
-  const licenseTask = details.tasks?.find((task) => task.task_key === "assign_licenses");
   const assetTask = details.tasks?.find((task) => task.task_key === "assign_asset");
   const canAssign = details.lifecycle_type === "Onboarding"
     && ["superadmin", "admin"].includes(role)
-    && licenseTask?.status === "Pending"
     && !["Completed", "Cancelled"].includes(details.status);
 
   const loadValue = useCallback(async () => {
@@ -635,7 +633,7 @@ function TechnologyValuePanel({ details, role, onRefresh }) {
       : [...current, licenseId]);
   }
 
-  async function saveAssignments(noLicenseRequired = false) {
+  async function saveAssignments() {
     setSaving(true);
     setPanelError("");
     try {
@@ -643,8 +641,7 @@ function TechnologyValuePanel({ details, role, onRefresh }) {
         method: "POST",
         body: JSON.stringify({
           asset_id: selectedAssetId ? Number(selectedAssetId) : null,
-          license_ids: noLicenseRequired ? [] : selectedLicenseIds,
-          no_license_required: noLicenseRequired,
+          license_ids: selectedLicenseIds,
         }),
       });
       setValue(data);
@@ -695,11 +692,11 @@ function TechnologyValuePanel({ details, role, onRefresh }) {
     </div>}
 
     {canAssign && <div className="mt-5 border-t border-blue-100 pt-5">
-      <div className="flex items-center justify-between gap-3"><div><h4 className="font-black text-slate-900">Assign onboarding licenses</h4><p className="mt-1 text-xs text-slate-500">Available seats are filtered to the employee branch.</p></div><span className="text-xs font-black text-blue-700">{selectedLicenseIds.length} selected</span></div>
+      <div className="flex items-center justify-between gap-3"><div><h4 className="font-black text-slate-900">Software licenses <span className="font-semibold text-slate-500">(optional)</span></h4><p className="mt-1 text-xs text-slate-500">Available seats are filtered to the employee branch.</p></div><span className="text-xs font-black text-blue-700">{selectedLicenseIds.length} selected</span></div>
       {assetTask?.status !== "Completed" ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">Complete managed asset assignment first.</p> : <>
         <label className="mt-4 block"><span className="mb-1 block text-xs font-black uppercase text-slate-600">Assigned asset</span><select value={selectedAssetId} onChange={(event) => setSelectedAssetId(event.target.value)} className="field"><option value="">Select assigned asset</option>{assets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag || asset.asset_name} - {asset.asset_name}</option>)}</select></label>
         <div className="mt-4 max-h-52 overflow-y-auto rounded-lg border border-slate-200">{availableLicenses.length ? availableLicenses.map((license) => <label key={license.license_id} className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0 hover:bg-slate-50"><input type="checkbox" checked={selectedLicenseIds.includes(Number(license.license_id))} onChange={() => toggleLicense(Number(license.license_id))} className="h-4 w-4 accent-blue-600"/><span className="min-w-0 flex-1"><span className="block text-sm font-black text-slate-800">{license.license_name}</span><span className="block text-xs text-slate-500">{license.vendor} - {license.available_licenses} available</span></span><span className="text-xs font-black text-slate-700">{formatCurrency(license.annual_seat_cost)}/yr</span></label>) : <p className="px-3 py-4 text-center text-xs text-slate-500">No available license seats in this branch.</p>}</div>
-        <div className="mt-4 flex flex-wrap justify-end gap-2"><button type="button" disabled={saving} onClick={() => void saveAssignments(true)} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50">No licenses required</button><button type="button" disabled={saving || !selectedAssetId || !selectedLicenseIds.length} onClick={() => void saveAssignments(false)} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Assign selected licenses"}</button></div>
+        <div className="mt-4 flex justify-end"><button type="button" disabled={saving || !selectedAssetId || !selectedLicenseIds.length} onClick={() => void saveAssignments()} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Assign selected licenses"}</button></div>
       </>}
     </div>}
 
@@ -723,7 +720,7 @@ function CaseDrawer({ details, role, busy, error, invitation, onDismissError, on
     : transitions.filter((status) => status !== "Ready for Verification");
   return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60 backdrop-blur-sm">
     <aside className="h-full w-full max-w-3xl overflow-y-auto border-l border-blue-100 bg-[#f7faff] shadow-2xl">
-      <header className="sticky top-0 z-10 flex items-start justify-between border-b border-blue-100 bg-white p-6"><div><p className="text-xs font-black uppercase tracking-widest text-blue-600">{details.case_number}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{details.employee_name}</h2><p className="text-sm text-slate-500">{details.lifecycle_type} · {details.branch_name}</p></div><div className="flex items-center gap-2">{role === "superadmin" && details.status !== "Completed" && <button disabled={busy} onClick={() => void onDelete(details)} className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100 disabled:opacity-50"><Trash2 size={15}/> Delete</button>}<button onClick={onClose} className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-100"><X/></button></div></header>
+      <header className="sticky top-0 z-10 flex items-start justify-between border-b border-blue-100 bg-white p-6"><div><p className="text-xs font-black uppercase tracking-widest text-blue-600">{details.case_number}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{details.employee_name}</h2><p className="text-sm text-slate-500">{details.lifecycle_type} · {details.branch_name}</p></div><div className="flex items-center gap-2">{role === "superadmin" && details.status !== "Completed" && <button disabled={busy} onClick={() => void onDelete(details)} className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100 disabled:opacity-50"><Trash2 size={15}/> Delete</button>}<button onClick={onClose} aria-label="Close lifecycle case" title="Close" className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-100"><X/></button></div></header>
       {error && <div role="alert" aria-live="assertive" className="fixed right-4 top-24 z-[60] w-[calc(100%-2rem)] max-w-xl rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-2xl sm:right-8">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 rounded-xl bg-amber-100 p-2 text-amber-700"><AlertTriangle size={20}/></span>

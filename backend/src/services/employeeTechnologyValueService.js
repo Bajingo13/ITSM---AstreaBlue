@@ -82,10 +82,12 @@ async function loadEmployee(queryable, employeeId, branchId = null) {
   const params = [Number(employeeId)];
   const branchClause = branchId ? (params.push(Number(branchId)), `AND u.branch_id=$${params.length}`) : "";
   const result = await queryable.query(
-    `SELECT u.user_id,u.full_name,u.email,u.employee_number,u.department,u.branch_id,u.is_active,b.branch_name
+    `SELECT u.user_id,u.full_name,u.email,u.employee_number,u.department,u.branch_id,u.is_active,u.status,
+            role.role_name,b.branch_name
        FROM users u
+       JOIN system_roles role ON role.role_id=u.role_id
        LEFT JOIN branches b ON b.branch_id=u.branch_id
-      WHERE u.user_id=$1 ${branchClause}
+      WHERE u.user_id=$1 AND LOWER(role.role_name)='employee' ${branchClause}
       LIMIT 1`,
     params
   );
@@ -186,15 +188,13 @@ async function assignEmployeeLicenses(queryable, {
   actor,
   assetId,
   licenseIds,
-  noLicenseRequired = false,
   requireAsset = true,
   assignmentSource = "Lifecycle",
 }) {
   const normalizedLicenseIds = [...new Set((licenseIds || []).map(Number).filter(Number.isInteger))]
     .sort((left, right) => left - right);
   if (!normalizedLicenseIds.length) {
-    if (!noLicenseRequired) throw httpError(400, "Select at least one software license or confirm that none is required.");
-    return { action: "no_software_license_required", affected: 0, assignmentIds: [], licenseIds: [] };
+    throw httpError(400, "Select at least one software license.");
   }
 
   const assignmentBranchId = Number(lifecycleCase?.branch_id || employee.branch_id);

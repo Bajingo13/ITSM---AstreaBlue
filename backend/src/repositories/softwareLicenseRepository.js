@@ -184,6 +184,15 @@ function countActiveAssignments(licenseId, executor = db) {
   );
 }
 
+function countAuditHistory(licenseId) {
+  return db.query(
+    `SELECT
+       (SELECT COUNT(*) FROM software_license_assignments WHERE license_id=$1)::int assignment_count,
+       (SELECT COUNT(*) FROM software_license_renewals WHERE license_id=$1)::int renewal_count`,
+    [licenseId]
+  );
+}
+
 function findByIdForUpdate(licenseId, executor) {
   return executor.query(
     `SELECT license_id,branch_id,expiry_date,annual_cost,total_licenses,used_licenses,
@@ -279,6 +288,7 @@ function connect() {
 module.exports = {
   branchExists,
   connect,
+  countAuditHistory,
   countActiveAssignments,
   create,
   ensureSchema,

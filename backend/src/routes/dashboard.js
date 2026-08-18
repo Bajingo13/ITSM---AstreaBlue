@@ -1,19 +1,11 @@
 const express = require("express");
 const db = require("../../config/db");
+const { requireCurrentRoles } = require("../middleware/currentActor");
 
 const router = express.Router();
 
-const jwt = require("jsonwebtoken");
-const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
-
 function getAccessFilter(req) {
-  let auth = null;
-  try {
-    const authHeader = req.headers.authorization || "";
-    if (authHeader.startsWith("Bearer ")) {
-      auth = jwt.verify(authHeader.split(" ")[1], JWT_SECRET);
-    }
-  } catch (e) {}
+  const auth = req.currentActor;
 
   if (!auth) return { whereSql: "WHERE 1=0", params: [] };
 
@@ -45,6 +37,8 @@ function getAccessFilter(req) {
 
   return { whereSql: "WHERE 1=0", params };
 }
+
+router.use(requireCurrentRoles());
 
 router.get("/summary", async (req, res) => {
   try {

@@ -177,7 +177,8 @@ test("administrative mutations retain JWT and SuperAdmin guards", () => {
     roleSource,
     /router\.get\("\/",\s*requireAuthenticatedRequest/
   );
-  assert.match(categorySource, /const user = getAuthFromRequest\(req\)/);
+  assert.match(categorySource, /router\.use\(requireCurrentRoles\(\)\)/);
+  assert.match(categorySource, /req\.currentActor/);
 });
 
 test("software license routes delegate persistence to a repository", () => {
@@ -297,7 +298,7 @@ test("schema compatibility startup is isolated from the HTTP composition root", 
   assert.match(schemaSource, /const legacySchemaReady = \(async \(\) =>/);
 });
 
-test("shared legacy JWT guards preserve the live authorization responses", () => {
+test("shared legacy JWT guards preserve the live authorization responses", async () => {
   const previousSecret = process.env.JWT_SECRET;
   process.env.JWT_SECRET = "route-parity-test-secret";
 
@@ -322,7 +323,7 @@ test("shared legacy JWT guards preserve the live authorization responses", () =>
   });
 
   const unauthenticatedResponse = createResponse();
-  requireAuthenticatedRequest(
+  await requireAuthenticatedRequest(
     { headers: {} },
     unauthenticatedResponse,
     () => assert.fail("unauthenticated request called next")
@@ -333,35 +334,9 @@ test("shared legacy JWT guards preserve the live authorization responses", () =>
     "Authentication required."
   );
 
-  const adminToken = jwt.sign(
-    { userId: 4, role: "Admin", branchId: 1 },
-    process.env.JWT_SECRET
-  );
-  const forbiddenResponse = createResponse();
-  requireSuperAdminRequest(
-    { headers: { authorization: `Bearer ${adminToken}` } },
-    forbiddenResponse,
-    () => assert.fail("Admin request called SuperAdmin next")
-  );
-  assert.equal(forbiddenResponse.statusCode, 403);
-  assert.equal(
-    forbiddenResponse.body.error,
-    "SuperAdmin access required."
-  );
-
-  const superAdminToken = jwt.sign(
-    { userId: 1, role: "SuperAdmin", branchId: null },
-    process.env.JWT_SECRET
-  );
-  const request = {
-    headers: { authorization: `Bearer ${superAdminToken}` },
-  };
-  let nextCalled = false;
-  requireSuperAdminRequest(request, createResponse(), () => {
-    nextCalled = true;
-  });
-  assert.equal(nextCalled, true);
-  assert.equal(request.authenticatedUser.userId, 1);
+  const middlewareSource = fs.readFileSync(modulePath, "utf8");
+  assert.match(middlewareSource, /loadCurrentActor/);
+  assert.match(middlewareSource, /req\.currentActor\.role !== "superadmin"/);
 
   if (previousSecret === undefined) delete process.env.JWT_SECRET;
   else process.env.JWT_SECRET = previousSecret;

@@ -39,6 +39,7 @@ test.before(async () => {
     "2026-08-17-software-license-reconciliation.sql",
     "2026-08-17-direct-license-assignment.sql",
     "2026-08-18-license-assignment-audit.sql",
+    "2026-08-18-optional-onboarding-license-assignment.sql",
   ]) {
     await db.query(fs.readFileSync(path.join(__dirname, "..", "database", fileName), "utf8"));
   }

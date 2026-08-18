@@ -4,7 +4,7 @@
  */
 
 const express = require("express");
-const jwt = require("jsonwebtoken");
+const { loadCurrentActor } = require("../middleware/currentActor");
 const db = require("../../config/db");
 const crypto = require("crypto");
 const fs = require("fs");
@@ -23,7 +23,6 @@ const {
 } = require("../services/onboardingStateService");
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 const CONSENT_STATUSES = [
   "draft",
   "pending_employee",
@@ -183,27 +182,26 @@ router.use(async (_req, res, next) => {
 });
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
-function parseUser(req) {
-  const auth = req.headers.authorization || "";
-  if (!auth.startsWith("Bearer ")) return null;
-  try { return jwt.verify(auth.slice(7), JWT_SECRET); } catch { return null; }
+async function requireAuth(req, res, next) {
+  try {
+    const user = await loadCurrentActor(req);
+    if (!user) return res.status(401).json({ success: false, message: "Authentication required." });
+    req.currentActor = user;
+    req.actor = user;
+    return next();
+  } catch (error) {
+    console.error("[consent] Authorization failed:", error.message);
+    return res.status(503).json({ success: false, message: "Authorization service is temporarily unavailable." });
+  }
 }
 
-function requireAuth(req, res, next) {
-  const user = parseUser(req);
-  if (!user) return res.status(401).json({ success: false, message: "Authentication required." });
-  req.actor = user;
-  return next();
-}
-
-function requireAdminOrHR(req, res, next) {
-  const user = parseUser(req);
-  if (!user) return res.status(401).json({ success: false, message: "Authentication required." });
-  const r = String(user.role || "").toLowerCase().replace(/[\s_-]/g, "");
-  if (!["superadmin", "admin", "hr"].includes(r))
-    return res.status(403).json({ success: false, message: "Admin or HR role required." });
-  req.actor = user;
-  return next();
+async function requireAdminOrHR(req, res, next) {
+  return requireAuth(req, res, () => {
+    if (!["superadmin", "admin", "hr"].includes(req.actor.role)) {
+      return res.status(403).json({ success: false, message: "Admin or HR role required." });
+    }
+    return next();
+  });
 }
 
 // ─── Audit helper ─────────────────────────────────────────────────────────────

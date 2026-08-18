@@ -17,38 +17,36 @@ function getAuthFromRequest(req) {
   }
 }
 
-function requireAuthenticatedRequest(req, res, next) {
-  const auth = getAuthFromRequest(req);
-  if (!auth?.userId) {
-    return res
-      .status(401)
-      .json({ success: false, error: "Authentication required." });
+async function requireAuthenticatedRequest(req, res, next) {
+  try {
+    const { loadCurrentActor } = require("./currentActor");
+    const actor = await loadCurrentActor(req);
+    if (!actor) {
+      return res
+        .status(401)
+        .json({ success: false, error: "Authentication required." });
+    }
+    req.authenticatedUser = actor;
+    req.currentActor = actor;
+    return next();
+  } catch (error) {
+    console.error("[legacy-auth] Failed to resolve authenticated account:", error.message);
+    return res.status(503).json({
+      success: false,
+      error: "Authorization service is temporarily unavailable.",
+    });
   }
-
-  req.authenticatedUser = auth;
-  return next();
 }
 
-function requireSuperAdminRequest(req, res, next) {
-  const auth = getAuthFromRequest(req);
-  if (!auth?.userId) {
-    return res
-      .status(401)
-      .json({ success: false, error: "Authentication required." });
-  }
-
-  const normalizedRole = String(auth.role || "")
-    .toLowerCase()
-    .replace(/[\s_-]/g, "");
-
-  if (normalizedRole !== "superadmin") {
-    return res
-      .status(403)
-      .json({ success: false, error: "SuperAdmin access required." });
-  }
-
-  req.authenticatedUser = auth;
-  return next();
+async function requireSuperAdminRequest(req, res, next) {
+  return requireAuthenticatedRequest(req, res, () => {
+    if (req.currentActor.role !== "superadmin") {
+      return res
+        .status(403)
+        .json({ success: false, error: "SuperAdmin access required." });
+    }
+    return next();
+  });
 }
 
 module.exports = {

@@ -3,9 +3,12 @@ const db = require("../../config/db");
 const {
   getAuthFromRequest,
 } = require("../middleware/legacyJwtAuth");
+const { requireCurrentRoles } = require("../middleware/currentActor");
 
 const router = express.Router();
 const PUBLICATION_STATUSES = new Set(["Draft", "Published", "Archived"]);
+
+router.use(requireCurrentRoles());
 
 function normalizePublicationStatus(value) {
   const normalized = String(value || "Published").trim().toLowerCase();
@@ -65,7 +68,7 @@ function userCanEditKnowledgeBase(user, articleBranchId) {
 
 router.get("/", async (req, res) => {
   try {
-    const user = getAuthFromRequest(req);
+    const user = req.currentActor || getAuthFromRequest(req);
     if (!user) {
       return res
         .status(401)
@@ -168,7 +171,7 @@ router.get("/", async (req, res) => {
 
 router.get("/:id", async (req, res) => {
   try {
-    const user = getAuthFromRequest(req);
+    const user = req.currentActor || getAuthFromRequest(req);
     if (!user) {
       return res
         .status(401)
@@ -253,7 +256,7 @@ router.get("/:id", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
-    const user = getAuthFromRequest(req);
+    const user = req.currentActor || getAuthFromRequest(req);
     if (!user) {
       return res
         .status(401)
@@ -343,7 +346,7 @@ router.post("/", async (req, res) => {
 
 router.put("/:id", async (req, res) => {
   try {
-    const user = getAuthFromRequest(req);
+    const user = req.currentActor || getAuthFromRequest(req);
     if (!user) {
       return res
         .status(401)
@@ -438,7 +441,7 @@ router.put("/:id", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   try {
-    const user = getAuthFromRequest(req);
+    const user = req.currentActor || getAuthFromRequest(req);
     if (!user) {
       return res
         .status(401)

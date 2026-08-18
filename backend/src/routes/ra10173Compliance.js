@@ -3,12 +3,11 @@ const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
-const jwt = require("jsonwebtoken");
 const PDFDocument = require("pdfkit");
 const db = require("../../config/db");
 const { sendMail } = require("../services/emailService");
 const { generateEmailHtml } = require("../services/emailTemplates");
-const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
+const { loadCurrentActor } = require("../middleware/currentActor");
 const router = express.Router();
 
 // Ensure upload directory for signatures
@@ -45,7 +44,7 @@ const isEmployee = (role) => normalizeRole(role) === "employee";
 const isAdminOrSuper = (role) => isSuperAdmin(role) || isAdmin(role);
 
 function decodeRequestUser(req) {
-  const user = req.user || req.query;
+  const user = req.user;
   if (user?.userId || user?.user_id) {
     return {
       userId: user.userId || user.user_id,
@@ -59,27 +58,21 @@ function decodeRequestUser(req) {
 }
 
 // Require auth middleware — decodes JWT from Authorization header
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   try {
-    const authHeader = req.headers.authorization || "";
-    if (!authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ success: false, error: "Authentication required." });
-    }
-    const token = authHeader.split(" ")[1];
-    if (!token) {
-      return res.status(401).json({ success: false, error: "Authentication required." });
-    }
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = await loadCurrentActor(req);
+    if (!decoded) return res.status(401).json({ success: false, error: "Authentication required." });
     req.user = {
-      userId: decoded.userId || decoded.id || decoded._id,
+      userId: decoded.userId,
       role: decoded.role,
-      branchId: decoded.branchId || null,
-      name: decoded.name || "",
-      email: decoded.email || "",
+      branchId: decoded.branchId,
+      name: decoded.fullName || "",
+      email: "",
     };
     next();
   } catch (error) {
-    return res.status(401).json({ success: false, error: "Invalid or expired token" });
+    console.error("[ra-10173] Authorization failed:", error.message);
+    return res.status(503).json({ success: false, error: "Authorization service is temporarily unavailable." });
   }
 }
 

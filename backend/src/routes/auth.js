@@ -10,6 +10,16 @@ const JWT_EXPIRES = "8h";
 const bcrypt = require("bcryptjs");
 const { getMissingSmtpConfig, sendPasswordResetEmail } = require("../services/emailService");
 const { validateStrongPassword } = require("../services/passwordPolicyService");
+const { createRateLimit } = require("../middleware/rateLimit");
+
+const loginIpRateLimit = createRateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
+const loginAccountRateLimit = createRateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  key: (req) => `${req.ip}:${String(req.body?.email || "").trim().toLowerCase()}`,
+});
+const resetRequestRateLimit = createRateLimit({ windowMs: 60 * 60 * 1000, max: 5 });
+const resetCompletionRateLimit = createRateLimit({ windowMs: 60 * 60 * 1000, max: 10 });
 
 function passwordMatches(inputPassword, storedPassword) {
   if (!storedPassword) return false;
@@ -30,7 +40,15 @@ function passwordMatches(inputPassword, storedPassword) {
   return inputPassword === storedPassword;
 }
 
-router.post("/login", async (req, res) => {
+function isBcryptHash(value) {
+  return /^\$2[aby]\$/.test(String(value || ""));
+}
+
+function hashOpaqueToken(value) {
+  return crypto.createHash("sha256").update(String(value || "")).digest("hex");
+}
+
+router.post("/login", loginIpRateLimit, loginAccountRateLimit, async (req, res) => {
   // ... existing login code remains unchanged ...
   try {
     const { email, password } = req.body;
@@ -86,6 +104,14 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    if (!isBcryptHash(user.password_hash)) {
+      const upgradedHash = bcrypt.hashSync(password, 10);
+      await db.query("UPDATE users SET password_hash = $1 WHERE user_id = $2", [
+        upgradedHash,
+        user.user_id,
+      ]);
+    }
+
     const tokenPayload = {
       userId: user.user_id,
       role: user.role_name,
@@ -125,7 +151,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.post("/forgot-password", async (req, res) => {
+router.post("/forgot-password", resetRequestRateLimit, async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   
   if (!/^\S+@\S+\.\S+$/.test(email)) {
@@ -141,7 +167,7 @@ router.post("/forgot-password", async (req, res) => {
     });
   }
 
-  let pendingToken = null;
+  let pendingTokenHash = null;
   try {
     const userResult = await db.query(
       `SELECT user_id
@@ -155,13 +181,13 @@ router.post("/forgot-password", async (req, res) => {
     if (userResult.rows.length > 0) {
       const userId = userResult.rows[0].user_id;
       const token = crypto.randomBytes(32).toString("hex");
-      pendingToken = token;
+      pendingTokenHash = hashOpaqueToken(token);
       
       const expiresAt = new Date(Date.now() + 30 * 60000); // 30 minutes
       
       await db.query(
         "INSERT INTO password_resets (token, user_id, expires_at) VALUES ($1, $2, $3)",
-        [token, userId, expiresAt]
+        [pendingTokenHash, userId, expiresAt]
       );
       
       const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/\/$/, "") : "http://localhost:5173";
@@ -169,8 +195,8 @@ router.post("/forgot-password", async (req, res) => {
       
       const emailResult = await sendPasswordResetEmail(email, resetLink);
       if (emailResult && !emailResult.success) {
-        await db.query("DELETE FROM password_resets WHERE token=$1 AND used_at IS NULL", [token]);
-        pendingToken = null;
+        await db.query("DELETE FROM password_resets WHERE token=$1 AND used_at IS NULL", [pendingTokenHash]);
+        pendingTokenHash = null;
         console.error("Password reset email delivery failed", { provider: emailResult.provider, error: emailResult.error });
         return res.status(502).json({
           success: false,
@@ -179,14 +205,14 @@ router.post("/forgot-password", async (req, res) => {
       }
       await db.query(
         "UPDATE password_resets SET used_at=CURRENT_TIMESTAMP WHERE user_id=$1 AND token<>$2 AND used_at IS NULL",
-        [userId, token]
+        [userId, pendingTokenHash]
       );
-      pendingToken = null;
+      pendingTokenHash = null;
     }
   } catch (error) {
     console.error("Forgot password error:", error.message);
-    if (pendingToken) {
-      await db.query("DELETE FROM password_resets WHERE token=$1 AND used_at IS NULL", [pendingToken]).catch(() => {});
+    if (pendingTokenHash) {
+      await db.query("DELETE FROM password_resets WHERE token=$1 AND used_at IS NULL", [pendingTokenHash]).catch(() => {});
     }
     return res.status(500).json({ success: false, message: "Unable to process the password reset request." });
   }
@@ -198,7 +224,7 @@ router.post("/forgot-password", async (req, res) => {
   });
 });
 
-router.post("/reset-password", async (req, res) => {
+router.post("/reset-password", resetCompletionRateLimit, async (req, res) => {
   const { token, password } = req.body;
   
   if (!token || !password) {
@@ -211,28 +237,39 @@ router.post("/reset-password", async (req, res) => {
   }
 
   try {
-    const resetResult = await db.query(
-      `SELECT pr.reset_id, pr.user_id
-         FROM password_resets pr
-         JOIN users u ON u.user_id = pr.user_id
-        WHERE pr.token = $1
-          AND pr.used_at IS NULL
-          AND pr.expires_at > CURRENT_TIMESTAMP
-          AND COALESCE(u.is_active, TRUE) = TRUE`,
-      [token]
-    );
+    const tokenHash = hashOpaqueToken(token);
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const resetResult = await client.query(
+        `UPDATE password_resets pr
+            SET used_at = CURRENT_TIMESTAMP
+           FROM users u
+          WHERE pr.user_id = u.user_id
+            AND pr.token IN ($1, $2)
+            AND pr.used_at IS NULL
+            AND pr.expires_at > CURRENT_TIMESTAMP
+            AND COALESCE(u.is_active, TRUE) = TRUE
+          RETURNING pr.user_id`,
+        [tokenHash, token]
+      );
+      if (resetResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ success: false, message: "Invalid or expired reset token" });
+      }
 
-    if (resetResult.rows.length === 0) {
-      return res.status(400).json({ success: false, message: "Invalid or expired reset token" });
+      const hash = bcrypt.hashSync(password, 10);
+      await client.query("UPDATE users SET password_hash = $1 WHERE user_id = $2", [
+        hash,
+        resetResult.rows[0].user_id,
+      ]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
     }
-
-    const { reset_id, user_id } = resetResult.rows[0];
-
-    const salt = bcrypt.genSaltSync(10);
-    const hash = bcrypt.hashSync(password, salt);
-
-    await db.query("UPDATE users SET password_hash = $1 WHERE user_id = $2", [hash, user_id]);
-    await db.query("UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE reset_id = $1", [reset_id]);
 
     return res.json({ success: true, message: "Password successfully updated" });
   } catch (error) {

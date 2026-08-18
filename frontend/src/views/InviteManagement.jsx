@@ -3,6 +3,7 @@ import { API_URL } from "../config/api";
 import { useAuth } from "../context/AuthContext";
 import { Mail, RefreshCw, XCircle, CheckCircle, Link as LinkIcon, ExternalLink } from "lucide-react";
 import { appAlert, appConfirm } from "../services/appDialog";
+import { authHeaders } from "../services/authHeaders";
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -20,9 +21,7 @@ export default function InviteManagement() {
     try {
       setLoading(true);
       setError("");
-      const res = await fetch(
-        `${API_BASE}/invites?current_role=${activeRole}&current_branch_id=${user?.branch_id}`
-      );
+      const res = await fetch(`${API_BASE}/invites`, { headers: authHeaders(), cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load invitations.");
       setInvites(Array.isArray(data.invites) ? data.invites : []);
@@ -32,7 +31,7 @@ export default function InviteManagement() {
     } finally {
       setLoading(false);
     }
-  }, [activeRole, user?.branch_id]);
+  }, []);
 
   useEffect(() => {
     fetchInvites();
@@ -54,11 +53,7 @@ export default function InviteManagement() {
 
       const res = await fetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          current_role: activeRole,
-          current_branch_id: user?.branch_id,
-        }),
+        headers: authHeaders({ "Content-Type": "application/json" }),
       });
 
       const data = await res.json();

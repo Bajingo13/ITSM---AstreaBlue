@@ -3,8 +3,11 @@ const db = require("../../config/db");
 const {
   getAuthFromRequest,
 } = require("../middleware/legacyJwtAuth");
+const { requireCurrentRoles } = require("../middleware/currentActor");
 
 const router = express.Router();
+
+router.use(requireCurrentRoles());
 
 router.get("/", async (req, res) => {
   try {
@@ -29,7 +32,7 @@ router.get("/", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const user = getAuthFromRequest(req);
+  const user = req.currentActor || getAuthFromRequest(req);
   if (!user) {
     return res
       .status(401)

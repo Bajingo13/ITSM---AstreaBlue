@@ -9,7 +9,7 @@ const {
   sendAccountActivatedReminderEmail,
 } = require("../services/emailService");
 const { validateStrongPassword } = require("../services/passwordPolicyService");
-const { requireAuthenticatedRequest } = require("../middleware/legacyJwtAuth");
+const { requireCurrentRoles } = require("../middleware/currentActor");
 
 const router = express.Router();
 
@@ -35,8 +35,6 @@ function normalizeEmail(value) {
 function buildInviteLink(req, token) {
   const origin =
     process.env.FRONTEND_URL ||
-    req.body?.app_origin ||
-    req.get("origin") ||
     "http://localhost:5173";
   return `${origin.replace(/\/$/, "")}/invite/${token}`;
 }
@@ -270,7 +268,7 @@ router.use(async (_req, _res, next) => {
   next();
 });
 
-router.post("/", requireAuthenticatedRequest, async (req, res) => {
+router.post("/", requireCurrentRoles("superadmin", "admin"), async (req, res) => {
   try {
     const {
       full_name,
@@ -286,7 +284,7 @@ router.post("/", requireAuthenticatedRequest, async (req, res) => {
     const personal_email = normalizeEmail(raw_pe) || null;
     const company_email = normalizeEmail(raw_ce) || null;
 
-    const authenticatedActor = req.authenticatedUser;
+    const authenticatedActor = req.currentActor;
     const actorRole = normalizeRole(authenticatedActor.role);
     const actorBranchId = authenticatedActor.branchId;
     const actorUserId = authenticatedActor.userId;
@@ -693,14 +691,10 @@ router.post("/:token/accept", (req, res) => {
 
 // -- NEW INVITATION MANAGEMENT ENDPOINTS --
 
-router.get("/", async (req, res) => {
+router.get("/", requireCurrentRoles("superadmin", "admin"), async (req, res) => {
   try {
-    const actorRole = normalizeRole(req.query.current_role);
-    const branchId = req.query.current_branch_id;
-
-    if (!["superadmin", "admin"].includes(actorRole)) {
-      return res.status(403).json({ success: false, error: "Forbidden" });
-    }
+    const actorRole = req.currentActor.role;
+    const branchId = req.currentActor.branchId;
 
     let query = `
       SELECT 
@@ -724,7 +718,7 @@ router.get("/", async (req, res) => {
     const result = await db.query(query, params);
     
     // Add public links
-    const origin = process.env.FRONTEND_URL || req.get("origin") || "http://localhost:5173";
+    const origin = process.env.FRONTEND_URL || "http://localhost:5173";
     const invites = result.rows.map(inv => ({
       ...inv,
       invite_link: inv.invite_token ? `${origin.replace(/\/$/, "")}/invite/${inv.invite_token}` : null
@@ -737,14 +731,10 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.post("/:id/resend", async (req, res) => {
+router.post("/:id/resend", requireCurrentRoles("superadmin", "admin"), async (req, res) => {
   try {
-    const actorRole = normalizeRole(req.body.current_role);
-    const branchId = req.body.current_branch_id;
-
-    if (!["superadmin", "admin"].includes(actorRole)) {
-      return res.status(403).json({ success: false, error: "Forbidden" });
-    }
+    const actorRole = req.currentActor.role;
+    const branchId = req.currentActor.branchId;
 
     const { id } = req.params;
     
@@ -801,14 +791,10 @@ router.post("/:id/resend", async (req, res) => {
   }
 });
 
-router.patch("/:id/revoke", async (req, res) => {
+router.patch("/:id/revoke", requireCurrentRoles("superadmin", "admin"), async (req, res) => {
   try {
-    const actorRole = normalizeRole(req.body.current_role);
-    const branchId = req.body.current_branch_id;
-
-    if (!["superadmin", "admin"].includes(actorRole)) {
-      return res.status(403).json({ success: false, error: "Forbidden" });
-    }
+    const actorRole = req.currentActor.role;
+    const branchId = req.currentActor.branchId;
 
     const { id } = req.params;
     
@@ -835,14 +821,10 @@ router.patch("/:id/revoke", async (req, res) => {
   }
 });
 
-router.patch("/:id/reactivate", async (req, res) => {
+router.patch("/:id/reactivate", requireCurrentRoles("superadmin", "admin"), async (req, res) => {
   try {
-    const actorRole = normalizeRole(req.body.current_role);
-    const branchId = req.body.current_branch_id;
-
-    if (!["superadmin", "admin"].includes(actorRole)) {
-      return res.status(403).json({ success: false, error: "Forbidden" });
-    }
+    const actorRole = req.currentActor.role;
+    const branchId = req.currentActor.branchId;
 
     const { id } = req.params;
     

@@ -8,6 +8,7 @@ const {
   validateLicenseRenewal,
 } = require("../services/softwareLicenseRenewalService");
 const { protectWorkbook } = require("../services/excelProtectionService");
+const { requireCurrentRoles } = require("../middleware/currentActor");
 
 const router = express.Router();
 
@@ -27,7 +28,7 @@ function parseBranchId(value) {
 }
 
 function getScope(req) {
-  const auth = getAuthFromRequest(req);
+  const auth = req.currentActor || getAuthFromRequest(req);
   if (!auth) return { unauthorized: true };
 
   const user = {
@@ -85,6 +86,31 @@ function parseLicenseId(value) {
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) ? parsed : null;
 }
+
+function validateLicenseFields({ licenseName, vendor, licenseType, totalCount, usedCount, annualCost, expiryDate }) {
+  if (![licenseName, vendor, licenseType].every((value) => String(value || "").trim())) {
+    return "License name, vendor, and type are required.";
+  }
+  if (!Number.isInteger(totalCount) || !Number.isInteger(usedCount) || totalCount < 0 || usedCount < 0) {
+    return "License totals must be valid non-negative whole numbers.";
+  }
+  if (usedCount > totalCount) return "Used licenses cannot exceed total licenses.";
+  if (!Number.isFinite(annualCost) || annualCost < 0) {
+    return "Annual cost must be a valid non-negative number.";
+  }
+  if (expiryDate) {
+    const text = String(expiryDate);
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(text)
+      ? new Date(`${text}T00:00:00.000Z`)
+      : null;
+    if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text) {
+      return "Expiry date must be a valid date in YYYY-MM-DD format.";
+    }
+  }
+  return null;
+}
+
+router.use(requireCurrentRoles("superadmin", "admin"));
 
 router.get("/", async (req, res) => {
   try {
@@ -519,22 +545,20 @@ router.post("/", async (req, res) => {
         : scope.user.branchId;
     const totalCount = Number.parseInt(total_licenses, 10);
     const usedCount = Number.parseInt(used_licenses, 10);
-
-    if (!license_name || !vendor || !license_type) {
+    const annualCost = annual_cost === undefined || annual_cost === "" ? 0 : Number(annual_cost);
+    const validationError = validateLicenseFields({
+      licenseName: license_name,
+      vendor,
+      licenseType: license_type,
+      totalCount,
+      usedCount,
+      annualCost,
+      expiryDate: expiry_date,
+    });
+    if (validationError) {
       return res.status(400).json({
         success: false,
-        error: "License name, vendor, and type are required.",
-      });
-    }
-    if (
-      !Number.isInteger(totalCount) ||
-      !Number.isInteger(usedCount) ||
-      totalCount < 0 ||
-      usedCount < 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "License totals must be valid non-negative numbers.",
+        error: validationError,
       });
     }
     if (!targetBranchId) {
@@ -556,7 +580,7 @@ router.post("/", async (req, res) => {
       totalCount,
       usedCount,
       expiry_date || null,
-      Number.parseFloat(annual_cost) || 0,
+      annualCost,
       computeSoftwareLicenseStatus(expiry_date),
       targetBranchId,
     ]);
@@ -605,15 +629,20 @@ router.put("/:id", async (req, res) => {
     } = req.body;
     const totalCount = Number.parseInt(total_licenses, 10);
     const usedCount = Number.parseInt(used_licenses, 10);
-    if (
-      !Number.isInteger(totalCount) ||
-      !Number.isInteger(usedCount) ||
-      totalCount < 0 ||
-      usedCount < 0
-    ) {
+    const annualCost = annual_cost === undefined || annual_cost === "" ? 0 : Number(annual_cost);
+    const validationError = validateLicenseFields({
+      licenseName: license_name,
+      vendor,
+      licenseType: license_type,
+      totalCount,
+      usedCount,
+      annualCost,
+      expiryDate: expiry_date,
+    });
+    if (validationError) {
       return res.status(400).json({
         success: false,
-        error: "License totals must be valid non-negative numbers.",
+        error: validationError,
       });
     }
     const trackedResult = await repository.countActiveAssignments(licenseId);
@@ -649,7 +678,7 @@ router.put("/:id", async (req, res) => {
       totalCount,
       usedCount,
       expiry_date || null,
-      Number.parseFloat(annual_cost) || 0,
+      annualCost,
       computeSoftwareLicenseStatus(expiry_date),
       targetBranchId,
     ]);
@@ -688,6 +717,16 @@ router.delete("/:id", async (req, res) => {
       return res.status(403).json({
         success: false,
         error: "Delete denied for this license branch.",
+      });
+    }
+
+    const history = await repository.countAuditHistory(licenseId);
+    const assignmentCount = Number(history.rows[0]?.assignment_count) || 0;
+    const renewalCount = Number(history.rows[0]?.renewal_count) || 0;
+    if (assignmentCount > 0 || renewalCount > 0) {
+      return res.status(409).json({
+        success: false,
+        error: "This license has assignment or renewal history and cannot be deleted.",
       });
     }
 

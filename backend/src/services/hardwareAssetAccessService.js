@@ -7,6 +7,7 @@ function normalizeRole(role) {
 function getHardwareAssetAccessFilter({
   role,
   userId,
+  employeeNumber,
   branchId,
   filterBranchId = null,
   alias = "a",
@@ -26,9 +27,17 @@ function getHardwareAssetAccessFilter({
   }
 
   if (normalizedRole === "employee") {
-    return userId
-      ? { whereSql: `WHERE ${alias}.employee_id = $1`, params: [userId] }
-      : { whereSql: "WHERE 1=0", params: [] };
+    if (!userId) return { whereSql: "WHERE 1=0", params: [] };
+    const params = [userId];
+    let legacyOwnership = `${alias}.employee_id = $1::text`;
+    if (employeeNumber) {
+      params.push(employeeNumber);
+      legacyOwnership += ` OR ${alias}.employee_id = $2`;
+    }
+    return {
+      whereSql: `WHERE (${alias}.assigned_to = $1 OR (${alias}.assigned_to IS NULL AND (${legacyOwnership})))`,
+      params,
+    };
   }
 
   return { whereSql: "WHERE 1=0", params: [] };

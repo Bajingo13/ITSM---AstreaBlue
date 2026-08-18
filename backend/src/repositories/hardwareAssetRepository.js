@@ -354,8 +354,8 @@ async function deleteAssetSafely(assetId, branchId) {
       };
     }
 
-    // Clear out any child records to allow smooth hard-deletion (Demo override)
-    await client.query("DELETE FROM replacement_requests WHERE current_asset_id=$1 OR replacement_asset_id=$1", [assetId]);
+    // Protected replacement records intentionally retain their asset references.
+    // PostgreSQL will reject deletion when those audit records exist.
     await client.query("DELETE FROM asset_history WHERE asset_id=$1", [assetId]);
     await client.query("DELETE FROM asset_inventory_history WHERE asset_id=$1", [assetId]);
     await client.query("DELETE FROM asset_inventory_reconciliation WHERE asset_id=$1", [assetId]);
@@ -379,7 +379,7 @@ async function deleteAssetSafely(assetId, branchId) {
 
 function findDevice(deviceId) {
   return db.query(
-    `SELECT asset_id, device_uuid, hostname
+    `SELECT device_id,asset_id,branch_id,device_uuid,hostname
      FROM monitored_devices
      WHERE device_id=$1`,
     [deviceId]

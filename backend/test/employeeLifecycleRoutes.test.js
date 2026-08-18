@@ -52,6 +52,8 @@ test.before(async () => {
   await db.query(reconciliationMigration);
   const assignmentAuditMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-08-18-license-assignment-audit.sql"), "utf8");
   await db.query(assignmentAuditMigration);
+  const optionalLicenseMigration = fs.readFileSync(path.join(__dirname, "..", "database", "2026-08-18-optional-onboarding-license-assignment.sql"), "utf8");
+  await db.query(optionalLicenseMigration);
   let branch = await db.query(`SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1`);
   if (!branch.rows.length) {
     branch = await db.query(
@@ -231,18 +233,18 @@ test("HR creates a branch-scoped onboarding case with a complete template", asyn
   });
   assert.equal(details.status, 200);
   const data = (await details.json()).data;
-  assert.equal(data.tasks.length, 10);
-  assert.equal(data.required_pending_count, 8);
+  assert.equal(data.tasks.length, 9);
+  assert.equal(data.required_pending_count, 7);
   assert.equal(data.tasks.find((task) => task.task_key === "create_account").status, "Completed");
   assert.equal(data.tasks.find((task) => task.task_key === "complete_profile").status, "Completed");
-  assert.equal(data.tasks.find((task) => task.task_key === "assign_licenses").status, "Pending");
+  assert.equal(data.tasks.some((task) => task.task_key === "assign_licenses"), false);
 });
 
 test("HR can oversee IT tasks but cannot falsely complete them", async () => {
   const details = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}`, {
     headers: authHeaders(hrId, "HR", branchId),
   });
-  const task = (await details.json()).data.tasks.find((item) => item.assigned_role === "Admin");
+  const task = (await details.json()).data.tasks.find((item) => item.task_key === "assign_asset");
   const response = await fetch(`${baseUrl}/api/v1/employee-lifecycle/cases/${caseId}/tasks/${task.lifecycle_task_id}`, {
     method: "PATCH",
     headers: authHeaders(hrId, "HR", branchId),

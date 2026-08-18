@@ -1,7 +1,7 @@
 const express = require("express");
 const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
 const db = require("../../config/db");
+const { loadCurrentActor } = require("../middleware/currentActor");
 const { calculateStraightLine } = require("../services/assetFinancialService");
 const {
   createHardwareAssetReportMetadata,
@@ -12,23 +12,27 @@ const {
 const { getDiscoveryVerification } = require("../services/assetDiscoveryInventoryService");
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 const AGENT_MESSAGE = "Network scanning requires a local discovery agent inside the company network. You can import discoveries or use manual registration for now.";
 
-function requireAssetManager(req, res, next) {
+async function requireAssetManager(req, res, next) {
   try {
-    const authorization = req.headers.authorization || "";
-    if (!authorization.startsWith("Bearer ")) throw new Error("Authentication required.");
-    const user = jwt.verify(authorization.slice(7), JWT_SECRET);
-    const role = String(user.role || "").toLowerCase().replace(/[\s_-]/g, "");
+    const user = await loadCurrentActor(req);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Authentication required.", error: "Authentication required." });
+    }
+    const role = user.role;
     if (!["superadmin", "admin"].includes(role)) {
       return res.status(403).json({ success: false, message: "Asset manager access required.", error: "Asset manager access required." });
+    }
+    if (role === "admin" && !user.branchId) {
+      return res.status(403).json({ success: false, message: "Administrator branch assignment is required.", error: "Administrator branch assignment is required." });
     }
     req.assetUser = user;
     req.assetBranchId = role === "admin" ? user.branchId : null;
     return next();
   } catch (error) {
-    return res.status(401).json({ success: false, message: error.message, error: error.message });
+    console.error("[asset-management] Authorization failed:", error.message);
+    return res.status(503).json({ success: false, message: "Authorization service is temporarily unavailable.", error: "Authorization service is temporarily unavailable." });
   }
 }
 

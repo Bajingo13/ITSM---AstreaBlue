@@ -2,8 +2,10 @@ const express = require('express');
 const db = require('../../config/db');
 const router = express.Router();
 
-const { addTicketAccessFilter } = require('./_ticketAccess');
+const { addTicketAccessFilter, requireAuthenticatedTicketUser } = require('./_ticketAccess');
 const DUE_SOON_MINUTES = 240;
+
+router.use(requireAuthenticatedTicketUser);
 
 router.get('/dashboard', async (req, res) => {
   try {

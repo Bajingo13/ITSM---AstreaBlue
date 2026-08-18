@@ -47,6 +47,7 @@ const { startSoftwareLicenseReminderJob } = require("./src/services/softwareLice
 const onboardingAccessGuard = require("./src/middleware/onboardingAccessGuard");
 
 const app = express();
+if (process.env.NODE_ENV === "production") app.set("trust proxy", 1);
 startScreenshotRetentionJob();
 startSoftwareLicenseReminderJob();
 
@@ -96,6 +97,15 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
+app.use((_req, res, next) => {
+  res.set({
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  });
+  next();
+});
 app.use(express.json({ limit: "3mb" }));
 
 // Catch malformed JSON bodies — return 400, not 500
