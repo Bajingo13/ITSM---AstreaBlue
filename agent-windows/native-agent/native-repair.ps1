@@ -1,5 +1,5 @@
 param(
-    [string]$BackendUrl = "https://backend-production-fc059.up.railway.app",
+    [string]$BackendUrl,
     [string]$EnrollmentCode,
     [string]$DeviceName = $env:COMPUTERNAME
 )
@@ -28,6 +28,7 @@ $requiresEnrollment = $forceEnrollment -or -not (Test-Path $credentialPath) -or 
 if ($requiresEnrollment -and -not $EnrollmentCode) {
     throw "The native service is installed but not enrolled. Generate a one-time enrollment code, then run native-repair.ps1 -EnrollmentCode <code>."
 }
+if ($requiresEnrollment -and -not $BackendUrl) { throw "BackendUrl is required when enrolling this device." }
 if ($requiresEnrollment -and $BackendUrl -notmatch '^https://') { throw "Production enrollment requires an HTTPS backend URL." }
 
 Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue

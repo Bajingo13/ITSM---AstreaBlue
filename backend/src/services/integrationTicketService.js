@@ -1,6 +1,7 @@
 const db = require("../../config/db");
 const { createNotification } = require("./notificationService");
 const { createServiceDeskTicket } = require("./serviceDeskTicketService");
+const { assertDeploymentCapability } = require("../config/deployment");
 
 function normalizeOptionalInteger(value, fallback = null) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -29,6 +30,7 @@ function requireText(payload, field, maxLength) {
 }
 
 async function createIntegrationTicket(payload, integration, requestContext = {}) {
+  assertDeploymentCapability("externalTicketIntake");
   const title = requireText(payload, "title", 255);
   const description = String(payload.description || payload.desc || "").trim();
   if (!description) throw validationError("description is required.");

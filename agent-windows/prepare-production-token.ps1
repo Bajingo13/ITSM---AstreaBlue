@@ -1,4 +1,8 @@
-param ()
+param (
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^https://')]
+    [string]$BackendUrl
+)
 
 $templatePath = Join-Path $PSScriptRoot "agent-config.json"
 $localPath = Join-Path $PSScriptRoot "agent-config.local.json"
@@ -18,7 +22,7 @@ $token = -join ($bytes | ForEach-Object { $_.ToString("x2") })
 
 $template = Get-Content $templatePath -Raw | ConvertFrom-Json
 $privateConfig = [ordered]@{
-    backendUrl = "https://backend-production-fc059.up.railway.app"
+    backendUrl = $BackendUrl.TrimEnd('/')
     enrollmentCode = ""
     deviceCredential = ""
     agentToken = $token

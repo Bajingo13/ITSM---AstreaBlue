@@ -1,5 +1,7 @@
 # AstreaBlue External Ticket API
 
+This API is available only on the authoritative `MAIN_HUB` deployment. Standard branch/company deployments reject every external integration route with HTTP 403 and must not receive Main integration credentials.
+
 ## 1. Purpose
 
 The External Ticket API lets approved company systems create and follow AstreaBlue Service Desk incidents. AstreaBlue remains the source of truth for ticket numbers, SLA, assignment, status, resolution, notifications, comments, and audit history. External teams build their own Help page and call this API only from their backend.
@@ -26,7 +28,7 @@ Provisioning the same code rotates its credential and revokes older keys.
 ## 4. Base URLs
 
 - Local: `http://localhost:5000/api/v1/external`
-- Production: `https://backend-production-fc059.up.railway.app/api/v1/external`
+- Production: `https://<main-backend-domain>/api/v1/external`
 
 Production integrations must use HTTPS.
 

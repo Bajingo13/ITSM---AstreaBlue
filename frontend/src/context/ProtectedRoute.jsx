@@ -1,12 +1,14 @@
 import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
+import { useDeployment } from "./DeploymentContext";
 
-export default function ProtectedRoute({ children, allowedRoles }) {
+export default function ProtectedRoute({ children, allowedRoles, requiredCapability }) {
   const { user, loading } = useAuth();
+  const { loading: deploymentLoading, hasCapability } = useDeployment();
   const location = useLocation();
 
-  if (loading) {
+  if (loading || deploymentLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
         Loading...
@@ -29,6 +31,10 @@ export default function ProtectedRoute({ children, allowedRoles }) {
     allowedRoles &&
     !allowedRoles.some((r) => (r || "").toString().trim().toLowerCase() === normalizedRole)
   ) {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
+  if (requiredCapability && !hasCapability(requiredCapability)) {
     return <Navigate to="/unauthorized" replace />;
   }
 

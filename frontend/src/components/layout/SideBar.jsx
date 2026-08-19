@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { useDeployment } from "../../context/DeploymentContext";
 import { preloadRoute } from "../../routes/lazyViews";
 
 const coreModuleItems = [
@@ -103,7 +104,7 @@ const coreModuleItems = [
     children: [
       { label: "User & Role Management", icon: UserCog, path: "/settings/users" },
       { label: "Branch Management", icon: GitBranch, path: "/settings/branches" },
-      { label: "Integrations", icon: Plug, path: "/settings/integrations" },
+      { label: "Integrations", icon: Plug, path: "/settings/integrations", requiredCapability: "integrationManagement" },
       { label: "System Configuration", icon: Settings, path: "/settings" },
     ],
   },
@@ -351,9 +352,15 @@ function NavGroup({ item, collapsed, dashboardPath }) {
 
 export default function SideBar({ collapsed, setCollapsed }) {
   const { user, role } = useAuth();
+  const { hasCapability } = useDeployment();
   const activeRole = role || user?.role_name || user?.role;
   const dashboardPath = getDashboardPath(activeRole);
-  const visibleNavItems = getVisibleNavItems(activeRole);
+  const visibleNavItems = getVisibleNavItems(activeRole)
+    .map((item) => item.children
+      ? { ...item, children: item.children.filter((child) => !child.requiredCapability || hasCapability(child.requiredCapability)) }
+      : item)
+    .filter((item) => !item.requiredCapability || hasCapability(item.requiredCapability))
+    .filter((item) => !item.children || item.children.length > 0);
 
   return (
     <aside

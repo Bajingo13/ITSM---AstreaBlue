@@ -22,7 +22,7 @@ powershell -ExecutionPolicy Bypass -File .\create-native-package.ps1
 powershell -ExecutionPolicy Bypass -File .\native-install.ps1
 ```
 
-The installer defaults to `https://backend-production-fc059.up.railway.app`, consumes the one-time code, preserves an existing pilot device UUID, protects the unique credential with Windows DPAPI, and installs the automatic Windows service.
+The installer requires the target deployment's HTTPS backend URL, consumes the one-time code, preserves an existing pilot device UUID, protects the unique credential with Windows DPAPI, and installs the automatic Windows service.
 
 The service synchronizes the consent-derived endpoint policy every minute and sends hardware/software inventory every 24 hours when allowed. A credential-free user-session companion samples foreground application, window title, and idle time; the service forwards it only when the effective policy and approved employee consent enable activity monitoring.
 

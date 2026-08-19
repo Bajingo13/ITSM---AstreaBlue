@@ -1,5 +1,5 @@
 const nodemailer = require("nodemailer");
-const { generateEmailHtml } = require("./emailTemplates");
+const { generateEmailHtml, getEmailBrandName } = require("./emailTemplates");
 
 let cachedTransporter = null;
 let cachedTransportSignature = "";
@@ -132,7 +132,7 @@ function getMissingSmtpConfig() {
 }
 
 function fromAddress() {
-  const fromName = cleanEnv(process.env.SMTP_FROM_NAME) || "AstreaBlue ITSM";
+  const fromName = cleanEnv(process.env.SMTP_FROM_NAME) || getEmailBrandName();
   const fromEmail = cleanEnv(process.env.EMAIL_FROM) || cleanEnv(process.env.SMTP_FROM_EMAIL) || cleanEnv(process.env.SMTP_USER);
   if (!fromEmail) throw new Error("SMTP configuration is incomplete. Missing: EMAIL_FROM or SMTP_FROM_EMAIL.");
   return `"${fromName}" <${fromEmail}>`;
@@ -155,6 +155,8 @@ async function sendInvitationEmail({
   inviteLink,
   expiresInHours = 24,
 }) {
+  const brandName = getEmailBrandName();
+  const safeBrandName = escapeHtml(brandName);
   const safeName = escapeHtml(fullName || "there");
   const safeRole = escapeHtml(roleName || "Employee");
   const safeBranch = escapeHtml(branchName || "Assigned Branch");
@@ -163,7 +165,7 @@ async function sendInvitationEmail({
   try {
     const bodyContent = `
       <p style="font-size: 17px; font-weight: 600; margin-bottom: 16px;">Hello ${safeName},</p>
-      <p>You have been invited to join <strong>AstreaBlue ITSM</strong> as a:</p>
+      <p>You have been invited to join <strong>${safeBrandName}</strong> as a:</p>
       <div class="info-block" style="background:#F8FAFC;border-radius:12px;padding:18px 22px;margin-bottom:24px;border:1px solid #E2E8F0;">
         <table style="width:100%;border-collapse:collapse;">
           <tr>
@@ -201,20 +203,20 @@ async function sendInvitationEmail({
     return await sendMail({
       from: fromAddress(),
       to,
-      subject: `Welcome to AstreaBlue ITSM, ${safeName}`,
+      subject: `Welcome to ${brandName}, ${fullName || "there"}`,
       text: [
       `Hello ${safeName},`,
       "",
-      `You have been invited to join AstreaBlue ITSM as a ${safeRole} at ${safeBranch}.`,
+      `You have been invited to join ${brandName} as a ${roleName || "Employee"} at ${branchName || "Assigned Branch"}.`,
       "Complete your registration to activate your account:",
       "",
       inviteLink,
       "",
       `This invitation expires in ${expiresInHours} hours.`,
       "Regards,",
-      "AstreaBlue ITSM Team",
+      `${brandName} Team`,
       ].join("\n"),
-      html: generateEmailHtml("Welcome to AstreaBlue ITSM", bodyContent),
+      html: generateEmailHtml(`Welcome to ${brandName}`, bodyContent),
     });
   } catch (error) {
     return {
@@ -231,6 +233,7 @@ async function sendInvitationReminderEmail({
   companyEmail,
   expiresInHours = 48,
 }) {
+  const brandName = getEmailBrandName();
   const safeName = escapeHtml(fullName || "there");
   const safeCompanyEmail = escapeHtml(companyEmail || "your company email address");
 
@@ -238,11 +241,11 @@ async function sendInvitationReminderEmail({
     return await sendMail({
       from: fromAddress(),
       to,
-      subject: "AstreaBlue ITSM account invitation reminder",
+      subject: `${brandName} account invitation reminder`,
       text: [
         `Hello ${fullName || "there"},`,
         "",
-        "Your AstreaBlue ITSM account invitation has been sent to your company email address.",
+        `Your ${brandName} account invitation has been sent to your company email address.`,
         `Company email: ${companyEmail || "Contact your administrator for the assigned address."}`,
         `The invitation expires in ${expiresInHours} hours.`,
         "",
@@ -250,7 +253,7 @@ async function sendInvitationReminderEmail({
       ].join("\n"),
       html: generateEmailHtml("Account invitation reminder", `
         <p>Hello ${safeName},</p>
-        <p>Your AstreaBlue ITSM account invitation has been sent to your company email address:</p>
+        <p>Your ${escapeHtml(brandName)} account invitation has been sent to your company email address:</p>
         <div class="info-block"><strong>${safeCompanyEmail}</strong></div>
         <p>The invitation expires in <strong>${expiresInHours} hours</strong>.</p>
         <p style="color:#64748b;">For security, this personal-email reminder does not contain the activation link. Check your company mailbox or contact your administrator.</p>
@@ -262,6 +265,7 @@ async function sendInvitationReminderEmail({
 }
 
 async function sendAccountActivatedEmail({ to, fullName, loginEmail }) {
+  const brandName = getEmailBrandName();
   const safeName = escapeHtml(fullName || "there");
   const safeLoginEmail = escapeHtml(loginEmail || to);
 
@@ -269,17 +273,17 @@ async function sendAccountActivatedEmail({ to, fullName, loginEmail }) {
     return await sendMail({
       from: fromAddress(),
       to,
-      subject: "AstreaBlue ITSM account activated",
+      subject: `${brandName} account activated`,
       text: [
         `Hello ${fullName || "there"},`,
         "",
-        "Your AstreaBlue ITSM account registration is complete and your account is active.",
+        `Your ${brandName} account registration is complete and your account is active.`,
         `Login email: ${loginEmail || to}`,
         "You may now sign in using the password you created.",
       ].join("\n"),
       html: generateEmailHtml("Account activated", `
         <p>Hello ${safeName},</p>
-        <p>Your AstreaBlue ITSM account registration is complete and your account is now active.</p>
+        <p>Your ${escapeHtml(brandName)} account registration is complete and your account is now active.</p>
         <div class="info-block"><strong>Login email:</strong> ${safeLoginEmail}</div>
         <p>You may now sign in using the password you created.</p>
       `),
@@ -290,6 +294,7 @@ async function sendAccountActivatedEmail({ to, fullName, loginEmail }) {
 }
 
 async function sendAccountActivatedReminderEmail({ to, fullName, companyEmail }) {
+  const brandName = getEmailBrandName();
   const safeName = escapeHtml(fullName || "there");
   const safeCompanyEmail = escapeHtml(companyEmail || "your company email address");
 
@@ -297,17 +302,17 @@ async function sendAccountActivatedReminderEmail({ to, fullName, companyEmail })
     return await sendMail({
       from: fromAddress(),
       to,
-      subject: "AstreaBlue ITSM account setup completed",
+      subject: `${brandName} account setup completed`,
       text: [
         `Hello ${fullName || "there"},`,
         "",
-        "This is a reminder that your AstreaBlue ITSM account setup has been completed.",
+        `This is a reminder that your ${brandName} account setup has been completed.`,
         `Use your company email (${companyEmail || "the address assigned by your administrator"}) to sign in.`,
         "This personal-email notice does not contain a password or activation link.",
       ].join("\n"),
       html: generateEmailHtml("Account setup completed", `
         <p>Hello ${safeName},</p>
-        <p>This is a reminder that your AstreaBlue ITSM account setup has been completed.</p>
+        <p>This is a reminder that your ${escapeHtml(brandName)} account setup has been completed.</p>
         <p>Use your company email, <strong>${safeCompanyEmail}</strong>, to sign in.</p>
         <p style="color:#64748b;">This personal-email notice does not contain a password or activation link.</p>
       `),
@@ -325,11 +330,13 @@ async function sendTestEmail(to) {
   try {
     const timestamp = new Date().toLocaleString();
     const providerName = "SMTP";
+    const brandName = getEmailBrandName();
+    const safeBrandName = escapeHtml(brandName);
 
     const textContent = [
       "Hello,",
       "",
-      "This is a test email from AstreaBlue ITSM.",
+      `This is a test email from ${brandName}.`,
       "",
       "Your email provider is configured correctly.",
       "",
@@ -340,12 +347,12 @@ async function sendTestEmail(to) {
       timestamp,
       "",
       "Regards,",
-      "AstreaBlue ITSM"
+      brandName
     ].join("\n");
 
     const bodyContent = `
       <p>Hello,</p>
-      <p>This is a test email from <strong>AstreaBlue ITSM</strong>.</p>
+      <p>This is a test email from <strong>${safeBrandName}</strong>.</p>
       <p>Your email provider is configured correctly.</p>
       <p>If you received this email, production email delivery is working successfully.</p>
       
@@ -359,9 +366,9 @@ async function sendTestEmail(to) {
     return await sendMail({
       from: fromAddress(),
       to,
-      subject: "AstreaBlue ITSM - Email Test",
+      subject: `${brandName} - Email Test`,
       text: textContent,
-      html: generateEmailHtml("AstreaBlue ITSM - Email Test", bodyContent),
+      html: generateEmailHtml(`${brandName} - Email Test`, bodyContent),
     });
   } catch (error) {
     return {
@@ -560,24 +567,27 @@ async function sendSlaBreachEmail(ticket) {
 
 async function sendPasswordResetEmail(to, resetLink) {
   try {
+    const brandName = getEmailBrandName();
+    const safeBrandName = escapeHtml(brandName);
+    const safeResetLink = escapeHtml(resetLink);
     const bodyContent = `
       <p>Hello,</p>
-      <p>We received a request to reset your AstreaBlue ITSM password.</p>
+      <p>We received a request to reset your ${safeBrandName} password.</p>
       <p>Click the button below to create a new password.</p>
-      <a href="${resetLink}" class="button">Reset Password</a>
+      <a href="${safeResetLink}" class="button">Reset Password</a>
       <p style="font-size: 0.9em; margin-top: 24px; color: #64748b;">Or copy and paste this link into your browser:<br/>
-      <a href="${resetLink}" style="color: #2563EB; word-break: break-all;">${resetLink}</a></p>
+      <a href="${safeResetLink}" style="color: #2563EB; word-break: break-all;">${safeResetLink}</a></p>
       <p style="font-size: 0.85em; margin-top: 32px; color: #64748b;">This link will expire in 30 minutes.<br/>If you did not request this, you can safely ignore this email.</p>
     `;
 
     return await sendMail({
       from: fromAddress(),
       to,
-      subject: "AstreaBlue ITSM - Password Reset Request",
+      subject: `${brandName} - Password Reset Request`,
       text: [
         "Hello,",
         "",
-        "We received a request to reset your AstreaBlue ITSM password.",
+        `We received a request to reset your ${brandName} password.`,
         "Please click the link below to set a new password:",
         "",
         resetLink,

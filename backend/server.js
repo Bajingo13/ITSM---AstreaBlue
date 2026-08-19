@@ -4,6 +4,9 @@ const cors = require("cors");
 const path = require("path");
 require("dotenv").config();
 
+const { validateDeploymentEnvironment } = require("./src/config/deployment");
+const deployment = validateDeploymentEnvironment();
+
 if (process.env.NODE_ENV === "production" && !String(process.env.JWT_SECRET || "").trim()) {
   throw new Error("JWT_SECRET is required in production.");
 }
@@ -20,6 +23,7 @@ const attachmentRoutes = require("./src/routes/attachments");
 const ticketRoutes = require("./src/routes/tickets");
 const integrationGatewayRoutes = require("./src/routes/integrationGateway");
 const integrationManagementRoutes = require("./src/routes/integrations");
+const deploymentRoutes = require("./src/routes/deployment");
 const notificationRoutes = require("./src/routes/notifications");
 const ra10173ComplianceRoutes = require("./src/routes/ra10173Compliance");
 const consentRoutes = require("./src/routes/consent");
@@ -55,10 +59,8 @@ const allowedOrigins = new Set(
   [
     "http://localhost:5173",
     "http://localhost:5174",
-    "https://frontend-production-4c52.up.railway.app",
-    "https://vibrant-healing-production-bb79.up.railway.app",
-    "https://itsm-astreablue-production.up.railway.app",
     process.env.FRONTEND_URL,
+    ...String(process.env.CORS_ALLOWED_ORIGINS || "").split(","),
   ]
     .filter(Boolean)
     .map((origin) => String(origin).trim().replace(/\/$/, ""))
@@ -120,6 +122,7 @@ app.use((err, req, res, next) => {
 });
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/api/deployment", deploymentRoutes);
 
 const { legacySchemaReady, hardwareAssetTablesReady } = require("./src/services/schemaCompatibilityService");
 
@@ -184,6 +187,10 @@ app.get("/api/health", (req, res) => {
   res.json({
     success: true,
     message: "AstreaBlue API is running",
+    deployment: {
+      instance_id: deployment.instanceId,
+      profile: deployment.profile,
+    },
   });
 });
 
@@ -203,6 +210,7 @@ const PORT = process.env.PORT || 5000;
 
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`AstreaBlue API active on port ${PORT}`);
+  console.log(`[AstreaBlue API] deployment=${deployment.instanceId} profile=${deployment.profile}`);
   console.log(
     `[AstreaBlue API] health=http://localhost:${PORT}/api/health dashboard=http://localhost:${PORT}/api/v1/dashboard/summary`
   );

@@ -278,7 +278,7 @@ router.post("/", requireCurrentRoles("superadmin", "admin"), async (req, res) =>
       role_name = null,
       role_id = null,
       branch_id,
-      company_name = "AstreaBlue",
+      company_name = process.env.COMPANY_NAME || "AstreaBlue",
     } = req.body;
 
     const personal_email = normalizeEmail(raw_pe) || null;

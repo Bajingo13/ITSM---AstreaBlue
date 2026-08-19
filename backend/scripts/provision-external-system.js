@@ -1,5 +1,6 @@
 const { rawPool } = require("../config/db");
 const { ensureIntegrationGatewaySchema, generateApiKey, hashApiKey } = require("../src/services/integrationService");
+const { assertDeploymentCapability } = require("../src/config/deployment");
 
 function argument(name) {
   const prefix = `--${name}=`;
@@ -7,6 +8,7 @@ function argument(name) {
 }
 
 async function main() {
+  assertDeploymentCapability("integrationManagement");
   const systemCode = String(argument("code") || "").trim().toUpperCase().replace(/[^A-Z0-9_]+/g, "_");
   const systemName = String(argument("name") || "").trim();
   const keyName = String(argument("key-name") || "Primary API Key").trim();

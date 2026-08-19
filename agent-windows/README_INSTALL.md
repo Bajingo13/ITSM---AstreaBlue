@@ -21,7 +21,7 @@ A device is online only when its heartbeat reaches the same backend and PostgreS
 ## Configuration Environments
 
 * **Local development**: `backendUrl = http://YOUR-IP:5000` (Use your actual LAN IP, e.g., `http://192.168.1.100:5000`)
-* **Railway production**: `backendUrl = https://backend-production-fc059.up.railway.app`
+* **Railway production**: use the backend URL for the specific Railway deployment that owns this device.
 
 ## Installation Steps
 

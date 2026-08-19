@@ -590,7 +590,7 @@ export default function App() {
         <Route
           path="/settings/integrations"
           element={
-            <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+            <ProtectedRoute allowedRoles={ADMIN_ROLES} requiredCapability="integrationManagement">
               <Integrations />
             </ProtectedRoute>
           }

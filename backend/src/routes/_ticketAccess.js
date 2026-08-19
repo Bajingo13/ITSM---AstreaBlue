@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const db = require("../../config/db");
+const { hasDeploymentCapability } = require("../config/deployment");
 
 function normalizeRole(value) {
   return String(value || "").trim().toLowerCase().replace(/[\s_-]/g, "");
@@ -39,6 +40,10 @@ function addTicketAccessFilter(req, params, alias = "t") {
   const clauses = [];
 
   if (normalizedRole === "superadmin") {
+    if (!hasDeploymentCapability("centralSupport")) {
+      clauses.push(`${alias}.integration_id IS NULL`);
+      clauses.push(`COALESCE(${alias}.created_via, '') <> 'External API'`);
+    }
     if (filterBranchId) {
       params.push(filterBranchId);
       clauses.push(`${branchExpression} = $${params.length}`);

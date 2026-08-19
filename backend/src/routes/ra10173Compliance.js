@@ -6,7 +6,7 @@ const multer = require("multer");
 const PDFDocument = require("pdfkit");
 const db = require("../../config/db");
 const { sendMail } = require("../services/emailService");
-const { generateEmailHtml } = require("../services/emailTemplates");
+const { generateEmailHtml, getEmailBrandName } = require("../services/emailTemplates");
 const { loadCurrentActor } = require("../middleware/currentActor");
 const router = express.Router();
 
@@ -791,7 +791,8 @@ router.get("/pdf-download", requireAuth, async (req, res) => {
     try {
       const employeeEmail = record.email;
       if (employeeEmail) {
-        const fromName = process.env.SMTP_FROM_NAME || "AstreaBlue ITSM";
+        const brandName = getEmailBrandName();
+        const fromName = process.env.SMTP_FROM_NAME || brandName;
         const fromEmail = process.env.EMAIL_FROM || process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
         const emailResult = await sendMail({
           from: `"${fromName}" <${fromEmail}>`,
@@ -805,7 +806,7 @@ router.get("/pdf-download", requireAuth, async (req, res) => {
             `Attached is your official Consent Summary in PDF format for your records.`,
             "",
             "Thank you.",
-            "AstreaBlue IT Service Management System",
+            `${brandName} System`,
           ].join("\n"),
           html: generateEmailHtml(
             "RA 10173 Compliance Consent Confirmation",
@@ -813,7 +814,7 @@ router.get("/pdf-download", requireAuth, async (req, res) => {
              <p>This email confirms that you have voluntarily provided your consent for laptop activity monitoring under <strong>Republic Act No. 10173 (Data Privacy Act of 2012)</strong>.</p>
              <p>Attached is your official Consent Summary in PDF format for your records.</p>
              <p>Thank you.</p>
-             <p><strong>AstreaBlue IT Service Management System</strong></p>`
+             <p><strong>${escapeHtml(brandName)} System</strong></p>`
           ),
           attachments: [
             {

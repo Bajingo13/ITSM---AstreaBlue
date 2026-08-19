@@ -1,5 +1,6 @@
 const { rawPool } = require("../config/db");
 const { ensureIntegrationGatewaySchema } = require("../src/services/integrationService");
+const { assertDeploymentCapability } = require("../src/config/deployment");
 
 function argument(name) {
   const prefix = `--${name}=`;
@@ -7,6 +8,7 @@ function argument(name) {
 }
 
 async function main() {
+  assertDeploymentCapability("integrationManagement");
   const systemCode = String(argument("code") || "").trim().toUpperCase();
   if (!systemCode) throw new Error("Usage: npm run integration:revoke -- --code=HRIS");
   await ensureIntegrationGatewaySchema();

@@ -1,6 +1,7 @@
 const express = require("express");
 const db = require("../../config/db");
 const { requireCurrentRoles } = require("../middleware/currentActor");
+const { requireDeploymentCapability } = require("../middleware/deploymentCapability");
 const {
   auditIntegrationRequest,
   ensureIntegrationGatewaySchema,
@@ -27,6 +28,7 @@ function requireSuperAdmin(req, res, next) {
   return next();
 }
 
+router.use(requireDeploymentCapability("integrationManagement"));
 router.use(async (_req, res, next) => {
   try {
     await ensureIntegrationGatewaySchema();

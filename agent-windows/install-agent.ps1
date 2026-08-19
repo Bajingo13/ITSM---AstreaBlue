@@ -53,7 +53,7 @@ $deviceCredential = $config.deviceCredential
 $deviceName = $config.deviceName
 
 if (-not $backendUrl) {
-    $backendUrl = Read-Host "Enter Backend URL (e.g. https://backend-production-fc059.up.railway.app)"
+    $backendUrl = Read-Host "Enter this deployment's Backend URL (for example, https://your-backend.example.com)"
 }
 if (-not $deviceCredential -and -not $enrollmentCode -and (-not $agentToken -or $agentToken -eq "replace-me-with-real-token" -or $agentToken -eq "dev-monitoring-token")) {
     $enrollmentCode = Read-Host "Enter one-time Enrollment Code (recommended; leave blank only for legacy installation)"

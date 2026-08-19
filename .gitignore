@@ -33,6 +33,7 @@ Thumbs.db
 .npx-cache/
 .venv-pdf/
 tmp/
+.agents/
 
 # Vite
 .vite/
@@ -42,8 +43,15 @@ coverage/
 output/
 outputs/
 
+# Runtime-generated files
+backend/uploads/**
+!backend/uploads/.gitkeep
+reports/
+
 agent/
 agent-windows/agent-config.local.json
 agent-windows/AstreaBlue-Native-Agent-Windows.zip
+agent-windows/AstreaBlue-Native-Agent-Windows/
+agent-windows/native-agent/dist/
 agent-windows.zip
 AstreaBlue-Agent-Windows.zip

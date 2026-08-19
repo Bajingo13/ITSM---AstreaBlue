@@ -1,4 +1,6 @@
 process.env.NODE_ENV = "test";
+process.env.DEPLOYMENT_PROFILE = "MAIN_HUB";
+process.env.INSTANCE_ID = "TEST_MAIN";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");

@@ -1,5 +1,5 @@
 param(
-    [string]$BackendUrl = "https://backend-production-fc059.up.railway.app",
+    [Parameter(Mandatory = $true)][string]$BackendUrl,
     [string]$EnrollmentCode,
     [string]$DeviceName = $env:COMPUTERNAME,
     [string]$UpdateManifestUrl,

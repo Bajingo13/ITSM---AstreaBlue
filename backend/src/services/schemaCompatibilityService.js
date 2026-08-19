@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const db = require("../../config/db");
 const softwareLicenseRepository = require("../repositories/softwareLicenseRepository");
+const { validateStrongPassword } = require("./passwordPolicyService");
 
 async function ensureKnowledgeBaseTable() {
   try {
@@ -109,15 +110,23 @@ async function ensureRoleBranchManagement() {
 
     const bootstrapPassword = String(process.env.BOOTSTRAP_SUPERADMIN_PASSWORD || "").trim();
     if (bootstrapPassword) {
+      const passwordValidation = validateStrongPassword(bootstrapPassword);
+      if (!passwordValidation.valid) throw new Error(`BOOTSTRAP_SUPERADMIN_PASSWORD: ${passwordValidation.message}`);
+      const bootstrapEmail = String(process.env.BOOTSTRAP_SUPERADMIN_EMAIL || "superadmin@astreablue.com").trim().toLowerCase();
+      const bootstrapName = String(process.env.BOOTSTRAP_SUPERADMIN_NAME || "Super Administrator").trim();
+      const companyName = String(process.env.COMPANY_NAME || "AstreaBlue").trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bootstrapEmail)) {
+        throw new Error("BOOTSTRAP_SUPERADMIN_EMAIL must be a valid email address.");
+      }
       await db.query(`
         INSERT INTO users
         (full_name, email, password_hash, role_id, company_name, status, is_active)
         SELECT
-          'Super Administrator',
-          'superadmin@astreablue.com',
+          $2,
+          $3,
           $1,
           sr.role_id,
-          'AstreaBlue',
+          $4,
           'Active',
           TRUE
         FROM system_roles sr
@@ -125,10 +134,10 @@ async function ensureRoleBranchManagement() {
           AND NOT EXISTS (
             SELECT 1
             FROM users u
-            WHERE LOWER(u.email) = 'superadmin@astreablue.com'
+            WHERE LOWER(u.email) = $3
           )
         LIMIT 1
-      `, [bcrypt.hashSync(bootstrapPassword, 12)]);
+      `, [bcrypt.hashSync(bootstrapPassword, 12), bootstrapName, bootstrapEmail, companyName]);
     }
   } catch (err) {
     console.error("Role/branch setup error:", err.message);

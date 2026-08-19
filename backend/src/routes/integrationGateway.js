@@ -1,6 +1,9 @@
 const express = require("express");
 const ticketRoutes = require("./tickets");
 const { requireIntegrationApiKey } = require("../middleware/integrationAuth");
+const { requireDeploymentCapability } = require("../middleware/deploymentCapability");
+const { createRateLimit } = require("../middleware/rateLimit");
+const { hasDeploymentCapability } = require("../config/deployment");
 const {
   auditIntegrationRequest,
   ensureIntegrationGatewaySchema,
@@ -13,7 +16,10 @@ const {
 
 const router = express.Router();
 
-const gatewaySchemaReady = ticketRoutes.ticketSchemaReady.then(() => ensureIntegrationGatewaySchema());
+const gatewaySchemaReady = hasDeploymentCapability("externalTicketIntake")
+  ? ticketRoutes.ticketSchemaReady.then(() => ensureIntegrationGatewaySchema())
+  : Promise.resolve(false);
+const externalGatewayRateLimit = createRateLimit({ windowMs: 60 * 1000, max: 120 });
 
 function externalTicketResponse(ticket, idempotentReplay = false) {
   return {
@@ -36,6 +42,8 @@ function externalTicketResponse(ticket, idempotentReplay = false) {
   };
 }
 
+router.use(requireDeploymentCapability("externalTicketIntake"));
+router.use(externalGatewayRateLimit);
 router.use(async (_req, res, next) => {
   try {
     await gatewaySchemaReady;
