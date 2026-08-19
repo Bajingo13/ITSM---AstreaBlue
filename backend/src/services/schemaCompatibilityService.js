@@ -118,12 +118,12 @@ async function ensureRoleBranchManagement() {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bootstrapEmail)) {
         throw new Error("BOOTSTRAP_SUPERADMIN_EMAIL must be a valid email address.");
       }
-      await db.query(`
+      const bootstrapResult = await db.query(`
         INSERT INTO users
         (full_name, email, password_hash, role_id, company_name, status, is_active)
         SELECT
           $2,
-          $3,
+          $3::varchar,
           $1,
           sr.role_id,
           $4,
@@ -134,10 +134,12 @@ async function ensureRoleBranchManagement() {
           AND NOT EXISTS (
             SELECT 1
             FROM users u
-            WHERE LOWER(u.email) = $3
+            WHERE LOWER(u.email) = LOWER($3::text)
           )
         LIMIT 1
+        RETURNING user_id
       `, [bcrypt.hashSync(bootstrapPassword, 12), bootstrapName, bootstrapEmail, companyName]);
+      console.log(`[bootstrap] SuperAdmin account ${bootstrapResult.rowCount === 1 ? "created" : "already exists"}.`);
     }
   } catch (err) {
     console.error("Role/branch setup error:", err.message);
