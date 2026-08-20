@@ -251,7 +251,10 @@ export default function EndpointMonitoring() {
   const assetBranchId = String(selectedDevice?.branch_id || "");
   const filteredAssignmentUsers = useMemo(() => usersList
     .filter((user) => String(user.role_name || user.role || "").toLowerCase() === "employee")
-    .filter((user) => user.is_active !== false && !["inactive", "disabled", "deactivated"].includes(String(user.status || "").toLowerCase()))
+    .filter((user) => user.has_active_onboarding === true || (
+      user.is_active !== false
+      && !["inactive", "disabled", "deactivated"].includes(String(user.status || "").toLowerCase())
+    ))
     .filter((user) => !employeeBranchFilter || String(user.branch_id) === String(employeeBranchFilter))
     .filter((user) => matchesSearch(employeeSearch, user.full_name, user.email, user.employee_number))
     .sort((left, right) => String(left.full_name || "").localeCompare(String(right.full_name || ""))), [usersList, employeeBranchFilter, employeeSearch]);
@@ -1423,7 +1426,7 @@ export default function EndpointMonitoring() {
                   <div className="mb-2 flex items-end justify-between gap-3">
                     <div>
                       <label className="block text-sm font-bold text-slate-700">Select employee</label>
-                      <p className="mt-0.5 text-xs text-slate-500">Only eligible employees in the asset branch can be assigned.</p>
+                      <p className="mt-0.5 text-xs text-slate-500">Active employees and employees currently onboarding in the asset branch can be assigned.</p>
                     </div>
                     <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{filteredAssignmentUsers.length} found</span>
                   </div>
@@ -1487,7 +1490,13 @@ export default function EndpointMonitoring() {
 
               <div className="flex shrink-0 items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
                 <button onClick={() => setShowAssignEmployeeModal(false)} className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:border-slate-400 hover:bg-slate-100">Cancel</button>
-                <button onClick={() => submitAssign()} disabled={assignLoading || !assignForm.assigned_user_id} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none">{assignLoading ? "Saving..." : "Save Assignment"}</button>
+                <button
+                  onClick={() => submitAssign()}
+                  disabled={assignLoading || !assignForm.assigned_user_id}
+                  className={`rounded-xl border px-5 py-2.5 text-sm font-black transition ${assignLoading || !assignForm.assigned_user_id
+                    ? "cursor-not-allowed border-slate-300 bg-slate-200 text-slate-700"
+                    : "border-blue-700 bg-blue-600 text-white shadow-sm hover:bg-blue-700"}`}
+                >{assignLoading ? "Saving..." : "Save Assignment"}</button>
               </div>
             </div>
           </div>

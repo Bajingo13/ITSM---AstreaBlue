@@ -66,6 +66,14 @@ router.get("/", requireAuthenticatedRequest, async (req, res) => {
         u.role_id,
         sr.role_name,
         COALESCE(u.is_active, TRUE) AS is_active,
+        EXISTS (
+          SELECT 1
+            FROM employee_lifecycle_cases onboarding
+           WHERE onboarding.employee_id = u.user_id
+             AND onboarding.lifecycle_type = 'Onboarding'
+             AND onboarding.status NOT IN ('Completed', 'Cancelled')
+             AND onboarding.deleted_at IS NULL
+        ) AS has_active_onboarding,
         CASE
           WHEN COALESCE(u.is_active, TRUE) = TRUE THEN 'Active'
           ELSE 'Inactive'

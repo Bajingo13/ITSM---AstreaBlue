@@ -985,7 +985,7 @@ router.get("/cases/:id/technology-value", async (req, res) => {
     }
     const value = await getEmployeeTechnologyValue(db, {
       employeeId: lifecycleCase.employee_id,
-      branchId: lifecycleCase.branch_id,
+      branchId: req.lifecycleActor.role === "superadmin" ? null : lifecycleCase.branch_id,
     });
     return res.json({ success: true, data: value });
   } catch (error) {

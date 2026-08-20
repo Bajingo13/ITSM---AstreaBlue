@@ -416,16 +416,16 @@ function registerEndpointDeviceRoutes(router, {
         if (String(employee.role_name || "").toLowerCase() !== "employee") {
           return res.status(409).json({ success: false, message: "Only an Employee account can be assigned to a managed company device." });
         }
-        if (employee.is_active === false) {
+        const onboardingIncomplete = employee.onboarding_required || employee.onboarding_status !== "Completed";
+        const activeLifecycleOnboarding = onboardingIncomplete
+          ? await canAssignEmployeeDuringOnboarding(db, assigned_user_id)
+          : false;
+        if (employee.is_active === false && !activeLifecycleOnboarding) {
           return res.status(409).json({
             success: false,
             message: "The employee must activate the AstreaBlue account before device assignment.",
           });
         }
-        const onboardingIncomplete = employee.onboarding_required || employee.onboarding_status !== "Completed";
-        const activeLifecycleOnboarding = onboardingIncomplete
-          ? await canAssignEmployeeDuringOnboarding(db, assigned_user_id)
-          : false;
         if (onboardingIncomplete && !activeLifecycleOnboarding) {
           return res.status(409).json({
             success: false,

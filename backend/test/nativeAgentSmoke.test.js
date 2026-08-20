@@ -21,12 +21,26 @@ test("native agent enrolls, protects its credential, and sends a bound heartbeat
   let server;
   let codeId;
   let deviceId;
+  let branchId;
+  let actorId;
   const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "astreablue-native-agent-test-"));
   try {
-    const branch = await db.query(`SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1`);
-    const actor = await db.query(`SELECT user_id FROM users ORDER BY user_id LIMIT 1`);
-    assert.ok(branch.rows[0]?.branch_id);
-    assert.ok(actor.rows[0]?.user_id);
+    const suffix = `${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+    const branch = await db.query(
+      `INSERT INTO branches(branch_name,branch_code,is_active)
+       VALUES($1,$2,TRUE) RETURNING branch_id`,
+      [`Native Agent Smoke ${suffix}`, `NATIVE-${suffix}`]
+    );
+    branchId = branch.rows[0].branch_id;
+    const adminRole = await db.query(`SELECT role_id FROM system_roles WHERE LOWER(role_name)='admin' LIMIT 1`);
+    assert.ok(adminRole.rows[0]?.role_id, "native agent smoke test requires the Admin role");
+    const actor = await db.query(
+      `INSERT INTO users(full_name,email,password_hash,role_id,company_name,branch_id,status,is_active)
+       VALUES('Native Agent Smoke Admin',$1,'test-only',$2,'AstreaBlue',$3,'Active',TRUE)
+       RETURNING user_id`,
+      [`native-agent-admin-${suffix}@example.invalid`, adminRole.rows[0].role_id, branchId]
+    );
+    actorId = actor.rows[0].user_id;
 
     const app = express();
     app.use(express.json({ limit: "2mb" }));
@@ -34,7 +48,7 @@ test("native agent enrolls, protects its credential, and sends a bound heartbeat
     server = app.listen(0, "127.0.0.1");
     await new Promise((resolve) => server.once("listening", resolve));
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
-    const token = jwt.sign({ userId: actor.rows[0].user_id, role: "Admin", branchId: branch.rows[0].branch_id }, process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod", { expiresIn: "5m" });
+    const token = jwt.sign({ userId: actorId, role: "Admin", branchId }, process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod", { expiresIn: "5m" });
     const hostname = os.hostname();
     const codeResponse = await fetch(`${baseUrl}/api/v1/laptop-monitoring/enrollment-codes`, {
       method: "POST",
@@ -98,7 +112,13 @@ test("native agent enrolls, protects its credential, and sends a bound heartbeat
     if (deviceId || codeId) await db.query(`DELETE FROM endpoint_enrollment_audit_logs WHERE device_id=$1 OR enrollment_code_id=$2`, [deviceId || null, codeId || null]);
     if (codeId) await db.query(`DELETE FROM endpoint_enrollment_codes WHERE enrollment_code_id=$1`, [codeId]);
     if (deviceId) await db.query(`DELETE FROM monitored_devices WHERE device_id=$1`, [deviceId]);
-    if (server) await new Promise((resolve) => server.close(resolve));
+    if (branchId) await db.query(`DELETE FROM asset_discoveries WHERE branch_id=$1 AND source='Endpoint Agent'`, [branchId]);
+    if (actorId) await db.query(`DELETE FROM users WHERE user_id=$1`, [actorId]);
+    if (branchId) await db.query(`DELETE FROM branches WHERE branch_id=$1`, [branchId]);
+    if (server) {
+      server.closeAllConnections?.();
+      await new Promise((resolve) => server.close(resolve));
+    }
     fs.rmSync(dataDirectory, { recursive: true, force: true });
     await db.rawPool.end();
   }
