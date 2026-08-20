@@ -33,6 +33,7 @@ const {
   assignEmployeeLicenses,
   getEmployeeTechnologyValue,
   listEmployeeTechnologyValues,
+  loadAssignedAssets,
   loadEmployee,
 } = require("../services/employeeTechnologyValueService");
 
@@ -367,6 +368,72 @@ router.post("/technology-values/:employeeId/license-assignments", async (req, re
     return res.status(error.status || 500).json({
       success: false,
       message: error.status ? error.message : "Failed to assign software licenses.",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+router.patch("/technology-values/:employeeId/license-assignments/:assignmentId/device-reference", async (req, res) => {
+  if (!["superadmin", "admin"].includes(req.lifecycleActor.role)) {
+    return res.status(403).json({ success: false, message: "Software-license assignment requires an administrator." });
+  }
+  const employeeId = Number.parseInt(req.params.employeeId, 10);
+  const assignmentId = Number.parseInt(req.params.assignmentId, 10);
+  const assetId = req.body.asset_id ? Number.parseInt(req.body.asset_id, 10) : null;
+  if (!Number.isInteger(employeeId) || employeeId < 1 || !Number.isInteger(assignmentId) || assignmentId < 1
+      || (req.body.asset_id && (!Number.isInteger(assetId) || assetId < 1))) {
+    return res.status(400).json({ success: false, message: "Select a valid employee, assignment, and device reference." });
+  }
+
+  const client = await db.rawPool.connect();
+  try {
+    await client.query("BEGIN");
+    const branchId = req.lifecycleActor.role === "superadmin"
+      ? null
+      : Number(req.lifecycleActor.branch_id);
+    const employee = await loadEmployee(client, employeeId, branchId);
+    if (!employee) throw Object.assign(new Error("Employee not found in the authorized branch."), { status: 404 });
+
+    const assignmentResult = await client.query(
+      `SELECT assignment.assignment_id,license.branch_id
+         FROM software_license_assignments assignment
+         JOIN software_licenses license ON license.license_id=assignment.license_id
+        WHERE assignment.assignment_id=$1 AND assignment.user_id=$2 AND assignment.status='Active'
+        FOR UPDATE OF assignment`,
+      [assignmentId, employee.user_id]
+    );
+    const assignment = assignmentResult.rows[0];
+    if (!assignment) throw Object.assign(new Error("Active software-license assignment not found."), { status: 404 });
+    if (Number(assignment.branch_id) !== Number(employee.branch_id)) {
+      throw Object.assign(new Error("The software license is outside the employee branch."), { status: 403 });
+    }
+
+    if (assetId) {
+      const assets = await loadAssignedAssets(client, employee, { lock: true });
+      const asset = assets.rows.find((candidate) => Number(candidate.asset_id) === assetId);
+      if (!asset || Number(asset.branch_id) !== Number(employee.branch_id)) {
+        throw Object.assign(new Error("The selected device is not currently assigned to this employee."), { status: 400 });
+      }
+    }
+
+    await client.query(
+      `UPDATE software_license_assignments
+          SET asset_id=$1,updated_at=CURRENT_TIMESTAMP
+        WHERE assignment_id=$2`,
+      [assetId, assignmentId]
+    );
+    await client.query("COMMIT");
+    return res.json({
+      success: true,
+      data: await getEmployeeTechnologyValue(db, { employeeId: employee.user_id, branchId }),
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[employee-lifecycle:update-license-device-reference]", error.message);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : "Failed to update the software-license device reference.",
     });
   } finally {
     client.release();

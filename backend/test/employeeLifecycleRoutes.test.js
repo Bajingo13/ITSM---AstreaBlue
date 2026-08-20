@@ -440,6 +440,37 @@ test("offboarding executes only internal AstreaBlue actions and preserves endpoi
   assert.equal(Number(assignedValue.totals.asset_value), 60000);
   assert.equal(Number(assignedValue.totals.annual_software_cost), 1000);
   assert.equal(Number(assignedValue.totals.first_year_assigned_value), 61000);
+  const assignmentId = assignedValue.assignments[0].assignment_id;
+  let referenceResponse = await fetch(
+    `${baseUrl}/api/v1/employee-lifecycle/technology-values/${employeeId}/license-assignments/${assignmentId}/device-reference`,
+    {
+      method: "PATCH",
+      headers: authHeaders(superAdminId, "SuperAdmin", null),
+      body: JSON.stringify({ asset_id: null }),
+    }
+  );
+  let referenceBody = await referenceResponse.text();
+  assert.equal(referenceResponse.status, 200, referenceBody);
+  let referenceValue = JSON.parse(referenceBody).data;
+  assert.equal(referenceValue.assignments[0].asset_id, null);
+  assert.equal(Number(referenceValue.totals.annual_software_cost), 1000);
+  let licenseUsage = await db.query(`SELECT used_licenses FROM software_licenses WHERE license_id=$1`, [licenseId]);
+  assert.equal(licenseUsage.rows[0].used_licenses, 1);
+
+  referenceResponse = await fetch(
+    `${baseUrl}/api/v1/employee-lifecycle/technology-values/${employeeId}/license-assignments/${assignmentId}/device-reference`,
+    {
+      method: "PATCH",
+      headers: authHeaders(superAdminId, "SuperAdmin", null),
+      body: JSON.stringify({ asset_id: assetId }),
+    }
+  );
+  referenceBody = await referenceResponse.text();
+  assert.equal(referenceResponse.status, 200, referenceBody);
+  referenceValue = JSON.parse(referenceBody).data;
+  assert.equal(Number(referenceValue.assignments[0].asset_id), Number(assetId));
+  licenseUsage = await db.query(`SELECT used_licenses FROM software_licenses WHERE license_id=$1`, [licenseId]);
+  assert.equal(licenseUsage.rows[0].used_licenses, 1);
   const inventoryResponse = await fetch(`${baseUrl}/api/v1/employee-lifecycle/technology-values`, {
     headers: authHeaders(superAdminId, "SuperAdmin", null),
   });
