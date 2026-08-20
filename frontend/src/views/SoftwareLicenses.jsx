@@ -508,6 +508,7 @@ function ReconcileLicenseModal({ license, data, loading, saving, error, onClose,
   const employees = data?.employees || [];
   const assignments = data?.assignments || [];
   const assignmentHistory = data?.assignment_history || [];
+  const releasedAssignments = assignmentHistory.filter((assignment) => assignment.status !== "Active");
   const employeeAssets = (data?.assets || []).filter((asset) => String(asset.user_id) === String(employeeId));
   const unlinked = Number(data?.license?.unlinked_used_licenses ?? license.unlinked_used_licenses ?? 0);
 
@@ -518,40 +519,41 @@ function ReconcileLicenseModal({ license, data, loading, saving, error, onClose,
   }
 
   return <div className="astrea-modal-backdrop">
-    <div className="astrea-modal-panel relative max-w-5xl">
+    <div className="astrea-modal-panel relative max-w-4xl">
       <div className="astrea-modal-header">
-        <div><p className="text-xs font-black uppercase text-blue-600">Seat holders and usage</p><h2 className="mt-1 text-base font-black text-slate-900">{license.license_name}</h2></div>
+        <div><p className="text-xs font-black uppercase text-blue-600">Identify seat owners</p><h2 className="mt-1 text-base font-black text-slate-900">{license.license_name}</h2></div>
         <button type="button" onClick={onClose} aria-label="Close seat reconciliation" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" title="Close"><X size={18}/></button>
       </div>
 
       <div className="astrea-modal-body space-y-5">
         <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-bold text-slate-500">Used</p><p className="mt-1 text-xl font-black text-slate-900">{Number(data?.license?.used_licenses ?? license.used_licenses ?? 0)}</p></div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-bold text-slate-500">Employee-linked</p><p className="mt-1 text-xl font-black text-slate-900">{Number(data?.license?.tracked_assignments ?? license.tracked_assignments ?? 0)}</p></div>
-          <div className={`rounded-lg border p-3 ${unlinked ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}><p className="text-xs font-bold text-slate-500">Unlinked</p><p className={`mt-1 text-xl font-black ${unlinked ? "text-amber-800" : "text-emerald-700"}`}>{unlinked}</p></div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-bold text-slate-500">Seats in use</p><p className="mt-1 text-xl font-black text-slate-900">{Number(data?.license?.used_licenses ?? license.used_licenses ?? 0)}</p></div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-bold text-slate-500">Owners identified</p><p className="mt-1 text-xl font-black text-slate-900">{Number(data?.license?.tracked_assignments ?? license.tracked_assignments ?? 0)}</p></div>
+          <div className={`rounded-lg border p-3 ${unlinked ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}><p className="text-xs font-bold text-slate-500">Need owner</p><p className={`mt-1 text-xl font-black ${unlinked ? "text-amber-800" : "text-emerald-700"}`}>{unlinked}</p></div>
         </div>
 
         {loading ? <p className="py-8 text-center text-sm text-slate-500">Loading reconciliation records...</p> : <>
-          {unlinked > 0 && <form onSubmit={(event) => { event.preventDefault(); void onSave({ user_id: Number(employeeId), asset_id: assetId ? Number(assetId) : null }); }} className="grid gap-4 sm:grid-cols-2">
+          {unlinked > 0 && <form onSubmit={(event) => { event.preventDefault(); void onSave({ user_id: Number(employeeId), asset_id: assetId ? Number(assetId) : null }); }} className="grid gap-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4 sm:grid-cols-2">
+            <div className="sm:col-span-2"><h3 className="font-black text-slate-900">Identify one existing seat</h3><p className="mt-1 text-xs text-slate-600">This records who already uses the seat. It does not increase the used-seat count.</p></div>
             <Field label="Employee" required><select required value={employeeId} onChange={(event) => selectEmployee(event.target.value)} className={inputClass}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.user_id} value={employee.user_id}>{employee.full_name}{employee.employee_number ? ` · ${employee.employee_number}` : ""}</option>)}</select></Field>
-            <Field label="Assigned asset"><select value={assetId} onChange={(event) => setAssetId(event.target.value)} disabled={!employeeId || employeeAssets.length === 0} className={inputClass}><option value="">{employeeAssets.length ? "No asset link" : "No assigned asset"}</option>{employeeAssets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag} · {asset.asset_name}</option>)}</select></Field>
+            <Field label="Used on (optional)"><select value={assetId} onChange={(event) => setAssetId(event.target.value)} disabled={!employeeId || employeeAssets.length === 0} className={inputClass}><option value="">{employeeAssets.length ? "Employee account" : "No assigned devices"}</option>{employeeAssets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag} · {asset.asset_name}</option>)}</select></Field>
             {error && <div className="sm:col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">{error}</div>}
-            <div className="sm:col-span-2 flex justify-end"><button type="submit" disabled={saving || !employeeId} className="astrea-button astrea-button-primary"><Link2 size={16}/>{saving ? "Linking..." : "Link used seat"}</button></div>
+            <div className="sm:col-span-2 flex justify-end"><button type="submit" disabled={saving || !employeeId} className="astrea-button astrea-button-primary"><Link2 size={16}/>{saving ? "Saving..." : "Save seat owner"}</button></div>
           </form>}
 
           <div>
             <h3 className="text-xs font-black uppercase text-slate-500">Active seat holders</h3>
             <div className="mt-2 max-h-56 overflow-auto border-y border-slate-200">
-              <table className="min-w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">Employee</th><th className="px-3 py-2">Asset</th><th className="px-3 py-2">Assigned</th><th className="px-3 py-2">Assigned by</th><th className="px-3 py-2">Source</th></tr></thead><tbody>{assignments.length ? assignments.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-900">{assignment.full_name}<span className="block font-normal text-slate-500">{assignment.employee_number || "No employee number"}</span></td><td className="px-3 py-2 text-slate-600">{assignment.asset_tag || assignment.asset_name || "Employee only"}</td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateTime(assignment.assigned_at)}</td><td className="px-3 py-2 text-slate-600">{assignment.assigned_by_name || "System / restored"}</td><td className="px-3 py-2 text-slate-600">{assignment.assignment_source}</td></tr>) : <tr><td colSpan="5" className="px-3 py-6 text-center text-sm text-slate-500">No employee-linked seats yet.</td></tr>}</tbody></table>
+              <table className="min-w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">Employee</th><th className="px-3 py-2">Used on</th><th className="px-3 py-2">Assigned</th><th className="px-3 py-2">Assigned by</th><th className="px-3 py-2">Source</th></tr></thead><tbody>{assignments.length ? assignments.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-900">{assignment.full_name}<span className="block font-normal text-slate-500">{assignment.employee_number || "No employee number"}</span></td><td className="px-3 py-2 text-slate-600">{assignment.asset_tag || assignment.asset_name || "Employee account"}</td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateTime(assignment.assigned_at)}</td><td className="px-3 py-2 text-slate-600">{assignment.assigned_by_name || "System / restored"}</td><td className="px-3 py-2 text-slate-600">{assignment.assignment_source}</td></tr>) : <tr><td colSpan="5" className="px-3 py-6 text-center text-sm text-slate-500">No seat owners have been identified yet.</td></tr>}</tbody></table>
             </div>
           </div>
 
-          <div>
-            <h3 className="text-xs font-black uppercase text-slate-500">Assignment history</h3>
+          {releasedAssignments.length > 0 && <div>
+            <h3 className="text-xs font-black uppercase text-slate-500">Released seat history</h3>
             <div className="mt-2 max-h-56 overflow-auto border-y border-slate-200">
-              <table className="min-w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">Employee</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Assigned</th><th className="px-3 py-2">Assigned by</th><th className="px-3 py-2">Released</th><th className="px-3 py-2">Released by</th></tr></thead><tbody>{assignmentHistory.length ? assignmentHistory.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-900">{assignment.full_name}<span className="block font-normal text-slate-500">{assignment.asset_tag || assignment.asset_name || "Employee only"}</span></td><td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 font-black ${assignment.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>{assignment.status}</span></td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateTime(assignment.assigned_at)}</td><td className="px-3 py-2 text-slate-600">{assignment.assigned_by_name || "System / restored"}</td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateTime(assignment.released_at)}</td><td className="px-3 py-2 text-slate-600">{assignment.released_by_name || (assignment.released_at ? "System" : "—")}</td></tr>) : <tr><td colSpan="6" className="px-3 py-6 text-center text-sm text-slate-500">No assignment history yet.</td></tr>}</tbody></table>
+              <table className="min-w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">Employee</th><th className="px-3 py-2">Used on</th><th className="px-3 py-2">Assigned</th><th className="px-3 py-2">Assigned by</th><th className="px-3 py-2">Released</th><th className="px-3 py-2">Released by</th></tr></thead><tbody>{releasedAssignments.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-900">{assignment.full_name}</td><td className="px-3 py-2 text-slate-600">{assignment.asset_tag || assignment.asset_name || "Employee account"}</td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateTime(assignment.assigned_at)}</td><td className="px-3 py-2 text-slate-600">{assignment.assigned_by_name || "System / restored"}</td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateTime(assignment.released_at)}</td><td className="px-3 py-2 text-slate-600">{assignment.released_by_name || "System"}</td></tr>)}</tbody></table>
             </div>
-          </div>
+          </div>}
         </>}
       </div>
     </div>
@@ -1004,7 +1006,7 @@ export default function SoftwareLicenses() {
                 {isSuperAdmin && <th className="px-5 py-3.5">Branch</th>}
                 <th className="px-5 py-3.5">Type</th>
                 <th className="px-5 py-3.5">Total Licenses</th>
-                <th className="px-5 py-3.5">Used Licenses</th>
+                <th className="px-5 py-3.5">Seats in Use</th>
                 <th className="px-5 py-3.5">Available Licenses</th>
                 <th className="px-5 py-3.5">Utilization</th>
                 <th className="px-5 py-3.5">Expiry</th>
@@ -1045,7 +1047,7 @@ export default function SoftwareLicenses() {
                       {isSuperAdmin && <td className="px-5 py-3.5 text-slate-600">{l.branch_name || "—"}</td>}
                       <td className="px-5 py-3.5 text-slate-600">{l.license_type}</td>
                       <td className="px-5 py-3.5 font-bold text-slate-800">{l.total_licenses}</td>
-                      <td className="px-5 py-3.5 font-bold text-slate-800">{l.used_licenses}<span className="mt-0.5 block text-[10px] font-semibold text-slate-400">{Number(l.tracked_assignments || 0)} employee-linked</span>{Number(l.unlinked_used_licenses || 0) > 0 && <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800">{Number(l.unlinked_used_licenses)} unlinked</span>}</td>
+                      <td className="px-5 py-3.5 font-bold text-slate-800">{l.used_licenses}<span className="mt-0.5 block text-[10px] font-semibold text-slate-500">{Number(l.tracked_assignments || 0)} owner{Number(l.tracked_assignments || 0) === 1 ? "" : "s"} identified</span>{Number(l.unlinked_used_licenses || 0) > 0 && <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800">{Number(l.unlinked_used_licenses)} need owner</span>}</td>
                       <td className="px-5 py-3.5 font-bold text-slate-800">{Math.max(Number(l.available_licenses ?? l.total_licenses - l.used_licenses), 0)}</td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2">
@@ -1068,7 +1070,7 @@ export default function SoftwareLicenses() {
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {(Number(l.tracked_assignments || 0) > 0 || Number(l.unlinked_used_licenses || 0) > 0) && <button type="button" onClick={() => void loadReconciliation(l)} className={`rounded-lg p-1.5 transition ${Number(l.unlinked_used_licenses || 0) > 0 ? "text-amber-600 hover:bg-amber-50 hover:text-amber-800" : "text-blue-600 hover:bg-blue-50 hover:text-blue-800"}`} title="View seat holders and reconcile usage"><Link2 size={15}/></button>}
+                          {(Number(l.tracked_assignments || 0) > 0 || Number(l.unlinked_used_licenses || 0) > 0) && <button type="button" onClick={() => void loadReconciliation(l)} className={`rounded-lg p-1.5 transition ${Number(l.unlinked_used_licenses || 0) > 0 ? "text-amber-600 hover:bg-amber-50 hover:text-amber-800" : "text-blue-600 hover:bg-blue-50 hover:text-blue-800"}`} title="View and identify seat owners"><Link2 size={15}/></button>}
                           {l.license_type !== "Perpetual" && (
                             <button
                               type="button"
