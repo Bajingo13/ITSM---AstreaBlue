@@ -35,6 +35,7 @@ const {
   listEmployeeTechnologyValues,
   loadAssignedAssets,
   loadEmployee,
+  releaseEmployeeLicense,
 } = require("../services/employeeTechnologyValueService");
 
 const router = express.Router();
@@ -434,6 +435,46 @@ router.patch("/technology-values/:employeeId/license-assignments/:assignmentId/d
     return res.status(error.status || 500).json({
       success: false,
       message: error.status ? error.message : "Failed to update the software-license device reference.",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+router.post("/technology-values/:employeeId/license-assignments/:assignmentId/release", async (req, res) => {
+  if (!["superadmin", "admin"].includes(req.lifecycleActor.role)) {
+    return res.status(403).json({ success: false, message: "Software-license release requires an administrator." });
+  }
+  const employeeId = Number.parseInt(req.params.employeeId, 10);
+  const assignmentId = Number.parseInt(req.params.assignmentId, 10);
+  if (!Number.isInteger(employeeId) || employeeId < 1 || !Number.isInteger(assignmentId) || assignmentId < 1) {
+    return res.status(400).json({ success: false, message: "Select a valid employee and software-license assignment." });
+  }
+
+  const client = await db.rawPool.connect();
+  try {
+    await client.query("BEGIN");
+    const branchId = req.lifecycleActor.role === "superadmin"
+      ? null
+      : Number(req.lifecycleActor.branch_id);
+    const employee = await loadEmployee(client, employeeId, branchId);
+    if (!employee) throw Object.assign(new Error("Employee not found in the authorized branch."), { status: 404 });
+
+    await releaseEmployeeLicense(client, {
+      employee,
+      actor: req.lifecycleActor,
+      assignmentId,
+      reason: req.body.reason,
+    });
+    await client.query("COMMIT");
+    const value = await getEmployeeTechnologyValue(db, { employeeId: employee.user_id, branchId });
+    return res.json({ success: true, data: value });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[employee-lifecycle:release-license]", error.message);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : "Failed to release the software license.",
     });
   } finally {
     client.release();

@@ -21,7 +21,7 @@ import { API_URL } from "../config/api";
 import { getAuthToken } from "../context/AuthService";
 import { useAuth } from "../context/AuthContext";
 import PageHero from "../components/layout/PageHero";
-import { appConfirm } from "../services/appDialog";
+import { appConfirm, appPrompt } from "../services/appDialog";
 
 const STATUS_TRANSITIONS = {
   Draft: ["In Progress", "Cancelled"],
@@ -529,6 +529,7 @@ function TechnologyEmployeeDrawer({ employee, value, role, loading, error, onClo
   const [selectedLicenseIds, setSelectedLicenseIds] = useState([]);
   const [saving, setSaving] = useState(false);
   const [updatingAssignmentId, setUpdatingAssignmentId] = useState(null);
+  const [releasingAssignmentId, setReleasingAssignmentId] = useState(null);
   const [saveError, setSaveError] = useState("");
   const details = value || {};
   const activeAssignments = details.assignments || [];
@@ -564,6 +565,34 @@ function TechnologyEmployeeDrawer({ employee, value, role, loading, error, onClo
     }
   }
 
+  async function releaseLicense(assignment) {
+    const reason = await appPrompt({
+      title: `Release ${assignment.license_name}?`,
+      message: `This returns the seat to Software License Management immediately. ${employee.full_name} will no longer have this license assigned.`,
+      placeholder: "Reason (optional)",
+      confirmLabel: "Release seat",
+      cancelLabel: "Cancel",
+      tone: "danger",
+    });
+    if (reason === null) return;
+    setReleasingAssignmentId(assignment.assignment_id);
+    setSaveError("");
+    try {
+      const nextValue = await lifecycleRequest(
+        `/technology-values/${employee.user_id}/license-assignments/${assignment.assignment_id}/release`,
+        {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        }
+      );
+      await onAssigned(nextValue);
+    } catch (requestError) {
+      setSaveError(requestError.message);
+    } finally {
+      setReleasingAssignmentId(null);
+    }
+  }
+
   async function updateDeviceReference(assignmentId, assetId) {
     setUpdatingAssignmentId(assignmentId);
     setSaveError("");
@@ -594,7 +623,7 @@ function TechnologyEmployeeDrawer({ employee, value, role, loading, error, onClo
         {loading ? <p className="py-16 text-center text-sm text-slate-500">Loading employee technology records...</p> : <>
           <div className="grid gap-3 sm:grid-cols-3"><ValueMetric icon={Laptop} label="Hardware" value={formatCurrency(details.totals?.asset_value)} detail={`${assets.length} assigned`}/><ValueMetric icon={KeyRound} label="Annual software" value={formatCurrency(details.totals?.annual_software_cost)} detail={`${activeAssignments.length} active seats`}/><ValueMetric icon={DollarSign} label="First-year value" value={formatCurrency(details.totals?.first_year_assigned_value)} detail="Hardware plus one year" emphasis/></div>
 
-          <section><h3 className="text-xs font-black uppercase text-slate-500">Active software licenses</h3><div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-white"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">License</th><th className="px-3 py-2">Device reference</th><th className="px-3 py-2">Assigned</th><th className="px-3 py-2">Assigned by</th><th className="px-3 py-2 text-right">Annual seat cost</th></tr></thead><tbody>{activeAssignments.length ? activeAssignments.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-800">{assignment.license_name}<span className="block font-normal text-slate-500">{assignment.vendor}</span></td><td className="min-w-52 px-3 py-2 text-slate-600">{canAssign ? <select aria-label={`Device reference for ${assignment.license_name}`} value={assignment.asset_id || ""} disabled={updatingAssignmentId === assignment.assignment_id} onChange={(event) => void updateDeviceReference(assignment.assignment_id, event.target.value)} className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-400 disabled:opacity-60"><option value="">None - employee account</option>{assets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag ? `${asset.asset_tag} - ` : ""}{asset.asset_name}</option>)}</select> : (assignment.asset_tag || assignment.asset_name || "None - employee account")}</td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDate(assignment.assigned_at, true)}</td><td className="px-3 py-2 text-slate-600">{assignment.assigned_by_name || "System / restored"}</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(assignment.seat_annual_cost_snapshot || assignment.annual_seat_cost)}</td></tr>) : <tr><td colSpan="5" className="px-3 py-5 text-center text-slate-500">No active software licenses assigned.</td></tr>}</tbody></table></div></section>
+          <section><h3 className="text-xs font-black uppercase text-slate-500">Active software licenses</h3><div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-white"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">License</th><th className="px-3 py-2">Device reference</th><th className="px-3 py-2">Assigned</th><th className="px-3 py-2">Assigned by</th><th className="px-3 py-2 text-right">Annual seat cost</th>{canAssign && <th className="px-3 py-2 text-right">Release</th>}</tr></thead><tbody>{activeAssignments.length ? activeAssignments.map((assignment) => <tr key={assignment.assignment_id} className="border-t border-slate-100"><td className="px-3 py-2 font-bold text-slate-800">{assignment.license_name}<span className="block font-normal text-slate-500">{assignment.vendor}</span></td><td className="min-w-52 px-3 py-2 text-slate-600">{canAssign ? <select aria-label={`Device reference for ${assignment.license_name}`} value={assignment.asset_id || ""} disabled={updatingAssignmentId === assignment.assignment_id} onChange={(event) => void updateDeviceReference(assignment.assignment_id, event.target.value)} className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-400 disabled:opacity-60"><option value="">None - employee account</option>{assets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag ? `${asset.asset_tag} - ` : ""}{asset.asset_name}</option>)}</select> : (assignment.asset_tag || assignment.asset_name || "None - employee account")}</td><td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDate(assignment.assigned_at, true)}</td><td className="px-3 py-2 text-slate-600">{assignment.assigned_by_name || "System / restored"}</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(assignment.seat_annual_cost_snapshot || assignment.annual_seat_cost)}</td>{canAssign && <td className="px-3 py-2 text-right"><button type="button" aria-label={`Release ${assignment.license_name} from ${employee.full_name}`} disabled={releasingAssignmentId === assignment.assignment_id} onClick={() => void releaseLicense(assignment)} className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1.5 text-xs font-black text-rose-700 hover:bg-rose-50 disabled:opacity-50"><Trash2 size={13}/> {releasingAssignmentId === assignment.assignment_id ? "Releasing..." : "Release"}</button></td>}</tr>) : <tr><td colSpan={canAssign ? 6 : 5} className="px-3 py-5 text-center text-slate-500">No active software licenses assigned.</td></tr>}</tbody></table></div></section>
 
           {canAssign && <section className="border-t border-blue-100 pt-5"><div className="flex items-center justify-between"><div><h3 className="font-black text-slate-900">Assign software seats</h3><p className="mt-1 text-xs text-slate-500">Every selected seat belongs to this employee.</p></div><span className="text-xs font-black text-blue-700">{selectedLicenseIds.length} selected</span></div><label className="mt-4 block"><span className="mb-1 block text-xs font-black uppercase text-slate-600">Device reference (optional)</span><select value={selectedAssetId} onChange={(event) => setSelectedAssetId(event.target.value)} className="field"><option value="">No device - employee account</option>{assets.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{asset.asset_tag ? `${asset.asset_tag} - ` : ""}{asset.asset_name}</option>)}</select><span className="mt-1.5 block text-xs text-slate-500">The device is only an installation reference; the software seat remains assigned to the employee.</span></label><div className="mt-3 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white">{availableLicenses.length ? availableLicenses.map((license) => <label key={license.license_id} className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0 hover:bg-slate-50"><input type="checkbox" checked={selectedLicenseIds.includes(Number(license.license_id))} onChange={() => toggleLicense(Number(license.license_id))} className="h-4 w-4 accent-blue-600"/><span className="min-w-0 flex-1"><span className="block text-sm font-black text-slate-800">{license.license_name}</span><span className="block text-xs text-slate-500">{license.vendor} · {license.available_licenses} available</span></span><span className="text-xs font-black">{formatCurrency(license.annual_seat_cost)}/yr</span></label>) : <p className="px-3 py-5 text-center text-xs text-slate-500">No assignable seats remain for this employee in this branch.</p>}</div><div className="mt-3 flex justify-end"><button type="button" disabled={saving || !selectedLicenseIds.length} onClick={() => void assignLicenses()} className="rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-700 disabled:opacity-50">{saving ? "Assigning..." : "Assign selected seats"}</button></div></section>}
 

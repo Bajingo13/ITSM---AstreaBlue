@@ -210,6 +210,38 @@ test("restored aggregate usage is mapped without double-counting and releases du
   assert.equal(directHistory.asset_id, null);
   assert.equal(directHistory.assigned_by_name, "Reconciliation SuperAdmin");
 
+  const directAssignmentId = directHistory.assignment_id;
+  response = await fetch(
+    `${baseUrl}/api/v1/employee-lifecycle/technology-values/${employeeId}/license-assignments/${directAssignmentId}/release`,
+    { method: "POST", headers: auth, body: JSON.stringify({ reason: "No longer needed on this seat." }) }
+  );
+  const releaseBody = await response.text();
+  assert.equal(response.status, 200, releaseBody);
+  const releasedValue = JSON.parse(releaseBody).data;
+  assert.equal(Number(releasedValue.totals.annual_software_cost), 12000);
+  const releasedDirectHistory = releasedValue.assignment_history.find(
+    (item) => Number(item.assignment_id) === Number(directAssignmentId)
+  );
+  assert.equal(releasedDirectHistory.status, "Released");
+  assert.equal(releasedDirectHistory.released_by_name, "Reconciliation SuperAdmin");
+  const directLicenseAfterRelease = await db.query(
+    "SELECT used_licenses FROM software_licenses WHERE license_id=$1", [directLicenseId]
+  );
+  assert.equal(Number(directLicenseAfterRelease.rows[0].used_licenses), 0);
+
+  response = await fetch(
+    `${baseUrl}/api/v1/employee-lifecycle/technology-values/${employeeId}/license-assignments/${directAssignmentId}/release`,
+    { method: "POST", headers: auth, body: JSON.stringify({}) }
+  );
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).message, /already released/);
+
+  response = await fetch(
+    `${baseUrl}/api/v1/employee-lifecycle/technology-values/${employeeId}/license-assignments/${directAssignmentId}/release`,
+    { method: "POST", headers: headers(shadowEmployeeId, "Employee", branchId), body: JSON.stringify({}) }
+  );
+  assert.equal(response.status, 403);
+
   response = await fetch(`${baseUrl}/api/v1/hardware-assets/${assetId}/status`, {
     method: "PATCH",
     headers: auth,

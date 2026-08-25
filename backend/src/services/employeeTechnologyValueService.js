@@ -260,6 +260,59 @@ async function assignEmployeeLicenses(queryable, {
   };
 }
 
+async function releaseEmployeeLicense(queryable, {
+  employee,
+  actor,
+  assignmentId,
+  reason = "",
+}) {
+  const normalizedAssignmentId = Number(assignmentId);
+  if (!Number.isInteger(normalizedAssignmentId) || normalizedAssignmentId < 1) {
+    throw httpError(400, "Select a valid software-license assignment.");
+  }
+
+  const assignmentResult = await queryable.query(
+    `SELECT assignment.assignment_id,assignment.license_id,assignment.status
+       FROM software_license_assignments assignment
+      WHERE assignment.assignment_id=$1 AND assignment.user_id=$2
+      FOR UPDATE`,
+    [normalizedAssignmentId, employee.user_id]
+  );
+  const assignment = assignmentResult.rows[0];
+  if (!assignment) throw httpError(404, "Software-license assignment not found for this employee.");
+  if (assignment.status !== "Active") throw httpError(409, "This software-license assignment is already released.");
+
+  const licenseResult = await queryable.query(
+    `SELECT license_id,branch_id,license_name FROM software_licenses WHERE license_id=$1 FOR UPDATE`,
+    [assignment.license_id]
+  );
+  const license = licenseResult.rows[0];
+  if (!license) throw httpError(404, "The associated software license no longer exists.");
+  if (Number(license.branch_id) !== Number(employee.branch_id)) {
+    throw httpError(403, "The software license is outside the employee branch.");
+  }
+
+  await queryable.query(
+    `UPDATE software_license_assignments
+        SET status='Released',released_at=CURRENT_TIMESTAMP,released_by=$1,
+            release_reason=$2,updated_at=CURRENT_TIMESTAMP
+      WHERE assignment_id=$3`,
+    [actor.user_id, String(reason || "").trim().slice(0, 1000) || "Released by administrator.", normalizedAssignmentId]
+  );
+  await queryable.query(
+    `UPDATE software_licenses SET used_licenses=GREATEST(used_licenses-1,0),updated_at=CURRENT_TIMESTAMP
+      WHERE license_id=$1`,
+    [license.license_id]
+  );
+
+  return {
+    action: "software_license_released",
+    assignmentId: normalizedAssignmentId,
+    licenseId: license.license_id,
+    licenseName: license.license_name,
+  };
+}
+
 module.exports = {
   assignEmployeeLicenses,
   calculateSeatAnnualCost,
@@ -267,5 +320,6 @@ module.exports = {
   listEmployeeTechnologyValues,
   loadAssignedAssets,
   loadEmployee,
+  releaseEmployeeLicense,
   summarizeTechnologyValue,
 };

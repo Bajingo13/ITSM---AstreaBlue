@@ -51,7 +51,21 @@ async function disableAccess(queryable, context) {
     "UPDATE password_resets SET used_at=CURRENT_TIMESTAMP WHERE user_id=$1 AND used_at IS NULL",
     [context.employee.user_id]
   );
-  return { action: "astreablue_account_deactivated", employeeId: context.employee.user_id, affected: result.rowCount };
+  // Stop endpoint monitoring immediately, independent of asset-recovery matching:
+  // a device can be assigned to this employee without a matching hardware_assets
+  // row, and must not keep collecting activity/screenshots/USB data after termination.
+  const unassigned = await queryable.query(
+    `UPDATE monitored_devices SET assigned_user_id=NULL,updated_at=CURRENT_TIMESTAMP
+      WHERE assigned_user_id=$1 RETURNING device_uuid`,
+    [context.employee.user_id]
+  );
+  return {
+    action: "astreablue_account_deactivated",
+    employeeId: context.employee.user_id,
+    affected: result.rowCount,
+    devicesUnassigned: unassigned.rowCount,
+    deviceUuids: unassigned.rows.map((row) => row.device_uuid),
+  };
 }
 
 async function recoverAssets(queryable, context) {

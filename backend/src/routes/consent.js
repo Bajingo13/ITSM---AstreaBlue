@@ -443,34 +443,17 @@ async function regenerateEffectiveEndpointPolicy(deviceUuid, actor) {
 }
 
 async function notifyBranchAdmins(branchId, title, message, metadata = {}) {
-  const candidates = [];
-  const attempts = [
-    {
-      sql: `SELECT u.user_id FROM users u LEFT JOIN roles r ON r.role_id=u.role_id
-            WHERE LOWER(REPLACE(REPLACE(COALESCE(r.role_name,''),'_',''),' ','')) IN ('superadmin','admin')
-              AND ($1::int IS NULL OR u.branch_id=$1 OR LOWER(REPLACE(REPLACE(COALESCE(r.role_name,''),'_',''),' ',''))='superadmin')`,
-      params: [branchId || null],
-    },
-    {
-      sql: `SELECT user_id FROM users
-            WHERE LOWER(REPLACE(REPLACE(COALESCE(role_name,''),'_',''),' ','')) IN ('superadmin','admin')
-              AND ($1::int IS NULL OR branch_id=$1 OR LOWER(REPLACE(REPLACE(COALESCE(role_name,''),'_',''),' ',''))='superadmin')`,
-      params: [branchId || null],
-    },
-    {
-      sql: `SELECT user_id FROM users WHERE ($1::int IS NULL OR branch_id=$1)`,
-      params: [branchId || null],
-    },
-  ];
-  for (const attempt of attempts) {
-    const result = await db.query(attempt.sql, attempt.params).catch(() => ({ rows: [] }));
-    if (result.rows.length) {
-      candidates.push(...result.rows);
-      break;
-    }
-  }
+  const result = await db.query(
+    `SELECT u.user_id FROM users u JOIN system_roles r ON r.role_id=u.role_id
+      WHERE LOWER(REPLACE(REPLACE(COALESCE(r.role_name,''),'_',''),' ','')) IN ('superadmin','admin')
+        AND ($1::int IS NULL OR u.branch_id=$1 OR LOWER(REPLACE(REPLACE(COALESCE(r.role_name,''),'_',''),' ',''))='superadmin')`,
+    [branchId || null]
+  ).catch((error) => {
+    console.error("[consent:notifyBranchAdmins] admin lookup failed:", error.message);
+    return { rows: [] };
+  });
   const seen = new Set();
-  const admins = candidates.filter((admin) => {
+  const admins = result.rows.filter((admin) => {
     if (seen.has(admin.user_id)) return false;
     seen.add(admin.user_id);
     return true;
@@ -1553,8 +1536,14 @@ router.get("/:id/audit", requireAdminOrHR, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // GET /consent/policy/:userId — return active consent policy for a user
-router.get("/policy/:userId", async (req, res) => {
+router.get("/policy/:userId", requireAuth, async (req, res) => {
   try {
+    const role = String(req.actor.role || "").toLowerCase().replace(/[\s_-]/g, "");
+    const isAdmin = ["superadmin", "admin", "hr"].includes(role);
+    const requesterId = req.actor.userId || req.actor.user_id;
+    if (!isAdmin && String(requesterId) !== String(req.params.userId)) {
+      return res.status(403).json({ success: false, message: "Access denied." });
+    }
     const result = await db.query(
       `SELECT consent_id, status, monitoring_preferences, signed_at, approved_at, consent_version
        FROM consent_documents
