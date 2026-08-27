@@ -13,6 +13,10 @@ let server;
 let baseUrl;
 let branchId;
 let actorId;
+// Real users created for role-boundary coverage. The DB role is authoritative,
+// so a forged JWT claim cannot stand in for an actual Employee/Technician row.
+const roleActors = {};
+const roleActorIds = [];
 const deviceIds = [];
 const codeIds = [];
 const consentIds = [];
@@ -23,15 +27,20 @@ const userIds = [];
 const lifecycleCaseIds = [];
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 
-function managerToken(role = "Admin") {
-  return jwt.sign({ userId: actorId, role, branchId }, secret, { expiresIn: "5m" });
+function managerToken(role = "SuperAdmin") {
+  // Use the real user whose database role matches when one was provisioned;
+  // otherwise fall back to the bootstrap actor (a SuperAdmin).
+  const actor = roleActors[String(role).toLowerCase()];
+  const userId = actor ? actor.user_id : actorId;
+  const claimBranch = actor ? actor.branch_id ?? null : branchId;
+  return jwt.sign({ userId, role, branchId: claimBranch }, secret, { expiresIn: "5m" });
 }
 
 function jsonHeaders(token) {
   return { authorization: `Bearer ${token}`, "content-type": "application/json" };
 }
 
-async function adminRequest(path, method = "GET", body, role = "Admin") {
+async function adminRequest(path, method = "GET", body, role = "SuperAdmin") {
   return fetch(`${baseUrl}/api/v1/laptop-monitoring${path}`, {
     method,
     headers: jsonHeaders(managerToken(role)),
@@ -83,11 +92,37 @@ function heartbeatBody(deviceUuid, hostname) {
 
 test.before(async () => {
   const branch = await db.query(`SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1`);
-  const actor = await db.query(`SELECT user_id FROM users ORDER BY user_id LIMIT 1`);
+  const actor = await db.query(
+    `SELECT u.user_id FROM users u JOIN system_roles r ON r.role_id=u.role_id
+      WHERE LOWER(r.role_name)='superadmin' ORDER BY u.user_id LIMIT 1`
+  );
   branchId = branch.rows[0]?.branch_id;
   actorId = actor.rows[0]?.user_id;
   assert.ok(branchId);
   assert.ok(actorId);
+
+  // Provision real Employee and Technician accounts so role-boundary checks
+  // exercise the database role rather than a forged token claim. These rows
+  // carry no dependent records, so teardown is a simple delete.
+  for (const roleName of ["Admin", "Employee", "Technician"]) {
+    const roleRow = await db.query(
+      `SELECT role_id FROM system_roles WHERE LOWER(role_name)=LOWER($1) LIMIT 1`,
+      [roleName]
+    );
+    const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const created = await db.query(
+      `INSERT INTO users (full_name,email,password_hash,role_id,company_name,branch_id,status,is_active)
+       VALUES ($1,$2,'test-only',$3,'AstreaBlue QA',$4,'Active',TRUE)
+       RETURNING user_id`,
+      [`QA ${roleName} ${stamp}`, `qa-${roleName.toLowerCase()}-${stamp}@example.invalid`, roleRow.rows[0].role_id, branchId]
+    );
+    roleActors[roleName.toLowerCase()] = { user_id: created.rows[0].user_id, branch_id: branchId };
+    roleActorIds.push(created.rows[0].user_id);
+  }
+
+  // Clear any monitoring override left on the bootstrap actor by an earlier run
+  // so consent-derived policy flags are evaluated cleanly.
+  await db.query(`DELETE FROM endpoint_monitoring_overrides WHERE employee_id=$1`, [actorId]);
   const app = express();
   app.use(express.json({ limit: "2mb" }));
   app.use("/api/v1/laptop-monitoring", routes);
@@ -117,6 +152,11 @@ test.after(async () => {
   if (assetIds.length) await db.query(`DELETE FROM hardware_assets WHERE asset_id=ANY($1::int[])`, [assetIds]);
   if (lifecycleCaseIds.length) await db.query(`DELETE FROM employee_lifecycle_cases WHERE lifecycle_case_id=ANY($1::bigint[])`, [lifecycleCaseIds]);
   if (userIds.length) await db.query(`DELETE FROM users WHERE user_id=ANY($1::int[])`, [userIds]);
+  await db.query(`DELETE FROM endpoint_monitoring_overrides WHERE employee_id=$1`, [actorId]);
+  if (roleActorIds.length) {
+    await db.query(`DELETE FROM endpoint_monitoring_overrides WHERE employee_id=ANY($1::int[])`, [roleActorIds]);
+    await db.query(`DELETE FROM users WHERE user_id=ANY($1::int[])`, [roleActorIds]);
+  }
   if (server) await new Promise((resolve) => server.close(resolve));
   await db.rawPool.end();
 });
@@ -342,7 +382,7 @@ test("legacy global token remains available during migration", async () => {
 
 test("device assignment synchronizes ownership and requests consent when approval is missing", async () => {
   const role = await db.query(
-    `SELECT role_id FROM roles WHERE LOWER(role_name)='employee' ORDER BY role_id LIMIT 1`
+    `SELECT role_id FROM system_roles WHERE LOWER(role_name)='employee' ORDER BY role_id LIMIT 1`
   );
   assert.ok(role.rows[0]?.role_id);
 
@@ -479,9 +519,22 @@ test("approved consent policy becomes the agent baseline without a manual policy
   assert.equal(enrolled.response.status, 201);
   const credential = enrolled.body.data.device_credential;
 
+  // Automatic DLP incident creation enforces that the device's assigned user
+  // belongs to the device branch, so this device must be owned by a real
+  // branch-bound employee rather than the branchless bootstrap SuperAdmin.
+  const consentEmployee = await db.query(
+    `INSERT INTO users (full_name,email,password_hash,role_id,company_name,branch_id,status,is_active)
+     SELECT 'Consent Policy Employee',$1,'test-only',role_id,'AstreaBlue QA',$2,'Active',TRUE
+       FROM system_roles WHERE LOWER(role_name)='employee' LIMIT 1
+     RETURNING user_id`,
+    [`consent-policy-emp-${crypto.randomUUID()}@example.invalid`, branchId]
+  );
+  const consentEmployeeId = consentEmployee.rows[0].user_id;
+  userIds.push(consentEmployeeId);
+
   await db.query(
     `UPDATE monitored_devices SET assigned_user_id=$1, branch_id=$2 WHERE device_uuid=$3::uuid`,
-    [actorId, branchId, deviceUuid]
+    [consentEmployeeId, branchId, deviceUuid]
   );
   const consent = await db.query(
     `INSERT INTO consent_documents
@@ -490,7 +543,7 @@ test("approved consent policy becomes the agent baseline without a manual policy
      VALUES ($1,'Consent Policy Test','consent-policy-test@astreablue.test',
        'Endpoint Monitoring Consent','1.0',$2::jsonb,'approved',true,CURRENT_TIMESTAMP)
      RETURNING consent_id`,
-    [actorId, JSON.stringify(["app_usage", "idle_time", "window_title", "screenshot", "usb_monitoring", "website_monitoring"])]
+    [consentEmployeeId, JSON.stringify(["app_usage", "idle_time", "window_title", "screenshot", "usb_monitoring", "website_monitoring"])]
   );
   const consentId = consent.rows[0].consent_id;
   consentIds.push(consentId);
@@ -499,7 +552,7 @@ test("approved consent policy becomes the agent baseline without a manual policy
        (consent_id,consent_version,employee_id,device_uuid,application_monitoring,
         web_monitoring,screenshot_monitoring,usb_monitoring,location_tracking,status)
      VALUES ($1,'1.0',$2,NULL,false,false,false,false,false,'active')`,
-    [consentId, actorId]
+    [consentId, consentEmployeeId]
   );
 
   const policyResponse = await agentRequest(`/policy/latest?device_uuid=${encodeURIComponent(deviceUuid)}`, credential);
@@ -523,7 +576,7 @@ test("approved consent policy becomes the agent baseline without a manual policy
      VALUES ($1,'Consent Policy Test','consent-policy-test@astreablue.test',
        'Endpoint Monitoring Consent','1.1',$2::jsonb,'approved',true,CURRENT_TIMESTAMP,$3::uuid)
      RETURNING consent_id`,
-    [actorId, JSON.stringify(["usb_monitoring"]), deviceUuid]
+    [consentEmployeeId, JSON.stringify(["usb_monitoring"]), deviceUuid]
   );
   const overrideConsentId = deviceOverride.rows[0].consent_id;
   consentIds.push(overrideConsentId);
@@ -554,18 +607,18 @@ test("approved consent policy becomes the agent baseline without a manual policy
   assert.equal(String(screenshotPermissionBody.data.consent_id), String(consentId));
 
   const overrideAuditReason = `endpoint-screenshot-control-test-${crypto.randomUUID()}`;
-  const forbiddenPause = await adminRequest(`/employees/${actorId}/screenshot-control`, "POST", {
+  const forbiddenPause = await adminRequest(`/employees/${consentEmployeeId}/screenshot-control`, "POST", {
     suspended: true,
     reason: overrideAuditReason,
   }, "Admin");
   assert.equal(forbiddenPause.status, 403);
 
   try {
-    const initialControl = await adminRequest(`/employees/${actorId}/screenshot-control`, "GET", undefined, "SuperAdmin");
+    const initialControl = await adminRequest(`/employees/${consentEmployeeId}/screenshot-control`, "GET", undefined, "SuperAdmin");
     assert.equal(initialControl.status, 200);
     assert.equal((await initialControl.json()).data.suspended, false);
 
-    const pauseResponse = await adminRequest(`/employees/${actorId}/screenshot-control`, "POST", {
+    const pauseResponse = await adminRequest(`/employees/${consentEmployeeId}/screenshot-control`, "POST", {
       suspended: true,
       reason: overrideAuditReason,
     }, "SuperAdmin");
@@ -587,7 +640,7 @@ test("approved consent policy becomes the agent baseline without a manual policy
     assert.equal(pausedPolicy.screenshot_monitoring_enabled, false);
     assert.equal(pausedPolicy.superadmin_overrides.screenshot_monitoring_enabled.suspended, true);
   } finally {
-    const resumeResponse = await adminRequest(`/employees/${actorId}/screenshot-control`, "POST", {
+    const resumeResponse = await adminRequest(`/employees/${consentEmployeeId}/screenshot-control`, "POST", {
       suspended: false,
       reason: overrideAuditReason,
     }, "SuperAdmin");

@@ -14,6 +14,20 @@ test("discovery registry derives row-specific agent and manual verification", as
   const calls = [];
   db.query = async (sql) => {
     calls.push(sql);
+    // Auth now resolves the caller against the database on every request.
+    if (/FROM users u\s+JOIN system_roles r/.test(sql)) {
+      return {
+        rows: [{
+          user_id: 1,
+          full_name: "QA Asset Manager",
+          employee_number: null,
+          branch_id: null,
+          is_active: true,
+          status: "Active",
+          role_name: "SuperAdmin",
+        }],
+      };
+    }
     if (/SELECT d\.\*,a\.asset_name/.test(sql)) {
       return {
         rows: [

@@ -5,7 +5,10 @@ const assert = require("node:assert/strict");
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const db = require("../config/db");
+const { createFixtureScope } = require("./helpers/fixtures");
 const replacementRoutes = require("../src/routes/replacementRequests");
+
+let fixtures;
 
 const app = express();
 app.use(express.json());
@@ -41,22 +44,13 @@ async function transition(status, body = {}) {
 }
 
 test.before(async () => {
-  employee = (await db.query(`
-    SELECT u.user_id,u.full_name,u.branch_id
-    FROM users u JOIN system_roles r ON r.role_id=u.role_id
-    WHERE LOWER(r.role_name)='employee' AND u.branch_id IS NOT NULL
-      AND COALESCE(u.is_active,TRUE)=TRUE
-      AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
-    ORDER BY u.user_id LIMIT 1
-  `)).rows[0];
-  superAdmin = (await db.query(`
-    SELECT u.user_id,u.branch_id
-    FROM users u JOIN system_roles r ON r.role_id=u.role_id
-    WHERE LOWER(r.role_name)='superadmin' AND COALESCE(u.is_active,TRUE)=TRUE
-      AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
-    ORDER BY u.user_id LIMIT 1
-  `)).rows[0];
-  assert.ok(employee && superAdmin, "Replacement lifecycle QA requires an employee and SuperAdmin.");
+  fixtures = createFixtureScope();
+  const seeded = await fixtures.seedRbacSet(
+    ["SuperAdmin", "Employee"],
+    { label: "Replacement Repair Lifecycle" }
+  );
+  employee = seeded.users.employee;
+  superAdmin = seeded.users.superadmin;
 
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const asset = await db.query(`
@@ -82,6 +76,7 @@ test.after(async () => {
     await db.query("DELETE FROM hardware_assets WHERE asset_id=$1", [assetId]);
   }
   if (server) await new Promise((resolve) => server.close(resolve));
+  if (fixtures) await fixtures.cleanup();
   await db.rawPool.end();
 });
 

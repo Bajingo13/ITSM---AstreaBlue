@@ -5,16 +5,17 @@ const assert = require("node:assert/strict");
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const db = require("../config/db");
+const { createFixtureScope } = require("./helpers/fixtures");
 const technicianRoutes = require("../src/routes/technicians");
 
 let server;
 let baseUrl;
+let fixtures;
 let superAdmin;
 let admin;
 let employee;
 let technician;
 let otherBranchId;
-let fixtureTechnicianId;
 
 const tokenFor = (user, overrides = {}) => jwt.sign(
   {
@@ -27,39 +28,13 @@ const tokenFor = (user, overrides = {}) => jwt.sign(
 );
 
 test.before(async () => {
-  const users = (await db.query(
-    `SELECT u.user_id,u.branch_id,r.role_name
-       FROM users u JOIN system_roles r ON r.role_id=u.role_id
-      WHERE COALESCE(u.is_active,TRUE)=TRUE
-        AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
-      ORDER BY u.user_id`
-  )).rows;
-  superAdmin = users.find((user) => String(user.role_name).toLowerCase() === "superadmin");
-  admin = users.find((user) => String(user.role_name).toLowerCase() === "admin" && user.branch_id);
-  employee = users.find((user) => String(user.role_name).toLowerCase() === "employee" && user.branch_id);
-  assert.ok(superAdmin && admin && employee, "technician RBAC tests require active SuperAdmin, Admin, and Employee users");
-
-  otherBranchId = (await db.query(
-    "SELECT branch_id FROM branches WHERE branch_id<>$1 ORDER BY branch_id LIMIT 1",
-    [admin.branch_id]
-  )).rows[0]?.branch_id;
-  assert.ok(otherBranchId, "technician RBAC tests require at least two branches");
-
-  technician = users.find(
-    (user) => String(user.role_name).toLowerCase() === "technician" && Number(user.branch_id) === Number(admin.branch_id)
+  fixtures = createFixtureScope();
+  const seeded = await fixtures.seedRbacSet(
+    ["SuperAdmin", "Admin", "Employee", "Technician"],
+    { label: "Technicians RBAC" }
   );
-  if (!technician) {
-    const roleId = (await db.query("SELECT role_id FROM system_roles WHERE LOWER(role_name)='technician' LIMIT 1")).rows[0].role_id;
-    const suffix = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    technician = (await db.query(
-      `INSERT INTO users (full_name,email,password_hash,role_id,branch_id,company_name,status,is_active)
-       VALUES ($1,$2,'test-only',$3,$4,'AstreaBlue QA','Active',TRUE)
-       RETURNING user_id,branch_id`,
-      [`QA Technician ${suffix}`, `qa-tech-${suffix}@example.invalid`, roleId, admin.branch_id]
-    )).rows[0];
-    technician.role_name = "Technician";
-    fixtureTechnicianId = technician.user_id;
-  }
+  ({ superadmin: superAdmin, admin, employee, technician } = seeded.users);
+  otherBranchId = seeded.otherBranchId;
 
   const app = express();
   app.use(express.json());
@@ -71,7 +46,7 @@ test.before(async () => {
 
 test.after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
-  if (fixtureTechnicianId) await db.query("DELETE FROM users WHERE user_id=$1", [fixtureTechnicianId]);
+  if (fixtures) await fixtures.cleanup();
   await db.rawPool.end();
 });
 

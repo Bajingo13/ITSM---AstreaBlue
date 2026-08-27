@@ -5,10 +5,12 @@ const assert = require("node:assert/strict");
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const db = require("../config/db");
+const { createFixtureScope, ensureTicketCategory } = require("./helpers/fixtures");
 const analyticsCenterRoutes = require("../src/routes/analyticsCenter");
 
 let server;
 let baseUrl;
+let fixtures;
 let branchId;
 let superAdminUser;
 let adminUser;
@@ -22,24 +24,27 @@ const tokenFor = (user, claimedRole = null) => jwt.sign(
 );
 
 test.before(async () => {
-  branchId = (await db.query("SELECT branch_id FROM branches ORDER BY branch_id LIMIT 1")).rows[0]?.branch_id;
-  assert.ok(branchId, "analytics tests require at least one branch");
-  const users = await db.query(`
-    SELECT u.user_id,u.branch_id,r.role_name
-      FROM users u JOIN system_roles r ON r.role_id=u.role_id
-     WHERE COALESCE(u.is_active,TRUE)=TRUE
-       AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
-       AND LOWER(r.role_name) IN ('superadmin','admin','technician')
-     ORDER BY u.user_id`);
-  superAdminUser = users.rows.find((user) => String(user.role_name).toLowerCase() === "superadmin");
-  adminUser = users.rows.find((user) => String(user.role_name).toLowerCase() === "admin" && user.branch_id);
-  technicianUser = users.rows.find((user) => String(user.role_name).toLowerCase() === "technician" && user.branch_id);
-  assert.ok(superAdminUser && adminUser && technicianUser, "analytics tests require active SuperAdmin, Admin, and Technician users");
-  branchId = adminUser.branch_id;
-  otherBranchId = (await db.query(
-    "SELECT branch_id FROM branches WHERE branch_id<>$1 ORDER BY branch_id LIMIT 1",
-    [branchId]
-  )).rows[0]?.branch_id;
+  fixtures = createFixtureScope();
+  const seeded = await fixtures.seedRbacSet(
+    ["SuperAdmin", "Admin", "Technician"],
+    { label: "Analytics Center" }
+  );
+  ({ superadmin: superAdminUser, admin: adminUser, technician: technicianUser } = seeded.users);
+  branchId = seeded.branchId;
+  otherBranchId = seeded.otherBranchId;
+
+  // A technician in the second branch enables cross-branch relationship coverage.
+  await fixtures.createUser("Technician", { branchId: otherBranchId });
+
+  // Report/export coverage needs at least one ticket in the admin's branch.
+  const categoryId = await ensureTicketCategory();
+  await fixtures.createTicket({
+    branchId,
+    requesterId: technicianUser.user_id,
+    categoryId,
+    status: "Open Queue",
+  });
+
   const app = express();
   app.use("/api/v1/analytics", analyticsCenterRoutes);
   server = app.listen(0, "127.0.0.1");
@@ -49,6 +54,7 @@ test.before(async () => {
 
 test.after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
+  if (fixtures) await fixtures.cleanup();
   await db.rawPool.end();
 });
 

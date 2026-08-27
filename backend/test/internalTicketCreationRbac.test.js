@@ -5,7 +5,10 @@ const assert = require("node:assert/strict");
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const db = require("../config/db");
+const { createFixtureScope, ensureTicketCategory } = require("./helpers/fixtures");
 const ticketRoutes = require("../src/routes/tickets");
+
+let fixtures;
 const { setSocketServer } = require("../src/services/socketService");
 
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
@@ -36,17 +39,11 @@ async function createTicket(user, role, body) {
 }
 
 test.before(async () => {
-  superAdmin = (await db.query(
-    `SELECT u.user_id,u.branch_id FROM users u JOIN system_roles r ON r.role_id=u.role_id
-     WHERE LOWER(REPLACE(REPLACE(r.role_name,'_',''),' ',''))='superadmin' LIMIT 1`
-  )).rows[0];
-  employee = (await db.query(
-    `SELECT u.user_id,u.branch_id FROM users u JOIN system_roles r ON r.role_id=u.role_id
-     WHERE LOWER(r.role_name)='employee' AND u.branch_id IS NOT NULL LIMIT 1`
-  )).rows[0];
-  categoryId = (await db.query(`SELECT category_id FROM ticket_categories ORDER BY category_id LIMIT 1`)).rows[0]?.category_id;
-  assert.ok(superAdmin?.user_id, "ticket tests require a SuperAdmin");
-  assert.ok(employee?.user_id && employee?.branch_id, "ticket tests require a branch-assigned employee");
+  fixtures = createFixtureScope();
+  const seeded = await fixtures.seedRbacSet(["SuperAdmin", "Employee"], { label: "Ticket RBAC" });
+  superAdmin = seeded.users.superadmin;
+  employee = seeded.users.employee;
+  categoryId = await ensureTicketCategory();
   assert.ok(categoryId, "ticket tests require a category");
 
   const hrRole = await db.query(`SELECT role_id FROM system_roles WHERE LOWER(role_name)='hr' LIMIT 1`);
@@ -101,6 +98,7 @@ test.after(async () => {
   if (createdBranchId) await db.query(`DELETE FROM branches WHERE branch_id=$1`, [createdBranchId]);
   if (createdHrUserId) await db.query(`DELETE FROM users WHERE user_id=$1`, [createdHrUserId]);
   if (createdAdminUserId) await db.query(`DELETE FROM users WHERE user_id=$1`, [createdAdminUserId]);
+  if (fixtures) await fixtures.cleanup();
   if (server) await new Promise((resolve) => server.close(resolve));
   setSocketServer(null);
   await db.rawPool.end();

@@ -5,7 +5,10 @@ const assert = require("node:assert/strict");
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const db = require("../config/db");
+const { createFixtureScope } = require("./helpers/fixtures");
 const cmdbRoutes = require("../src/routes/cmdb");
+
+let fixtures;
 
 const secret = process.env.JWT_SECRET || "astreablue_dev_secret_change_in_prod";
 let server;
@@ -30,35 +33,15 @@ function tokenFor(user, overrides = {}) {
 }
 
 test.before(async () => {
-  superAdmin = (await db.query(`
-    SELECT u.user_id,u.branch_id,r.role_name
-      FROM users u JOIN system_roles r ON r.role_id=u.role_id
-     WHERE LOWER(r.role_name)='superadmin' AND COALESCE(u.is_active,TRUE)=TRUE
-       AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
-     ORDER BY u.user_id LIMIT 1`)).rows[0];
-  admin = (await db.query(`
-    SELECT u.user_id,u.branch_id,r.role_name
-      FROM users u JOIN system_roles r ON r.role_id=u.role_id
-     WHERE LOWER(r.role_name)='admin' AND u.branch_id IS NOT NULL
-       AND COALESCE(u.is_active,TRUE)=TRUE
-       AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
-     ORDER BY u.user_id LIMIT 1`)).rows[0];
-  nonAdmin = (await db.query(`
-    SELECT u.user_id,u.branch_id,r.role_name
-      FROM users u JOIN system_roles r ON r.role_id=u.role_id
-     WHERE LOWER(r.role_name) IN ('employee','technician','hr')
-       AND COALESCE(u.is_active,TRUE)=TRUE
-       AND LOWER(COALESCE(u.status,'Active')) NOT IN ('inactive','disabled','deactivated')
-     ORDER BY u.user_id LIMIT 1`)).rows[0];
-  assert.ok(superAdmin, "CMDB RBAC tests require an active SuperAdmin");
-  assert.ok(admin, "CMDB RBAC tests require an active branch Admin");
-  assert.ok(nonAdmin, "CMDB RBAC tests require an active non-admin user");
-
-  otherBranch = (await db.query(
-    `SELECT branch_id FROM branches WHERE branch_id <> $1 ORDER BY branch_id LIMIT 1`,
-    [admin.branch_id]
-  )).rows[0];
-  assert.ok(otherBranch, "CMDB RBAC tests require a second branch");
+  fixtures = createFixtureScope();
+  const seeded = await fixtures.seedRbacSet(
+    ["SuperAdmin", "Admin", "Employee"],
+    { label: "CMDB RBAC" }
+  );
+  superAdmin = seeded.users.superadmin;
+  admin = seeded.users.admin;
+  nonAdmin = seeded.users.employee;
+  otherBranch = { branch_id: seeded.otherBranchId };
 
   const stamp = `${Date.now()}-${process.pid}`;
   ownCi = (await db.query(
@@ -90,6 +73,7 @@ test.after(async () => {
       [ownCi?.ci_id, otherCi?.ci_id].filter(Boolean),
     ]);
   }
+  if (fixtures) await fixtures.cleanup();
   await db.rawPool.end();
 });
 
