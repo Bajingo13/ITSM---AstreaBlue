@@ -5,6 +5,10 @@ const {
   formatModuleKnowledge,
 } = require("./aiModuleKnowledgeService");
 const {
+  findTaskGuide,
+  formatTaskGuide,
+} = require("./aiTaskGuideService");
+const {
   findLiveSummaryCapability,
   formatCapabilityResult,
 } = require("./aiLiveSummaryCapabilities");
@@ -904,6 +908,21 @@ function createAiAssistantService({
         sources: [],
         mode: "system-guide",
         notice: "Built-in AstreaBlue troubleshooting guidance. No AI billing is required.",
+      };
+    }
+
+    const taskGuide = findTaskGuide(trimmedMessage);
+    if (taskGuide) {
+      await repo.writeAudit({
+        actor, question: trimmedMessage, outcome: "task_guide",
+        sourceCount: 0, ipAddress,
+      });
+      await markCoverageResolved();
+      return {
+        answer: formatTaskGuide(taskGuide, actor),
+        sources: [],
+        mode: "system-guide",
+        notice: "Built-in AstreaBlue how-to guidance. No AI billing is required; confirm branch-specific steps with an authorized administrator.",
       };
     }
 

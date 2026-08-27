@@ -1426,6 +1426,49 @@ test("assistant explains known AstreaBlue modules without falling through to wea
   assert.equal(knowledgeSearchCalled, false);
 });
 
+test("assistant answers core how-to questions with built-in task guidance, not weak KB search", async () => {
+  let knowledgeSearchCalled = false;
+  const service = createAiAssistantService({
+    repo: createRepo({
+      searchAuthorizedKnowledge: async () => {
+        knowledgeSearchCalled = true;
+        return [];
+      },
+    }),
+    apiKey: "",
+  });
+
+  const cases = [
+    ["How do I onboard a new employee?", /Onboard a new employee/i],
+    ["What are the steps to offboard a departing employee?", /Offboard a departing employee/i],
+    ["How do I reset a user password?", /Forgot password/i],
+    ["How do I assign a laptop to an employee?", /Mark as Borrowed/i],
+    ["How do I enroll a monitoring agent?", /enrollment code/i],
+  ];
+  for (const [message, expected] of cases) {
+    const result = await service.ask({ tokenUser: { userId: 9 }, message });
+    assert.equal(result.mode, "system-guide", message);
+    assert.match(result.answer, /^\S.*\n1\. /s, `${message} -> numbered steps`);
+    assert.match(result.answer, expected, message);
+  }
+  assert.equal(knowledgeSearchCalled, false);
+});
+
+test("task guidance adds an access hint when the caller's role usually cannot perform it", async () => {
+  const service = createAiAssistantService({
+    repo: createRepo({
+      getActorContext: async () => ({
+        user_id: 9, full_name: "Test Employee", role_name: "Employee",
+        branch_id: 1, branch_name: "Makati Head Office", is_active: true,
+      }),
+    }),
+    apiKey: "",
+  });
+  const result = await service.ask({ tokenUser: { userId: 9 }, message: "How do I offboard an employee?" });
+  assert.equal(result.mode, "system-guide");
+  assert.match(result.answer, /Access: this task is usually performed by/i);
+});
+
 test("assistant routes remaining module summaries through the capability registry", async () => {
   const service = createAiAssistantService({ repo: createRepo(), apiKey: "" });
   const cases = [
