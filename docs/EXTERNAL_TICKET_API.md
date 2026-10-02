@@ -118,7 +118,7 @@ All errors use `{"success":false,"message":"...","data":null}`.
 | 403 | Disabled or revoked system/key |
 | 404 | Ticket unavailable to this system |
 | 409 | Conflicting idempotency reference |
-| 429 | Reserved for rate limiting; not currently enabled |
+| 429 | Rate limit exceeded (about 120 requests per minute per system); retry later with backoff |
 | 500 | Internal failure; retry safely with the same reference |
 
 ## 11. Example requests
