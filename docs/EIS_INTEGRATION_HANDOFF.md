@@ -21,7 +21,6 @@ The AstreaBlue administrator gives you these through a secure channel, not plain
 | Base URL | `https://backend-production-fc059.up.railway.app/api/v1/external` |
 | System code | `EIS` |
 | API key | Sent separately. It is shown only once when issued, so store it immediately. |
-| Ticket categories | The list of valid category names (optional, see §3) |
 
 Store them as server-side configuration or secrets:
 
@@ -59,8 +58,7 @@ Call this when an EIS user submits your "Report an issue / IT Help" form.
   "requester_email": "juan.delacruz@company.com",
   "title": "Unable to download payslip",
   "description": "Clicking Download returns an error page.",
-  "priority": "Medium",
-  "category": "Software"
+  "priority": "Medium"
 }
 ```
 
@@ -76,7 +74,7 @@ Call this when an EIS user submits your "Report an issue / IT Help" form.
 | `title` | Yes | Max 255 |
 | `description` | Yes | Max 10,000 |
 | `priority` | No | `Low`, `Medium`, `High`, `Critical`. Default `Medium`. |
-| `category` | No | Must exactly match an AstreaBlue category name (case-insensitive), or the request is rejected with 400. If you're unsure, leave it out. |
+| `category` | **Do not send** | The Service Desk sets the category when they triage the ticket. Sending a name that doesn't exactly match an AstreaBlue category is rejected with 400, so leave this field out. It still appears in status responses once the Service Desk has set it. |
 
 Take the requester fields from the EIS login session, not from form inputs the user can edit.
 
@@ -174,7 +172,7 @@ All errors use the same format:
 
 | HTTP | Meaning | What EIS should do |
 |---|---|---|
-| 400 | Missing or invalid field, or unknown category | Show the `message` to the user or fix the payload. Do not retry unchanged. |
+| 400 | Missing or invalid field | Show the `message` to the user or fix the payload. Do not retry unchanged. |
 | 401 | Missing or wrong API key | Configuration problem. Alert EIS admins. Do not retry. |
 | 403 | Key or system disabled or revoked | Contact the AstreaBlue admin. Do not retry. |
 | 404 | Ticket not found, or not created by EIS | Check the ticket number. |
@@ -232,5 +230,5 @@ Put `[TEST]` at the start of test ticket titles so the Service Desk can close th
 
 ## 11. Contacts
 
-- **AstreaBlue ITSM admin** (keys, categories, access issues): ______________________
+- **AstreaBlue ITSM admin** (keys, access issues): ______________________
 - **EIS developer**: ______________________
