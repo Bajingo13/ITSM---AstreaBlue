@@ -118,6 +118,7 @@ function registerEndpointDeviceRoutes(router, {
          d.last_policy_sync_at AS policy_synced_at,
          a.asset_id AS linked_asset_id,
          a.asset_tag, a.asset_name, a.serial_number, a.model,
+         (SELECT hi.serial_number FROM endpoint_hardware_inventory hi WHERE hi.device_id=d.device_id ORDER BY hi.scanned_at DESC LIMIT 1) AS detected_serial_number,
          a.employee_id AS asset_employee_id,
          a.assigned_name AS asset_assigned_name,
          CASE

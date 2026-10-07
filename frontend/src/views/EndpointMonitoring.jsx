@@ -264,7 +264,7 @@ export default function EndpointMonitoring() {
   const selectedDevice = devices.find((device) => String(device.device_id) === String(selectedId));
   const filteredDevices = useMemo(() => devices.filter((device) =>
     (!deviceStatusFilter || String(device.status || "").toLowerCase() === deviceStatusFilter)
-    && matchesSearch(deviceSearch, device.device_name, device.hostname, device.device_uuid, device.asset_tag, device.assigned_user, device.branch_name, device.department)
+    && matchesSearch(deviceSearch, device.device_name, device.hostname, device.device_uuid, device.serial_number, device.detected_serial_number, device.asset_tag, device.assigned_user, device.branch_name, device.department)
   ), [devices, deviceSearch, deviceStatusFilter]);
   const selectDevice = (id) => {
     setSelectedId(id);
@@ -649,7 +649,7 @@ export default function EndpointMonitoring() {
         <div className="mt-4 space-y-3">
           <label htmlFor="endpoint-search" className="block text-xs font-bold text-slate-600">Search endpoints</label>
           <form onSubmit={(event) => { event.preventDefault(); setDeviceSearch(deviceSearchInput); }} className="flex flex-wrap gap-2">
-            <div className="relative min-w-0 flex-1"><Search size={16} className="pointer-events-none absolute left-3 top-3 text-slate-400" /><input id="endpoint-search" type="search" value={deviceSearchInput} onChange={(event) => { setDeviceSearchInput(event.target.value); if (!event.target.value) setDeviceSearch(""); }} placeholder="Name, employee, asset tag..." className="w-full rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm" /></div>
+            <div className="relative min-w-0 flex-1"><Search size={16} className="pointer-events-none absolute left-3 top-3 text-slate-400" /><input id="endpoint-search" type="search" value={deviceSearchInput} onChange={(event) => { setDeviceSearchInput(event.target.value); if (!event.target.value) setDeviceSearch(""); }} placeholder="Hostname or serial number..." className="w-full rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm" /></div>
             <button type="submit" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Search</button>
           </form>
           <label htmlFor="endpoint-status" className="sr-only">Endpoint status</label>
