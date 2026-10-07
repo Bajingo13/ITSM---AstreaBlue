@@ -64,6 +64,12 @@ export default function EndpointMonitoring() {
   const isSuperAdmin = String(role || "").toLowerCase().replace(/[\s_-]/g, "") === "superadmin";
 
   const [devices, setDevices] = useState([]);
+  const [deviceSearch, setDeviceSearch] = useState("");
+  const [deviceSearchInput, setDeviceSearchInput] = useState("");
+  const [deviceStatusFilter, setDeviceStatusFilter] = useState("");
+  const deviceDetailsRef = useRef(null);
+  const selectionParamsRef = useRef(searchParams);
+  selectionParamsRef.current = searchParams;
   const [summary, setSummary] = useState(null);
   
   const [selectedIdState, setSelectedIdState] = useState(() => {
@@ -149,13 +155,14 @@ export default function EndpointMonitoring() {
       const [deviceData, summaryData] = await Promise.all([monitoringRequest("/devices"), monitoringRequest("/summary")]);
       setDevices(deviceData || []);
       setSummary(summaryData || null);
-      const uuidFromUrl = searchParams.get("device_uuid");
-      if (uuidFromUrl) {
-        const found = (deviceData || []).find(d => String(d.device_uuid) === String(uuidFromUrl));
-        if (found) setSelectedIdState(found.device_id);
-      } else if (!selectedIdState) {
-        setSelectedIdState(deviceData?.[0]?.device_id || null);
-      }
+      setSelectedIdState((current) => {
+        if (current) return current;
+        const requestedId = selectionParamsRef.current.get("deviceId");
+        if (requestedId && !requestedId.includes("=>")) return requestedId;
+        const uuidFromUrl = selectionParamsRef.current.get("device_uuid");
+        if (uuidFromUrl) return (deviceData || []).find(d => String(d.device_uuid) === String(uuidFromUrl))?.device_id || null;
+        return deviceData?.[0]?.device_id || null;
+      });
       if (import.meta.env.DEV) monitoringRequest("/debug").then(setDebugInfo).catch(() => setDebugInfo(null));
     } catch (requestError) {
       setError(requestError.message);
@@ -221,14 +228,18 @@ export default function EndpointMonitoring() {
   useEffect(() => { if (activeTab === "health") loadHealth(); }, [activeTab, loadHealth]);
   useEffect(() => { if (activeTab === "activity") loadActivityTimeline(); }, [activeTab, loadActivityTimeline]);
   useEffect(() => {
+    let cancelled = false;
+    setDetails(null);
+    setReconciliation([]);
     if (!selectedId || typeof selectedId === "function" || String(selectedId).includes("=>")) {
       setReconciliation([]);
       return setDetails(null);
     }
-    monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/activity`).then(setDetails).catch((requestError) => setError(requestError.message));
+    monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/activity`).then(data => { if (!cancelled) setDetails(data); }).catch((requestError) => { if (!cancelled) setError(requestError.message); });
     monitoringRequest(`/devices/${encodeURIComponent(selectedId)}/reconciliation`)
-      .then(data => setReconciliation(Array.isArray(data) ? data : []))
+      .then(data => { if (!cancelled) setReconciliation(Array.isArray(data) ? data : []); })
       .catch(e => console.error(e));
+    return () => { cancelled = true; };
   }, [selectedId]);
   useEffect(() => {
     const timer = window.setInterval(loadOverview, 60000);
@@ -236,6 +247,8 @@ export default function EndpointMonitoring() {
   }, [loadOverview]);
 
   useEffect(() => {
+    let cancelled = false;
+    setSelectedHealth(null);
     const currentDevice = devices.find((device) => String(device.device_id) === String(selectedId));
     const lookup = currentDevice?.device_uuid || currentDevice?.device_id;
     if (!lookup) {
@@ -243,11 +256,20 @@ export default function EndpointMonitoring() {
       return;
     }
     monitoringRequest(`/devices/${encodeURIComponent(lookup)}/health`)
-      .then(setSelectedHealth)
-      .catch(() => setSelectedHealth(null));
+      .then(data => { if (!cancelled) setSelectedHealth(data); })
+      .catch(() => { if (!cancelled) setSelectedHealth(null); });
+    return () => { cancelled = true; };
   }, [devices, selectedId]);
 
   const selectedDevice = devices.find((device) => String(device.device_id) === String(selectedId));
+  const filteredDevices = useMemo(() => devices.filter((device) =>
+    (!deviceStatusFilter || String(device.status || "").toLowerCase() === deviceStatusFilter)
+    && matchesSearch(deviceSearch, device.device_name, device.hostname, device.device_uuid, device.asset_tag, device.assigned_user, device.branch_name, device.department)
+  ), [devices, deviceSearch, deviceStatusFilter]);
+  const selectDevice = (id) => {
+    setSelectedId(id);
+    deviceDetailsRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
+  };
   const assetBranchId = String(selectedDevice?.branch_id || "");
   const filteredAssignmentUsers = useMemo(() => usersList
     .filter((user) => String(user.role_name || user.role || "").toLowerCase() === "employee")
@@ -623,7 +645,18 @@ export default function EndpointMonitoring() {
 
     {activeTab === "devices" && (
     <section className="grid gap-6 xl:grid-cols-[minmax(300px,0.8fr)_minmax(0,2fr)]">
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black text-slate-900">Managed Endpoints</h2><div className="mt-4 space-y-3">{loading ? <p className="text-sm text-slate-500">Loading endpoints...</p> : devices.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No endpoint agent has checked in yet.</p> : devices.map((device) => <button key={device.device_id} onClick={() => setSelectedId(device.device_id)} className={`w-full rounded-2xl border p-4 text-left transition ${String(selectedId) === String(device.device_id) ? "border-blue-400 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}><div className="flex items-center justify-between gap-3"><div><p className="font-black text-slate-900">{device.device_name || device.hostname}</p><p className="text-xs text-slate-500">{device.hostname}</p></div><StatusBadge status={device.status} /></div>
+      <div className="self-start rounded-3xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-20"><h2 className="text-lg font-black text-slate-900">Managed Endpoints</h2>
+        <div className="mt-4 space-y-3">
+          <label htmlFor="endpoint-search" className="block text-xs font-bold text-slate-600">Search endpoints</label>
+          <form onSubmit={(event) => { event.preventDefault(); setDeviceSearch(deviceSearchInput); }} className="flex flex-wrap gap-2">
+            <div className="relative min-w-0 flex-1"><Search size={16} className="pointer-events-none absolute left-3 top-3 text-slate-400" /><input id="endpoint-search" type="search" value={deviceSearchInput} onChange={(event) => { setDeviceSearchInput(event.target.value); if (!event.target.value) setDeviceSearch(""); }} placeholder="Name, employee, asset tag..." className="w-full rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm" /></div>
+            <button type="submit" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Search</button>
+          </form>
+          <label htmlFor="endpoint-status" className="sr-only">Endpoint status</label>
+          <select id="endpoint-status" value={deviceStatusFilter} onChange={(event) => setDeviceStatusFilter(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="">All statuses</option><option value="online">Online</option><option value="offline">Offline</option></select>
+          <p className="text-xs text-slate-500" aria-live="polite">{filteredDevices.length} of {devices.length} endpoints ? Selection stays until you choose another endpoint.</p>
+        </div>
+        <div className="mt-4 max-h-[55vh] space-y-3 overflow-y-auto overscroll-contain pr-1 xl:max-h-[calc(100dvh-24rem)]">{loading ? <p className="text-sm text-slate-500">Loading endpoints...</p> : devices.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No endpoint agent has checked in yet.</p> : filteredDevices.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No endpoints match your search or status filter.</p> : filteredDevices.map((device) => <button type="button" aria-pressed={String(selectedId) === String(device.device_id)} key={device.device_id} onClick={() => selectDevice(device.device_id)} className={`w-full rounded-2xl border p-4 text-left transition ${String(selectedId) === String(device.device_id) ? "border-blue-400 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}><div className="flex items-center justify-between gap-3"><div><p className="font-black text-slate-900">{device.device_name || device.hostname}</p><p className="text-xs text-slate-500">{device.hostname}</p></div><StatusBadge status={device.status} /></div>
       <div className="mt-2 flex flex-wrap gap-1">
         {hasBrokenAssetLink(device) ? <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-700">Broken Asset Link</span> : hasValidAssetLink(device) ? <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black text-blue-700">Linked Asset</span> : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">Unlinked Device</span>}
         {hasValidAssetLink(device) && device.asset_assignment_matches === false ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-700">Ownership Mismatch</span> : null}
@@ -631,7 +664,7 @@ export default function EndpointMonitoring() {
       </div>
       <p className="mt-2 text-sm text-slate-600">{device.assigned_user || "Unassigned / shared device"}</p><p className="text-xs text-slate-500">{device.branch_name || "No branch"} · {device.department || "No department"}</p><div className="mt-2 text-xs font-semibold text-slate-500"><p>Consent: {device.consent_status || "Pending"}</p><p>Policy Synced: {device.policy_synced_at ? formatDate(device.policy_synced_at) : "Never"}</p></div><div className="mt-2 text-[10px] text-slate-400"><p>Last Seen: {formatDate(device.last_seen_at)}</p><p>Last Activity: {device.last_activity ? formatDate(device.last_activity) : "Never"}</p><p>Last Screenshot: {device.last_screenshot ? formatDate(device.last_screenshot) : "Never"}</p></div><p className="mt-1 truncate font-mono text-[10px] text-slate-400" title={device.device_uuid}>{device.device_uuid || "Legacy device awaiting UUID"}</p></button>)}</div></div>
 
-      <div className="space-y-6">
+      <div ref={deviceDetailsRef} className="min-w-0 scroll-mt-20 space-y-6">
         {!selectedDevice ? (
            <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center shadow-sm">
              <Monitor className="mx-auto mb-4 text-slate-300" size={48} />
