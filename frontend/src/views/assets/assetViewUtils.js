@@ -49,6 +49,8 @@ export const SORT_OPTIONS = [
   { value: "oldest", label: "Oldest Hardware Assets" },
   { value: "updated", label: "Recently Updated" },
   { value: "alphabetical", label: "Alphabetical (A-Z)" },
+  { value: "asset-tag-asc", label: "Asset Tag Ascending" },
+  { value: "asset-tag-desc", label: "Asset Tag Descending" },
 ];
 
 export const STATUS_FILTER_OPTIONS = [
@@ -216,6 +218,52 @@ export function getSortTimestamp(asset, key) {
   const value = asset[key];
   const time = value ? new Date(value).getTime() : 0;
   return Number.isNaN(time) ? 0 : time;
+}
+
+const assetTagCollator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+
+function sortDate(value, dateOnly = false) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  // Purchase dates are calendar dates, not instants. Avoid timezone shifts and
+  // reject impossible ISO dates rather than allowing Date to roll them over.
+  const datePart = /^\d{4}-\d{2}-\d{2}(?:$|T| )/.test(String(value))
+    ? String(value).slice(0, 10) : null;
+  if (dateOnly && datePart) {
+    const time = Date.parse(`${datePart}T00:00:00Z`);
+    return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === datePart ? time : null;
+  }
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+function compareDates(a, b, direction) {
+  if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+  return direction * (a - b);
+}
+
+function compareTags(a, b, direction = 1) {
+  const left = String(a.asset_tag ?? "").trim();
+  const right = String(b.asset_tag ?? "").trim();
+  if (!left || !right) return left === right ? 0 : !left ? 1 : -1;
+  return direction * assetTagCollator.compare(left, right);
+}
+
+/** Sort the full filtered list before rendering. Asset age means purchase date,
+ * not when someone entered/imported the record. Unknown dates/tags go last in
+ * both directions; tag and id break ties so results don't depend on API order.
+ */
+export function compareHardwareAssets(a, b, mode = "latest") {
+  let result;
+  if (mode === "asset-tag-asc" || mode === "asset-tag-desc") {
+    result = compareTags(a, b, mode === "asset-tag-desc" ? -1 : 1);
+  } else if (mode === "alphabetical") {
+    const name = asset => String(asset.asset_name || `${asset.brand || ""} ${asset.model || ""}`.trim() || asset.asset_tag || "").toLowerCase();
+    result = name(a).localeCompare(name(b));
+  } else {
+    const key = mode === "updated" ? "updated_at" : "purchase_date";
+    result = compareDates(sortDate(a[key], key === "purchase_date"), sortDate(b[key], key === "purchase_date"), mode === "oldest" ? 1 : -1);
+  }
+  return result || compareTags(a, b) || assetTagCollator.compare(String(a.asset_id ?? ""), String(b.asset_id ?? ""));
 }
 
 export function getSortOptionLabel(value) {

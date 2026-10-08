@@ -48,6 +48,7 @@ import {
   STATUS_OPTIONS,
   assetDetailItem,
   buildFilterSummary,
+  compareHardwareAssets,
   firstAssetValue,
   formatAssetDetailValue,
   formatDate,
@@ -57,7 +58,6 @@ import {
   getAssignedAssetValue,
   getBranchCode,
   getKnownAssetType,
-  getSortTimestamp,
   getStatusClasses,
   isMissingAssetValue,
   joinAssetValues,
@@ -606,20 +606,7 @@ export default function Assets() {
       }
       return true;
     });
-    filtered.sort((a, b) => {
-      if (sortMode === "oldest") {
-        return getSortTimestamp(a, "created_at") - getSortTimestamp(b, "created_at");
-      }
-      if (sortMode === "updated") {
-        return getSortTimestamp(b, "updated_at") - getSortTimestamp(a, "updated_at");
-      }
-      if (sortMode === "alphabetical") {
-        const aName = (a.asset_name || `${a.brand || ""} ${a.model || ""}`.trim() || a.asset_tag || "").toLowerCase();
-        const bName = (b.asset_name || `${b.brand || ""} ${b.model || ""}`.trim() || b.asset_tag || "").toLowerCase();
-        return aName.localeCompare(bName);
-      }
-      return getSortTimestamp(b, "created_at") - getSortTimestamp(a, "created_at");
-    });
+    filtered.sort((a, b) => compareHardwareAssets(a, b, sortMode));
     return filtered;
   }, [
     assets,
