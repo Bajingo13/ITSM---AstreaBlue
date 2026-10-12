@@ -1,5 +1,5 @@
 const nodemailer = require("nodemailer");
-const { generateEmailHtml, getEmailBrandName } = require("./emailTemplates");
+const { EMAIL_LOGO_CID, EMAIL_LOGO_PATH, generateEmailHtml, getEmailBrandName } = require("./emailTemplates");
 
 let cachedTransporter = null;
 let cachedTransportSignature = "";
@@ -67,7 +67,21 @@ function getTransporter(config) {
   return cachedTransporter;
 }
 
-async function sendMail(message) {
+function withInlineLogo(message) {
+  if (!String(message.html || "").includes(`cid:${EMAIL_LOGO_CID}`)) return message;
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  if (attachments.some((attachment) => attachment && attachment.cid === EMAIL_LOGO_CID)) return message;
+  return {
+    ...message,
+    attachments: [
+      ...attachments,
+      { filename: "astreablue-logo.png", path: EMAIL_LOGO_PATH, cid: EMAIL_LOGO_CID, contentDisposition: "inline" },
+    ],
+  };
+}
+
+async function sendMail(rawMessage) {
+  const message = withInlineLogo(rawMessage);
   const startedAt = Date.now();
   const config = smtpConfig();
   const diagnostics = {

@@ -8,6 +8,12 @@ const accentCyan = "#38BDF8";
 const deepNavy = "#0F172A";
 const lightBg = "#EAF4FF";
 
+// Product logo shown on every deployment's emails. It is embedded as an
+// inline CID attachment (see emailService.sendMail), so it renders without
+// depending on any deployment's public URL.
+const EMAIL_LOGO_CID = "astreablue-logo";
+const EMAIL_LOGO_PATH = require("node:path").join(__dirname, "..", "assets", "astrea-blue-logo-email.png");
+
 function escapeTemplateText(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -54,6 +60,18 @@ function generateEmailHtml(title, bodyContent) {
           border-radius: 16px;
           overflow: hidden;
           box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+        }
+        .logo-bar {
+          background-color: #ffffff;
+          padding: 24px 40px 20px;
+          text-align: center;
+        }
+        .logo-bar img {
+          display: inline-block;
+          width: 200px;
+          max-width: 60%;
+          height: auto;
+          border: 0;
         }
         .header {
           background: linear-gradient(135deg, #2563EB 0%, #38BDF8 100%);
@@ -152,6 +170,9 @@ function generateEmailHtml(title, bodyContent) {
     <body>
       <div class="wrapper">
         <div class="main-card">
+          <div class="logo-bar">
+            <img src="cid:${EMAIL_LOGO_CID}" alt="AstreaBlue" width="200">
+          </div>
           <div class="header">
             <h1>${brandName}</h1>
             <p>Enterprise IT Service Management</p>
@@ -172,6 +193,8 @@ function generateEmailHtml(title, bodyContent) {
 }
 
 module.exports = {
+  EMAIL_LOGO_CID,
+  EMAIL_LOGO_PATH,
   generateEmailHtml,
   getEmailBrandName,
 };
