@@ -27,7 +27,9 @@ import {
   getPriorityBadgeClass, formatPriority,
   getSeverityLevel,
   priorityOptions,
+  getSlaState,
 } from "../utils/ticketVisuals";
+import SlaBasisNotice, { SlaBasisBadge } from "../components/SlaBasisNotice";
 import { API_URL } from "../config/api";
 import PageHero from "../components/layout/PageHero";
 import { authHeaders } from "../services/authHeaders";
@@ -788,6 +790,8 @@ function TicketDetailsDrawer({ ticket, onClose, onRefresh }) {
             )}
             {kbMessage && <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-800 shadow-sm">{kbMessage}</div>}
 
+            <SlaBasisNotice ticket={item} />
+
             <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
                 <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Status</p>
@@ -1305,15 +1309,6 @@ function ResolutionDetail({ label, value }) {
   );
 }
 
-function getSlaBadgeClass(status) {
-  switch (status) {
-    case "Met": return "bg-emerald-100 text-emerald-800 border-emerald-200";
-    case "Breached": return "bg-red-100 text-red-800 border-red-200";
-    case "Due Soon": return "bg-amber-100 text-amber-800 border-amber-200";
-    default: return "bg-blue-100 text-blue-800 border-blue-200"; // Pending / Active
-  }
-}
-
 function TicketCard({ ticket, onClick }) {
   return (
     <div
@@ -1325,11 +1320,15 @@ function TicketCard({ ticket, onClick }) {
           <p className="text-xs font-black uppercase tracking-wider text-blue-600 truncate">
             {ticket.ticket_number || `TKT-${ticket.id}`}
           </p>
-          {(ticket.resolution_sla_status || ticket.response_sla_status) && (
-            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${getSlaBadgeClass(ticket.resolution_sla_status === 'Breached' || ticket.response_sla_status === 'Breached' ? 'Breached' : ticket.resolution_sla_status === 'Pending' ? (ticket.response_sla_status === 'Met' ? 'Pending' : ticket.response_sla_status) : ticket.resolution_sla_status)}`}>
-              {ticket.resolution_sla_status === 'Breached' || ticket.response_sla_status === 'Breached' ? 'SLA Breach' : ticket.resolution_sla_status === 'Met' ? 'SLA Met' : 'SLA Active'}
-            </span>
-          )}
+          {(ticket.resolution_sla_status || ticket.response_sla_status) && (() => {
+            const slaState = getSlaState(ticket);
+            return (
+              <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${slaState.className}`}>
+                SLA {slaState.label}
+              </span>
+            );
+          })()}
+          <SlaBasisBadge ticket={ticket} />
         </div>
         <span
           className={`${getPriorityBadgeClass(ticket.priority)} shrink-0 whitespace-nowrap px-2.5 py-0.5 text-[11px]`}

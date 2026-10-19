@@ -45,7 +45,10 @@ export function installFetchClient() {
     }
 
     const config = { ...options, headers };
-    const requestKey = method === "GET" ? `${url}|${headers.get("Authorization") || "anonymous"}` : null;
+    // A request with its own AbortSignal is never shared: aborting it (for
+    // example when a component unmounts) must not cancel another caller's GET.
+    const abortable = Boolean(options.signal || resource?.signal);
+    const requestKey = method === "GET" && !abortable ? `${url}|${headers.get("Authorization") || "anonymous"}` : null;
     let request = requestKey ? inFlightGets.get(requestKey) : null;
 
     if (!request) {

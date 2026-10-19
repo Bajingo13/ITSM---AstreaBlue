@@ -3,6 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, CalendarClock, CircleUserRound, CheckCircle2, Clock, MapPin, ShieldAlert, Ticket } from "lucide-react";
 import { API_URL } from "../config/api";
 import { getTicketCompletionLabel, getTicketCompletionMinutes } from "../utils/ticketDuration";
+import { getSlaPolicyLabel, getSlaState } from "../utils/ticketVisuals";
+import SlaBasisNotice from "../components/SlaBasisNotice";
 
 function valueOrFallback(value, fallback = "Not set") {
   return value === null || value === undefined || value === "" ? fallback : value;
@@ -202,7 +204,8 @@ export default function NotificationTicketDetails() {
     ["Requester", ticket.requester_name, CircleUserRound],
     ["Ticket Number", ticket.ticket_number, Ticket],
     ["Created Date", formatDate(ticket.created_at), CalendarClock],
-    ["SLA State", ticket.resolution_sla_status || ticket.response_sla_status, CalendarClock],
+    ["SLA State", getSlaState(ticket).label, CalendarClock],
+    ["SLA Policy", getSlaPolicyLabel(ticket), CalendarClock],
   ];
 
   return (
@@ -224,6 +227,10 @@ export default function NotificationTicketDetails() {
               <p className="mt-2 break-words text-sm font-black text-slate-900">{valueOrFallback(value)}</p>
             </div>
           ))}
+        </div>
+
+        <div className="px-7 pb-4 bg-slate-50/50 empty:hidden">
+          <SlaBasisNotice ticket={ticket} />
         </div>
         
         <div className="px-7 pb-7 bg-slate-50/50">

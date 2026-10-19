@@ -11,6 +11,7 @@ const {
 } = require("../services/emailService");
 const { createNotification } = require("../services/notificationService");
 const { createServiceDeskTicket } = require("../services/serviceDeskTicketService");
+const { slaStateCondition } = require("../services/slaService");
 const { emitSlaUpdated, emitTicketChanged } = require("../services/socketService");
 const {
   createReportMetadata,
@@ -208,20 +209,7 @@ router.get("/", async (req, res) => {
 
     if (slaStatus) {
       const slaStatuses = slaStatus.split(",");
-      const slaConditions = slaStatuses.map((ss) => {
-        switch (ss.toLowerCase()) {
-          case "breached":
-            return "(t.response_sla_status = 'Breached' OR t.resolution_sla_status = 'Breached')";
-          case "met":
-            return "(t.response_sla_status = 'Met' OR t.resolution_sla_status = 'Met')";
-          case "warning":
-            return `(t.response_sla_status NOT IN ('Breached','Met','Cancelled') AND t.resolution_sla_status NOT IN ('Breached','Met','Cancelled') AND t.resolution_due_at IS NOT NULL AND t.resolution_due_at <= NOW() + INTERVAL '240 minutes')`;
-          case "active":
-            return `(t.response_sla_status NOT IN ('Breached','Met','Cancelled') AND t.resolution_sla_status NOT IN ('Breached','Met','Cancelled') AND (t.resolution_due_at IS NULL OR t.resolution_due_at > NOW() + INTERVAL '240 minutes'))`;
-          default:
-            return "1=0";
-        }
-      });
+      const slaConditions = slaStatuses.map((ss) => slaStateCondition(ss, "t"));
       accessClauses.push(`(${slaConditions.join(" OR ")})`);
     }
 
@@ -317,6 +305,14 @@ router.get("/", async (req, res) => {
         t.updated_at,
         t.assigned_at,
         t.in_progress_started_at,
+        t.response_warning_at,
+        t.resolution_warning_at,
+        sp.name AS sla_policy_name,
+        COALESCE(sp.scope, 'internal') AS sla_scope,
+        sp.severity_label AS sla_severity_label,
+        sp.origin_system AS sla_policy_origin_system,
+        sp.response_calendar AS sla_response_calendar,
+        sp.resolution_calendar AS sla_resolution_calendar,
 
         c.category_id,
         c.category_name AS category,
@@ -344,6 +340,8 @@ router.get("/", async (req, res) => {
         ON t.requester_id = requester.user_id
       LEFT JOIN users assignee
         ON t.assigned_to = assignee.user_id
+      LEFT JOIN sla_policies sp
+        ON sp.policy_id = t.sla_policy_id
       ${whereSql}
       ${orderBy}
     `, params);
@@ -539,6 +537,14 @@ router.get("/:id", async (req, res) => {
         t.created_at,
         t.assigned_at,
         t.in_progress_started_at,
+        t.response_warning_at,
+        t.resolution_warning_at,
+        sp.name AS sla_policy_name,
+        COALESCE(sp.scope, 'internal') AS sla_scope,
+        sp.severity_label AS sla_severity_label,
+        sp.origin_system AS sla_policy_origin_system,
+        sp.response_calendar AS sla_response_calendar,
+        sp.resolution_calendar AS sla_resolution_calendar,
         t.updated_at,
 
         c.category_id,
@@ -567,6 +573,8 @@ router.get("/:id", async (req, res) => {
         ON t.requester_id = requester.user_id
       LEFT JOIN users assignee
         ON t.assigned_to = assignee.user_id
+      LEFT JOIN sla_policies sp
+        ON sp.policy_id = t.sla_policy_id
       WHERE t.id = $1
         ${accessSql}
       `,

@@ -2,8 +2,9 @@ const express = require('express');
 const db = require('../../config/db');
 const router = express.Router();
 
-const { addTicketAccessFilter, requireAuthenticatedTicketUser } = require('./_ticketAccess');
-const DUE_SOON_MINUTES = 240;
+const { addTicketAccessFilter, getRequestContext, requireAuthenticatedTicketUser } = require('./_ticketAccess');
+const { hasDeploymentCapability } = require('../config/deployment');
+const { slaStateCondition } = require('../services/slaService');
 
 router.use(requireAuthenticatedTicketUser);
 
@@ -36,15 +37,7 @@ router.get('/dashboard', async (req, res) => {
     
     if (slaStatus) {
       const slaStatuses = slaStatus.split(",");
-      const slaConditions = slaStatuses.map((ss) => {
-        switch (ss.toLowerCase()) {
-          case "breached": return "(response_sla_status = 'Breached' OR resolution_sla_status = 'Breached')";
-          case "met": return "(response_sla_status = 'Met' OR resolution_sla_status = 'Met')";
-          case "warning": return `(response_sla_status NOT IN ('Breached','Met','Cancelled') AND resolution_sla_status NOT IN ('Breached','Met','Cancelled') AND resolution_due_at IS NOT NULL AND resolution_due_at <= NOW() + INTERVAL '240 minutes')`;
-          case "active": return `(response_sla_status NOT IN ('Breached','Met','Cancelled') AND resolution_sla_status NOT IN ('Breached','Met','Cancelled') AND (resolution_due_at IS NULL OR resolution_due_at > NOW() + INTERVAL '240 minutes'))`;
-          default: return "1=0";
-        }
-      });
+      const slaConditions = slaStatuses.map((ss) => slaStateCondition(ss, "tickets"));
       accessClauses.push(`(${slaConditions.join(" OR ")})`);
     }
     
@@ -60,44 +53,36 @@ router.get('/dashboard', async (req, res) => {
     
     const whereSql = accessClauses.length ? `WHERE ${accessClauses.join(" AND ")}` : "";
     
-    // Fetch tickets to calculate stats
+    // SLA state counts use the same conditions as the ticket list filters.
+    const countsQuery = `
+      SELECT
+        COUNT(*) FILTER (WHERE status NOT IN ('Resolved', 'Closed', 'Cancelled'))::int AS active_sla,
+        COUNT(*) FILTER (WHERE status NOT IN ('Resolved', 'Closed', 'Cancelled') AND ${slaStateCondition("due_soon", "tickets")})::int AS due_soon,
+        COUNT(*) FILTER (WHERE ${slaStateCondition("breached", "tickets")})::int AS breached,
+        COUNT(*) FILTER (WHERE ${slaStateCondition("met", "tickets")})::int AS met
+      FROM tickets
+      ${whereSql}
+    `;
+    const { rows: [counts] } = await db.query(countsQuery, params);
+    const activeSLA = counts.active_sla;
+    const dueSoon = counts.due_soon;
+    const breached = counts.breached;
+    const met = counts.met;
+
+    // Fetch tickets to calculate average times
     const query = `
       SELECT 
-        id, status, response_sla_status, resolution_sla_status, first_response_at, 
-        created_at, resolved_at, closed_at, response_due_at, resolution_due_at
+        id, status, first_response_at, created_at, resolved_at, closed_at
       FROM tickets
       ${whereSql}
     `;
     const { rows: tickets } = await db.query(query, params);
     
-    let activeSLA = 0, dueSoon = 0, breached = 0, met = 0;
     let totalResponseTime = 0, responseCount = 0;
     let totalResolutionTime = 0, resolutionCount = 0;
-    const now = new Date();
     
     for (const t of tickets) {
       const isResolved = t.status === 'Resolved' || t.status === 'Closed';
-      const isActive = !['Resolved', 'Closed', 'Cancelled'].includes(t.status);
-      
-      if (isActive) activeSLA++;
-      
-      if (t.resolution_sla_status === 'Met' || t.response_sla_status === 'Met') {
-        if (isResolved && t.resolution_sla_status === 'Met') met++;
-        else if (!isResolved && t.response_sla_status === 'Met') met++;
-      }
-      
-      if (t.resolution_sla_status === 'Breached' || t.response_sla_status === 'Breached') breached++;
-      
-      const isBreached = t.resolution_sla_status === 'Breached' || t.response_sla_status === 'Breached';
-      if (isActive && !isBreached) {
-        const responseMinutes = !t.first_response_at && t.response_due_at
-          ? (new Date(t.response_due_at) - now) / 60000 : null;
-        const resolutionMinutes = !t.resolved_at && t.resolution_due_at
-          ? (new Date(t.resolution_due_at) - now) / 60000 : null;
-        const responseDueSoon = responseMinutes !== null && responseMinutes > 0 && responseMinutes <= DUE_SOON_MINUTES;
-        const resolutionDueSoon = resolutionMinutes !== null && resolutionMinutes > 0 && resolutionMinutes <= DUE_SOON_MINUTES;
-        if (responseDueSoon || resolutionDueSoon) dueSoon++;
-      }
       
       if (t.first_response_at && t.created_at) {
         totalResponseTime += (new Date(t.first_response_at) - new Date(t.created_at)) / 60000;
@@ -131,8 +116,71 @@ router.get('/dashboard', async (req, res) => {
 // Policies CRUD
 router.get('/policies', async (req, res) => {
   try {
-    const { rows } = await db.query('SELECT * FROM sla_policies ORDER BY policy_id ASC');
-    res.json({ success: true, policies: rows });
+    // Connected-system policies only apply where external tickets are accepted (Main hub).
+    const showConnected = hasDeploymentCapability('externalTicketIntake');
+    const { rows } = await db.query(
+      `SELECT * FROM sla_policies
+        WHERE is_active = true
+          AND ($1::boolean OR COALESCE(scope, 'internal') = 'internal')
+        ORDER BY CASE WHEN COALESCE(scope, 'internal') = 'internal' THEN 0 ELSE 1 END,
+                 origin_system NULLS FIRST, priority ASC, policy_id ASC`,
+      [showConnected]
+    );
+    const { rows: holidays } = await db.query(
+      `SELECT to_char(holiday_date, 'YYYY-MM-DD') AS holiday_date, name
+         FROM sla_business_holidays
+        WHERE holiday_date >= CURRENT_DATE - INTERVAL '30 days'
+        ORDER BY holiday_date ASC`
+    ).catch(() => ({ rows: [] }));
+    res.json({
+      success: true,
+      policies: rows,
+      connectedSystemsEnabled: showConnected,
+      businessHours: { days: 'Monday to Friday', start: '08:00', end: '17:00', timezone: 'Asia/Manila' },
+      holidays,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Business holidays used by business-hours SLA timers (SuperAdmin only).
+function requireSuperAdmin(req, res, next) {
+  if (getRequestContext(req).roleName === 'superadmin') return next();
+  return res.status(403).json({ success: false, error: 'Only a SuperAdmin can manage SLA business holidays.' });
+}
+
+router.post('/holidays', requireSuperAdmin, async (req, res) => {
+  const holidayDate = String(req.body?.holiday_date || '').trim();
+  const name = String(req.body?.name || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(holidayDate) || Number.isNaN(Date.parse(`${holidayDate}T00:00:00Z`))) {
+    return res.status(400).json({ success: false, error: 'holiday_date must be a valid date (YYYY-MM-DD).' });
+  }
+  if (!name || name.length > 150) {
+    return res.status(400).json({ success: false, error: 'name is required (max 150 characters).' });
+  }
+  try {
+    const { rows } = await db.query(
+      `INSERT INTO sla_business_holidays (holiday_date, name) VALUES ($1::date, $2)
+       ON CONFLICT (holiday_date) DO UPDATE SET name = EXCLUDED.name
+       RETURNING to_char(holiday_date, 'YYYY-MM-DD') AS holiday_date, name`,
+      [holidayDate, name]
+    );
+    res.status(201).json({ success: true, holiday: rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.delete('/holidays/:date', requireSuperAdmin, async (req, res) => {
+  const holidayDate = String(req.params.date || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(holidayDate)) {
+    return res.status(400).json({ success: false, error: 'date must be YYYY-MM-DD.' });
+  }
+  try {
+    const result = await db.query('DELETE FROM sla_business_holidays WHERE holiday_date = $1::date', [holidayDate]);
+    if (!result.rowCount) return res.status(404).json({ success: false, error: 'Holiday not found.' });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

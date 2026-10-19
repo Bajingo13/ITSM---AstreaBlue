@@ -4,7 +4,9 @@ import { io } from "socket.io-client";
 import { AlertTriangle, CheckCircle, ChevronDown, Clock, Timer, Activity, Zap, Download, FileText, Printer, Filter, CalendarDays, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { buildTicketQuery } from "../utils/ticketAccess";
-import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass } from "../utils/ticketVisuals";
+import { getPriorityBadgeClass, formatPriority, getStatusBadgeClass, getSlaState, getSlaPolicyLabel, slaStateFilterOptions } from "../utils/ticketVisuals";
+import { SlaBasisBadge } from "../components/SlaBasisNotice";
+import SlaPolicyPanel from "../components/SlaPolicyPanel";
 import PageHero from "../components/layout/PageHero";
 import { getTicketCompletionLabel } from "../utils/ticketDuration";
 import { authHeaders } from "../services/authHeaders";
@@ -202,7 +204,8 @@ export default function SLAMonitor() {
     { label: "Priority", value: (row) => formatPriority(row.priority) },
     { label: "Status", value: (row) => row.status },
     { label: "Completion", value: (row) => row.resolved_at || row.closed_at ? getTicketCompletionLabel(row) : "Not completed" },
-    { label: "SLA", value: (row) => row.resolution_sla_status || row.response_sla_status || "Pending" },
+    { label: "SLA", value: (row) => getSlaState(row).label },
+    { label: "SLA Policy", value: (row) => getSlaPolicyLabel(row) },
   ];
 
   const handleUnifiedExport = useCallback(async () => {
@@ -234,15 +237,6 @@ export default function SLAMonitor() {
     };
   }, [fetchData]);
 
-  const getSlaBadgeClass = (status) => {
-    switch (status) {
-      case "Met":      return "bg-emerald-100 text-emerald-800 border-emerald-200";
-      case "Breached": return "bg-red-100 text-red-800 border-red-200";
-      case "Due Soon": return "bg-amber-100 text-amber-800 border-amber-200";
-      default:         return "bg-blue-100 text-blue-800 border-blue-200";
-    }
-  };
-
   // Determine SLA state label for stats filtering
   const slaStateLabel = slaStatusFilters.length
     ? slaStatusFilters.map(s => `SLA ${s.charAt(0).toUpperCase() + s.slice(1)}`).join(", ")
@@ -265,7 +259,7 @@ export default function SLAMonitor() {
       <section className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
         <Card icon={Activity}      label="Tracked Tickets"    value={stats.activeSLA}  color="blue"    />
         <Card icon={Clock}         label="Breached"           value={stats.breached}   color="red"     />
-        <Card icon={AlertTriangle} label="Due within 4 hours" value={stats.dueSoon}    color="amber"   />
+        <Card icon={AlertTriangle} label="Due Soon"           value={stats.dueSoon}    color="amber"   />
         <Card icon={CheckCircle}   label="Met SLA"            value={stats.met}        color="emerald" />
       </section>
 
@@ -290,6 +284,8 @@ export default function SLAMonitor() {
           </p>
         </div>
       </section>
+
+      <SlaPolicyPanel isSuperAdmin={isSuperAdmin} />
 
       {/* SLA Ticket Queue */}
       <section>
@@ -389,14 +385,7 @@ export default function SLAMonitor() {
                 </tr>
               ) : (
                 tickets.map((ticket) => {
-                  const resolSla = ticket.resolution_sla_status || "Pending";
-                  const resSla   = ticket.response_sla_status   || "Pending";
-                  const overallSla =
-                    resolSla === "Breached" || resSla === "Breached"
-                      ? "Breached"
-                      : resolSla === "Met"
-                        ? "Met"
-                        : "Active";
+                  const slaState = getSlaState(ticket);
                   return (
                     <tr key={ticket.id} className="transition hover:bg-slate-50">
                       <td className="whitespace-nowrap px-6 py-4 font-bold text-slate-900">
@@ -450,9 +439,12 @@ export default function SLAMonitor() {
                         {formatDateTime(ticket.resolution_due_at || ticket.sla_due_date)}
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${getSlaBadgeClass(overallSla)}`}>
-                          {overallSla === "Active" ? "SLA Active" : `SLA ${overallSla}`}
-                        </span>
+                        <div className="flex flex-col items-start gap-1.5">
+                          <span className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${slaState.className}`}>
+                            SLA {slaState.label}
+                          </span>
+                          <SlaBasisBadge ticket={ticket} />
+                        </div>
                       </td>
                     </tr>
                   );
@@ -649,12 +641,7 @@ function SortFilterDropdown({
         {/* SLA Status */}
         <FilterPanelSection title="SLA Status">
           <div className="flex flex-wrap gap-2">
-            {[
-              { key: "active", label: "SLA Active" },
-              { key: "warning", label: "SLA Warning" },
-              { key: "breached", label: "SLA Breached" },
-              { key: "met", label: "SLA Met" },
-            ].map((opt) => (
+            {slaStateFilterOptions.map((opt) => (
               <FilterChip
                 key={opt.key}
                 selected={slaStatusFilters.includes(opt.key)}

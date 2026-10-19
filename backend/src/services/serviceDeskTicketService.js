@@ -133,7 +133,12 @@ async function createServiceDeskTicket(input) {
     }
 
     const ticketNumber = await nextTicketNumber(client, input.ticketNumberPrefix, input.compactTicketNumber);
-    const sla = await applySlaToNewTicket({ priority, category_id: categoryId }, client);
+    const sla = await applySlaToNewTicket({
+      priority,
+      category_id: categoryId,
+      origin_system: originSystem,
+      integration_id: integerOrNull(metadata.integration_id),
+    }, client);
     const slaDueDate = sla?.resolution_due_at || new Date(Date.now() + 86400000);
     const result = await client.query(`
       INSERT INTO tickets (
@@ -143,10 +148,10 @@ async function createServiceDeskTicket(input) {
         origin_system, origin_module, origin_feature, external_reference,
         external_attachment_metadata, external_request_fingerprint, integration_id,
         employee_id, created_via, external_requester_name, external_requester_email,
-        external_employee_id
+        external_employee_id, response_warning_at, resolution_warning_at
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-        $19,$20,$21,$22,$23::jsonb,$24,$25,$26,$27,$28,$29,$30
+        $19,$20,$21,$22,$23::jsonb,$24,$25,$26,$27,$28,$29,$30,$31,$32
       ) RETURNING *, description AS desc
     `, [
       ticketNumber, title, description, priority, status, categoryId, requesterId,
@@ -158,7 +163,8 @@ async function createServiceDeskTicket(input) {
       JSON.stringify(metadata.attachment_metadata || []), requestFingerprint,
       integerOrNull(metadata.integration_id), requesterId, metadata.created_via || null,
       metadata.requester_name || null, metadata.requester_email || null,
-      metadata.external_employee_id || null,
+      metadata.external_employee_id || null, sla?.response_warning_at || null,
+      sla?.resolution_warning_at || null,
     ]);
     const ticket = result.rows[0];
 

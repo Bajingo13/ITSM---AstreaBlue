@@ -182,7 +182,14 @@ test("Phase 3 external developer handoff acceptance workflow", async () => {
     assert.ok(row.notification_count >= 1);
     assert.equal(row.audit_count, 1);
   }
-  assert.equal(records.rows[0].sla_policy_id, records.rows[1].sla_policy_id);
+  // Internal tickets follow ITSM targets; connected-system tickets follow the connected-system SLA.
+  const policies = await db.query(
+    "SELECT policy_id, scope FROM sla_policies WHERE policy_id = ANY($1::int[])",
+    [[records.rows[0].sla_policy_id, records.rows[1].sla_policy_id]]
+  );
+  const scopeOf = (policyId) => policies.rows.find((row) => row.policy_id === policyId)?.scope;
+  assert.equal(scopeOf(records.rows[0].sla_policy_id), "internal");
+  assert.equal(scopeOf(records.rows[1].sla_policy_id), "connected_system");
 
   const branchBTicket = await createServiceDeskTicket({ title: "Branch B ticket", description: "RBAC verification", branchId: branchB, source: "test" });
   ids.tickets.push(branchBTicket.ticket.id);

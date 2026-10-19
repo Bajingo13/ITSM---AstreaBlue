@@ -105,3 +105,70 @@ export function formatPriority(priority) {
   if (level === "low") return "P4 - Low";
   return priority || "P3 - Medium";
 }
+
+// SLA state shown on ticket badges. Mirrors slaStateCondition() in the backend
+// slaService so badges, filters and SLA dashboard counts agree.
+const SLA_DUE_SOON_FALLBACK_MS = 240 * 60000;
+
+const slaStateStyles = {
+  on_track: { label: "On Track", className: "border-blue-200 bg-blue-100 text-blue-800" },
+  due_soon: { label: "Due Soon", className: "border-amber-200 bg-amber-100 text-amber-800" },
+  breached: { label: "Breached", className: "border-red-200 bg-red-100 text-red-800" },
+  met: { label: "Met", className: "border-emerald-200 bg-emerald-100 text-emerald-800" },
+  cancelled: { label: "Cancelled", className: "border-slate-200 bg-slate-100 text-slate-600" },
+};
+
+export const slaStateFilterOptions = [
+  { key: "active", label: slaStateStyles.on_track.label },
+  { key: "warning", label: slaStateStyles.due_soon.label },
+  { key: "breached", label: slaStateStyles.breached.label },
+  { key: "met", label: slaStateStyles.met.label },
+];
+
+function warningTime(warningAt, dueAt) {
+  if (warningAt) return new Date(warningAt).getTime();
+  if (dueAt) return new Date(dueAt).getTime() - SLA_DUE_SOON_FALLBACK_MS;
+  return null;
+}
+
+export function getSlaState(ticket, now = Date.now()) {
+  const response = ticket?.response_sla_status || "Pending";
+  const resolution = ticket?.resolution_sla_status || "Pending";
+  let key = "on_track";
+
+  if (response === "Cancelled" || resolution === "Cancelled") key = "cancelled";
+  else if (response === "Breached" || resolution === "Breached") key = "breached";
+  else if (resolution === "Met") key = "met";
+  else {
+    const responseWarning = !ticket?.first_response_at
+      ? warningTime(ticket?.response_warning_at, ticket?.response_due_at)
+      : null;
+    const resolutionWarning = !ticket?.resolved_at
+      ? warningTime(ticket?.resolution_warning_at, ticket?.resolution_due_at)
+      : null;
+    if ((responseWarning !== null && responseWarning <= now) || (resolutionWarning !== null && resolutionWarning <= now)) {
+      key = "due_soon";
+    }
+  }
+
+  return { key, ...slaStateStyles[key] };
+}
+
+export function isConnectedSystemSla(ticket) {
+  return ticket?.sla_scope === "connected_system";
+}
+
+export function getSlaPolicyLabel(ticket) {
+  if (!isConnectedSystemSla(ticket)) return "Internal ITSM SLA";
+  const policy = ticket.sla_policy_origin_system
+    ? `${ticket.sla_policy_origin_system} SLA`
+    : "Connected-System SLA";
+  const severity = ticket.sla_severity_label ? ` · ${ticket.sla_severity_label}` : "";
+  return `${policy}${severity}`;
+}
+
+export function describeSlaCalendar(calendar) {
+  return calendar === "business_hours"
+    ? "business hours (Mon–Fri 08:00–17:00 Manila, excluding PH holidays)"
+    : "clock hours (24×7)";
+}

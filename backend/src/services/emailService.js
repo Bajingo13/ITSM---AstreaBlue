@@ -554,6 +554,7 @@ async function sendSlaBreachEmail(ticket) {
     ["Branch", fields.branch],
     ["SLA Due Date/Time", dueLabel],
     ["Assigned Technician", fields.technician],
+    ...(ticket.sla_policy_label ? [["SLA Policy", ticket.sla_policy_label]] : []),
   ];
   const rowsHtml = rows
     .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`)
