@@ -398,6 +398,27 @@ textarea::placeholder {
   color: #6b7b94;
 }
 
+/* An input embedded in a styled wrapper (icon + transparent input, e.g. search
+   bars) must not paint its own box: the wrapper is the field. The repeated class
+   outranks the global, dark-theme and module input rules. */
+:root input.bg-transparent.bg-transparent {
+  min-height: 0 !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root input.bg-transparent.bg-transparent:focus {
+  border-width: 0 !important;
+  box-shadow: none !important;
+}
+
+/* The wrapper shows the focus ring instead. */
+:is(div, label):has(> input.bg-transparent:focus-visible) {
+  border-color: var(--astrea-primary) !important;
+  box-shadow: 0 0 0 4px var(--astrea-input-focus);
+}
+
 form label {
   color: var(--astrea-text);
   font-weight: 700;

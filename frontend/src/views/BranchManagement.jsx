@@ -93,8 +93,8 @@ export default function BranchManagement() {
       } />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <Search size={18} className="text-slate-400" />
+        <div className="flex min-h-[2.75rem] items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4">
+          <Search size={18} className="shrink-0 text-slate-400" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}

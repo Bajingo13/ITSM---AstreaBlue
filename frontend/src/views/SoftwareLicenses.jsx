@@ -958,8 +958,8 @@ export default function SoftwareLicenses() {
       <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
         {/* Toolbar */}
         <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-1 items-center gap-3">
-            <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="flex flex-1 flex-wrap items-center gap-3">
+            <div className="flex min-w-[240px] flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
               <Search size={15} className="text-slate-400" />
               <input
                 value={search}
@@ -974,11 +974,11 @@ export default function SoftwareLicenses() {
               )}
             </div>
             {isSuperAdmin && (
-              <div className="relative">
+              <div className="relative shrink-0">
                 <select
                   value={branchFilter}
                   onChange={(e) => setBranchFilter(e.target.value)}
-                  className="appearance-none rounded-xl border border-slate-200 bg-slate-50 px-9 py-2 pr-8 text-sm font-bold text-slate-700 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  className="w-auto max-w-[220px] truncate appearance-none rounded-xl border border-slate-200 bg-slate-50 px-9 py-2 pr-8 text-sm font-bold text-slate-700 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                 >
                   <option value="all">All Branches</option>
                   {branches.map((b) => (
@@ -988,8 +988,8 @@ export default function SoftwareLicenses() {
                 <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
             )}
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"><option value="all">All statuses</option><option value="Active">Active</option><option value="Expiring Soon">Expiring soon</option><option value="Expired">Expired</option></select>
-            <select value={sortMode} onChange={(event) => setSortMode(event.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"><option value="expiry">Expiry date</option><option value="name">License name</option><option value="utilization">Highest utilization</option></select>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-auto shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"><option value="all">All statuses</option><option value="Active">Active</option><option value="Expiring Soon">Expiring soon</option><option value="Expired">Expired</option></select>
+            <select value={sortMode} onChange={(event) => setSortMode(event.target.value)} className="w-auto shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"><option value="expiry">Expiry date</option><option value="name">License name</option><option value="utilization">Highest utilization</option></select>
           </div>
           <p className="shrink-0 text-xs font-bold text-slate-400">
             {filteredLicenses.length} license{filteredLicenses.length !== 1 ? "s" : ""}

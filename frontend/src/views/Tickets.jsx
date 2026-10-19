@@ -1736,7 +1736,7 @@ export default function Tickets() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search tickets, people, or branch..."
-              className="astrea-control pl-11 text-sm font-semibold"
+              className="astrea-control !pl-11 text-sm font-semibold"
             />
           </label>
           <button type="button" onClick={clearFilters} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700">Clear</button>
