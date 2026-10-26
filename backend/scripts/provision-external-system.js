@@ -28,7 +28,8 @@ async function main() {
          system_name=EXCLUDED.system_name, allowed_branches=EXCLUDED.allowed_branches,
          status='Active', updated_at=CURRENT_TIMESTAMP
        RETURNING integration_id,system_code,system_name,status,allowed_branches,created_at,last_used_at`,
-      [systemName, systemCode, `Centralized External Ticket API integration for ${systemName}`, hashApiKey(apiKey), JSON.stringify([])]
+      // The registry column is NOT NULL but never authenticates; store an unrelated hash.
+      [systemName, systemCode, `Centralized External Ticket API integration for ${systemName}`, hashApiKey(generateApiKey(systemCode)), JSON.stringify([])]
     );
     await client.query(
       `UPDATE integration_api_keys SET status='Revoked',revoked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP

@@ -183,19 +183,10 @@ async function findIntegrationByApiKey(apiKey) {
     `,
     [hashApiKey(apiKey)]
   );
-  if (result.rows[0]) return result.rows[0];
-
-  const fallback = await db.query(
-    `
-    SELECT integration_id, system_name, system_code, description, status, allowed_branches,
-           created_at, updated_at, last_used_at, NULL::bigint AS key_id, 'Legacy Key' AS key_name, status AS key_status
-    FROM integration_registry
-    WHERE api_key_hash = $1
-    LIMIT 1
-    `,
-    [hashApiKey(apiKey)]
-  );
-  return fallback.rows[0] || null;
+  // Only integration_api_keys authenticates. integration_registry.api_key_hash is a
+  // legacy placeholder: matching it would keep a key valid after it was regenerated
+  // or revoked in the Integration Hub.
+  return result.rows[0] || null;
 }
 
 async function touchIntegration(integrationId, keyId = null) {

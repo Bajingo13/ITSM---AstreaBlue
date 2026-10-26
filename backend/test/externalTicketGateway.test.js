@@ -145,6 +145,11 @@ test.after(async () => {
   }
 });
 
+test("registry-level legacy key hash does not authenticate", async () => {
+  const legacy = await request("/api/v1/external/tickets/TKT-00000000-0000", { headers: { "x-api-key": `legacy-${keyA}` } });
+  assert.equal(legacy.status, 401);
+});
+
 test("Phase 3 external developer handoff acceptance workflow", async () => {
   const internal = await request("/api/v1/tickets", {
     method: "POST",
